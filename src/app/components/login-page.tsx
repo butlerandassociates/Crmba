@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -10,7 +10,10 @@ import { toast } from "sonner";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"login" | "set-password">("login");
+  const location = useLocation();
+  const [mode] = useState<"login" | "set-password">(
+    location.state?.isInvite ? "set-password" : "login"
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -18,26 +21,15 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Detect invite / recovery token in URL hash
+  // After normal login, navigate to dashboard
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes("type=invite") || hash.includes("type=recovery")) {
-      setMode("set-password");
-    }
-
-    // Supabase auto-exchanges the token — listen for the session
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session) {
-        if (mode === "login") {
-          // Normal login — go to dashboard
-          navigate("/", { replace: true });
-        }
-        // If set-password mode, stay on page so user can set their password
+      if (event === "SIGNED_IN" && session && mode === "login") {
+        navigate("/", { replace: true });
       }
     });
-
     return () => subscription.unsubscribe();
-  }, []);
+  }, [mode]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

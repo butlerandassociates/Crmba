@@ -47,7 +47,7 @@ export function RootLayout() {
 
   // Redirect to login if not authenticated (invite flow goes to /login too)
   if (!user || isInviteFlow) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ isInvite: isInviteFlow }} />;
   }
 
   const displayName = user.profile
