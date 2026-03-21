@@ -34,15 +34,37 @@ export function ClientsList() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [newClient, setNewClient] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    address: "",
-    status: "prospect",
-    lead_source_id: "",
-  });
+  const EMPTY_CLIENT = {
+    first_name: "", last_name: "", company: "",
+    email: "", phone: "",
+    address: "", city: "", state: "", zip: "",
+    status: "prospect", lead_source_id: "",
+  };
+  const [newClient, setNewClient] = useState(EMPTY_CLIENT);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const setField = (field: string, value: string) => {
+    setNewClient((p) => ({ ...p, [field]: value }));
+    setFormErrors((e) => { const next = { ...e }; delete next[field]; return next; });
+  };
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (!newClient.first_name.trim()) errors.first_name = "First name is required.";
+    else if (newClient.first_name.trim().length < 2) errors.first_name = "First name must be at least 2 characters.";
+    if (newClient.email.trim()) {
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRe.test(newClient.email.trim())) errors.email = "Enter a valid email address.";
+    }
+    if (newClient.phone.trim()) {
+      const digits = newClient.phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) errors.phone = "Phone must be 7–15 digits.";
+    }
+    if (newClient.zip.trim()) {
+      if (!/^[A-Za-z0-9\s\-]{3,10}$/.test(newClient.zip.trim())) errors.zip = "Enter a valid postal code.";
+    }
+    return errors;
+  };
 
   useEffect(() => {
     fetchClients();
@@ -73,19 +95,21 @@ export function ClientsList() {
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClient.first_name.trim()) {
-      toast.error("First name is required");
-      return;
-    }
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) { setFormErrors(errors); return; }
     try {
       setSaving(true);
       await clientsAPI.create({
         first_name: newClient.first_name.trim(),
-        last_name: newClient.last_name.trim(),
-        email: newClient.email.trim() || null,
-        phone: newClient.phone.trim() || null,
-        address: newClient.address.trim() || null,
-        status: newClient.status,
+        last_name:  newClient.last_name.trim(),
+        company:    newClient.company.trim() || null,
+        email:      newClient.email.trim() || null,
+        phone:      newClient.phone.trim() || null,
+        address:    newClient.address.trim() || null,
+        city:       newClient.city.trim() || null,
+        state:      newClient.state.trim() || null,
+        zip:        newClient.zip.trim() || null,
+        status:     newClient.status,
         lead_source_id: newClient.lead_source_id || null,
         appointment_met: false,
         appointment_scheduled: false,
@@ -93,7 +117,8 @@ export function ClientsList() {
       });
       toast.success("Client added successfully!");
       setAddDialogOpen(false);
-      setNewClient({ first_name: "", last_name: "", email: "", phone: "", address: "", status: "prospect", lead_source_id: "" });
+      setNewClient(EMPTY_CLIENT);
+      setFormErrors({});
       fetchClients();
     } catch (err: any) {
       toast.error(err.message || "Failed to add client");
@@ -273,14 +298,14 @@ export function ClientsList() {
       )}
 
       {/* Add Client Dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
+      <Dialog open={addDialogOpen} onOpenChange={(open) => { setAddDialogOpen(open); if (!open) { setNewClient(EMPTY_CLIENT); setFormErrors({}); } }}>
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Add New Client</DialogTitle>
             <DialogDescription>Add a new lead to your pipeline.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleAddClient}>
-            <div className="grid gap-4 py-4">
+          <form onSubmit={handleAddClient} className="flex flex-col min-h-0 flex-1">
+            <div className="grid gap-4 py-4 overflow-y-auto flex-1 px-1">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="first_name">First Name *</Label>
@@ -288,9 +313,10 @@ export function ClientsList() {
                     id="first_name"
                     placeholder="John"
                     value={newClient.first_name}
-                    onChange={(e) => setNewClient((p) => ({ ...p, first_name: e.target.value }))}
-                    required
+                    onChange={(e) => setField("first_name", e.target.value)}
+                    className={formErrors.first_name ? "border-red-500" : ""}
                   />
+                  {formErrors.first_name && <p className="text-xs text-red-500">{formErrors.first_name}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="last_name">Last Name</Label>
@@ -298,9 +324,18 @@ export function ClientsList() {
                     id="last_name"
                     placeholder="Doe"
                     value={newClient.last_name}
-                    onChange={(e) => setNewClient((p) => ({ ...p, last_name: e.target.value }))}
+                    onChange={(e) => setField("last_name", e.target.value)}
                   />
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="company">Company Name</Label>
+                <Input
+                  id="company"
+                  placeholder="Acme Corporation"
+                  value={newClient.company}
+                  onChange={(e) => setField("company", e.target.value)}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
@@ -309,26 +344,61 @@ export function ClientsList() {
                   type="email"
                   placeholder="john.doe@example.com"
                   value={newClient.email}
-                  onChange={(e) => setNewClient((p) => ({ ...p, email: e.target.value }))}
+                  onChange={(e) => setField("email", e.target.value)}
+                  className={formErrors.email ? "border-red-500" : ""}
                 />
+                {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="phone">Phone</Label>
                 <Input
                   id="phone"
-                  placeholder="(256) 555-0100"
+                  placeholder="+1 (256) 555-0100"
                   value={newClient.phone}
-                  onChange={(e) => setNewClient((p) => ({ ...p, phone: e.target.value }))}
+                  onChange={(e) => setField("phone", e.target.value)}
+                  className={formErrors.phone ? "border-red-500" : ""}
                 />
+                {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="address">Address</Label>
+                <Label htmlFor="address">Street Address</Label>
                 <Input
                   id="address"
-                  placeholder="123 Main St, Huntsville, AL"
+                  placeholder="123 Main St"
                   value={newClient.address}
-                  onChange={(e) => setNewClient((p) => ({ ...p, address: e.target.value }))}
+                  onChange={(e) => setField("address", e.target.value)}
                 />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5 col-span-1">
+                  <Label htmlFor="city">City</Label>
+                  <Input
+                    id="city"
+                    placeholder="Huntsville"
+                    value={newClient.city}
+                    onChange={(e) => setField("city", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-1">
+                  <Label htmlFor="state">State / Region</Label>
+                  <Input
+                    id="state"
+                    placeholder="AL"
+                    value={newClient.state}
+                    onChange={(e) => setField("state", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-1">
+                  <Label htmlFor="zip">ZIP / Postal</Label>
+                  <Input
+                    id="zip"
+                    placeholder="35801"
+                    value={newClient.zip}
+                    onChange={(e) => setField("zip", e.target.value)}
+                    className={formErrors.zip ? "border-red-500" : ""}
+                  />
+                  {formErrors.zip && <p className="text-xs text-red-500">{formErrors.zip}</p>}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -369,7 +439,7 @@ export function ClientsList() {
                 </div>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
                 Cancel
               </Button>

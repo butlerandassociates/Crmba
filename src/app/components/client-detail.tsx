@@ -26,8 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { mockProjects, mockProposals } from "../data/mock-data";
-import { clientsAPI, photosAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI } from "../utils/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
@@ -57,6 +56,8 @@ export function ClientDetail() {
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clientProjects, setClientProjects] = useState<any[]>([]);
+  const [clientProposals, setClientProposals] = useState<any[]>([]);
   
   // Fetch client from API
   useEffect(() => {
@@ -79,8 +80,13 @@ export function ClientDetail() {
     fetchClient();
   }, [id]);
 
-  const clientProjects = mockProjects.filter((p) => p.clientId === id);
-  const clientProposals = mockProposals.filter((p) => p.clientId === id);
+  useEffect(() => {
+    if (!id) return;
+    projectsAPI.getAll().then((all) =>
+      setClientProjects(all.filter((p: any) => p.client_id === id))
+    ).catch(console.error);
+    estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
+  }, [id]);
 
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
@@ -296,12 +302,11 @@ export function ClientDetail() {
     }).format(value);
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   return (
@@ -316,7 +321,9 @@ export function ClientDetail() {
           </Link>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">{client.name}</h1>
+              <h1 className="text-2xl font-bold">
+                {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "—"}
+              </h1>
               <Badge className={getStatusColor(client.status)}>{client.status}</Badge>
             </div>
           </div>
@@ -420,14 +427,16 @@ export function ClientDetail() {
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium">Address</div>
-                <div className="text-sm text-muted-foreground">{client.address}</div>
+                <div className="text-sm text-muted-foreground">
+                  {[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || "—"}
+                </div>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium">Client Since</div>
-                <div className="text-sm text-muted-foreground">{formatDate(client.createdAt)}</div>
+                <div className="text-sm text-muted-foreground">{formatDate(client.created_at)}</div>
               </div>
             </div>
           </CardContent>
@@ -441,47 +450,47 @@ export function ClientDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {client.docusignStatus === 'completed' ? (
+            {client.docusign_status === 'completed' ? (
               <div className="space-y-2">
                 <Badge className="bg-green-600 flex items-center gap-1 w-fit">
                   <CheckCircle2 className="h-3 w-3" />
                   Contract Completed
                 </Badge>
-                {client.docusignSentDate && (
+                {client.docusign_sent_date && (
                   <div>
                     <div className="text-xs text-muted-foreground">Sent</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusignSentDate)}</div>
+                    <div className="text-sm font-medium">{formatDate(client.docusign_sent_date)}</div>
                   </div>
                 )}
-                {client.docusignCompletedDate && (
+                {client.docusign_completed_date && (
                   <div>
                     <div className="text-xs text-muted-foreground">Signed</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusignCompletedDate)}</div>
+                    <div className="text-sm font-medium">{formatDate(client.docusign_completed_date)}</div>
                   </div>
                 )}
-                {client.docusignEnvelopeId && (
+                {client.docusign_envelope_id && (
                   <div>
                     <div className="text-xs text-muted-foreground">Envelope ID</div>
-                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusignEnvelopeId}</div>
+                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusign_envelope_id}</div>
                   </div>
                 )}
               </div>
-            ) : client.docusignStatus === 'sent_to_client' ? (
+            ) : client.docusign_status === 'sent_to_client' ? (
               <div className="space-y-2">
                 <Badge className="bg-orange-500 flex items-center gap-1 w-fit">
                   <Clock className="h-3 w-3" />
                   Sent to Client
                 </Badge>
-                {client.docusignSentDate && (
+                {client.docusign_sent_date && (
                   <div>
                     <div className="text-xs text-muted-foreground">Sent on</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusignSentDate)}</div>
+                    <div className="text-sm font-medium">{formatDate(client.docusign_sent_date)}</div>
                   </div>
                 )}
-                {client.docusignEnvelopeId && (
+                {client.docusign_envelope_id && (
                   <div>
                     <div className="text-xs text-muted-foreground">Envelope ID</div>
-                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusignEnvelopeId}</div>
+                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusign_envelope_id}</div>
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground pt-2">
@@ -510,40 +519,40 @@ export function ClientDetail() {
             <div>
               <div className="text-sm font-medium">Total Revenue</div>
               <div className="text-xl font-bold text-green-600 mt-1">
-                {formatCurrency(client.totalRevenue)}
+                {formatCurrency(clientProjects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0))}
               </div>
             </div>
             <div>
               <div className="text-sm font-medium">Projects</div>
-              <div className="text-lg font-semibold mt-1">{client.projectsCount}</div>
+              <div className="text-lg font-semibold mt-1">{clientProjects.length}</div>
             </div>
-            {client.projectedValue && (
+            {client.projected_value && (
               <div>
                 <div className="text-sm font-medium">Projected Value</div>
                 <div className="text-lg font-semibold mt-1">
-                  {formatCurrency(client.projectedValue)}
+                  {formatCurrency(client.projected_value)}
                 </div>
               </div>
             )}
-            {client.closingProbability && (
+            {client.closing_probability && (
               <div>
                 <div className="text-sm font-medium">Closing Probability</div>
                 <div className="flex items-center gap-2 mt-2">
                   <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500"
-                      style={{ width: `${client.closingProbability}%` }}
+                      style={{ width: `${client.closing_probability}%` }}
                     />
                   </div>
-                  <span className="text-sm font-semibold">{client.closingProbability}%</span>
+                  <span className="text-sm font-semibold">{client.closing_probability}%</span>
                 </div>
               </div>
             )}
-            {client.expectedCloseDate && (
+            {client.expected_close_date && (
               <div>
                 <div className="text-sm font-medium">Expected Close Date</div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.expectedCloseDate)}
+                  {formatDate(client.expected_close_date)}
                 </div>
               </div>
             )}
@@ -557,43 +566,35 @@ export function ClientDetail() {
             <CardTitle className="text-base">Lead Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {client.leadSource && (
+            {client.lead_source?.name && (
               <div>
                 <div className="text-sm font-medium">Lead Source</div>
-                <Badge variant="outline" className="mt-1">{client.leadSource}</Badge>
+                <Badge variant="outline" className="mt-1">{client.lead_source.name}</Badge>
               </div>
             )}
-            {client.assignedTo && (
-              <div>
-                <div className="text-sm font-medium">Assigned To</div>
-                <div className="text-sm text-muted-foreground mt-1">Sales Rep</div>
+            <div>
+              <div className="text-sm font-medium">Appointment Status</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                {client.appointment_met
+                  ? "Met"
+                  : client.appointment_scheduled
+                  ? `Scheduled for ${formatDate(client.appointment_date)}`
+                  : "Not Scheduled"}
               </div>
-            )}
-            {client.appointmentScheduled !== undefined && (
-              <div>
-                <div className="text-sm font-medium">Appointment Status</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {client.appointmentMet
-                    ? "Met"
-                    : client.appointmentScheduled
-                    ? `Scheduled for ${client.appointmentDate ? formatDate(client.appointmentDate) : "TBD"}`
-                    : "Not Scheduled"}
-                </div>
-              </div>
-            )}
-            {client.lastContactDate && (
+            </div>
+            {client.last_contact_date && (
               <div>
                 <div className="text-sm font-medium">Last Contact</div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.lastContactDate)}
+                  {formatDate(client.last_contact_date)}
                 </div>
               </div>
             )}
-            {client.nextFollowUpDate && (
+            {client.next_follow_up_date && (
               <div>
                 <div className="text-sm font-medium">Next Follow-up</div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.nextFollowUpDate)}
+                  {formatDate(client.next_follow_up_date)}
                 </div>
               </div>
             )}
@@ -609,7 +610,7 @@ export function ClientDetail() {
               <Label htmlFor="scope-of-work" className="text-sm font-medium">
                 Scope of Work
               </Label>
-              <Select defaultValue={client.scopeOfWork?.[0]}>
+              <Select defaultValue={client.scope_of_work?.[0]}>
                 <SelectTrigger id="scope-of-work">
                   <SelectValue placeholder="Select scope of work" />
                 </SelectTrigger>
@@ -633,7 +634,7 @@ export function ClientDetail() {
             <div className="flex items-center gap-3 pt-2">
               <Checkbox 
                 id="call-811" 
-                defaultChecked={client.call811Required}
+                defaultChecked={client.call_811_required}
               />
               <Label 
                 htmlFor="call-811" 
@@ -654,6 +655,7 @@ export function ClientDetail() {
         <TabsList>
           <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
           <TabsTrigger value="proposals">Proposals ({clientProposals.length})</TabsTrigger>
+
           <TabsTrigger value="notes">Notes</TabsTrigger>
         </TabsList>
 
@@ -677,12 +679,12 @@ export function ClientDetail() {
                             </Badge>
                           </div>
                           <div className="flex gap-3 text-xs text-muted-foreground">
-                            <span>PM: {project.projectManagerName}</span>
-                            <span>Foreman: {project.foremanName}</span>
+                            {project.projectManagerName && <span>PM: {project.projectManagerName}</span>}
+                            {project.foremanName && <span>Foreman: {project.foremanName}</span>}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {formatDate(project.startDate)}
-                            {project.endDate && ` - ${formatDate(project.endDate)}`}
+                            {project.endDate && ` — ${formatDate(project.endDate)}`}
                           </div>
                         </div>
                         <div className="text-right space-y-0.5">
@@ -723,17 +725,17 @@ export function ClientDetail() {
                     <div key={proposal.id} className="p-4 hover:bg-accent transition-colors">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1 flex-1">
-                          <Link 
+                          <Link
                             to={`/proposals/${proposal.id}`}
                             className="font-semibold text-sm hover:text-primary"
                           >
-                            {proposal.title}
+                            {proposal.title ?? `Estimate #${proposal.estimate_number}`}
                           </Link>
-                          <p className="text-xs text-muted-foreground">{proposal.description}</p>
+                          <p className="text-xs text-muted-foreground">{proposal.notes}</p>
                           <div className="flex gap-2 mt-2">
                             <Badge variant="outline">{proposal.status}</Badge>
                             <span className="text-xs text-muted-foreground">
-                              Created {formatDate(proposal.createdAt)}
+                              Created {formatDate(proposal.created_at)}
                             </span>
                           </div>
                         </div>

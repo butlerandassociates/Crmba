@@ -1,4 +1,5 @@
-import { Outlet, Link, useLocation } from "react-router";
+import { Outlet, Link, useLocation, Navigate } from "react-router";
+import { Loader2 } from "lucide-react";
 import {
   LayoutDashboard,
   Users,
@@ -33,7 +34,25 @@ const navigation = [
 
 export function RootLayout() {
   const location = useLocation();
-  const { user, signOut } = useAuth();
+  const { user, loading, isInviteFlow, signOut } = useAuth();
+
+  // Show spinner while checking session
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Redirect to login if not authenticated (invite flow goes to /login too)
+  if (!user || isInviteFlow) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const displayName = user.profile
+    ? `${user.profile.first_name ?? ""} ${user.profile.last_name ?? ""}`.trim() || user.email
+    : user.email;
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -71,17 +90,15 @@ export function RootLayout() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2">
                   <Users className="h-4 w-4" />
-                  <span className="font-medium text-sm">Jonathan Butler</span>
+                  <span className="font-medium text-sm">{displayName}</span>
                   <ChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end">
                 <DropdownMenuLabel>
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">Jonathan Butler</p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      jonathan@butlerconstruction.co
-                    </p>
+                    <p className="text-sm font-medium leading-none">{displayName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
@@ -103,12 +120,14 @@ export function RootLayout() {
                     Settings
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/admin" className="cursor-pointer flex items-center">
-                    <ShieldCheck className="mr-2 h-4 w-4" />
-                    Admin Portal
-                  </Link>
-                </DropdownMenuItem>
+                {user.profile?.role === "admin" && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="cursor-pointer flex items-center">
+                      <ShieldCheck className="mr-2 h-4 w-4" />
+                      Admin Portal
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer"

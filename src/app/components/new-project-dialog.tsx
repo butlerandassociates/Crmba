@@ -108,13 +108,13 @@ export function NewProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
           <DialogDescription>Create a new project and link it to a client.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2 overflow-y-auto flex-1 px-1">
           {/* Project Name */}
           <div className="space-y-1.5">
             <Label htmlFor="proj-name">Project Name *</Label>

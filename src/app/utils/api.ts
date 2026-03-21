@@ -41,9 +41,10 @@ export const clientsAPI = {
   },
 
   create: async (client: Record<string, unknown>) => {
+    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("clients")
-      .insert(client)
+      .insert({ ...client, created_by: user?.id ?? null })
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -775,11 +776,36 @@ export const projectsAPI = {
   getById: async (id: string) => {
     const { data, error } = await supabase
       .from("projects")
-      .select(`*, client:clients(id, first_name, last_name, company, email, phone)`)
+      .select(`
+        *,
+        client:clients(id, first_name, last_name, company, email, phone),
+        project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name),
+        foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name)
+      `)
       .eq("id", id)
       .single();
     if (error) throw new Error(error.message);
-    return data;
+    const p = data as any;
+    return {
+      ...p,
+      startDate:          p.start_date ?? null,
+      endDate:            p.end_date ?? null,
+      totalValue:         Number(p.total_value    ?? 0),
+      totalCosts:         Number(p.total_costs     ?? 0),
+      grossProfit:        Number(p.gross_profit    ?? 0),
+      profitMargin:       Number(p.profit_margin   ?? 0),
+      commission:         Number(p.commission      ?? 0),
+      commissionRate:     Number(p.commission_rate ?? 0),
+      clientName: p.client
+        ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() || p.client.company
+        : "",
+      projectManagerName: p.project_manager
+        ? `${p.project_manager.first_name ?? ""} ${p.project_manager.last_name ?? ""}`.trim()
+        : "",
+      foremanName: p.foreman
+        ? `${p.foreman.first_name ?? ""} ${p.foreman.last_name ?? ""}`.trim()
+        : "",
+    };
   },
 
   create: async (p: Record<string, unknown>) => {
