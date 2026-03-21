@@ -18,12 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import type { Client } from "../data/mock-data";
-
 interface EmailTemplatesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  client: Client;
+  client: Record<string, any>;
 }
 
 interface EmailTemplate {
@@ -38,7 +36,7 @@ export function EmailTemplatesDialog({
   onOpenChange,
   client,
 }: EmailTemplatesDialogProps) {
-  const firstName = client.name.split(" ")[0];
+  const firstName = client.first_name ?? client.name?.split(" ")[0] ?? "there";
 
   const templates: EmailTemplate[] = [
     {

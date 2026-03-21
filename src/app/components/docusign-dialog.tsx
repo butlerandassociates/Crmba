@@ -18,14 +18,13 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Badge } from "./ui/badge";
-import type { Client, Project } from "../data/mock-data";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 
 interface DocuSignDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  client: Client;
-  project?: Project;
+  client: Record<string, any>;
+  project?: Record<string, any>;
 }
 
 interface DocuSignTemplate {
@@ -55,21 +54,22 @@ export function DocuSignDialog({
   const [useManualTemplate, setUseManualTemplate] = useState(false);
 
   // Auto-map CRM fields to DocuSign template fields
+  const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
   const fieldMapping: FieldMapping = {
     // Client fields
-    client_name: client.name,
-    client_first_name: client.name.split(" ")[0],
-    client_last_name: client.name.split(" ").slice(1).join(" "),
-    client_email: client.email,
-    client_phone: client.phone,
-    client_company: client.company,
-    client_address: client.address,
+    client_name: fullName,
+    client_first_name: client.first_name ?? "",
+    client_last_name: client.last_name ?? "",
+    client_email: client.email ?? "",
+    client_phone: client.phone ?? "",
+    client_company: client.company ?? "",
+    client_address: client.address ?? "",
     
     // Project fields (if available)
     ...(project && {
       project_name: project.name,
       project_description: project.description,
-      project_address: project.address,
+      project_address: project.clientAddress,
       project_value: project.totalValue.toString(),
       total_value: project.totalValue.toString(),
       contract_amount: project.totalValue.toString(),

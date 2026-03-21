@@ -233,7 +233,7 @@ export function Financials() {
                       </Link>
                     </td>
                     <td className="p-3">
-                      <Badge className={getStatusColor(project.status)} size="sm">
+                      <Badge className={getStatusColor(project.status)}>
                         {project.status.replace("_", " ")}
                       </Badge>
                     </td>

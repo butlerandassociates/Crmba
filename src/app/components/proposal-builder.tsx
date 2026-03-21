@@ -103,9 +103,11 @@ export function ProposalBuilder() {
         description: product.description,
         quantity: 1,
         unit: product.unit,
-        costPerUnit: product.costPerUnit,
+        costPerUnit: product.pricePerUnit,
         markupPercent: product.markupPercent,
         pricePerUnit: product.pricePerUnit,
+        materialCost: product.pricePerUnit,
+        laborCost: product.laborCost ?? 0,
       });
       
       // Reset selections

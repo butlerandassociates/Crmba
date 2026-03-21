@@ -398,20 +398,23 @@ export function Dashboard() {
               <div className="border-t pt-3">
                 <div className="text-sm font-semibold mb-2">Lead Sources</div>
                 <div className="space-y-2">
-                  {clients.length > 0 ? Object.entries(leadsBySource).map(([source, count]) => (
+                  {clients.length > 0 ? Object.entries(leadsBySource).map(([source, count]) => {
+                    const c = count as number;
+                    return (
                     <div key={source} className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{source}</span>
                       <div className="flex items-center gap-2 flex-1 mx-3">
                         <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500"
-                            style={{ width: `${(count / clients.length) * 100}%` }}
+                            style={{ width: `${(c / clients.length) * 100}%` }}
                           />
                         </div>
-                        <span className="font-semibold min-w-[20px]">{count}</span>
+                        <span className="font-semibold min-w-[20px]">{c}</span>
                       </div>
                     </div>
-                  )) : (
+                    );
+                  }) : (
                     <div className="text-xs text-muted-foreground text-center py-2">
                       No lead sources yet
                     </div>

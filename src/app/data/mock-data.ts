@@ -1,3 +1,99 @@
+export interface Client {
+  id: string;
+  name: string;
+  company?: string;
+  email: string;
+  phone: string;
+  address: string;
+  status: 'prospect' | 'pursuing' | 'selling' | 'closing' | 'sold' | 'active' | 'completed';
+  totalRevenue: number;
+  projectsCount: number;
+  createdAt: string;
+  leadSource?: string;
+  assignedTo?: string;
+  scopeOfWork?: string[];
+  call811Required?: boolean;
+  docusignStatus?: string;
+  docusignEnvelopeId?: string;
+  docusignSentDate?: string;
+  appointmentMet?: boolean;
+  appointmentScheduled?: boolean;
+  appointmentDate?: string;
+  projectedValue?: number;
+  lastContactDate?: string;
+  nextFollowUpDate?: string;
+  expectedCloseDate?: string;
+  closingProbability?: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  pricePerUnit: number;
+  laborCostPerUnit: number;
+  unit: string;
+  markup: number;
+  createdAt: string;
+}
+
+export interface LineItem {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  pricePerUnit: number;
+  laborCostPerUnit: number;
+  totalPrice: number;
+  totalLabor: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  clientId: string;
+  clientName: string;
+  clientAddress?: string;
+  projectManagerId?: string;
+  projectManagerName?: string;
+  foremanId?: string;
+  foremanName?: string;
+  foremanPhone?: string;
+  salesRepId?: string;
+  salesRepName?: string;
+  status: 'prospect' | 'selling' | 'sold' | 'active' | 'completed';
+  totalValue: number;
+  totalCosts: number;
+  commission: number;
+  commissionRate: number;
+  grossProfit: number;
+  profitMargin: number;
+  startDate: string;
+  endDate?: string;
+  description: string;
+  docusignStatus: string;
+  quickbooksInvoiceId?: string;
+  lineItems?: LineItem[];
+}
+
+export interface Proposal {
+  id: string;
+  clientId: string;
+  clientName: string;
+  title: string;
+  description: string;
+  lineItems: LineItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: 'draft' | 'sent' | 'accepted' | 'declined';
+  createdBy: string;
+  createdAt: string;
+  validUntil?: string;
+}
+
 export interface User {
   id: string;
   name: string;

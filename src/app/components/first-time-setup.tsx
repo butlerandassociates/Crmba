@@ -5,7 +5,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { Loader2, Building2, ShieldCheck } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 
 export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
   const [loading, setLoading] = useState(false);

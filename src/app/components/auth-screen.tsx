@@ -6,7 +6,7 @@ import { Label } from "./ui/label";
 import { Building2, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { toast } from "sonner";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 
 export function AuthScreen() {
   const { signIn } = useAuth();

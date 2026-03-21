@@ -58,7 +58,7 @@ export function ForecastDashboard() {
 
   // Calculate commission forecast
   const projectedCommissions = mockProjects
-    .filter((p) => p.status === "planning" || p.status === "in_progress")
+    .filter((p) => p.status === "prospect" || p.status === "selling")
     .reduce((sum, p) => sum + p.commission, 0);
 
   return (
