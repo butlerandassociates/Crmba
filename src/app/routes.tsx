@@ -20,6 +20,7 @@ import { ProposalBuilder } from "./components/proposal-builder";
 import { Settings } from "./components/settings";
 import { DocuSignCallback } from "./components/docusign-callback";
 import { DataMigration } from "./components/admin/data-migration";
+import { LoginPage } from "./components/login-page";
 
 // Simple 404 component
 function NotFound() {
@@ -67,5 +68,9 @@ export const router = createBrowserRouter([
   {
     path: "/docusign-callback",
     Component: DocuSignCallback,
+  },
+  {
+    path: "/login",
+    Component: LoginPage,
   },
 ]);

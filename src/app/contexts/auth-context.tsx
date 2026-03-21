@@ -10,6 +10,7 @@ interface AuthUser {
 interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
+  isInviteFlow: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -19,6 +20,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInviteFlow, setIsInviteFlow] = useState(
+    () => window.location.hash.includes("type=invite") || window.location.hash.includes("type=recovery")
+  );
 
   useEffect(() => {
     // Get initial session
@@ -70,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, isInviteFlow, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

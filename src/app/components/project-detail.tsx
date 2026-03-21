@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { projectsAPI } from "../utils/api";
+import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
 import {
   DropdownMenu,
@@ -60,24 +61,13 @@ export function ProjectDetail() {
   const { id } = useParams();
   const [project, setProject] = useState<any | null>(null);
   const [loadingProject, setLoadingProject] = useState(true);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     setLoadingProject(true);
     projectsAPI.getById(id)
-      .then((data) => {
-        // compute camelCase aliases same as getAll
-        setProject({
-          ...data,
-          totalValue:   Number(data.total_value   ?? 0),
-          totalCosts:   Number(data.total_costs    ?? 0),
-          grossProfit:  Number(data.gross_profit   ?? 0),
-          profitMargin: Number(data.profit_margin  ?? 0),
-          clientName: data.client
-            ? `${data.client.first_name ?? ""} ${data.client.last_name ?? ""}`.trim()
-            : "",
-        });
-      })
+      .then(setProject)
       .catch(console.error)
       .finally(() => setLoadingProject(false));
   }, [id]);
@@ -184,12 +174,11 @@ export function ProjectDetail() {
     }).format(value);
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   // Calculate progress based on payments received
@@ -292,7 +281,7 @@ export function ProjectDetail() {
           <p className="text-muted-foreground mt-1">{project.clientName}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setEditDialogOpen(true)}>
             <Edit className="h-4 w-4 mr-2" />
             Edit Project
           </Button>
@@ -514,7 +503,7 @@ export function ProjectDetail() {
                     to={`/clients/${client.id}`}
                     className="font-medium text-sm text-primary hover:underline"
                   >
-                    {client.name}
+                    {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "—"}
                   </Link>
                 </div>
                 <div>
@@ -838,6 +827,16 @@ export function ProjectDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Project Dialog */}
+      <EditProjectDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        project={project}
+        onSaved={() => {
+          projectsAPI.getById(id!).then(setProject).catch(console.error);
+        }}
+      />
 
       {/* Financial Health Stats Section - Always Visible at Bottom */}
       <Card className="bg-muted/30">
