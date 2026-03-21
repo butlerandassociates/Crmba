@@ -18,7 +18,7 @@ import {
   FileText,
   Database,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 import { Link } from "react-router";
 import {
   Select,

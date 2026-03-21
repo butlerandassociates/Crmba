@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 
 export function DocuSignCallback() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");

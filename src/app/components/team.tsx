@@ -95,18 +95,16 @@ export function Team() {
     try {
       setSaving(true);
 
-      // Generate a unique ID for the new team member
-      const maxId = teamMembers.reduce((max, m) => Math.max(max, parseInt(m.id) || 0), 0);
-      const newId = (maxId + 1).toString();
+      const nameParts = newMember.name.trim().split(" ");
+      const first_name = nameParts[0] ?? "";
+      const last_name = nameParts.slice(1).join(" ") || "";
 
-      const memberData = {
-        ...newMember,
-        id: newId,
-        projectsCount: 0,
-        activeProjectsCount: 0,
-      };
-
-      await usersAPI.save(memberData);
+      await usersAPI.create({
+        first_name,
+        last_name,
+        role: newMember.role,
+        phone: newMember.phone,
+      } as Record<string, unknown>);
 
       toast.success("Team member added successfully!");
       setDialogOpen(false);
@@ -244,7 +242,7 @@ export function Team() {
                     <div className="flex items-start justify-between">
                       <div>
                         <h3 className="font-semibold text-lg">{member.name}</h3>
-                        <Badge className={getRoleBadgeColor(member.role)} size="sm">
+                        <Badge className={getRoleBadgeColor(member.role)}>
                           {getRoleLabel(member.role)}
                         </Badge>
                       </div>
@@ -293,7 +291,7 @@ export function Team() {
                     <div className="flex items-start justify-between">
                       <div>
                         <h3 className="font-semibold text-lg">{member.name}</h3>
-                        <Badge className={getRoleBadgeColor(member.role)} size="sm">
+                        <Badge className={getRoleBadgeColor(member.role)}>
                           {getRoleLabel(member.role)}
                         </Badge>
                       </div>

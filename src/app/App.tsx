@@ -5,21 +5,8 @@ import { AuthProvider, useAuth } from './contexts/auth-context';
 import { AuthScreen } from './components/auth-screen';
 import { Loader2 } from 'lucide-react';
 
-// TEMPORARY: Bypass auth to access CRM
-const BYPASS_AUTH = true;
-
 function AppContent() {
   const { user, loading } = useAuth();
-
-  // Bypass auth temporarily
-  if (BYPASS_AUTH) {
-    return (
-      <>
-        <RouterProvider router={router} />
-        <Toaster />
-      </>
-    );
-  }
 
   if (loading) {
     return (

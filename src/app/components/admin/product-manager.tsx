@@ -459,7 +459,7 @@ export function ProductManager() {
                     </td>
                     <td className="p-3 text-right">
                       <span className="text-sm font-medium">
-                        {formatCurrency(product.costPerUnit)}
+                        {formatCurrency(product.pricePerUnit)}
                       </span>
                     </td>
                     <td className="p-3 text-center">
@@ -474,7 +474,7 @@ export function ProductManager() {
                     </td>
                     <td className="p-3 text-right">
                       <span className="text-sm font-medium text-green-600">
-                        {formatCurrency(product.pricePerUnit - product.costPerUnit)}
+                        {formatCurrency(product.pricePerUnit - product.pricePerUnit)}
                       </span>
                     </td>
                     <td className="p-3 text-right">

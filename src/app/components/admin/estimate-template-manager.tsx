@@ -236,7 +236,7 @@ export function EstimateTemplateManager() {
                         </td>
                         <td className="p-3 text-right">
                           <span className="text-sm font-medium">
-                            {formatCurrency(product.costPerUnit)}
+                            {formatCurrency(product.pricePerUnit)}
                           </span>
                         </td>
                         <td className="p-3 text-right">

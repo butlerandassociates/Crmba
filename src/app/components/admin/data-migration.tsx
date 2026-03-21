@@ -23,14 +23,14 @@ export function DataMigration() {
       console.log("Starting data migration to Supabase...");
       
       const response = await migrateData({
-        clients: mockClients,
-        projects: mockProjects,
-        products: mockProducts,
-        users: mockTeamMembers,
+        clients: mockClients as unknown as Record<string, unknown>[],
+        projects: mockProjects as unknown as Record<string, unknown>[],
+        products: mockProducts as unknown as Record<string, unknown>[],
+        users: mockTeamMembers as unknown as Record<string, unknown>[],
       });
-      
+
       console.log("Migration completed:", response);
-      setResult(response.migrated);
+      setResult(response.results);
       setStatus("success");
     } catch (err: any) {
       console.error("Migration failed:", err);
@@ -107,24 +107,11 @@ export function DataMigration() {
               
               <div className="p-4 bg-muted rounded-lg">
                 <p className="text-sm font-semibold mb-2">Migration Summary:</p>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Clients:</span>
-                    <span className="ml-2 font-semibold">{result.clients}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Projects:</span>
-                    <span className="ml-2 font-semibold">{result.projects}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Products:</span>
-                    <span className="ml-2 font-semibold">{result.products}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Users:</span>
-                    <span className="ml-2 font-semibold">{result.users}</span>
-                  </div>
-                </div>
+                <ul className="text-sm space-y-1">
+                  {result.map((line: string, i: number) => (
+                    <li key={i} className="text-muted-foreground">{line}</li>
+                  ))}
+                </ul>
               </div>
 
               <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

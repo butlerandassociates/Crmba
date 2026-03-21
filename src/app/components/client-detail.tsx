@@ -120,7 +120,7 @@ export function ClientDetail() {
     if (!id) return;
     try {
       const data = await photosAPI.getAll(id);
-      setPhotos(data.photos || []);
+      setPhotos(data || []);
     } catch (error) {
       console.error("Failed to load photos:", error);
     }

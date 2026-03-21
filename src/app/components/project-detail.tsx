@@ -21,8 +21,9 @@ import {
   Plus,
   Trash2,
   FileImage,
+  Loader2,
 } from "lucide-react";
-import { mockProjects, mockClients } from "../data/mock-data";
+import { projectsAPI } from "../utils/api";
 import { Progress } from "./ui/progress";
 import {
   DropdownMenu,
@@ -32,7 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
 import { ForemanPaymentBreakdown } from "./foreman-payment-breakdown";
@@ -57,20 +58,53 @@ import {
 
 export function ProjectDetail() {
   const { id } = useParams();
-  const project = mockProjects.find((p) => p.id === id);
-  const client = project ? mockClients.find((c) => c.id === project.clientId) : null;
+  const [project, setProject] = useState<any | null>(null);
+  const [loadingProject, setLoadingProject] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    setLoadingProject(true);
+    projectsAPI.getById(id)
+      .then((data) => {
+        // compute camelCase aliases same as getAll
+        setProject({
+          ...data,
+          totalValue:   Number(data.total_value   ?? 0),
+          totalCosts:   Number(data.total_costs    ?? 0),
+          grossProfit:  Number(data.gross_profit   ?? 0),
+          profitMargin: Number(data.profit_margin  ?? 0),
+          clientName: data.client
+            ? `${data.client.first_name ?? ""} ${data.client.last_name ?? ""}`.trim()
+            : "",
+        });
+      })
+      .catch(console.error)
+      .finally(() => setLoadingProject(false));
+  }, [id]);
+
+  const client = project?.client ?? null;
 
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'details' | 'cost-attributions' | 'docusign' | 'files' | 'crew-payment' | 'payments'>('details');
   const [costAttributionsDialogOpen, setCostAttributionsDialogOpen] = useState(false);
-  
+
   // Payment tracking state
   const [payments, setPayments] = useState({
-    deposit: { paid: false, percentage: 30, amount: project ? project.totalValue * 0.3 : 0 },
-    progress: { paid: false, percentage: 40, amount: project ? project.totalValue * 0.4 : 0 },
-    final: { paid: false, percentage: 30, amount: project ? project.totalValue * 0.3 : 0 },
+    deposit:  { paid: false, percentage: 30, amount: 0 },
+    progress: { paid: false, percentage: 40, amount: 0 },
+    final:    { paid: false, percentage: 30, amount: 0 },
   });
+
+  // Recalculate payment amounts when project loads
+  useEffect(() => {
+    if (!project) return;
+    setPayments({
+      deposit:  { paid: false, percentage: 30, amount: project.totalValue * 0.3 },
+      progress: { paid: false, percentage: 40, amount: project.totalValue * 0.4 },
+      final:    { paid: false, percentage: 30, amount: project.totalValue * 0.3 },
+    });
+  }, [project?.id]);
 
   // Receipt tracking state
   const [receipts, setReceipts] = useState<Array<{
@@ -82,7 +116,7 @@ export function ProjectDetail() {
     fileName?: string;
     uploadDate: string;
   }>>([]);
-  
+
   const [newReceipt, setNewReceipt] = useState({
     name: '',
     amount: '',
@@ -90,7 +124,15 @@ export function ProjectDetail() {
     note: '',
     fileName: '',
   });
-  
+
+  if (loadingProject) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (!project) {
     return (
       <div className="p-6">
