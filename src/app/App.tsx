@@ -25,11 +25,9 @@ function AppContent() {
   );
 }
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
-
 function App() {
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID || "placeholder"}>
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
       <AuthProvider>
         <AppContent />
       </AuthProvider>
