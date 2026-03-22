@@ -21,6 +21,7 @@ import { Settings } from "./components/settings";
 import { DocuSignCallback } from "./components/docusign-callback";
 import { DataMigration } from "./components/admin/data-migration";
 import { LoginPage } from "./components/login-page";
+import { SetPasswordPage } from "./components/set-password-page";
 
 // Simple 404 component
 function NotFound() {
@@ -72,5 +73,9 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: LoginPage,
+  },
+  {
+    path: "/set-password",
+    Component: SetPasswordPage,
   },
 ]);
