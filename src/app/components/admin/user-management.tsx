@@ -92,11 +92,12 @@ export function UserManagement() {
             Authorization: `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({
-            email:      formData.email,
-            first_name: formData.firstName,
-            last_name:  formData.lastName,
-            role:       selectedRole,
+            email:       formData.email,
+            first_name:  formData.firstName,
+            last_name:   formData.lastName,
+            role:        selectedRole,
             permissions,
+            redirect_to: `${window.location.origin}/set-password`,
           }),
         }
       );
@@ -130,11 +131,12 @@ export function UserManagement() {
             Authorization: `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            role: user.role,
+            email:       user.email,
+            first_name:  user.first_name,
+            last_name:   user.last_name,
+            role:        user.role,
             permissions: user.permissions ?? {},
+            redirect_to: `${window.location.origin}/set-password`,
           }),
         }
       );
