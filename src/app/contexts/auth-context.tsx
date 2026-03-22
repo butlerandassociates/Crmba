@@ -24,6 +24,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => window.location.hash.includes("type=invite") || window.location.hash.includes("type=recovery")
   );
 
+  // Clear invite flow flag once user updates their password
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "USER_UPDATED") setIsInviteFlow(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
