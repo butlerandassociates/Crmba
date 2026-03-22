@@ -4,7 +4,8 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import {
@@ -119,7 +120,10 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resend
 
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => onResendInvite(user)} disabled={resending === user.id}>
-                <RefreshCw className="h-4 w-4 mr-2" />Resend Invite
+                {resending === user.id
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <KeyRound className="h-4 w-4 mr-2" />}
+                Reset Password
               </Button>
               <Button
                 variant={user.is_active ? "destructive" : "default"}
@@ -478,17 +482,23 @@ export function UserManagement() {
                     >
                       {user.is_active ? "Deactivate" : "Reactivate"}
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleResendInvite(user)}
-                      disabled={resending === user.id}
-                      title="Resend invite email"
-                    >
-                      {resending === user.id
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : <RefreshCw className="h-4 w-4" />}
-                    </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleResendInvite(user)}
+                            disabled={resending === user.id}
+                          >
+                            {resending === user.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <KeyRound className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Reset Password</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </CardContent>
               </Card>

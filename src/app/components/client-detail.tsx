@@ -209,16 +209,8 @@ export function ClientDetail() {
     
     try {
       setUpdating(true);
-      
-      const updatedClient = {
-        ...client,
-        status: newStatus,
-      };
-      
-      await clientsAPI.update(client.id, updatedClient);
-      
-      // Update local state
-      setClient(updatedClient);
+      await clientsAPI.update(client.id, { status: newStatus });
+      setClient({ ...client, status: newStatus });
       
       toast.success(`Client status updated to ${newStatus}`);
     } catch (err: any) {
