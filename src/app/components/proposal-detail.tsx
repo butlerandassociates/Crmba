@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -16,14 +16,14 @@ import {
   Eye,
   Share2,
 } from "lucide-react";
-import { mockProposals, mockClients } from "../data/mock-data";
+import { estimatesAPI, clientsAPI } from "../utils/api";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "./ui/dialog";
 import {
   DropdownMenu,
@@ -37,12 +37,22 @@ import { ProposalExport } from "./proposal-export";
 
 export function ProposalDetail() {
   const { id } = useParams();
-  const proposal = mockProposals.find((p) => p.id === id);
-  const client = proposal ? mockClients.find((c) => c.id === proposal.clientId) : null;
+  const [proposal, setProposal] = useState<any>(null);
+  const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
 
-  if (!proposal || !client) {
+  useEffect(() => {
+    if (!id) return;
+    estimatesAPI.getById(id).then((est) => {
+      setProposal(est);
+      if (est?.client_id) {
+        clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
+      }
+    }).catch(console.error);
+  }, [id]);
+
+  if (!proposal) {
     return (
       <div className="p-4">
         <div className="text-center py-12">
@@ -116,7 +126,7 @@ export function ProposalDetail() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link to={`/clients/${client.id}`}>
+          <Link to={`/clients/${proposal.client_id}`}>
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Client
@@ -127,7 +137,9 @@ export function ProposalDetail() {
               <h1 className="text-2xl font-bold">{proposal.title}</h1>
               <Badge variant="outline">{proposal.status}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground mt-0.5">{client.name}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""}
+            </p>
           </div>
         </div>
 
@@ -172,17 +184,17 @@ export function ProposalDetail() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Created</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-lg font-semibold">{formatDate(proposal.createdAt)}</p>
-            <p className="text-xs text-muted-foreground">By {proposal.createdBy}</p>
+            <p className="text-lg font-semibold">{proposal.created_at ? formatDate(proposal.created_at) : "—"}</p>
+            <p className="text-xs text-muted-foreground">#{proposal.estimate_number}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Valid Until</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Sent At</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-lg font-semibold">{formatDate(proposal.validUntil)}</p>
+            <p className="text-lg font-semibold">{proposal.sent_at ? formatDate(proposal.sent_at) : "Not sent"}</p>
           </CardContent>
         </Card>
 
@@ -257,30 +269,22 @@ export function ProposalDetail() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {proposal.lineItems.map((item) => (
+                {(proposal.line_items ?? []).map((item: any) => (
                   <tr key={item.id} className="hover:bg-accent/50">
                     <td className="p-3">
-                      <div className="font-medium text-sm">{item.productName}</div>
+                      <div className="font-medium text-sm">{item.name}</div>
                     </td>
                     <td className="p-3">
-                      <Input
-                        type="number"
-                        defaultValue={item.quantity}
-                        className="w-24"
-                      />
+                      <Input type="number" defaultValue={item.quantity} className="w-24" />
                     </td>
                     <td className="p-3">
                       <span className="text-sm text-muted-foreground">{item.unit}</span>
                     </td>
                     <td className="p-3">
-                      <Input
-                        type="number"
-                        defaultValue={item.pricePerUnit}
-                        className="w-28"
-                      />
+                      <Input type="number" defaultValue={item.client_price} className="w-28" />
                     </td>
                     <td className="p-3">
-                      <span className="font-semibold">{formatCurrency(item.totalPrice)}</span>
+                      <span className="font-semibold">{formatCurrency(item.quantity * item.client_price)}</span>
                     </td>
                     <td className="p-3">
                       <Button variant="ghost" size="sm">
@@ -300,8 +304,8 @@ export function ProposalDetail() {
               <span className="font-semibold">{formatCurrency(proposal.subtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Tax (8%)</span>
-              <span className="font-semibold">{formatCurrency(proposal.tax)}</span>
+              <span className="text-muted-foreground">{proposal.tax_label ?? "Tax"}</span>
+              <span className="font-semibold">{formatCurrency(proposal.tax_amount ?? 0)}</span>
             </div>
             <div className="flex justify-between text-lg pt-2 border-t">
               <span className="font-bold">Total</span>
@@ -330,13 +334,13 @@ export function ProposalDetail() {
           <DialogHeader>
             <DialogTitle>Email Proposal</DialogTitle>
             <DialogDescription>
-              Send this proposal directly to {client.name}
+              Send this proposal directly to {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>To</Label>
-              <Input defaultValue={client.email} />
+              <Input defaultValue={client?.email ?? ""} />
             </div>
             <div className="space-y-2">
               <Label>Subject</Label>
@@ -345,7 +349,7 @@ export function ProposalDetail() {
             <div className="space-y-2">
               <Label>Message</Label>
               <Textarea
-                defaultValue={`Hi ${client.name},\n\nPlease find attached our proposal for your project. We look forward to working with you.\n\nBest regards,\nButler & Associates Construction, Inc.`}
+                defaultValue={`Hi ${client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""},\n\nPlease find attached our proposal for your project. We look forward to working with you.\n\nBest regards,\nButler & Associates Construction, Inc.`}
                 rows={6}
               />
             </div>
@@ -356,8 +360,7 @@ export function ProposalDetail() {
             </Button>
             <Button onClick={() => {
               setShowEmailDialog(false);
-              // In real app, send email here
-              alert("Proposal sent successfully!");
+              toast.success("Proposal sent successfully!");
             }}>
               <Mail className="h-4 w-4 mr-2" />
               Send Email

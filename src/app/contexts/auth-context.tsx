@@ -13,6 +13,7 @@ interface AuthContextType {
   isInviteFlow: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -81,8 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const refreshProfile = async () => {
+    if (!user) return;
+    await loadUser(user.id, user.email);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, isInviteFlow, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, isInviteFlow, signIn, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,8 +4,8 @@ import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
-import { Plus, Search, Mail, Phone, Loader2 } from "lucide-react";
-import { clientsAPI, leadSourcesAPI } from "../utils/api";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar } from "lucide-react";
+import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   Dialog,
@@ -29,6 +29,7 @@ export function ClientsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [clients, setClients] = useState<any[]>([]);
   const [leadSources, setLeadSources] = useState<any[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -69,6 +70,7 @@ export function ClientsList() {
   useEffect(() => {
     fetchClients();
     fetchLeadSources();
+    pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
   }, []);
 
   const fetchClients = async () => {
@@ -99,6 +101,8 @@ export function ClientsList() {
     if (Object.keys(errors).length > 0) { setFormErrors(errors); return; }
     try {
       setSaving(true);
+      // Auto-assign the first pipeline stage ("New") sorted by order_index
+      const newStage = pipelineStages.slice().sort((a, b) => a.order_index - b.order_index)[0];
       await clientsAPI.create({
         first_name: newClient.first_name.trim(),
         last_name:  newClient.last_name.trim(),
@@ -111,6 +115,7 @@ export function ClientsList() {
         zip:        newClient.zip.trim() || null,
         status:     newClient.status,
         lead_source_id: newClient.lead_source_id || null,
+        pipeline_stage_id: newStage?.id ?? null,
         appointment_met: false,
         appointment_scheduled: false,
         docusign_status: "not_sent",
@@ -151,8 +156,18 @@ export function ClientsList() {
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const formatDateTime = (startStr: string, endStr?: string | null) => {
+    const s = new Date(startStr);
+    const datePart = s.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const startTime = s.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    if (endStr) {
+      const endTime = new Date(endStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return `${datePart} · ${startTime} – ${endTime}`;
+    }
+    return `${datePart} · ${startTime}`;
+  };
+
+  const clientProjectTotal = (client: any) => client.project_total ?? 0;
 
   const ClientTable = ({ list }: { list: any[] }) => (
     <Card>
@@ -165,6 +180,7 @@ export function ClientsList() {
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Client</th>
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
+                <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Appointment</th>
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Forecast</th>
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
               </tr>
@@ -207,22 +223,46 @@ export function ClientsList() {
                     </span>
                   </td>
                   <td className="p-3">
-                    {client.projected_value && client.closing_probability ? (
-                      <div className="space-y-1">
-                        <div className="text-sm font-medium">{formatCurrency(client.projected_value)}</div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500" style={{ width: `${client.closing_probability}%` }} />
-                          </div>
-                          <span className="text-xs text-muted-foreground">{client.closing_probability}%</span>
+                    {client.appointment_met ? (
+                      <div className="flex items-center gap-1.5">
+                        <CalendarCheck className="h-3.5 w-3.5 text-green-600" />
+                        <span className="text-xs font-medium text-green-700">Met</span>
+                      </div>
+                    ) : client.appointment_scheduled && client.appointment_date ? (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                          <span className="text-xs font-medium text-blue-700">Scheduled</span>
                         </div>
-                        {client.expected_close_date && (
-                          <div className="text-xs text-muted-foreground">Est: {formatDate(client.expected_close_date)}</div>
-                        )}
+                        <div className="text-xs text-muted-foreground">{formatDateTime(client.appointment_date, client.appointment_end_date)}</div>
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
+                  </td>
+                  <td className="p-3">
+                    {(() => {
+                      const total = clientProjectTotal(client);
+                      if (total > 0) {
+                        return <div className="text-sm font-medium">{formatCurrency(total)}</div>;
+                      }
+                      if (client.projected_value) {
+                        return (
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium text-muted-foreground">{formatCurrency(client.projected_value)}</div>
+                            {client.closing_probability && (
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="h-full bg-blue-500" style={{ width: `${client.closing_probability}%` }} />
+                                </div>
+                                <span className="text-xs text-muted-foreground">{client.closing_probability}%</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return <span className="text-xs text-muted-foreground">—</span>;
+                    })()}
                   </td>
                   <td className="p-3">
                     <Link to={`/clients/${client.id}`}>

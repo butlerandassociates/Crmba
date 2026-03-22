@@ -19,88 +19,46 @@ export function AuthScreen() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    alert("Login button clicked! Email: " + email + ", Password length: " + password.length);
-    
     setLoading(true);
-
     try {
-      alert("About to call signIn function...");
       await signIn(email, password);
-      alert("signIn completed successfully!");
       toast.success("Welcome back!");
     } catch (error: any) {
       console.error("Login error:", error);
-      alert("Login ERROR: " + error.message);
       toast.error(error.message || "Failed to sign in");
     } finally {
       setLoading(false);
-      alert("Login process finished");
     }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    alert("Signup button clicked! Email: " + email);
-    
-    if (password !== confirmPassword) {
-      alert("Passwords don't match");
-      toast.error("Passwords don't match");
-      return;
-    }
-
-    if (password.length < 6) {
-      alert("Password too short");
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-
-    alert("About to call API...");
+    if (password !== confirmPassword) { toast.error("Passwords don't match"); return; }
+    if (password.length < 6) { toast.error("Password must be at least 6 characters"); return; }
     setLoading(true);
-
     try {
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/auth/signup`;
-      alert("URL: " + url);
-      
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${publicAnonKey}`,
         },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          role: "admin",
-        }),
+        body: JSON.stringify({ email, password, name, role: "admin" }),
       });
-
-      alert("Response status: " + response.status);
-      
       const data = await response.json();
-      alert("Response: " + JSON.stringify(data));
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create account");
-      }
-
+      if (!response.ok) throw new Error(data.error || "Failed to create account");
       toast.success("Account created! Signing you in...");
-      alert("Success!");
-      
-      // Automatically sign in after successful signup
       setTimeout(async () => {
         try {
           await signIn(email, password);
-        } catch (error: any) {
+        } catch {
           toast.error("Please sign in manually");
           setShowSignup(false);
         }
       }, 1000);
     } catch (error: any) {
       console.error("Signup error:", error);
-      alert("ERROR: " + error.message);
       toast.error(error.message || "Failed to create account");
       setLoading(false);
     }

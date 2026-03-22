@@ -4,7 +4,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Shield, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import {
@@ -17,6 +17,16 @@ import {
   DialogTrigger,
 } from "../ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -26,6 +36,104 @@ import {
 import { Checkbox } from "../ui/checkbox";
 import { toast } from "sonner";
 
+
+function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resending, getRoleBadgeColor, getRoleLabel, getUserPermissions }: {
+  user: any;
+  onClose: () => void;
+  onToggleActive: (u: any) => void;
+  onResendInvite: (u: any) => void;
+  resending: string | null;
+  getRoleBadgeColor: (r: string) => string;
+  getRoleLabel: (r: string) => string;
+  getUserPermissions: (u: any) => string[];
+}) {
+  const perms = user ? getUserPermissions(user) : [];
+  return (
+    <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[480px]">
+        {user && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+                  {(user.first_name?.[0] ?? "?").toUpperCase()}
+                </div>
+                <div>
+                  <div>{`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() || "—"}</div>
+                  <div className="mt-1">
+                    <Badge className={`${getRoleBadgeColor(user.role)} text-white text-xs`}>
+                      {getRoleLabel(user.role)}
+                    </Badge>
+                  </div>
+                </div>
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Contact</p>
+                <div className="space-y-1.5 text-sm">
+                  {user.email && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Mail className="h-4 w-4" />
+                      <a href={`mailto:${user.email}`} className="hover:text-primary">{user.email}</a>
+                    </div>
+                  )}
+                  {user.phone && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Phone className="h-4 w-4" />
+                      <a href={`tel:${user.phone}`} className="hover:text-primary">{user.phone}</a>
+                    </div>
+                  )}
+                  {!user.email && !user.phone && (
+                    <span className="text-muted-foreground text-sm">No contact info</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Status</p>
+                <div className="flex items-center gap-2 text-sm">
+                  {user.is_active
+                    ? <><CheckCircle className="h-4 w-4 text-green-500" /><span>Active</span></>
+                    : <><XCircle className="h-4 w-4 text-red-500" /><span className="text-red-500">Deactivated</span></>
+                  }
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                  Permissions ({perms.length})
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {perms.length > 0 ? perms.map((perm) => (
+                    <Badge key={perm} variant="outline" className="text-xs">
+                      {perm.replace(/can_/g, "").replace(/_/g, " ")}
+                    </Badge>
+                  )) : (
+                    <span className="text-sm text-muted-foreground">No permissions assigned</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => onResendInvite(user)} disabled={resending === user.id}>
+                <RefreshCw className="h-4 w-4 mr-2" />Resend Invite
+              </Button>
+              <Button
+                variant={user.is_active ? "destructive" : "default"}
+                onClick={() => onToggleActive(user)}
+              >
+                {user.is_active ? "Deactivate" : "Reactivate"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function UserManagement() {
   const [users, setUsers] = useState<any[]>([]);
@@ -117,6 +225,8 @@ export function UserManagement() {
     }
   };
 
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [confirmUser, setConfirmUser] = useState<any | null>(null);
   const [resending, setResending] = useState<string | null>(null);
 
   const handleResendInvite = async (user: any) => {
@@ -317,7 +427,11 @@ export function UserManagement() {
           {users.map((user) => {
             const perms = getUserPermissions(user);
             return (
-              <Card key={user.id}>
+              <Card
+                key={user.id}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => setSelectedUser(user)}
+              >
                 <CardContent className="p-6 space-y-4">
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
@@ -346,23 +460,21 @@ export function UserManagement() {
                             </Badge>
                           ))
                         ) : (
-                          <span className="text-xs">No extra permissions</span>
+                          <span className="text-xs">No permissions</span>
                         )}
                         {perms.length > 3 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{perms.length - 3} more
-                          </Badge>
+                          <Badge variant="outline" className="text-xs">+{perms.length - 3} more</Badge>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t flex gap-2">
+                  <div className="pt-4 border-t flex gap-2" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="outline"
                       size="sm"
                       className="flex-1"
-                      onClick={() => handleToggleActive(user)}
+                      onClick={() => user.is_active ? setConfirmUser(user) : handleToggleActive(user)}
                     >
                       {user.is_active ? "Deactivate" : "Reactivate"}
                     </Button>
@@ -375,8 +487,7 @@ export function UserManagement() {
                     >
                       {resending === user.id
                         ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : <RefreshCw className="h-4 w-4" />
-                      }
+                        : <RefreshCw className="h-4 w-4" />}
                     </Button>
                   </div>
                 </CardContent>
@@ -385,6 +496,41 @@ export function UserManagement() {
           })}
         </div>
       )}
+
+      {/* Deactivate Confirmation */}
+      <AlertDialog open={!!confirmUser} onOpenChange={(open) => !open && setConfirmUser(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate Team Member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to deactivate{" "}
+              <strong>{`${confirmUser?.first_name ?? ""} ${confirmUser?.last_name ?? ""}`.trim()}</strong>?
+              They will lose access to the portal immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { handleToggleActive(confirmUser); setConfirmUser(null); }}
+            >
+              Yes, Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* User Profile Detail Modal */}
+      <UserDetailModal
+        user={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        onToggleActive={(u) => { if (u.is_active) { setSelectedUser(null); setConfirmUser(u); } else { handleToggleActive(u); setSelectedUser(null); } }}
+        onResendInvite={(u) => { handleResendInvite(u); setSelectedUser(null); }}
+        resending={resending}
+        getRoleBadgeColor={getRoleBadgeColor}
+        getRoleLabel={getRoleLabel}
+        getUserPermissions={getUserPermissions}
+      />
     </div>
   );
 }

@@ -18,8 +18,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Loader2 } from "lucide-react";
-import { projectsAPI, clientsAPI } from "../utils/api";
-import { supabase } from "@/lib/supabase";
+import { projectsAPI, clientsAPI, pipelineStagesAPI, usersAPI } from "../utils/api";
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -48,7 +47,9 @@ export function NewProjectDialog({
   preselectedClientId,
 }: NewProjectDialogProps) {
   const [clients, setClients] = useState<any[]>([]);
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const [projectManagers, setProjectManagers] = useState<any[]>([]);
+  const [foremen, setForemen] = useState<any[]>([]);
+  const [salesReps, setSalesReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -62,13 +63,10 @@ export function NewProjectDialog({
       // Load clients
       clientsAPI.getAll().then(setClients).catch(console.error);
 
-      // Load team members (profiles)
-      supabase
-        .from("profiles")
-        .select("id, first_name, last_name, role")
-        .eq("is_active", true)
-        .order("first_name")
-        .then(({ data }) => setProfiles(data ?? []));
+      // Load team members by role separately
+      usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
+      usersAPI.getByRole("foreman").then(setForemen).catch(console.error);
+      usersAPI.getByRole("sales_rep").then(setSalesReps).catch(console.error);
     }
   }, [open, preselectedClientId]);
 
@@ -97,6 +95,18 @@ export function NewProjectDialog({
         foreman_id: (form.foreman_id && form.foreman_id !== "none") ? form.foreman_id : null,
         sales_rep_id: (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null,
       });
+
+      // Auto-move client to "Active" pipeline stage
+      try {
+        const stages = await pipelineStagesAPI.getAll();
+        const activeStage = stages.find((s: any) => s.name.toLowerCase() === "active");
+        if (activeStage && form.client_id) {
+          await clientsAPI.update(form.client_id, { pipeline_stage_id: activeStage.id });
+        }
+      } catch {
+        // non-critical — project was already created
+      }
+
       onOpenChange(false);
       onCreated();
     } catch (err: any) {
@@ -207,7 +217,7 @@ export function NewProjectDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">— None —</SelectItem>
-                    {profiles.map((p) => (
+                    {projectManagers.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                     ))}
                   </SelectContent>
@@ -222,7 +232,7 @@ export function NewProjectDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">— None —</SelectItem>
-                    {profiles.map((p) => (
+                    {foremen.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                     ))}
                   </SelectContent>
@@ -237,7 +247,7 @@ export function NewProjectDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">— None —</SelectItem>
-                    {profiles.map((p) => (
+                    {salesReps.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                     ))}
                   </SelectContent>

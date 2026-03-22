@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { DollarSign, TrendingUp, TrendingDown, Percent } from "lucide-react";
-import { mockProjects } from "../data/mock-data";
+import { DollarSign, TrendingUp, TrendingDown, Percent, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -14,51 +14,69 @@ import {
 } from "recharts";
 import { Badge } from "./ui/badge";
 import { Link } from "react-router";
+import { projectsAPI } from "../utils/api";
+
+const STATUS_COLORS: Record<string, string> = {
+  active:    "bg-green-500",
+  selling:   "bg-blue-500",
+  sold:      "bg-purple-500",
+  completed: "bg-emerald-600",
+  on_hold:   "bg-yellow-500",
+  cancelled: "bg-red-500",
+  planning:  "bg-sky-500",
+};
 
 export function Financials() {
-  const totalRevenue = mockProjects.reduce((sum, p) => sum + p.totalValue, 0);
-  const totalCosts = mockProjects.reduce((sum, p) => sum + p.totalCosts, 0);
-  const totalProfit = mockProjects.reduce((sum, p) => sum + p.grossProfit, 0);
-  const totalCommissions = mockProjects.reduce((sum, p) => sum + p.commission, 0);
-  const avgProfitMargin = (totalProfit / totalRevenue) * 100;
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const monthlyData = [
-    { month: "Jan", revenue: 120000, costs: 88000, profit: 32000 },
-    { month: "Feb", revenue: 185000, costs: 134000, profit: 51000 },
-    { month: "Mar", revenue: 95000, costs: 69000, profit: 26000 },
-    { month: "Apr", revenue: 210000, costs: 152000, profit: 58000 },
-    { month: "May", revenue: 165000, costs: 120000, profit: 45000 },
-    { month: "Jun", revenue: 145000, costs: 106000, profit: 39000 },
-  ];
+  useEffect(() => {
+    projectsAPI.getAll()
+      .then(setProjects)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
-  const projectProfitability = mockProjects.map((p) => ({
-    name: p.name.length > 20 ? p.name.substring(0, 20) + "..." : p.name,
-    profit: p.grossProfit,
-    margin: p.profitMargin,
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const totalRevenue = projects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalCosts   = projects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
+  const totalProfit  = projects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const totalCommissions = projects.reduce((sum, p) => sum + (p.commission || 0), 0);
+  const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  // Monthly financial trends — group projects by start_date (last 6 months)
+  const now = new Date();
+  const monthlyData = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const monthProjects = projects.filter((p) => {
+      const date = p.start_date ? new Date(p.start_date) : null;
+      return date && date.getFullYear() === y && date.getMonth() === m;
+    });
+    return {
+      month:   d.toLocaleString("en-US", { month: "short" }),
+      revenue: monthProjects.reduce((s, p) => s + (p.totalValue  || 0), 0),
+      costs:   monthProjects.reduce((s, p) => s + (p.totalCosts  || 0), 0),
+      profit:  monthProjects.reduce((s, p) => s + (p.grossProfit || 0), 0),
+    };
+  });
+
+  const projectProfitability = projects.map((p) => ({
+    name:   p.name && p.name.length > 20 ? p.name.substring(0, 20) + "…" : (p.name || "Unnamed"),
+    profit: p.grossProfit || 0,
+    margin: p.profitMargin || 0,
   }));
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "in_progress":
-        return "bg-green-500";
-      case "planning":
-        return "bg-blue-500";
-      case "completed":
-        return "bg-purple-500";
-      case "on_hold":
-        return "bg-yellow-500";
-      default:
-        return "bg-gray-500";
-    }
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   return (
     <div className="p-6 space-y-6">
@@ -127,27 +145,9 @@ export function Financials() {
                 <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  name="Revenue"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="costs"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  name="Costs"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="profit"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  name="Profit"
-                />
+                <Line type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={2} name="Revenue" dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="costs"   stroke="#ef4444" strokeWidth={2} name="Costs"   dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="profit"  stroke="#10b981" strokeWidth={2} name="Profit"  dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -158,15 +158,19 @@ export function Financials() {
             <CardTitle>Project Profitability</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={projectProfitability}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} fontSize={12} />
-                <YAxis />
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Bar dataKey="profit" fill="#10b981" name="Gross Profit" />
-              </BarChart>
-            </ResponsiveContainer>
+            {projects.length === 0 ? (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm">No projects yet</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={projectProfitability}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} fontSize={12} />
+                  <YAxis />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                  <Bar dataKey="profit" fill="#10b981" name="Gross Profit" isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -177,30 +181,35 @@ export function Financials() {
           <CardTitle>Total Commissions: {formatCurrency(totalCommissions)}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {mockProjects.map((project) => (
-              <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <Link to={`/projects/${project.id}`} className="font-semibold hover:text-primary">
-                      {project.name}
-                    </Link>
-                    <Badge className={getStatusColor(project.status)}>
-                      {project.status.replace("_", " ")}
-                    </Badge>
+          {projects.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No projects found</p>
+          ) : (
+            <div className="space-y-4">
+              {projects.map((project) => (
+                <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Link to={`/projects/${project.id}`} className="font-semibold hover:text-primary">
+                        {project.name || "Unnamed Project"}
+                      </Link>
+                      <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
+                        {(project.status ?? "").replace(/_/g, " ")}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">{project.clientName}</p>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">{project.clientName}</p>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold">{formatCurrency(project.commission)}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {((project.commission / project.totalValue) * 100).toFixed(1)}% of{" "}
-                    {formatCurrency(project.totalValue)}
+                  <div className="text-right">
+                    <div className="font-semibold">{formatCurrency(project.commission || 0)}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {project.totalValue > 0
+                        ? `${(((project.commission || 0) / project.totalValue) * 100).toFixed(1)}% of ${formatCurrency(project.totalValue)}`
+                        : "—"}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -224,41 +233,39 @@ export function Financials() {
                 </tr>
               </thead>
               <tbody>
-                {mockProjects.map((project) => (
+                {projects.map((project) => (
                   <tr key={project.id} className="border-b hover:bg-accent">
                     <td className="p-3">
                       <Link to={`/projects/${project.id}`} className="hover:text-primary">
-                        <div className="font-medium">{project.name}</div>
+                        <div className="font-medium">{project.name || "Unnamed Project"}</div>
                         <div className="text-sm text-muted-foreground">{project.clientName}</div>
                       </Link>
                     </td>
                     <td className="p-3">
-                      <Badge className={getStatusColor(project.status)}>
-                        {project.status.replace("_", " ")}
+                      <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
+                        {(project.status ?? "").replace(/_/g, " ")}
                       </Badge>
                     </td>
-                    <td className="text-right p-3 font-medium">{formatCurrency(project.totalValue)}</td>
-                    <td className="text-right p-3">{formatCurrency(project.totalCosts)}</td>
-                    <td className="text-right p-3 font-medium text-green-600">
-                      {formatCurrency(project.grossProfit)}
-                    </td>
-                    <td className="text-right p-3">{project.profitMargin.toFixed(1)}%</td>
-                    <td className="text-right p-3">{formatCurrency(project.commission)}</td>
+                    <td className="text-right p-3 font-medium">{formatCurrency(project.totalValue  || 0)}</td>
+                    <td className="text-right p-3">               {formatCurrency(project.totalCosts  || 0)}</td>
+                    <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
+                    <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
+                    <td className="text-right p-3">{formatCurrency(project.commission  || 0)}</td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="border-t-2">
-                <tr className="font-bold">
-                  <td className="p-3" colSpan={2}>
-                    Totals
-                  </td>
-                  <td className="text-right p-3">{formatCurrency(totalRevenue)}</td>
-                  <td className="text-right p-3">{formatCurrency(totalCosts)}</td>
-                  <td className="text-right p-3 text-green-600">{formatCurrency(totalProfit)}</td>
-                  <td className="text-right p-3">{avgProfitMargin.toFixed(1)}%</td>
-                  <td className="text-right p-3">{formatCurrency(totalCommissions)}</td>
-                </tr>
-              </tfoot>
+              {projects.length > 0 && (
+                <tfoot className="border-t-2">
+                  <tr className="font-bold">
+                    <td className="p-3" colSpan={2}>Totals</td>
+                    <td className="text-right p-3">{formatCurrency(totalRevenue)}</td>
+                    <td className="text-right p-3">{formatCurrency(totalCosts)}</td>
+                    <td className="text-right p-3 text-green-600">{formatCurrency(totalProfit)}</td>
+                    <td className="text-right p-3">{avgProfitMargin.toFixed(1)}%</td>
+                    <td className="text-right p-3">{formatCurrency(totalCommissions)}</td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </CardContent>

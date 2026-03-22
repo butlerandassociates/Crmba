@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -9,15 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { ArrowLeft, ArrowRight, Save, Check } from "lucide-react";
 import { estimateTemplates, products, Product } from "../data/estimate-templates";
 import type { EstimateTemplate, EstimateField } from "../data/estimate-templates";
-import { mockClients } from "../data/mock-data";
+import { clientsAPI } from "../utils/api";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 
 export function EstimateBuilder() {
   const { clientId, templateId } = useParams();
   const navigate = useNavigate();
-  const client = mockClients.find((c) => c.id === clientId);
+  const [client, setClient] = useState<any>(null);
   const template = estimateTemplates.find((t) => t.id === templateId);
+
+  useEffect(() => {
+    if (clientId) clientsAPI.getById(clientId).then(setClient).catch(console.error);
+  }, [clientId]);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<Record<string, any>>({});
@@ -240,7 +244,7 @@ export function EstimateBuilder() {
             <div>
               <h1 className="text-2xl font-bold">Estimate Complete</h1>
               <p className="text-sm text-muted-foreground">
-                {client.name} - {template.name}
+                {`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()} - {template.name}
               </p>
             </div>
           </div>
@@ -391,7 +395,7 @@ export function EstimateBuilder() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">{template.name} Estimate</h1>
-            <p className="text-sm text-muted-foreground">{client.name}</p>
+            <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
           </div>
         </div>
         <Badge variant="outline">

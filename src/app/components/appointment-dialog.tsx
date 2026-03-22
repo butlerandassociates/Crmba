@@ -18,9 +18,12 @@ import {
 import { Calendar } from "./ui/calendar";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
+import { Badge } from "./ui/badge";
 import { toast } from "sonner";
-import { Calendar as CalendarIcon, Clock, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video } from "lucide-react";
 import { format } from "date-fns";
+import { useGoogleCalendar } from "../hooks/use-google-calendar";
+import { clientsAPI, appointmentsAPI } from "../utils/api";
 
 interface AppointmentDialogProps {
   open: boolean;
@@ -30,11 +33,11 @@ interface AppointmentDialogProps {
 }
 
 const APPOINTMENT_TYPES = [
-  { value: "initial", label: "Initial Appointment" },
-  { value: "followup", label: "Followup Appointment" },
+  { value: "initial",      label: "Initial Appointment" },
+  { value: "followup",     label: "Followup Appointment" },
   { value: "presentation", label: "Presentation Appointment" },
-  { value: "prewalk", label: "PreWalk Appointment" },
-  { value: "finalwalk", label: "Final Walk Appointment" },
+  { value: "prewalk",      label: "PreWalk Appointment" },
+  { value: "finalwalk",    label: "Final Walk Appointment" },
 ];
 
 export function AppointmentDialog({
@@ -43,120 +46,102 @@ export function AppointmentDialog({
   client,
   onAppointmentScheduled,
 }: AppointmentDialogProps) {
+  const { isConnected, connect, disconnect, createEvent } = useGoogleCalendar();
+
   const [appointmentType, setAppointmentType] = useState("");
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [notes, setNotes] = useState("");
-  const [ccEmails, setCcEmails] = useState("");
-  const [bccEmails, setBccEmails] = useState("");
-  const [scheduling, setScheduling] = useState(false);
+  const [selectedDate, setSelectedDate]       = useState<Date | undefined>();
+  const [startTime, setStartTime]             = useState("");
+  const [endTime, setEndTime]                 = useState("");
+  const [notes, setNotes]                     = useState("");
+  const [ccEmails, setCcEmails]               = useState("");
+  const [scheduling, setScheduling]           = useState(false);
+
+  const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || client?.company || "Client";
+  const clientAddress = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
 
   const handleSchedule = async () => {
     if (!appointmentType || !selectedDate || !startTime || !endTime) {
       toast.error("Please fill in all required fields");
       return;
     }
+    if (!isConnected) {
+      toast.error("Please connect your Google Calendar first");
+      return;
+    }
 
     try {
       setScheduling(true);
 
-      // Get appointment type label
-      const typeLabel = APPOINTMENT_TYPES.find(t => t.value === appointmentType)?.label || appointmentType;
-      
-      // Combine date and time
-      const [startHour, startMinute] = startTime.split(':');
-      const [endHour, endMinute] = endTime.split(':');
-      
-      const startDateTime = new Date(selectedDate);
-      startDateTime.setHours(parseInt(startHour), parseInt(startMinute), 0);
-      
-      const endDateTime = new Date(selectedDate);
-      endDateTime.setHours(parseInt(endHour), parseInt(endMinute), 0);
+      const typeLabel = APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.label ?? appointmentType;
 
-      // Create Google Calendar event
-      const eventTitle = `${typeLabel} - ${client.name}`;
-      
-      // Parse CC and BCC emails
-      const ccEmailsList = ccEmails.split(',').map(email => email.trim()).filter(email => email);
-      const bccEmailsList = bccEmails.split(',').map(email => email.trim()).filter(email => email);
-      
-      // Build attendees list
-      const attendees = [
-        {
-          email: client.email,
-          displayName: client.name,
-          responseStatus: "needsAction",
-        },
-      ];
-      
-      // Add CC emails (visible to all)
-      ccEmailsList.forEach(email => {
-        attendees.push({
-          email: email,
-          displayName: email,
-          responseStatus: "needsAction",
-        });
-      });
-      
-      // Add BCC emails (hidden from other attendees - note: Google Calendar doesn't truly support BCC,
-      // but we can add them as attendees and handle visibility server-side)
-      bccEmailsList.forEach(email => {
-        attendees.push({
-          email: email,
-          displayName: email,
-          responseStatus: "needsAction",
-        });
-      });
-      
-      const googleCalendarEvent = {
-        summary: eventTitle,
-        location: client.address,
-        description: notes || `${typeLabel} with ${client.name}`,
-        start: {
-          dateTime: startDateTime.toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        },
-        end: {
-          dateTime: endDateTime.toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        },
-        attendees: attendees,
-        reminders: {
-          useDefault: false,
-          overrides: [
-            { method: "email", minutes: 24 * 60 }, // 1 day before
-            { method: "popup", minutes: 60 }, // 1 hour before
-          ],
-        },
-      };
+      const [sh, sm] = startTime.split(":").map(Number);
+      const [eh, em] = endTime.split(":").map(Number);
 
-      // Call Google Calendar API
-      const response = await fetch('/api/google-calendar/create-event', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event: googleCalendarEvent,
-          clientId: client.id,
-          appointmentType,
-          startDateTime: startDateTime.toISOString(),
-          endDateTime: endDateTime.toISOString(),
-          ccEmails: ccEmailsList,
-          bccEmails: bccEmailsList,
-        }),
-      });
+      const startDT = new Date(selectedDate);
+      startDT.setHours(sh, sm, 0, 0);
+      const endDT = new Date(selectedDate);
+      endDT.setHours(eh, em, 0, 0);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create calendar event');
+      if (endDT <= startDT) {
+        toast.error("End time must be after start time");
+        return;
       }
 
-      const result = await response.json();
+      const ccList = ccEmails.split(",").map((e) => e.trim()).filter(Boolean);
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-      toast.success(`Appointment scheduled! Calendar invite sent to ${client.email}`);
-      
+      const createdEvent = await createEvent({
+        title: `${typeLabel} – ${clientName}`,
+        startDateTime: startDT.toISOString(),
+        endDateTime:   endDT.toISOString(),
+        location: clientAddress || undefined,
+        description: notes || `${typeLabel} with ${clientName}`,
+        attendeeEmail: client?.email || undefined,
+        attendeeName:  clientName,
+        ccEmails: ccList,
+        timeZone,
+      });
+
+      // Save to appointments table
+      await appointmentsAPI.create({
+        client_id:                client.id,
+        title:                    `${typeLabel} – ${clientName}`,
+        appointment_type:         appointmentType,
+        appointment_date:         startDT.toISOString().split("T")[0], // date part
+        appointment_time:         startTime,                            // "HH:MM"
+        end_time:                 endTime,                              // "HH:MM"
+        notes:                    notes || null,
+        google_calendar_event_id: createdEvent.id,
+        google_meet_link:         createdEvent.hangoutLink ?? null,
+        google_event_html_link:   createdEvent.htmlLink ?? null,
+        email_notification_sent:  !!client?.email,
+      });
+
+      // Update client record
+      await clientsAPI.update(client.id, {
+        appointment_scheduled: true,
+        appointment_date:      startDT.toISOString(),
+        appointment_end_date:  endDT.toISOString(),
+      });
+
+      const meetLink = createdEvent.hangoutLink;
+      toast.success(
+        `Appointment scheduled!${client?.email ? ` Invite sent to ${client.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
+        { duration: 6000 }
+      );
+
+      if (meetLink) {
+        toast.info(
+          <span>
+            Meet link:{" "}
+            <a href={meetLink} target="_blank" rel="noopener noreferrer" className="underline font-medium">
+              {meetLink}
+            </a>
+          </span>,
+          { duration: 10000 }
+        );
+      }
+
       // Reset form
       setAppointmentType("");
       setSelectedDate(undefined);
@@ -164,8 +149,7 @@ export function AppointmentDialog({
       setEndTime("");
       setNotes("");
       setCcEmails("");
-      setBccEmails("");
-      
+
       onOpenChange(false);
       onAppointmentScheduled?.();
     } catch (error: any) {
@@ -182,16 +166,46 @@ export function AppointmentDialog({
         <DialogHeader>
           <DialogTitle>Schedule Appointment</DialogTitle>
           <DialogDescription>
-            Schedule an appointment with {client?.name} and send a Google Calendar invite
+            Schedule an appointment with {clientName} — creates a Google Calendar event with Google Meet link and emails the client automatically.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="space-y-5 py-4">
+          {/* Google Calendar Connection */}
+          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/40">
+            <div className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Google Calendar</span>
+              {isConnected ? (
+                <Badge className="bg-green-500 text-white text-xs">Connected</Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs">Not connected</Badge>
+              )}
+            </div>
+            {isConnected ? (
+              <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
+                <LogOut className="h-3 w-3 mr-1" />
+                Disconnect
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => connect()}>
+                <CalendarIcon className="h-3 w-3 mr-1" />
+                Connect Google Calendar
+              </Button>
+            )}
+          </div>
+
+          {!isConnected && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+              Connect your Google Calendar to automatically create the event and send the invite to the client.
+            </p>
+          )}
+
           {/* Appointment Type */}
           <div className="space-y-2">
-            <Label htmlFor="appointment-type">Appointment Type *</Label>
+            <Label>Appointment Type *</Label>
             <Select value={appointmentType} onValueChange={setAppointmentType}>
-              <SelectTrigger id="appointment-type">
+              <SelectTrigger>
                 <SelectValue placeholder="Select appointment type" />
               </SelectTrigger>
               <SelectContent>
@@ -213,7 +227,6 @@ export function AppointmentDialog({
                 selected={selectedDate}
                 onSelect={setSelectedDate}
                 disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                className="rounded-md"
               />
             </div>
             {selectedDate && (
@@ -224,39 +237,28 @@ export function AppointmentDialog({
             )}
           </div>
 
-          {/* Time Selection */}
+          {/* Time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="start-time">
+              <Label>
                 <Clock className="h-3 w-3 inline mr-1" />
                 Start Time *
               </Label>
-              <Input
-                id="start-time"
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
+              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="end-time">
+              <Label>
                 <Clock className="h-3 w-3 inline mr-1" />
                 End Time *
               </Label>
-              <Input
-                id="end-time"
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-              />
+              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
             </div>
           </div>
 
           {/* Notes */}
           <div className="space-y-2">
-            <Label htmlFor="appointment-notes">Notes (Optional)</Label>
+            <Label>Notes (Optional)</Label>
             <Textarea
-              id="appointment-notes"
               placeholder="Add any additional notes or agenda items..."
               rows={3}
               value={notes}
@@ -266,59 +268,33 @@ export function AppointmentDialog({
 
           {/* CC Emails */}
           <div className="space-y-2">
-            <Label htmlFor="cc-emails">CC Emails (Optional)</Label>
+            <Label>CC Emails (Optional)</Label>
             <Input
-              id="cc-emails"
-              type="text"
               value={ccEmails}
               onChange={(e) => setCcEmails(e.target.value)}
               placeholder="email1@example.com, email2@example.com"
             />
-            <p className="text-xs text-muted-foreground">
-              Add additional attendees (visible to all). Separate multiple emails with commas.
-            </p>
+            <p className="text-xs text-muted-foreground">Additional attendees — separate multiple with commas</p>
           </div>
 
-          {/* BCC Emails */}
-          <div className="space-y-2">
-            <Label htmlFor="bcc-emails">BCC Emails (Optional)</Label>
-            <Input
-              id="bcc-emails"
-              type="text"
-              value={bccEmails}
-              onChange={(e) => setBccEmails(e.target.value)}
-              placeholder="email1@example.com, email2@example.com"
-            />
-            <p className="text-xs text-muted-foreground">
-              Add hidden attendees (not visible to other guests). Separate multiple emails with commas.
-            </p>
-          </div>
-
-          {/* Client Info Preview */}
-          <div className="bg-muted/50 p-4 rounded-lg space-y-2">
-            <h4 className="text-sm font-medium">Appointment Details</h4>
-            <div className="text-sm space-y-1">
-              <p><span className="text-muted-foreground">Client:</span> {client?.name}</p>
-              <p><span className="text-muted-foreground">Email:</span> {client?.email}</p>
-              <p><span className="text-muted-foreground">Location:</span> {client?.address}</p>
-              {ccEmails && (
-                <p><span className="text-muted-foreground">CC:</span> {ccEmails}</p>
+          {/* Preview */}
+          {appointmentType && selectedDate && startTime && endTime && (
+            <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-sm">
+              <p className="font-medium flex items-center gap-2">
+                <Video className="h-4 w-4 text-blue-500" />
+                {APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.label} — {clientName}
+              </p>
+              <p className="text-muted-foreground">{format(selectedDate, "EEEE, MMMM d, yyyy")} · {startTime} – {endTime}</p>
+              {clientAddress && <p className="text-muted-foreground">{clientAddress}</p>}
+              {client?.email && (
+                <p className="text-muted-foreground flex items-center gap-1">
+                  <LinkIcon className="h-3 w-3" />
+                  Invite will be sent to {client.email}
+                </p>
               )}
-              {bccEmails && (
-                <p><span className="text-muted-foreground">BCC:</span> {bccEmails}</p>
-              )}
-              {appointmentType && selectedDate && startTime && (
-                <>
-                  <p className="pt-2 font-medium">
-                    {APPOINTMENT_TYPES.find(t => t.value === appointmentType)?.label} - {client?.name}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {format(selectedDate, "EEEE, MMMM d, yyyy")} at {startTime}
-                  </p>
-                </>
-              )}
+              <p className="text-xs text-blue-600">Google Meet link will be created automatically</p>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2">
@@ -327,7 +303,7 @@ export function AppointmentDialog({
           </Button>
           <Button
             onClick={handleSchedule}
-            disabled={scheduling || !appointmentType || !selectedDate || !startTime || !endTime}
+            disabled={scheduling || !appointmentType || !selectedDate || !startTime || !endTime || !isConnected}
           >
             {scheduling ? (
               <>

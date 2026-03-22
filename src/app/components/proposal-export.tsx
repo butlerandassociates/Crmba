@@ -1,8 +1,6 @@
-import { Proposal, Client } from "../data/mock-data";
-
 interface ProposalExportProps {
-  proposal: Proposal;
-  client: Client;
+  proposal: any;
+  client: any;
 }
 
 export function ProposalExport({ proposal, client }: ProposalExportProps) {
@@ -57,26 +55,21 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-gray-500 text-xs uppercase font-medium mb-1">Prepared For</p>
-            <p className="font-semibold">{client.name}</p>
-            <p className="text-gray-600">{client.company}</p>
-            <p className="text-gray-600">{client.email}</p>
-            <p className="text-gray-600">{client.phone}</p>
-            <p className="text-gray-600 mt-1">{client.address}</p>
+            <p className="font-semibold">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
+            <p className="text-gray-600">{client?.email}</p>
+            <p className="text-gray-600">{client?.phone}</p>
+            <p className="text-gray-600 mt-1">{[client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ")}</p>
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase font-medium mb-1">Proposal Details</p>
             <div className="space-y-1">
               <div className="flex justify-between">
                 <span className="text-gray-600">Date:</span>
-                <span className="font-medium">{formatDate(proposal.createdAt)}</span>
+                <span className="font-medium">{proposal?.created_at ? formatDate(proposal.created_at) : "—"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Valid Until:</span>
-                <span className="font-medium">{formatDate(proposal.validUntil)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Prepared By:</span>
-                <span className="font-medium">{proposal.createdBy}</span>
+                <span className="text-gray-600">Estimate #:</span>
+                <span className="font-medium">{proposal?.estimate_number ?? "—"}</span>
               </div>
             </div>
           </div>
@@ -86,9 +79,9 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
       {/* Project Overview */}
       <div>
         <h3 className="text-xl font-bold border-b-2 border-gray-200 pb-2 mb-3">
-          {proposal.title}
+          {proposal?.title}
         </h3>
-        <p className="text-gray-700 leading-relaxed">{proposal.description}</p>
+        <p className="text-gray-700 leading-relaxed">{proposal?.description}</p>
       </div>
 
       {/* Scope of Work */}
@@ -108,14 +101,14 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
             </tr>
           </thead>
           <tbody>
-            {proposal.lineItems.map((item, index) => (
+            {(proposal?.line_items ?? []).map((item: any, index: number) => (
               <tr key={item.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                <td className="p-3 text-sm">{item.productName}</td>
-                <td className="p-3 text-sm text-center">{item.quantity.toLocaleString()}</td>
+                <td className="p-3 text-sm">{item.name}</td>
+                <td className="p-3 text-sm text-center">{Number(item.quantity).toLocaleString()}</td>
                 <td className="p-3 text-sm text-center">{item.unit}</td>
-                <td className="p-3 text-sm text-right">{formatCurrency(item.pricePerUnit)}</td>
+                <td className="p-3 text-sm text-right">{formatCurrency(item.client_price)}</td>
                 <td className="p-3 text-sm text-right font-semibold">
-                  {formatCurrency(item.totalPrice)}
+                  {formatCurrency(item.quantity * item.client_price)}
                 </td>
               </tr>
             ))}
@@ -128,16 +121,16 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
         <div className="w-80 space-y-2">
           <div className="flex justify-between py-2 border-b">
             <span className="text-gray-600">Subtotal</span>
-            <span className="font-semibold">{formatCurrency(proposal.subtotal)}</span>
+            <span className="font-semibold">{formatCurrency(proposal?.subtotal ?? 0)}</span>
           </div>
           <div className="flex justify-between py-2 border-b">
-            <span className="text-gray-600">Tax</span>
-            <span className="font-semibold">{formatCurrency(proposal.tax)}</span>
+            <span className="text-gray-600">{proposal?.tax_label ?? "Tax"}</span>
+            <span className="font-semibold">{formatCurrency(proposal?.tax_amount ?? 0)}</span>
           </div>
           <div className="flex justify-between py-3 border-t-2 border-primary">
             <span className="text-lg font-bold">Total Investment</span>
             <span className="text-xl font-bold text-primary">
-              {formatCurrency(proposal.total)}
+              {formatCurrency(proposal?.total ?? 0)}
             </span>
           </div>
         </div>

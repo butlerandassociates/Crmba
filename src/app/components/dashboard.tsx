@@ -1,8 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Users, FolderKanban, DollarSign, TrendingUp, Workflow, Cloud, CloudRain, Sun, Eye, Award, Loader2, CalendarIcon, ChevronDown } from "lucide-react";
+import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown } from "lucide-react";
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -10,12 +8,7 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
-import { Link } from "react-router";
-import { Badge } from "./ui/badge";
 import { useState, useEffect } from "react";
 import {
   Popover,
@@ -25,14 +18,14 @@ import {
 import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
 import { Label } from "./ui/label";
-import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
-import { format } from "date-fns";
+import { clientsAPI, projectsAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 
 export function Dashboard() {
   const [weather, setWeather] = useState({ temp: 72, condition: 'Sunny' });
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<'month' | 'quarter' | 'year' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
@@ -42,26 +35,45 @@ export function Dashboard() {
   
   useEffect(() => {
     fetchData();
-    
-    // Simulated weather - in production this would call a weather API
-    const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy'];
-    const temps = [68, 72, 75, 80];
-    const randomCondition = conditions[Math.floor(Math.random() * conditions.length)];
-    const randomTemp = temps[Math.floor(Math.random() * temps.length)];
-    setWeather({ temp: randomTemp, condition: randomCondition });
+    fetchWeather();
   }, []);
+
+  const fetchWeather = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}&longitude=${coords.longitude}&current=temperature_2m,weathercode&temperature_unit=fahrenheit`
+        );
+        const json = await res.json();
+        const temp = Math.round(json.current?.temperature_2m ?? 72);
+        const code = json.current?.weathercode ?? 0;
+        let condition = "Sunny";
+        if (code === 0) condition = "Sunny";
+        else if (code <= 3) condition = "Partly Cloudy";
+        else if (code <= 48) condition = "Cloudy";
+        else if (code <= 67 || (code >= 80 && code <= 82)) condition = "Rainy";
+        else if (code <= 77) condition = "Snowy";
+        else condition = "Stormy";
+        setWeather({ temp, condition });
+      } catch {
+        // keep default
+      }
+    }, () => { /* denied — keep default */ });
+  };
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [clientsData, projectsData, usersData] = await Promise.all([
+      const [clientsData, projectsData] = await Promise.all([
         clientsAPI.getAll(),
         projectsAPI.getAll(),
-        usersAPI.getAll(),
       ]);
       setClients(clientsData);
       setProjects(projectsData);
-      setUsers(usersData);
+      // Fetch revenue goal from company_settings
+      const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").single();
+      if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
     } finally {
@@ -88,8 +100,8 @@ export function Dashboard() {
     }
   };
 
-  const activeClients = clients.filter((c) => c.status === "active").length;
-  const activeProjects = projects.filter((p) => p.status === "in_progress" || p.status === "planning").length;
+  const activeClients = clients.filter((c) => c.pipeline_stage?.name?.toLowerCase() !== "completed").length;
+  const activeProjects = projects.filter((p) => p.status === "active").length;
   const totalRevenue = projects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
   const totalProfit = projects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const avgProfitMargin = projects.length > 0
@@ -98,61 +110,46 @@ export function Dashboard() {
 
   // Lead stats
   const newLeadsThisWeek = clients.filter((c) => {
-    if (!c.createdAt) return false;
-    const createdDate = new Date(c.createdAt);
+    if (!c.created_at) return false;
+    const createdDate = new Date(c.created_at);
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     return createdDate >= weekAgo;
   }).length;
 
-  const appointmentsScheduled = clients.filter((c) => c.appointmentScheduled && !c.appointmentMet).length;
-  const appointmentsMet = clients.filter((c) => c.appointmentMet).length;
+  const appointmentsScheduled = clients.filter((c) => c.appointment_scheduled && !c.appointment_met).length;
+  const appointmentsMet = clients.filter((c) => c.appointment_met).length;
 
-  // Lead source breakdown
+  // Lead source breakdown — use joined lead_source.name
   const leadsBySource = clients.reduce((acc, client) => {
-    if (client.leadSource) {
-      acc[client.leadSource] = (acc[client.leadSource] || 0) + 1;
-    }
+    const src = client.lead_source?.name ?? client.leadSource;
+    if (src) acc[src] = (acc[src] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
-  const projectsByStatus = [
-    {
-      name: "Planning",
-      value: projects.filter((p) => p.status === "planning").length,
-      color: "#3b82f6",
-    },
-    {
-      name: "In Progress",
-      value: projects.filter((p) => p.status === "in_progress").length,
-      color: "#10b981",
-    },
-    {
-      name: "Completed",
-      value: projects.filter((p) => p.status === "completed").length,
-      color: "#8b5cf6",
-    },
-    {
-      name: "On Hold",
-      value: projects.filter((p) => p.status === "on_hold").length,
-      color: "#f59e0b",
-    },
-  ];
+  // Monthly revenue chart — group projects by start_date month (last 6 months)
+  const monthlyRevenueChart = (() => {
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      const month = d.toLocaleString("en-US", { month: "short" });
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const monthProjects = projects.filter((p) => {
+        const date = p.start_date ? new Date(p.start_date) : null;
+        return date && date.getFullYear() === y && date.getMonth() === m;
+      });
+      return {
+        id: `${y}-${m}`,
+        month,
+        revenue: monthProjects.reduce((s, p) => s + (p.totalValue || 0), 0),
+        profit:  monthProjects.reduce((s, p) => s + (p.grossProfit || 0), 0),
+      };
+    });
+  })();
 
-  const monthlyRevenueChart = [
-    { id: "jan", month: "Jan", revenue: 120000, profit: 32000 },
-    { id: "feb", month: "Feb", revenue: 185000, profit: 51000 },
-    { id: "mar", month: "Mar", revenue: 95000, profit: 26000 },
-    { id: "apr", month: "Apr", revenue: 210000, profit: 58000 },
-    { id: "may", month: "May", revenue: 165000, profit: 45000 },
-    { id: "jun", month: "Jun", revenue: 145000, profit: 39000 },
-  ];
+  const MONTHLY_REVENUE_GOAL = revenueGoal;
 
-  const recentProjects = projects.slice(0, 5);
-  
-  // Monthly Revenue Goal Tracking
-  const MONTHLY_REVENUE_GOAL = 300000; // $300,000.00 - TODO: Make editable in admin portal
-  
   // Calculate date range based on selected type
   const getDateRange = () => {
     const now = new Date();
@@ -190,18 +187,14 @@ export function Dashboard() {
   
   const { startDate, endDate } = getDateRange();
   
-  // Calculate revenue based on selected date range
-  const periodRevenue = clients
-    .filter((c) => {
-      if (c.status !== "sold") return false;
-      
-      if (c.contractSignedDate) {
-        const signedDate = new Date(c.contractSignedDate);
-        return signedDate >= startDate && signedDate <= endDate;
-      }
-      return false;
+  // Calculate revenue based on selected date range (using project start_date)
+  const periodRevenue = projects
+    .filter((p) => {
+      if (!p.start_date) return false;
+      const d = new Date(p.start_date);
+      return d >= startDate && d <= endDate;
     })
-    .reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
+    .reduce((sum, p) => sum + (p.totalValue || 0), 0);
   
   const revenueProgress = (periodRevenue / MONTHLY_REVENUE_GOAL) * 100;
   const remainingRevenue = MONTHLY_REVENUE_GOAL - periodRevenue;
@@ -229,37 +222,13 @@ export function Dashboard() {
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
   
-  const currentMonthRevenue = clients
-    .filter((c) => {
-      // Only count clients with "sold" status
-      if (c.status !== "sold") return false;
-      
-      // Check if contract was signed this month
-      if (c.contractSignedDate) {
-        const signedDate = new Date(c.contractSignedDate);
-        return (
-          signedDate.getMonth() === currentMonth &&
-          signedDate.getFullYear() === currentYear
-        );
-      }
-      return false;
-    })
-    .reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
+  const currentMonthProjects = projects.filter((p) => {
+    if (!p.start_date) return false;
+    const d = new Date(p.start_date);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "in_progress":
-        return "bg-green-500";
-      case "planning":
-        return "bg-blue-500";
-      case "completed":
-        return "bg-purple-500";
-      case "on_hold":
-        return "bg-yellow-500";
-      default:
-        return "bg-gray-500";
-    }
-  };
+  const currentMonthRevenue = currentMonthProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -628,49 +597,14 @@ export function Dashboard() {
             {/* Quick Stats */}
             <div className="border-t pt-3 grid grid-cols-2 gap-3 text-xs">
               <div>
-                <span className="text-muted-foreground">Contracts Signed:</span>
-                <span className="ml-2 font-semibold">
-                  {clients.filter((c) => {
-                    if (c.status !== "sold") return false;
-                    if (c.contractSignedDate) {
-                      const signedDate = new Date(c.contractSignedDate);
-                      return (
-                        signedDate.getMonth() === currentMonth &&
-                        signedDate.getFullYear() === currentYear
-                      );
-                    }
-                    return false;
-                  }).length}
-                </span>
+                <span className="text-muted-foreground">Projects This Month:</span>
+                <span className="ml-2 font-semibold">{currentMonthProjects.length}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Avg Contract:</span>
                 <span className="ml-2 font-semibold">
-                  {clients.filter((c) => {
-                    if (c.status !== "sold") return false;
-                    if (c.contractSignedDate) {
-                      const signedDate = new Date(c.contractSignedDate);
-                      return (
-                        signedDate.getMonth() === currentMonth &&
-                        signedDate.getFullYear() === currentYear
-                      );
-                    }
-                    return false;
-                  }).length > 0
-                    ? formatCurrency(
-                        currentMonthRevenue /
-                          clients.filter((c) => {
-                            if (c.status !== "sold") return false;
-                            if (c.contractSignedDate) {
-                              const signedDate = new Date(c.contractSignedDate);
-                              return (
-                                signedDate.getMonth() === currentMonth &&
-                                signedDate.getFullYear() === currentYear
-                              );
-                            }
-                            return false;
-                          }).length
-                      )
+                  {currentMonthProjects.length > 0
+                    ? formatCurrency(currentMonthRevenue / currentMonthProjects.length)
                     : "$0"}
                 </span>
               </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { Button } from "./ui/button";
@@ -19,29 +19,17 @@ export function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  // After normal login, navigate to dashboard
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session && mode === "login") {
-        navigate("/", { replace: true });
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [mode]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    if (!email.trim() || !password) { setError("Email and password are required."); return; }
+    if (!email.trim() || !password) { toast.error("Email and password are required."); return; }
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
-      navigate("/", { replace: true });
+      navigate("/", { replace: true, state: { loginSuccess: true } });
     } catch (err: any) {
-      setError(err.message || "Invalid email or password.");
+      toast.error(err.message || "Invalid email or password.");
     } finally {
       setLoading(false);
     }
@@ -49,19 +37,16 @@ export function LoginPage() {
 
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
+    if (password.length < 8) { toast.error("Password must be at least 8 characters."); return; }
+    if (password !== confirmPassword) { toast.error("Passwords do not match."); return; }
     setLoading(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      toast.success("Password set successfully! Welcome to the team.");
-      // Clear the hash so it doesn't trigger again
       window.history.replaceState(null, "", window.location.pathname);
-      navigate("/", { replace: true });
+      navigate("/", { replace: true, state: { passwordSet: true } });
     } catch (err: any) {
-      setError(err.message || "Failed to set password.");
+      toast.error(err.message || "Failed to set password.");
     } finally {
       setLoading(false);
     }
@@ -70,7 +55,6 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md space-y-6">
-        {/* Brand */}
         <div className="text-center">
           <h1 className="text-2xl font-bold text-primary">Butler & Associates</h1>
           <p className="text-sm text-muted-foreground mt-1">Construction, Inc. — CRM Portal</p>
@@ -97,7 +81,7 @@ export function LoginPage() {
                     type="email"
                     placeholder="you@example.com"
                     value={email}
-                    onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                    onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
                     required
                   />
@@ -114,7 +98,7 @@ export function LoginPage() {
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
                     value={password}
-                    onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                    onChange={(e) => setPassword(e.target.value)}
                     autoComplete={mode === "set-password" ? "new-password" : "current-password"}
                     required
                   />
@@ -139,15 +123,11 @@ export function LoginPage() {
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
                     value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     autoComplete="new-password"
                     required
                   />
                 </div>
-              )}
-
-              {error && (
-                <p className="text-sm text-red-600">{error}</p>
               )}
 
               <Button type="submit" className="w-full" disabled={loading}>

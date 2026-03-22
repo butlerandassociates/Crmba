@@ -18,8 +18,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Loader2 } from "lucide-react";
-import { projectsAPI, clientsAPI } from "../utils/api";
-import { supabase } from "@/lib/supabase";
+import { projectsAPI, clientsAPI, usersAPI } from "../utils/api";
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -35,7 +34,9 @@ export function EditProjectDialog({
   onSaved,
 }: EditProjectDialogProps) {
   const [clients, setClients] = useState<any[]>([]);
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const [projectManagers, setProjectManagers] = useState<any[]>([]);
+  const [foremen, setForemen] = useState<any[]>([]);
+  const [salesReps, setSalesReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,12 +72,9 @@ export function EditProjectDialog({
 
       clientsAPI.getAll().then(setClients).catch(console.error);
 
-      supabase
-        .from("profiles")
-        .select("id, first_name, last_name, role")
-        .eq("is_active", true)
-        .order("first_name")
-        .then(({ data }) => setProfiles(data ?? []));
+      usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
+      usersAPI.getByRole("foreman").then(setForemen).catch(console.error);
+      usersAPI.getByRole("sales_rep").then(setSalesReps).catch(console.error);
     }
   }, [open, project]);
 
@@ -193,7 +191,7 @@ export function EditProjectDialog({
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">— None —</SelectItem>
-                  {profiles.map((p) => (
+                  {projectManagers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                   ))}
                 </SelectContent>
@@ -206,7 +204,7 @@ export function EditProjectDialog({
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">— None —</SelectItem>
-                  {profiles.map((p) => (
+                  {foremen.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                   ))}
                 </SelectContent>
@@ -219,7 +217,7 @@ export function EditProjectDialog({
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">— None —</SelectItem>
-                  {profiles.map((p) => (
+                  {salesReps.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
                   ))}
                 </SelectContent>

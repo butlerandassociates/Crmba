@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp } from "lucide-react";
-import { mockClients } from "../data/mock-data";
+import { clientsAPI } from "../utils/api";
 import { products } from "../data/estimate-templates";
 import { ConcreteWizard } from "./wizards/concrete-wizard";
 
@@ -57,7 +57,11 @@ const COMPLEX_CATEGORIES = ["Concrete", "Outdoor Kitchen", "Pergola/Pavilion"];
 
 export function ProposalBuilder() {
   const { clientId } = useParams();
-  const client = mockClients.find((c) => c.id === clientId);
+  const [client, setClient] = useState<any>(null);
+
+  useEffect(() => {
+    if (clientId) clientsAPI.getById(clientId).then(setClient).catch(console.error);
+  }, [clientId]);
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");
@@ -200,7 +204,7 @@ export function ProposalBuilder() {
             </Link>
             <div>
               <h1 className="text-xl font-bold">New Proposal</h1>
-              <p className="text-sm text-muted-foreground">{client.name}</p>
+              <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
             </div>
           </div>
           <Button>

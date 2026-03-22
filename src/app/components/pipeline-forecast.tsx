@@ -2,31 +2,40 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { 
-  TrendingUp, 
-  Target, 
-  DollarSign, 
-  CheckCircle2, 
-  Activity, 
-  Calendar, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import {
+  TrendingUp,
+  Target,
+  DollarSign,
+  CheckCircle2,
+  Activity,
+  Calendar,
   ExternalLink,
   Users,
   Briefcase,
   ListTodo,
-  AlertCircle,
   Clock,
   Loader2,
   Building2,
   Award,
-  Bell
+  Bell,
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
+
+const clientDisplayName = (c: any) =>
+  `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || c.company || c.email || "—";
 
 export function PipelineForecast() {
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedStage, setSelectedStage] = useState<{ label: string; color: string; list: any[] } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -58,53 +67,36 @@ export function PipelineForecast() {
     }).format(value);
   };
 
-  // Calculate metrics
-  const prospectClients = clients.filter((c) => c.status === "prospect");
-  const soldClients = clients.filter((c) => c.status === "sold");
-  const activeClients = clients.filter((c) => c.status === "active");
-  const completedClients = clients.filter((c) => c.status === "completed");
+  // Bucket by pipeline_stage.name (source of truth — not clients.status)
+  const stageName = (c: any) => c.pipeline_stage?.name?.toLowerCase() ?? "";
+  const prospectClients  = clients.filter((c) => ["new", "pursuing"].includes(stageName(c)));
+  const soldClients      = clients.filter((c) => stageName(c) === "closing");
+  const activeClients    = clients.filter((c) => stageName(c) === "active");
+  const completedClients = clients.filter((c) => stageName(c) === "completed");
 
-  const prospectValue = prospectClients.reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
-  const soldValue = soldClients.reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
-  const activeValue = activeClients.reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
-  const completedValue = completedClients.reduce((sum, c) => sum + (c.totalRevenue || 0), 0);
+  // Revenue per bucket — project_total computed by clientsAPI.getAll()
+  const prospectValue  = prospectClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const soldValue      = soldClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const activeValue    = activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const completedValue = completedClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
 
-  // Calculate weighted forecast (probability-adjusted)
+  // Weighted forecast (65% probability for prospects)
   const weightedForecast = prospectClients.reduce((sum, c) => {
-    const probability = c.probability || 65;
-    return sum + ((c.totalRevenue || 0) * (probability / 100));
+    return sum + ((c.project_total ?? 0) * 0.65);
   }, 0);
 
-  // Company Stats
-  const totalRevenue = soldValue + activeValue + completedValue;
-  const totalProjects = projects.length;
-  const activeProjects = projects.filter(p => p.status === 'in_progress' || p.status === 'planning').length;
+  // Company Stats — from projects (camelCased by mapProject)
+  const totalRevenue    = projects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
+  const totalProjects   = projects.length;
+  const activeProjects  = projects.filter((p) => p.status === "active").length;
   const totalTeamMembers = users.length;
 
-  // Commission Calculations
-  const salesReps = users.filter(u => u.role === 'sales');
-  
-  const pendingCommissions = soldClients.reduce((sum, c) => {
-    const salesCommission = (c.totalRevenue || 0) * 0.05; // 5% for sales
-    const pmCommission = (c.totalRevenue || 0) * 0.03; // 3% for PM
-    return sum + salesCommission + pmCommission;
-  }, 0);
+  // Commission Calculations — from projects
+  const salesReps = users.filter((u) => u.role === "sales_rep");
 
-  // Activity data
-  const upcomingCollections = clients.filter(c => {
-    if (!c.nextPaymentDate) return false;
-    const paymentDate = new Date(c.nextPaymentDate);
-    const now = new Date();
-    const daysUntil = Math.ceil((paymentDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return daysUntil >= 0 && daysUntil <= 7;
-  });
-
-  const overduePayments = clients.filter(c => {
-    if (!c.nextPaymentDate) return false;
-    const paymentDate = new Date(c.nextPaymentDate);
-    const now = new Date();
-    return paymentDate < now;
-  });
+  const pendingCommissions = projects
+    .filter((p) => ["sold", "active"].includes(p.status))
+    .reduce((sum, p) => sum + (p.commission ?? 0), 0);
 
   if (loading) {
     return (
@@ -159,7 +151,7 @@ export function PipelineForecast() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{formatCurrency(soldValue + activeValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Sold + Active</p>
+            <p className="text-xs text-muted-foreground mt-1">Closing + Active</p>
           </CardContent>
         </Card>
 
@@ -177,221 +169,81 @@ export function PipelineForecast() {
         </Card>
       </div>
 
-      {/* Pipeline Stages in Columns */}
+      {/* Pipeline Stages in Columns — click to open client list */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Prospect Stage */}
-        <Card className="flex flex-col">
-          <CardHeader className="bg-blue-500 text-white pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Prospect</CardTitle>
-              <Badge variant="secondary" className="bg-white text-gray-900">
-                {prospectClients.length}
-              </Badge>
-            </div>
-            <div className="text-xl font-bold mt-1">{formatCurrency(prospectValue)}</div>
-          </CardHeader>
-          <CardContent className="p-0 flex-1">
-            <div className="divide-y max-h-[400px] overflow-y-auto">
-              {prospectClients.length > 0 ? (
-                prospectClients.map((client) => (
-                  <Link
-                    key={client.id}
-                    to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-sm">{client.name}</h4>
-                            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-primary" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">{client.company || 'No company'}</p>
-                        </div>
-                      </div>
-                      {client.totalRevenue > 0 && (
-                        <>
-                          <div className="text-sm font-semibold text-green-600">
-                            {formatCurrency(client.totalRevenue)}
-                          </div>
-                          {client.probability && (
-                            <>
-                              <div className="w-full bg-gray-200 rounded-full h-1.5">
-                                <div
-                                  className="bg-blue-500 h-1.5 rounded-full transition-all"
-                                  style={{ width: `${client.probability}%` }}
-                                />
-                              </div>
-                              <div className="text-xs text-muted-foreground">{client.probability}%</div>
-                            </>
-                          )}
-                        </>
-                      )}
-                      {client.estimatedCloseDate && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          <span>Est: {new Date(client.estimatedCloseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Sold Stage */}
-        <Card className="flex flex-col">
-          <CardHeader className="bg-orange-500 text-white pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Sold</CardTitle>
-              <Badge variant="secondary" className="bg-white text-gray-900">
-                {soldClients.length}
-              </Badge>
-            </div>
-            <div className="text-xl font-bold mt-1">{formatCurrency(soldValue)}</div>
-          </CardHeader>
-          <CardContent className="p-0 flex-1">
-            <div className="divide-y max-h-[400px] overflow-y-auto">
-              {soldClients.length > 0 ? (
-                soldClients.map((client) => (
-                  <Link
-                    key={client.id}
-                    to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-sm">{client.name}</h4>
-                            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-primary" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">{client.company || 'No company'}</p>
-                        </div>
-                      </div>
-                      {client.totalRevenue > 0 && (
-                        <div className="text-sm font-semibold text-green-600">
-                          {formatCurrency(client.totalRevenue)}
-                        </div>
-                      )}
-                      {client.contractSignedDate && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          <span>Signed: {new Date(client.contractSignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Active Stage */}
-        <Card className="flex flex-col">
-          <CardHeader className="bg-green-500 text-white pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Active</CardTitle>
-              <Badge variant="secondary" className="bg-white text-gray-900">
-                {activeClients.length}
-              </Badge>
-            </div>
-            <div className="text-xl font-bold mt-1">{formatCurrency(activeValue)}</div>
-          </CardHeader>
-          <CardContent className="p-0 flex-1">
-            <div className="divide-y max-h-[400px] overflow-y-auto">
-              {activeClients.length > 0 ? (
-                activeClients.map((client) => (
-                  <Link
-                    key={client.id}
-                    to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-sm">{client.name}</h4>
-                            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-primary" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">{client.company || 'No company'}</p>
-                        </div>
-                      </div>
-                      {client.totalRevenue > 0 && (
-                        <div className="text-sm font-semibold text-green-600">
-                          {formatCurrency(client.totalRevenue)}
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Completed Stage */}
-        <Card className="flex flex-col">
-          <CardHeader className="bg-purple-500 text-white pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Completed</CardTitle>
-              <Badge variant="secondary" className="bg-white text-gray-900">
-                {completedClients.length}
-              </Badge>
-            </div>
-            <div className="text-xl font-bold mt-1">{formatCurrency(completedValue)}</div>
-          </CardHeader>
-          <CardContent className="p-0 flex-1">
-            <div className="divide-y max-h-[400px] overflow-y-auto">
-              {completedClients.length > 0 ? (
-                completedClients.map((client) => (
-                  <Link
-                    key={client.id}
-                    to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-sm">{client.name}</h4>
-                            <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-primary" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">{client.company || 'No company'}</p>
-                        </div>
-                      </div>
-                      {client.totalRevenue > 0 && (
-                        <div className="text-sm font-semibold text-green-600">
-                          {formatCurrency(client.totalRevenue)}
-                        </div>
-                      )}
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {[
+          { label: "Prospect",  color: "bg-blue-500",   list: prospectClients,  value: prospectValue  },
+          { label: "Sold",      color: "bg-orange-500", list: soldClients,      value: soldValue      },
+          { label: "Active",    color: "bg-green-500",  list: activeClients,    value: activeValue    },
+          { label: "Completed", color: "bg-purple-500", list: completedClients, value: completedValue },
+        ].map(({ label, color, list, value }) => (
+          <Card
+            key={label}
+            className="flex flex-col cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => setSelectedStage({ label, color, list })}
+          >
+            <CardHeader className={`${color} text-white pb-3 rounded-t-lg`}>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">{label}</CardTitle>
+                <Badge variant="secondary" className="bg-white text-gray-900">
+                  {list.length}
+                </Badge>
+              </div>
+              <div className="text-xl font-bold mt-1">{formatCurrency(value)}</div>
+            </CardHeader>
+            <CardContent className="pt-3 pb-3">
+              <p className="text-xs text-muted-foreground">
+                {list.length === 0
+                  ? "No clients in this stage"
+                  : `${list.length} client${list.length !== 1 ? "s" : ""} — click to view`}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
+
+      {/* Client list modal */}
+      <Dialog open={!!selectedStage} onOpenChange={() => setSelectedStage(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>{selectedStage?.label} Clients</span>
+              <Badge variant="secondary">{selectedStage?.list.length}</Badge>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 divide-y">
+            {selectedStage?.list.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No clients in this stage
+              </p>
+            ) : (
+              selectedStage?.list.map((client) => (
+                <Link
+                  key={client.id}
+                  to={`/clients/${client.id}`}
+                  onClick={() => setSelectedStage(null)}
+                  className="flex items-center justify-between p-3 hover:bg-accent transition-colors group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{clientDisplayName(client)}</span>
+                      <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-primary flex-shrink-0" />
+                    </div>
+                    {client.company && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{client.company}</p>
+                    )}
+                  </div>
+                  {client.project_total > 0 && (
+                    <span className="text-sm font-semibold text-green-600 ml-3 flex-shrink-0">
+                      {formatCurrency(client.project_total)}
+                    </span>
+                  )}
+                </Link>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Company Stats, Commissions, Tasks, Activity - 2x2 Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -453,25 +305,27 @@ export function PipelineForecast() {
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <div className="text-xs text-muted-foreground mb-1">Pending Commissions</div>
                 <div className="text-2xl font-bold text-green-600">{formatCurrency(pendingCommissions)}</div>
-                <div className="text-xs text-muted-foreground mt-1">From sold contracts</div>
+                <div className="text-xs text-muted-foreground mt-1">From sold &amp; active projects</div>
               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-medium mb-2">Top Earners</div>
                 {salesReps.slice(0, 3).map((rep, idx) => {
-                  const repClients = soldClients.filter(c => c.salesRepId === rep.id);
-                  const commission = repClients.reduce((sum, c) => sum + ((c.totalRevenue || 0) * 0.05), 0);
+                  const repProjects = projects.filter(
+                    (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
+                  );
+                  const commission = repProjects.reduce((s, p) => s + (p.commission ?? 0), 0);
                   return (
                     <div key={rep.id} className="flex items-center justify-between p-2 bg-accent/50 rounded text-sm">
                       <div className="flex items-center gap-2">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                          idx === 0 ? 'bg-yellow-500 text-white' : 
-                          idx === 1 ? 'bg-gray-400 text-white' : 
+                          idx === 0 ? 'bg-yellow-500 text-white' :
+                          idx === 1 ? 'bg-gray-400 text-white' :
                           'bg-orange-600 text-white'
                         }`}>
                           {idx + 1}
                         </div>
-                        <span>{rep.name}</span>
+                        <span>{`${rep.first_name ?? ""} ${rep.last_name ?? ""}`.trim() || rep.email}</span>
                       </div>
                       <span className="font-semibold text-green-600">{formatCurrency(commission)}</span>
                     </div>
@@ -510,7 +364,7 @@ export function PipelineForecast() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">Follow Up</Badge>
-                        <span className="text-sm font-medium">{client.name}</span>
+                        <span className="text-sm font-medium">{clientDisplayName(client)}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">Send proposal and schedule meeting</p>
                     </div>
@@ -528,8 +382,8 @@ export function PipelineForecast() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs bg-orange-50">Contract Signed</Badge>
-                        <span className="text-sm font-medium">{client.name}</span>
+                        <Badge variant="outline" className="text-xs bg-orange-50">Closing</Badge>
+                        <span className="text-sm font-medium">{clientDisplayName(client)}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">Assign PM and schedule kickoff</p>
                     </div>
@@ -556,72 +410,89 @@ export function PipelineForecast() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {/* Overdue Payments */}
-              {overduePayments.length > 0 && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <span className="text-sm font-semibold text-red-600">
-                      {overduePayments.length} Overdue Payment{overduePayments.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    {overduePayments.slice(0, 2).map((client) => (
+            <div className="space-y-4">
+
+              {/* New clients this week */}
+              {(() => {
+                const weekAgo = new Date();
+                weekAgo.setDate(weekAgo.getDate() - 7);
+                const newThisWeek = clients
+                  .filter((c) => c.created_at && new Date(c.created_at) >= weekAgo)
+                  .slice(0, 3);
+                return newThisWeek.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">New This Week</div>
+                    {newThisWeek.map((client) => (
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="block text-xs text-red-700 hover:underline"
+                        className="flex items-center gap-2 text-xs p-2 bg-accent/50 rounded hover:bg-accent transition-colors"
                       >
-                        • {client.name} - {formatCurrency(client.balanceDue || 0)}
+                        <Users className="h-3 w-3 text-blue-600 flex-shrink-0" />
+                        <span className="font-medium">{clientDisplayName(client)}</span>
+                        <span className="text-muted-foreground ml-auto">
+                          {new Date(client.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
                       </Link>
                     ))}
                   </div>
+                ) : null;
+              })()}
+
+              {/* Upcoming appointments */}
+              {(() => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const upcoming = clients
+                  .filter((c) => c.appointment_scheduled && c.appointment_date && new Date(c.appointment_date) >= today)
+                  .sort((a, b) => new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime())
+                  .slice(0, 3);
+                return upcoming.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">Upcoming Appointments</div>
+                    {upcoming.map((client) => (
+                      <Link
+                        key={client.id}
+                        to={`/clients/${client.id}`}
+                        className="flex items-center gap-2 text-xs p-2 bg-orange-50 border border-orange-100 rounded hover:bg-orange-100 transition-colors"
+                      >
+                        <Calendar className="h-3 w-3 text-orange-600 flex-shrink-0" />
+                        <span className="font-medium">{clientDisplayName(client)}</span>
+                        <span className="text-muted-foreground ml-auto">
+                          {new Date(client.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Recently gone active */}
+              {activeClients.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-muted-foreground">Active Clients</div>
+                  {activeClients.slice(0, 3).map((client) => (
+                    <Link
+                      key={client.id}
+                      to={`/clients/${client.id}`}
+                      className="flex items-center gap-2 text-xs p-2 bg-green-50 border border-green-100 rounded hover:bg-green-100 transition-colors"
+                    >
+                      <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
+                      <span className="font-medium">{clientDisplayName(client)}</span>
+                      {client.project_total > 0 && (
+                        <span className="text-green-600 font-semibold ml-auto">
+                          {formatCurrency(client.project_total)}
+                        </span>
+                      )}
+                    </Link>
+                  ))}
                 </div>
               )}
 
-              {/* Upcoming Collections */}
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm font-semibold text-blue-600">
-                    Upcoming Collections (Next 7 Days)
-                  </span>
-                </div>
-                {upcomingCollections.length > 0 ? (
-                  <div className="space-y-1">
-                    {upcomingCollections.slice(0, 3).map((client) => (
-                      <Link
-                        key={client.id}
-                        to={`/clients/${client.id}`}
-                        className="block text-xs text-blue-700 hover:underline"
-                      >
-                        • {client.name} - {formatCurrency(client.balanceDue || 0)} 
-                        {client.nextPaymentDate && ` - ${new Date(client.nextPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                      </Link>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No upcoming collections</p>
-                )}
-              </div>
+              {clients.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-4">No recent activity</p>
+              )}
 
-              {/* Recent Activity */}
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground mb-2">Recent Activity</div>
-                {soldClients.slice(0, 3).map((client) => (
-                  <div key={client.id} className="flex items-center gap-2 text-xs p-2 bg-accent/50 rounded">
-                    <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
-                    <span className="text-muted-foreground">
-                      <span className="font-medium text-foreground">{client.name}</span> contract signed
-                      {client.contractSignedDate && ` - ${new Date(client.contractSignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                    </span>
-                  </div>
-                ))}
-                {soldClients.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No recent activity</p>
-                )}
-              </div>
             </div>
           </CardContent>
         </Card>

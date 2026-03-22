@@ -21,6 +21,8 @@ export interface Profile {
   first_name: string;
   last_name: string;
   role: UserRole;
+  phone?: string | null;
+  email?: string | null;
   permissions: {
     can_create_proposals: boolean;
     can_edit_sold_contracts: boolean;
