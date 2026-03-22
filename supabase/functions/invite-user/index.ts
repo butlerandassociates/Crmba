@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { email, first_name, last_name, role, permissions } = await req.json();
+    const { email, first_name, last_name, role, permissions, redirect_to } = await req.json();
 
     if (!email || !role) {
       return new Response(JSON.stringify({ error: "email and role are required." }), {
@@ -31,6 +31,9 @@ Deno.serve(async (req) => {
         last_name:   last_name  ?? "",
         role,
         permissions: permissions ?? {},
+      },
+      options: {
+        redirectTo: redirect_to,
       },
     });
 

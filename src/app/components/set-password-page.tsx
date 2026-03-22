@@ -51,7 +51,8 @@ export function SetPasswordPage() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
       toast.success("Password set! Welcome to the team.");
-      navigate("/", { replace: true });
+      // Small delay so toast is visible before redirect
+      setTimeout(() => navigate("/", { replace: true }), 1000);
     } catch (err: any) {
       setError(err.message || "Failed to set password. Please request a new invite link.");
     } finally {
