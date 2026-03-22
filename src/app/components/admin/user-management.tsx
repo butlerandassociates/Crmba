@@ -4,7 +4,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Shield, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Plus, Mail, Shield, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import {
@@ -113,6 +113,38 @@ export function UserManagement() {
       toast.error(err.message || "Failed to send invite.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const [resending, setResending] = useState<string | null>(null);
+
+  const handleResendInvite = async (user: any) => {
+    setResending(user.id);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/invite-user`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            role: user.role,
+            permissions: user.permissions ?? {},
+          }),
+        }
+      );
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to resend");
+      toast.success(`Invite resent to ${user.email}`);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setResending(null);
     }
   };
 
@@ -331,6 +363,18 @@ export function UserManagement() {
                       onClick={() => handleToggleActive(user)}
                     >
                       {user.is_active ? "Deactivate" : "Reactivate"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleResendInvite(user)}
+                      disabled={resending === user.id}
+                      title="Resend invite email"
+                    >
+                      {resending === user.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <RefreshCw className="h-4 w-4" />
+                      }
                     </Button>
                   </div>
                 </CardContent>
