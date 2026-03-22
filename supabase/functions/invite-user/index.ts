@@ -34,7 +34,22 @@ Deno.serve(async (req) => {
       },
     });
 
-    if (error) throw error;
+    // If user already exists, send a password recovery email instead
+    if (error) {
+      const msg = error.message?.toLowerCase() ?? "";
+      if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+        const { error: resetError } = await supabaseAdmin.auth.admin.generateLink({
+          type: "recovery",
+          email,
+        });
+        if (resetError) throw resetError;
+        return new Response(JSON.stringify({ success: true, resent: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw error;
+    }
 
     return new Response(JSON.stringify({ success: true, user: data.user }), {
       status: 200,
