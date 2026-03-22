@@ -16,6 +16,11 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!
+    );
+
     const { email, first_name, last_name, role, permissions, redirect_to } = await req.json();
 
     if (!email || !role) {
@@ -41,9 +46,8 @@ Deno.serve(async (req) => {
     if (error) {
       const msg = error.message?.toLowerCase() ?? "";
       if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
-        const { error: resetError } = await supabaseAdmin.auth.admin.generateLink({
-          type: "recovery",
-          email,
+        const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, {
+          redirectTo: redirect_to,
         });
         if (resetError) throw resetError;
         return new Response(JSON.stringify({ success: true, resent: true }), {
