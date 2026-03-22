@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Plus, Edit, Eye, EyeOff } from "lucide-react";
-import { mockProducts } from "../../data/mock-data";
+import { productsAPI } from "../../utils/api";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,11 @@ import { toast } from "sonner";
 export function ProductCatalog() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showMarkup, setShowMarkup] = useState(true);
+  const [products, setProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    productsAPI.getAll().then(setProducts).catch(console.error);
+  }, []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -200,7 +205,15 @@ export function ProductCatalog() {
       </div>
 
       <div className="space-y-4">
-        {mockProducts.map((product) => (
+        {products.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-8">No products yet. Add your first product above.</p>
+        )}
+        {products.map((product) => {
+          const mat = Number(product.material_cost ?? 0);
+          const lab = Number(product.labor_cost ?? 0);
+          const mkp = Number(product.markup_percentage ?? 0);
+          const clientPrice = calculateClientPrice(mat, mkp);
+          return (
           <Card key={product.id}>
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
@@ -209,11 +222,9 @@ export function ProductCatalog() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-lg">{product.name}</h3>
-                        <Badge variant="outline">{product.category}</Badge>
+                        <Badge variant="outline">{product.category?.name ?? "—"}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {product.description}
-                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">{product.description}</p>
                     </div>
                   </div>
 
@@ -224,11 +235,11 @@ export function ProductCatalog() {
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground uppercase mb-1">Base Cost</div>
-                      <div className="font-semibold">{formatCurrency(product.pricePerUnit)}</div>
+                      <div className="font-semibold">{formatCurrency(mat)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground uppercase mb-1">Labor Cost</div>
-                      <div className="font-semibold">{formatCurrency(product.laborCostPerUnit)}</div>
+                      <div className="font-semibold">{formatCurrency(lab)}</div>
                     </div>
                     {showMarkup && (
                       <div>
@@ -236,14 +247,12 @@ export function ProductCatalog() {
                           <EyeOff className="h-3 w-3" />
                           Markup
                         </div>
-                        <div className="font-semibold text-orange-600">{product.markup}%</div>
+                        <div className="font-semibold text-orange-600">{mkp}%</div>
                       </div>
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground uppercase mb-1">Client Price</div>
-                      <div className="font-semibold text-green-600">
-                        {formatCurrency(calculateClientPrice(product.pricePerUnit, product.markup))}
-                      </div>
+                      <div className="font-semibold text-green-600">{formatCurrency(clientPrice)}</div>
                     </div>
                   </div>
 
@@ -252,34 +261,20 @@ export function ProductCatalog() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Total Cost/Unit</div>
-                          <div className="font-medium">
-                            {formatCurrency(product.pricePerUnit + product.laborCostPerUnit)}
-                          </div>
+                          <div className="font-medium">{formatCurrency(mat + lab)}</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Markup Amount</div>
-                          <div className="font-medium text-orange-600">
-                            {formatCurrency((product.pricePerUnit * product.markup) / 100)}
-                          </div>
+                          <div className="font-medium text-orange-600">{formatCurrency((mat * mkp) / 100)}</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Gross Profit/Unit</div>
-                          <div className="font-medium text-green-600">
-                            {formatCurrency(
-                              calculateClientPrice(product.pricePerUnit, product.markup) -
-                              (product.pricePerUnit + product.laborCostPerUnit)
-                            )}
-                          </div>
+                          <div className="font-medium text-green-600">{formatCurrency(clientPrice - (mat + lab))}</div>
                         </div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Profit Margin</div>
                           <div className="font-medium text-green-600">
-                            {(
-                              ((calculateClientPrice(product.pricePerUnit, product.markup) -
-                                (product.pricePerUnit + product.laborCostPerUnit)) /
-                                calculateClientPrice(product.pricePerUnit, product.markup)) *
-                              100
-                            ).toFixed(1)}%
+                            {clientPrice > 0 ? (((clientPrice - (mat + lab)) / clientPrice) * 100).toFixed(1) : "0.0"}%
                           </div>
                         </div>
                       </div>
@@ -294,7 +289,8 @@ export function ProductCatalog() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -8,7 +8,6 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Database, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { migrateData } from "../../utils/api";
-import { mockClients, mockProjects, mockProducts, mockTeamMembers } from "../../data/mock-data";
 
 export function DataMigration() {
   const [status, setStatus] = useState<"idle" | "migrating" | "success" | "error">("idle");
@@ -23,10 +22,10 @@ export function DataMigration() {
       console.log("Starting data migration to Supabase...");
       
       const response = await migrateData({
-        clients: mockClients as unknown as Record<string, unknown>[],
-        projects: mockProjects as unknown as Record<string, unknown>[],
-        products: mockProducts as unknown as Record<string, unknown>[],
-        users: mockTeamMembers as unknown as Record<string, unknown>[],
+        clients: [],
+        projects: [],
+        products: [],
+        users: [],
       });
 
       console.log("Migration completed:", response);
@@ -66,12 +65,7 @@ export function DataMigration() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <div className="text-sm text-blue-900 space-y-2">
                   <p className="font-semibold">What will be migrated:</p>
-                  <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>{mockClients.length} clients</li>
-                    <li>{mockProjects.length} projects</li>
-                    <li>{mockProducts.length} products</li>
-                    <li>{mockTeamMembers.length} team members</li>
-                  </ul>
+                  <p className="font-semibold text-green-700">Migration already completed. Data is live in Supabase.</p>
                 </div>
               </div>
               

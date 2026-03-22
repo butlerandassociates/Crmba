@@ -26,7 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI } from "../utils/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
@@ -58,6 +58,7 @@ export function ClientDetail() {
   const [error, setError] = useState<string | null>(null);
   const [clientProjects, setClientProjects] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
+  const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   
   // Fetch client from API
   useEffect(() => {
@@ -86,6 +87,7 @@ export function ClientDetail() {
       setClientProjects(all.filter((p: any) => p.client_id === id))
     ).catch(console.error);
     estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
+    appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
   }, [id]);
 
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -227,6 +229,32 @@ export function ClientDetail() {
     }
   };
 
+  const handleMarkAsMet = async () => {
+    if (!client) return;
+    try {
+      setUpdating(true);
+      // Update clients table
+      await clientsAPI.update(client.id, { appointment_met: true });
+      setClient({ ...client, appointment_met: true });
+      // Also mark the matching appointment row as met
+      const clientApptDate = client.appointment_date?.split("T")[0];
+      const matching = clientAppointments.find(
+        (a) => a.appointment_date?.split("T")[0] === clientApptDate && !a.is_met
+      );
+      if (matching) {
+        await appointmentsAPI.markAsMet(matching.id);
+        setClientAppointments((prev) =>
+          prev.map((a) => a.id === matching.id ? { ...a, is_met: true } : a)
+        );
+      }
+      toast.success("Appointment marked as met!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update appointment");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleAppointmentScheduled = async () => {
     // Reload client data to get updated appointments
     if (!id) return;
@@ -363,10 +391,12 @@ export function ClientDetail() {
                 Create Proposal
               </DropdownMenuItem>
             </Link>
-            <DropdownMenuItem>
-              <TrendingUp className="h-4 w-4 mr-2" />
-              Update Closing Probability
-            </DropdownMenuItem>
+            {client.appointment_scheduled && !client.appointment_met && (
+              <DropdownMenuItem onClick={handleMarkAsMet} disabled={updating}>
+                <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
+                Mark Appointment as Met
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Move to Stage</DropdownMenuLabel>
             <DropdownMenuItem
@@ -574,12 +604,21 @@ export function ClientDetail() {
             )}
             <div>
               <div className="text-sm font-medium">Appointment Status</div>
-              <div className="text-sm text-muted-foreground mt-1">
-                {client.appointment_met
-                  ? "Met"
-                  : client.appointment_scheduled
-                  ? `Scheduled for ${formatDate(client.appointment_date)}`
-                  : "Not Scheduled"}
+              <div className="mt-1">
+                {client.appointment_met ? (
+                  <Badge className="bg-green-500 text-white text-xs">Met</Badge>
+                ) : client.appointment_scheduled && client.appointment_date ? (
+                  <div className="space-y-0.5">
+                    <Badge className="bg-blue-500 text-white text-xs">Scheduled</Badge>
+                    <div className="text-xs text-muted-foreground pt-1">
+                      {formatDate(client.appointment_date)}
+                      {client.appointment_date && ` · ${new Date(client.appointment_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+                      {client.appointment_end_date && ` – ${new Date(client.appointment_end_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Not Scheduled</span>
+                )}
               </div>
             </div>
             {client.last_contact_date && (
@@ -655,7 +694,7 @@ export function ClientDetail() {
         <TabsList>
           <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
           <TabsTrigger value="proposals">Proposals ({clientProposals.length})</TabsTrigger>
-
+          <TabsTrigger value="appointments">Appointments ({clientAppointments.length})</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
         </TabsList>
 
@@ -759,6 +798,103 @@ export function ClientDetail() {
                     <FilePlus className="h-4 w-4 mr-2" />
                     Create First Proposal
                   </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appointments" className="mt-4">
+          <Card>
+            <CardContent className="p-0">
+              {clientAppointments.length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No appointments scheduled yet</p>
+                  <Button className="mt-4" size="sm" onClick={() => setAppointmentDialogOpen(true)}>
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Schedule Appointment
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {clientAppointments.map((appt) => {
+                    const APPOINTMENT_TYPES: Record<string, string> = {
+                      initial: "Initial Appointment",
+                      followup: "Followup Appointment",
+                      presentation: "Presentation Appointment",
+                      prewalk: "PreWalk Appointment",
+                      finalwalk: "Final Walk Appointment",
+                    };
+                    const typeLabel = APPOINTMENT_TYPES[appt.appointment_type] ?? appt.title ?? "Appointment";
+                    const timeRange = appt.end_time
+                      ? `${appt.appointment_time?.slice(0, 5)} – ${appt.end_time?.slice(0, 5)}`
+                      : appt.appointment_time?.slice(0, 5);
+
+                    return (
+                      <div key={appt.id} className="p-4 hover:bg-accent/30 transition-colors">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">{typeLabel}</span>
+                              {appt.is_met ? (
+                                <Badge className="bg-green-500 text-white text-xs">Met</Badge>
+                              ) : (
+                                <Badge className="bg-blue-500 text-white text-xs">Upcoming</Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {formatDate(appt.appointment_date)} · {timeRange}
+                            </div>
+                            {appt.notes && (
+                              <p className="text-xs text-muted-foreground mt-1">{appt.notes}</p>
+                            )}
+                            {appt.google_meet_link && (
+                              <a
+                                href={appt.google_meet_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 underline flex items-center gap-1 mt-1"
+                              >
+                                <Clock className="h-3 w-3" />
+                                Join Google Meet
+                              </a>
+                            )}
+                          </div>
+                          {!appt.is_met && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0"
+                              onClick={async () => {
+                                try {
+                                  await appointmentsAPI.markAsMet(appt.id);
+                                  setClientAppointments((prev) =>
+                                    prev.map((a) => a.id === appt.id ? { ...a, is_met: true } : a)
+                                  );
+                                  // Only update clients.appointment_met if this is the latest appointment
+                                  // (matches the date stored on the client record)
+                                  const apptDate = appt.appointment_date?.split("T")[0];
+                                  const clientApptDate = client.appointment_date?.split("T")[0];
+                                  if (apptDate === clientApptDate) {
+                                    await clientsAPI.update(client.id, { appointment_met: true });
+                                    setClient((prev: any) => ({ ...prev, appointment_met: true }));
+                                  }
+                                  toast.success("Appointment marked as met!");
+                                } catch (err: any) {
+                                  toast.error(err.message || "Failed to update");
+                                }
+                              }}
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-green-600" />
+                              Mark as Met
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

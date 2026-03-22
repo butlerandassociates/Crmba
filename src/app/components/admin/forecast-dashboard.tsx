@@ -1,6 +1,7 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
-import { mockClients, mockProjects } from "../../data/mock-data";
-import { TrendingUp, DollarSign, Target, Calendar } from "lucide-react";
+import { clientsAPI, projectsAPI } from "../../utils/api";
+import { TrendingUp, DollarSign, Target, Calendar, Loader2 } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -14,52 +15,71 @@ import {
 } from "recharts";
 
 export function ForecastDashboard() {
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
+  const [clients, setClients] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Calculate forecasts
-  const prospectClients = mockClients.filter((c) => c.status === "prospect");
-  const weightedForecast = prospectClients.reduce(
-    (sum, c) => sum + ((c.projectedValue || 0) * (c.closingProbability || 0)) / 100,
-    0
-  );
-  const totalPipelineValue = prospectClients.reduce((sum, c) => sum + (c.projectedValue || 0), 0);
-  
-  const activeRevenue = mockClients
-    .filter((c) => c.status === "active" || c.status === "sold")
-    .reduce((sum, c) => sum + c.totalRevenue, 0);
+  useEffect(() => {
+    Promise.all([clientsAPI.getAll(), projectsAPI.getAll()])
+      .then(([c, p]) => { setClients(c); setProjects(p); })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
-  const completedRevenue = mockClients
-    .filter((c) => c.status === "completed")
-    .reduce((sum, c) => sum + c.totalRevenue, 0);
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
-  // Monthly forecast projection
-  const monthlyForecast = [
-    { month: "Apr", actual: 185000, forecast: 210000 },
-    { month: "May", actual: 165000, forecast: 195000 },
-    { month: "Jun", actual: 145000, forecast: 230000 },
-    { month: "Jul", actual: 0, forecast: 285000 },
-    { month: "Aug", actual: 0, forecast: 310000 },
-    { month: "Sep", actual: 0, forecast: 295000 },
-  ];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
-  // Revenue by client status
+  // Pipeline stats from real data
+  const activeProjects  = projects.filter((p) => ["active", "selling"].includes(p.status));
+  const soldProjects    = projects.filter((p) => p.status === "sold");
+  const completedProjects = projects.filter((p) => p.status === "completed");
+
+  const activeRevenue    = activeProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
+  const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
+  const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
+  const totalCommissions = projects.reduce((s, p) => s + (p.commission || 0), 0);
+
+  // Monthly revenue — last 6 months from project start_date
+  const now = new Date();
+  const monthlyForecast = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const monthRevenue = projects
+      .filter((p) => {
+        const date = p.start_date ? new Date(p.start_date) : null;
+        return date && date.getFullYear() === y && date.getMonth() === m;
+      })
+      .reduce((s, p) => s + (p.totalValue || 0), 0);
+    return {
+      month: d.toLocaleString("en-US", { month: "short" }),
+      actual: monthRevenue,
+    };
+  });
+
+  // Revenue by status breakdown
   const revenueByStatus = [
-    { status: "Prospects", value: weightedForecast },
-    { status: "Sold", value: mockClients.filter(c => c.status === "sold").reduce((s, c) => s + c.totalRevenue, 0) },
-    { status: "Active", value: mockClients.filter(c => c.status === "active").reduce((s, c) => s + c.totalRevenue, 0) },
+    { status: "Selling", value: activeRevenue },
+    { status: "Sold",    value: soldRevenue },
     { status: "Completed", value: completedRevenue },
   ];
 
-  // Calculate commission forecast
-  const projectedCommissions = mockProjects
-    .filter((p) => p.status === "prospect" || p.status === "selling")
-    .reduce((sum, p) => sum + p.commission, 0);
+  // Pipeline stage breakdown from clients
+  const stageBreakdown = clients.reduce((acc, c) => {
+    const stage = c.pipeline_stage?.name ?? "No Stage";
+    acc[stage] = (acc[stage] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const stageData = Object.entries(stageBreakdown).map(([stage, count]) => ({ stage, count }));
 
   return (
     <div className="space-y-4">
@@ -76,14 +96,12 @@ export function ForecastDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Target className="h-4 w-4" />
-              Weighted Forecast
+              Active Pipeline
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(weightedForecast)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Based on closing probability
-            </p>
+            <div className="text-2xl font-bold text-blue-600">{formatCurrency(activeRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{activeProjects.length} active projects</p>
           </CardContent>
         </Card>
 
@@ -91,14 +109,12 @@ export function ForecastDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              Total Pipeline
+              Sold Revenue
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(totalPipelineValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {prospectClients.length} prospects
-            </p>
+            <div className="text-2xl font-bold">{formatCurrency(soldRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{soldProjects.length} sold projects</p>
           </CardContent>
         </Card>
 
@@ -106,14 +122,12 @@ export function ForecastDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
-              Active Revenue
+              Completed Revenue
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(activeRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              In progress + sold
-            </p>
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(completedRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{completedProjects.length} completed</p>
           </CardContent>
         </Card>
 
@@ -121,16 +135,12 @@ export function ForecastDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Calendar className="h-4 w-4" />
-              Projected Commissions
+              Total Commissions
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold text-purple-600">
-              {formatCurrency(projectedCommissions)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Active projects
-            </p>
+            <div className="text-2xl font-bold text-purple-600">{formatCurrency(totalCommissions)}</div>
+            <p className="text-xs text-muted-foreground mt-1">All projects</p>
           </CardContent>
         </Card>
       </div>
@@ -139,7 +149,7 @@ export function ForecastDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Revenue Forecast Trend</CardTitle>
+            <CardTitle className="text-base">Monthly Revenue (Last 6 Months)</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <ResponsiveContainer width="100%" height={250}>
@@ -148,24 +158,7 @@ export function ForecastDashboard() {
                 <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Line
-                  key="actual-line"
-                  type="monotone"
-                  dataKey="actual"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  name="Actual"
-                  connectNulls
-                />
-                <Line
-                  key="forecast-line"
-                  type="monotone"
-                  dataKey="forecast"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Forecast"
-                />
+                <Line type="monotone" dataKey="actual" stroke="#10b981" strokeWidth={2} name="Revenue" dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -173,7 +166,7 @@ export function ForecastDashboard() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Revenue by Pipeline Stage</CardTitle>
+            <CardTitle className="text-base">Revenue by Project Status</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <ResponsiveContainer width="100%" height={250}>
@@ -182,93 +175,53 @@ export function ForecastDashboard() {
                 <XAxis dataKey="status" />
                 <YAxis />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Bar dataKey="value" fill="#3b82f6" />
+                <Bar dataKey="value" fill="#3b82f6" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
 
-      {/* Detailed Forecast Table */}
+      {/* Pipeline Stage Breakdown */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Prospect Forecast Details</CardTitle>
+          <CardTitle className="text-base">Client Pipeline Stage Breakdown</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Client
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Projected Value
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Probability
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Weighted Value
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Expected Close
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {prospectClients
-                  .filter((c) => c.projectedValue && c.closingProbability)
-                  .sort((a, b) => (b.closingProbability || 0) - (a.closingProbability || 0))
-                  .map((client) => {
-                    const weightedValue =
-                      ((client.projectedValue || 0) * (client.closingProbability || 0)) / 100;
+          {stageData.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No clients in pipeline yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Stage</th>
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Clients</th>
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Share</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {stageData.map(({ stage, count }) => {
+                    const n = Number(count);
                     return (
-                      <tr key={client.id} className="hover:bg-accent/50">
-                        <td className="p-3">
-                          <div>
-                            <div className="font-semibold text-sm">{client.name}</div>
-                            <div className="text-xs text-muted-foreground">{client.company}</div>
+                    <tr key={stage} className="hover:bg-accent/50">
+                      <td className="p-3 font-medium text-sm">{stage}</td>
+                      <td className="p-3 text-sm">{n}</td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500" style={{ width: `${(n / clients.length) * 100}%` }} />
                           </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="text-sm font-medium">
-                            {formatCurrency(client.projectedValue || 0)}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-blue-500"
-                                style={{ width: `${client.closingProbability}%` }}
-                              />
-                            </div>
-                            <span className="text-sm font-medium">{client.closingProbability}%</span>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="text-sm font-semibold text-blue-600">
-                            {formatCurrency(weightedValue)}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="text-sm text-muted-foreground">
-                            {client.expectedCloseDate
-                              ? new Date(client.expectedCloseDate).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })
-                              : "-"}
-                          </div>
-                        </td>
-                      </tr>
+                          <span className="text-xs text-muted-foreground">{((n / clients.length) * 100).toFixed(0)}%</span>
+                        </div>
+                      </td>
+                    </tr>
                     );
                   })}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

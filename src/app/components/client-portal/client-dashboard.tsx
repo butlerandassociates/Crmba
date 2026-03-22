@@ -1,74 +1,54 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { projectsAPI } from "../../utils/api";
 import {
-  mockProjects,
-  mockInvoices,
-  mockChangeOrders,
-  mockContracts,
-  mockPayments,
-  mockClients,
-} from "../../data/mock-data";
-import {
-  Calendar,
-  DollarSign,
   FileText,
-  CreditCard,
-  Download,
-  CheckCircle,
+  DollarSign,
   Clock,
-  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
-// For demo purposes, we'll use client c1 (John Anderson)
-const DEMO_CLIENT_ID = "c1";
+const STATUS_COLORS: Record<string, string> = {
+  active:    "bg-green-500",
+  selling:   "bg-blue-500",
+  sold:      "bg-purple-500",
+  completed: "bg-emerald-600",
+  on_hold:   "bg-yellow-500",
+  cancelled: "bg-red-500",
+  planning:  "bg-sky-500",
+};
 
 export function ClientDashboard() {
-  const client = mockClients.find((c) => c.id === DEMO_CLIENT_ID)!;
-  const clientProjects = mockProjects.filter((p) => p.clientId === DEMO_CLIENT_ID);
-  const clientInvoices = mockInvoices.filter((i) => i.clientId === DEMO_CLIENT_ID);
-  const clientChangeOrders = mockChangeOrders.filter((co) => co.clientId === DEMO_CLIENT_ID);
-  const clientContracts = mockContracts.filter((c) => c.clientId === DEMO_CLIENT_ID);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
+  useEffect(() => {
+    projectsAPI.getAll()
+      .then(setProjects)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "paid":
-      case "completed":
-      case "approved":
-      case "signed":
-        return "bg-green-500";
-      case "sent":
-      case "in_progress":
-      case "pending":
-        return "bg-orange-500";
-      case "overdue":
-      case "rejected":
-        return "bg-red-500";
-      default:
-        return "bg-gray-500";
-    }
-  };
+  const formatDate = (dateStr: string | null) =>
+    dateStr
+      ? new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "TBD";
 
-  const totalInvoiced = clientInvoices.reduce((sum, inv) => sum + inv.total, 0);
-  const totalPaid = clientInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
-  const totalDue = clientInvoices.reduce((sum, inv) => sum + inv.amountDue, 0);
+  const activeProjects = projects.filter((p) => ["active", "selling", "sold"].includes(p.status));
+  const totalRevenue   = projects.reduce((s, p) => s + (p.totalValue || 0), 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -77,11 +57,8 @@ export function ClientDashboard() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">Welcome, {client.name}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{client.company}</p>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Butler & Associates Construction
+              <h1 className="text-2xl font-bold">Client Portal</h1>
+              <p className="text-sm text-muted-foreground mt-1">Butler &amp; Associates Construction, Inc.</p>
             </div>
           </div>
         </div>
@@ -89,16 +66,28 @@ export function ClientDashboard() {
 
       <div className="max-w-7xl mx-auto p-4 space-y-4">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <FileText className="h-4 w-4" />
+                Total Projects
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{projects.length}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Clock className="h-4 w-4" />
                 Active Projects
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="text-2xl font-bold">{clientProjects.length}</div>
+              <div className="text-2xl font-bold text-blue-600">{activeProjects.length}</div>
             </CardContent>
           </Card>
 
@@ -106,61 +95,39 @@ export function ClientDashboard() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                Total Invoiced
+                Total Contract Value
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="text-2xl font-bold">{formatCurrency(totalInvoiced)}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <CheckCircle className="h-4 w-4" />
-                Total Paid
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(totalPaid)}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" />
-                Balance Due
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalDue)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Main Content */}
+        {/* Tabs */}
         <Tabs defaultValue="projects" className="w-full">
           <TabsList>
-            <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
-            <TabsTrigger value="invoices">Invoices ({clientInvoices.length})</TabsTrigger>
-            <TabsTrigger value="change-orders">Change Orders ({clientChangeOrders.length})</TabsTrigger>
-            <TabsTrigger value="contracts">Contracts ({clientContracts.length})</TabsTrigger>
+            <TabsTrigger value="projects">Projects ({projects.length})</TabsTrigger>
+            <TabsTrigger value="invoices">Invoices</TabsTrigger>
+            <TabsTrigger value="contracts">Contracts</TabsTrigger>
           </TabsList>
 
           <TabsContent value="projects" className="mt-4 space-y-4">
-            {clientProjects.map((project) => (
+            {projects.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-8">No projects found.</p>
+            )}
+            {projects.map((project) => (
               <Card key={project.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg">{project.name}</CardTitle>
-                        <Badge className={getStatusColor(project.status)}>
-                          {project.status.replace("_", " ")}
+                        <CardTitle className="text-lg">{project.name || "Unnamed Project"}</CardTitle>
+                        <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
+                          {(project.status ?? "").replace(/_/g, " ")}
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{project.clientName}</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -168,30 +135,25 @@ export function ClientDashboard() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <div className="text-xs text-muted-foreground">Project Manager</div>
-                      <div className="text-sm font-medium mt-1">{project.projectManagerName}</div>
+                      <div className="text-sm font-medium mt-1">{project.projectManagerName || "—"}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Foreman</div>
-                      <div className="text-sm font-medium mt-1">{project.foremanName}</div>
+                      <div className="text-sm font-medium mt-1">{project.foremanName || "—"}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Start Date</div>
-                      <div className="text-sm font-medium mt-1">{formatDate(project.startDate)}</div>
+                      <div className="text-sm font-medium mt-1">{formatDate(project.start_date)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">End Date</div>
-                      <div className="text-sm font-medium mt-1">
-                        {project.endDate ? formatDate(project.endDate) : "TBD"}
-                      </div>
+                      <div className="text-sm font-medium mt-1">{formatDate(project.end_date)}</div>
                     </div>
                   </div>
-                  <div className="pt-3 border-t">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-xs text-muted-foreground">Total Contract Value</div>
-                        <div className="text-lg font-bold mt-1">{formatCurrency(project.totalValue)}</div>
-                      </div>
-                      <Button variant="outline" size="sm">View Timeline</Button>
+                  <div className="pt-3 border-t flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Contract Value</div>
+                      <div className="text-lg font-bold mt-1">{formatCurrency(project.totalValue || 0)}</div>
                     </div>
                   </div>
                 </CardContent>
@@ -201,173 +163,18 @@ export function ClientDashboard() {
 
           <TabsContent value="invoices" className="mt-4">
             <Card>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="border-b bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Invoice #
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Date
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Due Date
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Status
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Total
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Paid
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Balance
-                        </th>
-                        <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {clientInvoices.map((invoice) => (
-                        <tr key={invoice.id} className="hover:bg-accent/50">
-                          <td className="p-3">
-                            <span className="font-semibold text-sm">{invoice.invoiceNumber}</span>
-                          </td>
-                          <td className="p-3 text-sm">{formatDate(invoice.invoiceDate)}</td>
-                          <td className="p-3 text-sm">{formatDate(invoice.dueDate)}</td>
-                          <td className="p-3">
-                            <Badge className={`${getStatusColor(invoice.status)} text-xs`}>
-                              {invoice.status}
-                            </Badge>
-                          </td>
-                          <td className="p-3 text-sm font-semibold">{formatCurrency(invoice.total)}</td>
-                          <td className="p-3 text-sm text-green-600">{formatCurrency(invoice.amountPaid)}</td>
-                          <td className="p-3 text-sm font-semibold text-orange-600">
-                            {formatCurrency(invoice.amountDue)}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex gap-2">
-                              <Button variant="outline" size="sm">
-                                <Download className="h-3 w-3 mr-1" />
-                                PDF
-                              </Button>
-                              {invoice.amountDue > 0 && (
-                                <Button size="sm">
-                                  <CreditCard className="h-3 w-3 mr-1" />
-                                  Pay
-                                </Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <CardContent className="py-12 text-center text-muted-foreground text-sm">
+                Invoice management coming soon.
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="change-orders" className="mt-4 space-y-4">
-            {clientChangeOrders.map((co) => (
-              <Card key={co.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">{co.title}</CardTitle>
-                        <Badge className={getStatusColor(co.status)}>{co.status}</Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Order #{co.orderNumber} • Requested {formatDate(co.requestDate)}
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">{co.description}</p>
-                  <div className="grid grid-cols-3 gap-4 pt-3 border-t">
-                    <div>
-                      <div className="text-xs text-muted-foreground">Original Amount</div>
-                      <div className="text-sm font-semibold mt-1">{formatCurrency(co.originalAmount)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Change Amount</div>
-                      <div className="text-sm font-semibold text-orange-600 mt-1">
-                        +{formatCurrency(co.changeAmount)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">New Total</div>
-                      <div className="text-sm font-semibold mt-1">{formatCurrency(co.newAmount)}</div>
-                    </div>
-                  </div>
-                  {co.approvedBy && (
-                    <div className="text-xs text-muted-foreground pt-2 border-t">
-                      Approved by {co.approvedBy} on {formatDate(co.approvedDate!)}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="contracts" className="mt-4 space-y-4">
-            {clientContracts.map((contract) => (
-              <Card key={contract.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">{contract.title}</CardTitle>
-                        <Badge className={getStatusColor(contract.status)}>{contract.status}</Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Contract #{contract.contractNumber}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold">{formatCurrency(contract.totalValue)}</div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <div className="text-xs text-muted-foreground">Start Date</div>
-                      <div className="text-sm font-medium mt-1">{formatDate(contract.startDate)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">End Date</div>
-                      <div className="text-sm font-medium mt-1">
-                        {contract.endDate ? formatDate(contract.endDate) : "TBD"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Signed Date</div>
-                      <div className="text-sm font-medium mt-1">
-                        {contract.signedDate ? formatDate(contract.signedDate) : "Not signed"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="pt-3 border-t">
-                    <div className="text-xs text-muted-foreground mb-2">Terms</div>
-                    <p className="text-sm">{contract.terms}</p>
-                  </div>
-                  <div className="pt-3 border-t">
-                    <Button variant="outline" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Download Contract
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <TabsContent value="contracts" className="mt-4">
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground text-sm">
+                Contract management coming soon.
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

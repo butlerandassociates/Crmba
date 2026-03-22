@@ -4,6 +4,7 @@ import { Toaster } from './components/ui/sonner';
 import { AuthProvider, useAuth } from './contexts/auth-context';
 import { AuthScreen } from './components/auth-screen';
 import { Loader2 } from 'lucide-react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -16,13 +17,9 @@ function AppContent() {
     );
   }
 
-  if (!user) {
-    return <AuthScreen />;
-  }
-
   return (
     <>
-      <RouterProvider router={router} />
+      {!user ? <AuthScreen /> : <RouterProvider router={router} />}
       <Toaster />
     </>
   );
@@ -30,9 +27,11 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ""}>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }
 

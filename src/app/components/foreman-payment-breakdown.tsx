@@ -2,12 +2,12 @@ import { useRef } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 import { FileDown } from "lucide-react";
-import { Project } from "../data/mock-data";
+
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 interface ForemanPaymentBreakdownProps {
-  project: Project;
+  project: any;
 }
 
 export function ForemanPaymentBreakdown({ project }: ForemanPaymentBreakdownProps) {

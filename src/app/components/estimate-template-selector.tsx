@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -13,7 +14,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { estimateTemplates } from "../data/estimate-templates";
-import { mockClients } from "../data/mock-data";
+import { clientsAPI } from "../utils/api";
 
 const categoryIcons: Record<string, any> = {
   Concrete: Hammer,
@@ -26,7 +27,11 @@ const categoryIcons: Record<string, any> = {
 
 export function EstimateTemplateSelector() {
   const { clientId } = useParams();
-  const client = mockClients.find((c) => c.id === clientId);
+  const [client, setClient] = useState<any>(null);
+
+  useEffect(() => {
+    if (clientId) clientsAPI.getById(clientId).then(setClient).catch(console.error);
+  }, [clientId]);
 
   if (!client) {
     return (
@@ -61,7 +66,7 @@ export function EstimateTemplateSelector() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">Create Proposal</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{client.name}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
           </div>
         </div>
         <Link to="/admin/estimate-templates">
