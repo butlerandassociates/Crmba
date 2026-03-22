@@ -4,6 +4,8 @@
  *
  * Usage:
  *   import { clientsAPI, projectsAPI } from "@/app/api";
+ *
+ * @version 1.1.0
  */
 
 export { clientsAPI }                                    from "./clients";
