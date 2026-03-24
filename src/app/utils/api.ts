@@ -14,6 +14,8 @@ export { productsAPI }                                   from "../api/products";
 export { companySettingsAPI, emailTemplatesAPI, rolesAPI, permissionsAPI } from "../api/settings";
 export { filesAPI, photosAPI }                           from "../api/files";
 export { notesAPI, actionLogsAPI }                       from "../api/notes";
+export { receiptsAPI }                                   from "../api/receipts";
+export { projectPaymentsAPI }                            from "../api/project-payments";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";

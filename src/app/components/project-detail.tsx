@@ -22,8 +22,9 @@ import {
   Trash2,
   FileImage,
   Loader2,
+  Eye,
 } from "lucide-react";
-import { projectsAPI } from "../utils/api";
+import { projectsAPI, receiptsAPI, projectPaymentsAPI } from "../utils/api";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
 import {
@@ -70,6 +71,7 @@ export function ProjectDetail() {
       .then(setProject)
       .catch(console.error)
       .finally(() => setLoadingProject(false));
+    receiptsAPI.getByProject(id).then(setReceipts).catch(console.error);
   }, [id]);
 
   const client = project?.client ?? null;
@@ -80,33 +82,28 @@ export function ProjectDetail() {
   const [costAttributionsDialogOpen, setCostAttributionsDialogOpen] = useState(false);
 
   // Payment tracking state
-  const [payments, setPayments] = useState({
-    deposit:  { paid: false, percentage: 30, amount: 0 },
-    progress: { paid: false, percentage: 40, amount: 0 },
-    final:    { paid: false, percentage: 30, amount: 0 },
-  });
+  const [projectPayments, setProjectPayments] = useState<any[]>([]);
+  const [editingPayment, setEditingPayment] = useState<string | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState<{ label: string; percentage: string; amount: string; notes: string }>({ label: '', percentage: '', amount: '', notes: '' });
+  const [addingPayment, setAddingPayment] = useState(false);
+  const [newPaymentForm, setNewPaymentForm] = useState({ label: '', percentage: '', amount: '' });
 
-  // Recalculate payment amounts when project loads
+  // Load payments from DB when project loads
   useEffect(() => {
-    if (!project) return;
-    setPayments({
-      deposit:  { paid: false, percentage: 30, amount: project.totalValue * 0.3 },
-      progress: { paid: false, percentage: 40, amount: project.totalValue * 0.4 },
-      final:    { paid: false, percentage: 30, amount: project.totalValue * 0.3 },
-    });
-  }, [project?.id]);
+    if (!id) return;
+    projectPaymentsAPI.getByProject(id).then(async (data) => {
+      if (data.length === 0 && project) {
+        // Seed defaults if none exist
+        const seeded = await projectPaymentsAPI.seedDefaults(id, project.totalValue);
+        setProjectPayments(seeded || []);
+      } else {
+        setProjectPayments(data);
+      }
+    }).catch(console.error);
+  }, [id, project?.id]);
 
   // Receipt tracking state
-  const [receipts, setReceipts] = useState<Array<{
-    id: string;
-    name: string;
-    amount: number;
-    category: 'material' | 'labor';
-    note: string;
-    fileName?: string;
-    uploadDate: string;
-  }>>([]);
-
+  const [receipts, setReceipts] = useState<any[]>([]);
   const [newReceipt, setNewReceipt] = useState({
     name: '',
     amount: '',
@@ -114,6 +111,12 @@ export function ProjectDetail() {
     note: '',
     fileName: '',
   });
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [savingReceipt, setSavingReceipt] = useState(false);
+  const [previewReceipt, setPreviewReceipt] = useState<{ url: string; name: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; fileUrl?: string; name: string } | null>(null);
+  const [deletePaymentConfirm, setDeletePaymentConfirm] = useState<{ id: string; label: string } | null>(null);
 
   if (loadingProject) {
     return (
@@ -182,66 +185,125 @@ export function ProjectDetail() {
   };
 
   // Calculate progress based on payments received
-  const calculatePaymentProgress = () => {
-    let totalPaid = 0;
-    if (payments.deposit.paid) totalPaid += payments.deposit.percentage;
-    if (payments.progress.paid) totalPaid += payments.progress.percentage;
-    if (payments.final.paid) totalPaid += payments.final.percentage;
-    return totalPaid;
+  const paymentProgressPercentage = projectPayments.length > 0
+    ? projectPayments.filter(p => p.is_paid).reduce((sum, p) => sum + Number(p.percentage), 0)
+    : 0;
+
+  const progressPercentage = project.status === "completed" ? 100 :
+    project.status === "active" ? paymentProgressPercentage :
+    project.status === "sold" ? paymentProgressPercentage : 15;
+
+  const handleTogglePaid = async (payment: any, checked: boolean) => {
+    const updates = { is_paid: checked, paid_date: checked ? new Date().toISOString().split('T')[0] : null };
+    try {
+      const updated = await projectPaymentsAPI.update(payment.id, updates);
+      setProjectPayments(prev => prev.map(p => p.id === payment.id ? updated : p));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update payment');
+    }
   };
 
-  const paymentProgressPercentage = calculatePaymentProgress();
-  const progressPercentage = project.status === "completed" ? 100 : 
-                              project.status === "active" ? paymentProgressPercentage : 
-                              project.status === "sold" ? paymentProgressPercentage : 15;
-
-  const handlePaymentChange = (paymentType: 'deposit' | 'progress' | 'final', checked: boolean | 'indeterminate') => {
-    if (typeof checked === 'boolean') {
-      setPayments({
-        ...payments,
-        [paymentType]: { ...payments[paymentType], paid: checked }
+  const handleSavePaymentEdit = async (paymentId: string) => {
+    try {
+      const updated = await projectPaymentsAPI.update(paymentId, {
+        label: editPaymentForm.label,
+        percentage: parseFloat(editPaymentForm.percentage),
+        amount: parseFloat(editPaymentForm.amount),
+        notes: editPaymentForm.notes,
       });
+      setProjectPayments(prev => prev.map(p => p.id === paymentId ? updated : p));
+      setEditingPayment(null);
+      toast.success('Payment updated');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update payment');
+    }
+  };
+
+  const handleAddPayment = async () => {
+    if (!newPaymentForm.label || !newPaymentForm.amount) {
+      toast.error('Label and amount are required');
+      return;
+    }
+    try {
+      const created = await projectPaymentsAPI.create({
+        project_id: id!,
+        label: newPaymentForm.label,
+        percentage: parseFloat(newPaymentForm.percentage) || 0,
+        amount: parseFloat(newPaymentForm.amount),
+        sort_order: projectPayments.length,
+      });
+      setProjectPayments(prev => [...prev, created]);
+      setNewPaymentForm({ label: '', percentage: '', amount: '' });
+      setAddingPayment(false);
+      toast.success('Payment milestone added');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add payment');
+    }
+  };
+
+  const handleDeletePayment = async (paymentId: string) => {
+    try {
+      await projectPaymentsAPI.delete(paymentId);
+      setProjectPayments(prev => prev.filter(p => p.id !== paymentId));
+      toast.success('Payment removed');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete payment');
     }
   };
 
   // Receipt handling functions
-  const handleAddReceipt = () => {
+  const handleAddReceipt = async () => {
     if (!newReceipt.name || !newReceipt.amount) {
       toast.error('Please enter receipt name and amount');
       return;
     }
-    
-    const receipt = {
-      id: `receipt-${Date.now()}`,
-      name: newReceipt.name,
-      amount: parseFloat(newReceipt.amount),
-      category: newReceipt.category,
-      note: newReceipt.note,
-      fileName: newReceipt.fileName,
-      uploadDate: new Date().toISOString(),
-    };
-    
-    setReceipts([...receipts, receipt]);
-    setNewReceipt({
-      name: '',
-      amount: '',
-      category: 'material',
-      note: '',
-      fileName: '',
-    });
-    toast.success('Receipt added successfully');
-  };
-
-  const handleDeleteReceipt = (id: string) => {
-    setReceipts(receipts.filter(r => r.id !== id));
-    toast.info('Receipt deleted');
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setNewReceipt({ ...newReceipt, fileName: file.name });
+    if (!id) return;
+    try {
+      setSavingReceipt(true);
+      const saved = await receiptsAPI.create(
+        {
+          project_id: id,
+          name: newReceipt.name,
+          amount: parseFloat(newReceipt.amount),
+          category: newReceipt.category,
+          note: newReceipt.note || undefined,
+        },
+        droppedFile || undefined
+      );
+      setReceipts((prev) => [saved, ...prev]);
+      setNewReceipt({ name: '', amount: '', category: 'material', note: '', fileName: '' });
+      setDroppedFile(null);
+      toast.success('Receipt added');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add receipt');
+    } finally {
+      setSavingReceipt(false);
     }
+  };
+
+  const handleDeleteReceipt = async (receiptId: string, fileUrl?: string) => {
+    try {
+      await receiptsAPI.delete(receiptId, fileUrl);
+      setReceipts((prev) => prev.filter((r) => r.id !== receiptId));
+      toast.success('Receipt deleted');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete receipt');
+    }
+  };
+
+  // OLD file upload handler — replaced by drag & drop
+  // const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  //   const file = event.target.files?.[0];
+  //   if (file) { setNewReceipt({ ...newReceipt, fileName: file.name }); }
+  // };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => setIsDragging(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) { setDroppedFile(file); setNewReceipt((prev) => ({ ...prev, fileName: file.name })); }
   };
 
   // Calculate financial health stats
@@ -590,70 +652,98 @@ export function ProjectDetail() {
       {activeSection === 'payments' && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5" />
-              Payment Tracking
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5" />
+                Payment Tracking
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={() => setAddingPayment(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add Milestone
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Payment Progress Summary */}
             <div className="p-3 bg-muted/50 rounded-md border">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">Payment Progress</span>
-                <span className="text-sm font-bold">{paymentProgressPercentage}%</span>
+                <span className="text-sm font-bold">{paymentProgressPercentage.toFixed(0)}%</span>
               </div>
               <Progress value={paymentProgressPercentage} className="h-2" />
               <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                <span>Received: {formatCurrency((project.totalValue * paymentProgressPercentage) / 100)}</span>
-                <span>Remaining: {formatCurrency((project.totalValue * (100 - paymentProgressPercentage)) / 100)}</span>
+                <span>Received: {formatCurrency(projectPayments.filter(p => p.is_paid).reduce((s, p) => s + Number(p.amount), 0))}</span>
+                <span>Remaining: {formatCurrency(projectPayments.filter(p => !p.is_paid).reduce((s, p) => s + Number(p.amount), 0))}</span>
               </div>
             </div>
 
             {/* Payment Items */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between p-2.5 border rounded-md hover:bg-muted/50 transition-colors">
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Deposit</div>
-                  <div className="text-xs text-muted-foreground">
-                    {payments.deposit.percentage}% · {formatCurrency(payments.deposit.amount)}
-                  </div>
+              {projectPayments.map((payment) => (
+                <div key={payment.id}>
+                  {editingPayment === payment.id ? (
+                    <div className="p-3 border rounded-md bg-muted/20 space-y-3">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-xs">Label</Label>
+                          <Input value={editPaymentForm.label} onChange={(e) => setEditPaymentForm(f => ({ ...f, label: e.target.value }))} className="h-8 text-sm mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Percentage %</Label>
+                          <Input type="number" value={editPaymentForm.percentage} onChange={(e) => setEditPaymentForm(f => ({ ...f, percentage: e.target.value }))} className="h-8 text-sm mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Amount</Label>
+                          <Input type="number" value={editPaymentForm.amount} onChange={(e) => setEditPaymentForm(f => ({ ...f, amount: e.target.value }))} className="h-8 text-sm mt-1" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button size="sm" variant="outline" onClick={() => setEditingPayment(null)}>Cancel</Button>
+                        <Button size="sm" onClick={() => handleSavePaymentEdit(payment.id)}>Save</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`flex items-center justify-between p-2.5 border rounded-md transition-colors ${payment.is_paid ? 'bg-green-50 border-green-200' : 'hover:bg-muted/50'}`}>
+                      <div className="flex items-center gap-3 flex-1">
+                        <Checkbox
+                          checked={payment.is_paid}
+                          onCheckedChange={(checked) => typeof checked === 'boolean' && handleTogglePaid(payment, checked)}
+                        />
+                        <div>
+                          <div className="font-medium text-sm">{payment.label}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {payment.percentage}% · {formatCurrency(payment.amount)}
+                            {payment.is_paid && payment.paid_date && <span className="ml-2 text-green-600">Paid {payment.paid_date}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                          setEditingPayment(payment.id);
+                          setEditPaymentForm({ label: payment.label, percentage: String(payment.percentage), amount: String(payment.amount), notes: payment.notes || '' });
+                        }}>
+                          <Edit className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeletePaymentConfirm({ id: payment.id, label: payment.label })}>
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <Checkbox
-                  checked={payments.deposit.paid}
-                  onCheckedChange={(checked) => handlePaymentChange('deposit', checked)}
-                />
-              </div>
-              <div className="flex items-center justify-between p-2.5 border rounded-md hover:bg-muted/50 transition-colors">
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Progress Payment</div>
-                  <div className="text-xs text-muted-foreground">
-                    {payments.progress.percentage}% · {formatCurrency(payments.progress.amount)}
-                  </div>
-                </div>
-                <Checkbox
-                  checked={payments.progress.paid}
-                  onCheckedChange={(checked) => handlePaymentChange('progress', checked)}
-                />
-              </div>
-              <div className="flex items-center justify-between p-2.5 border rounded-md hover:bg-muted/50 transition-colors">
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Final Payment</div>
-                  <div className="text-xs text-muted-foreground">
-                    {payments.final.percentage}% · {formatCurrency(payments.final.amount)}
-                  </div>
-                </div>
-                <Checkbox
-                  checked={payments.final.paid}
-                  onCheckedChange={(checked) => handlePaymentChange('final', checked)}
-                />
-              </div>
+              ))}
+
             </div>
 
             {/* Total Summary */}
-            <div className="pt-3 border-t">
+            <div className="pt-3 border-t space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-semibold">Total Contract Value:</span>
                 <span className="font-bold">{formatCurrency(project.totalValue)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Total Milestones:</span>
+                <span>{formatCurrency(projectPayments.reduce((s, p) => s + Number(p.amount), 0))}</span>
               </div>
             </div>
           </CardContent>
@@ -681,52 +771,70 @@ export function ProjectDetail() {
 
       {/* Cost Attributions Dialog */}
       <Dialog open={costAttributionsDialogOpen} onOpenChange={setCostAttributionsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Cost Attributions
-            </DialogTitle>
-            <DialogDescription>
-              Upload receipts and track actual project costs
-            </DialogDescription>
-          </DialogHeader>
-          
+        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col p-0 gap-0">
+          {/* Fixed header */}
+          <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Cost Attributions
+              </DialogTitle>
+              <DialogDescription>
+                Upload receipts and track actual project costs
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
-            {/* Add Receipt Form */}
-            <div className="p-3 border rounded-md bg-muted/20">
-              <h3 className="font-semibold text-sm mb-3">Add New Receipt</h3>
+            {/* OLD Add Receipt Form — commented out, replaced by drag & drop below */}
+            {false && (
+              <div className="p-3 border rounded-md bg-muted/20">
+                <h3 className="font-semibold text-sm mb-3">Add New Receipt</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <Input placeholder="e.g., Lumber Purchase" className="h-8 text-sm" />
+                  <Input type="number" placeholder="0.00" className="h-8 text-sm" />
+                </div>
+                <div className="flex items-end gap-2 mt-3">
+                  <Input type="file" accept="image/*,application/pdf" className="h-8 text-xs" />
+                  <Button size="sm" className="h-8"><Plus className="h-3 w-3 mr-1" />Add</Button>
+                </div>
+              </div>
+            )}
+
+            {/* NEW — Drag & Drop + form fields */}
+            <div className="p-4 border rounded-md bg-muted/20 space-y-4">
+              <h3 className="font-semibold text-sm">Add New Receipt</h3>
+
+              {/* Form fields */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <Label htmlFor="dialog-receipt-name" className="text-xs">Receipt Name</Label>
+                  <Label className="text-xs">Receipt Name</Label>
                   <Input
-                    id="dialog-receipt-name"
                     placeholder="e.g., Lumber Purchase"
                     value={newReceipt.name}
                     onChange={(e) => setNewReceipt({ ...newReceipt, name: e.target.value })}
-                    className="h-8 text-sm"
+                    className="h-8 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="dialog-receipt-amount" className="text-xs">Amount</Label>
+                  <Label className="text-xs">Amount</Label>
                   <Input
-                    id="dialog-receipt-amount"
                     type="number"
                     placeholder="0.00"
                     value={newReceipt.amount}
                     onChange={(e) => setNewReceipt({ ...newReceipt, amount: e.target.value })}
-                    className="h-8 text-sm"
+                    className="h-8 text-sm mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="dialog-receipt-category" className="text-xs">Category</Label>
+                  <Label className="text-xs">Category</Label>
                   <Select
                     value={newReceipt.category}
-                    onValueChange={(value: 'material' | 'labor') =>
-                      setNewReceipt({ ...newReceipt, category: value })
-                    }
+                    onValueChange={(value: 'material' | 'labor') => setNewReceipt({ ...newReceipt, category: value })}
                   >
-                    <SelectTrigger className="h-8 text-sm">
+                    <SelectTrigger className="h-8 text-sm mt-1">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -736,38 +844,61 @@ export function ProjectDetail() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="dialog-receipt-note" className="text-xs">Note (optional)</Label>
+                  <Label className="text-xs">Note (optional)</Label>
                   <Input
-                    id="dialog-receipt-note"
                     placeholder="Additional info"
                     value={newReceipt.note}
                     onChange={(e) => setNewReceipt({ ...newReceipt, note: e.target.value })}
-                    className="h-8 text-sm"
+                    className="h-8 text-sm mt-1"
                   />
                 </div>
               </div>
-              <div className="flex items-end gap-2 mt-3">
-                <div className="flex-1">
-                  <Label htmlFor="dialog-receipt-file" className="text-xs">Upload Receipt (optional)</Label>
-                  <div className="relative">
-                    <Input
-                      id="dialog-receipt-file"
-                      type="file"
-                      accept="image/*,application/pdf"
-                      onChange={handleFileUpload}
-                      className="h-8 text-xs"
-                    />
-                    {newReceipt.fileName && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-                        <FileImage className="h-3 w-3" />
-                        {newReceipt.fileName}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <Button onClick={handleAddReceipt} size="sm" className="h-8">
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add
+              {/* Drag & drop / click to upload */}
+              <div>
+                <input
+                  id="receipt-file-input"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { setDroppedFile(file); setNewReceipt((prev) => ({ ...prev, fileName: file.name })); }
+                  }}
+                />
+                <label
+                  htmlFor="receipt-file-input"
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors ${
+                    isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/30 hover:border-primary/50 hover:bg-muted/30'
+                  }`}
+                >
+                  {newReceipt.fileName ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <FileImage className="h-4 w-4 text-primary" />
+                      <span className="font-medium">{newReceipt.fileName}</span>
+                      <button
+                        className="text-muted-foreground hover:text-destructive text-xs underline ml-2"
+                        onClick={(e) => { e.preventDefault(); setDroppedFile(null); setNewReceipt((prev) => ({ ...prev, fileName: '' })); }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="h-7 w-7 mb-2 text-muted-foreground opacity-60" />
+                      <p className="text-sm text-muted-foreground">Drag & drop or <span className="text-primary underline">click to upload</span> receipt</p>
+                      <p className="text-xs text-muted-foreground mt-1">Images or PDF</p>
+                    </>
+                  )}
+                </label>
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleAddReceipt} size="sm" disabled={savingReceipt}>
+                  {savingReceipt ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
+                  {savingReceipt ? 'Saving...' : 'Add Receipt'}
                 </Button>
               </div>
             </div>
@@ -776,7 +907,7 @@ export function ProjectDetail() {
             {receipts.length > 0 ? (
               <div className="space-y-2">
                 <h3 className="font-semibold text-sm">Receipts ({receipts.length})</h3>
-                <div className="border rounded-md max-h-64 overflow-y-auto">
+                <div className="border rounded-md">
                   {receipts.map((receipt, index) => (
                     <div
                       key={receipt.id}
@@ -797,20 +928,30 @@ export function ProjectDetail() {
                         {receipt.note && (
                           <div className="text-xs text-muted-foreground mt-0.5">{receipt.note}</div>
                         )}
-                        {receipt.fileName && (
+                        {receipt.file_name && (
                           <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <FileImage className="h-3 w-3" />
-                            {receipt.fileName}
+                            {receipt.file_name}
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <span className="font-semibold text-sm">{formatCurrency(receipt.amount)}</span>
+                        {receipt.file_url && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => setPreviewReceipt({ url: receipt.file_url, name: receipt.file_name })}
+                          >
+                            <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => handleDeleteReceipt(receipt.id)}
+                          onClick={() => setDeleteConfirm({ id: receipt.id, fileUrl: receipt.file_url, name: receipt.name })}
                         >
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
@@ -824,6 +965,7 @@ export function ProjectDetail() {
                 No receipts added yet. Add your first receipt above.
               </div>
             )}
+          </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -885,6 +1027,128 @@ export function ProjectDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Delete confirmation modal */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Receipt</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-medium text-foreground">"{deleteConfirm?.name}"</span>? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (deleteConfirm) handleDeleteReceipt(deleteConfirm.id, deleteConfirm.fileUrl);
+                setDeleteConfirm(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt file preview modal */}
+      <Dialog open={!!previewReceipt} onOpenChange={(open) => !open && setPreviewReceipt(null)}>
+        <DialogContent className="p-0 overflow-hidden w-fit max-w-[90vw]">
+          {previewReceipt && (
+            previewReceipt.name?.toLowerCase().endsWith('.pdf') ? (
+              <iframe src={previewReceipt.url} className="w-[80vw] h-[80vh]" />
+            ) : (
+              <img src={previewReceipt.url} alt={previewReceipt.name} className="max-w-[80vw] max-h-[80vh] object-contain" />
+            )
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete payment confirmation modal */}
+      <Dialog open={!!deletePaymentConfirm} onOpenChange={(open) => !open && setDeletePaymentConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Milestone</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-medium text-foreground">"{deletePaymentConfirm?.label}"</span>? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDeletePaymentConfirm(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (deletePaymentConfirm) handleDeletePayment(deletePaymentConfirm.id);
+                setDeletePaymentConfirm(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Milestone modal */}
+      <Dialog open={addingPayment} onOpenChange={(open) => { setAddingPayment(open); if (!open) setNewPaymentForm({ label: '', percentage: '', amount: '' }); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5" />
+              Add Payment Milestone
+            </DialogTitle>
+            <DialogDescription>
+              Add a new milestone to the payment schedule for this project.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Milestone Label</Label>
+              <Input
+                placeholder="e.g., Framing Complete"
+                value={newPaymentForm.label}
+                onChange={(e) => setNewPaymentForm(f => ({ ...f, label: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Percentage (%)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g., 25"
+                  value={newPaymentForm.percentage}
+                  onChange={(e) => setNewPaymentForm(f => ({ ...f, percentage: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Amount ($)</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={newPaymentForm.amount}
+                  onChange={(e) => setNewPaymentForm(f => ({ ...f, amount: e.target.value }))}
+                />
+              </div>
+            </div>
+            {newPaymentForm.percentage && project?.totalValue && (
+              <p className="text-xs text-muted-foreground">
+                {newPaymentForm.percentage}% of {formatCurrency(project.totalValue)} = {formatCurrency(project.totalValue * parseFloat(newPaymentForm.percentage) / 100)}
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setAddingPayment(false); setNewPaymentForm({ label: '', percentage: '', amount: '' }); }}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddPayment}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add Milestone
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -25,8 +25,15 @@ import {
   PhoneCall,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  Trash2,
+  X,
 } from "lucide-react";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI } from "../utils/api";
+import {
+  Dialog,
+  DialogContent,
+} from "./ui/dialog";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI } from "../utils/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
@@ -88,8 +95,10 @@ export function ClientDetail() {
     ).catch(console.error);
     estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
     appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
+    leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);
   }, [id]);
 
+  const [leadSources, setLeadSources] = useState<any[]>([]);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
@@ -98,32 +107,29 @@ export function ClientDetail() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [photos, setPhotos] = useState<any[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [noteEntries, setNoteEntries] = useState<Array<{
-    id: string;
-    text: string;
-    timestamp: string;
-    userName: string;
-  }>>([]);
-  const [photoEntries, setPhotoEntries] = useState<Array<{
-    id: string;
-    url: string;
-    name: string;
-    timestamp: string;
-    userName: string;
-  }>>([]);
+  const [noteEntries, setNoteEntries] = useState<any[]>([]);
   const [notesPage, setNotesPage] = useState(1);
-  const [photosPage, setPhotosPage] = useState(1);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const ITEMS_PER_PAGE = 10;
   
   // Load photos and notes when client loads
   useEffect(() => {
     if (client && id) {
-      setNotes("");
-      setNoteEntries(client.noteEntries || []);
       loadPhotos();
+      loadNotes();
     }
-  }, [client, id]);
-  
+  }, [client?.id]);
+
+  const loadNotes = async () => {
+    if (!id) return;
+    try {
+      const data = await notesAPI.getByClient(id);
+      setNoteEntries(data || []);
+    } catch (error) {
+      console.error("Failed to load notes:", error);
+    }
+  };
+
   const loadPhotos = async () => {
     if (!id) return;
     try {
@@ -133,36 +139,18 @@ export function ClientDetail() {
       console.error("Failed to load photos:", error);
     }
   };
-  
+
   const handleSaveNotes = async () => {
-    if (!client || !notes.trim()) return;
-    
+    if (!id || !notes.trim()) return;
     try {
       setSavingNotes(true);
-      
-      // Create new note entry with timestamp and user
-      const newNoteEntry = {
-        id: Date.now().toString(),
-        text: notes.trim(),
-        timestamp: new Date().toISOString(),
-        userName: "Jonathan Butler",
-      };
-      
-      const updatedNoteEntries = [...noteEntries, newNoteEntry];
-      
-      await clientsAPI.update(client.id, {
-        ...client,
-        noteEntries: updatedNoteEntries,
-      });
-      
-      setClient({ ...client, noteEntries: updatedNoteEntries });
-      setNoteEntries(updatedNoteEntries);
-      setNotes(""); // Clear input after saving
-      
-      toast.success("Notes saved successfully");
+      await notesAPI.create({ client_id: id, content: notes.trim() });
+      setNotes("");
+      await loadNotes();
+      toast.success("Note saved");
     } catch (error: any) {
-      console.error("Failed to save notes:", error);
-      toast.error("Failed to save notes");
+      console.error("Failed to save note:", error);
+      toast.error("Failed to save note");
     } finally {
       setSavingNotes(false);
     }
@@ -191,12 +179,10 @@ export function ClientDetail() {
     e.target.value = "";
   };
   
-  const handleDeletePhoto = async (fileName: string) => {
-    if (!id) return;
-    
+  const handleDeletePhoto = async (fileId: string, fileUrl: string) => {
     try {
-      await photosAPI.delete(id, fileName);
-      toast.success("Photo deleted");
+      await photosAPI.delete(fileId, fileUrl);
+      toast.success("File deleted");
       loadPhotos();
     } catch (error: any) {
       console.error("Failed to delete photo:", error);
@@ -218,6 +204,18 @@ export function ClientDetail() {
       toast.error(err.message || "Failed to update status");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleLeadSourceChange = async (leadSourceId: string) => {
+    if (!client) return;
+    try {
+      await clientsAPI.update(client.id, { lead_source_id: leadSourceId });
+      const selected = leadSources.find((ls) => ls.id === leadSourceId);
+      setClient({ ...client, lead_source: selected, lead_source_id: leadSourceId });
+      toast.success("Lead source updated");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update lead source");
     }
   };
 
@@ -588,12 +586,22 @@ export function ClientDetail() {
             <CardTitle className="text-base">Lead Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {client.lead_source?.name && (
-              <div>
-                <div className="text-sm font-medium">Lead Source</div>
-                <Badge variant="outline" className="mt-1">{client.lead_source.name}</Badge>
-              </div>
-            )}
+            <div>
+              <div className="text-sm font-medium mb-1">Lead Source</div>
+              <Select
+                value={client.lead_source_id || client.lead_source?.id || ""}
+                onValueChange={handleLeadSourceChange}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Select lead source" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leadSources.map((ls) => (
+                    <SelectItem key={ls.id} value={ls.id}>{ls.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <div className="text-sm font-medium">Appointment Status</div>
               <div className="mt-1">
@@ -903,90 +911,63 @@ export function ClientDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Saved Notes History */}
+                <div className="space-y-2">
+                  <Label htmlFor="client-notes" className="text-sm font-medium">Add New Note</Label>
+                  <Textarea
+                    id="client-notes"
+                    placeholder="Add notes for your internal team to review..."
+                    rows={4}
+                    className="resize-none"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">These notes are only visible to your team members</p>
+                </div>
+                <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()}>
+                  {savingNotes ? "Saving..." : "Save Note"}
+                </Button>
                 {noteEntries.length > 0 && (
-                  <>
-                    <div className="space-y-3">
-                      {noteEntries
-                        .slice()
-                        .reverse()
-                        .slice((notesPage - 1) * ITEMS_PER_PAGE, notesPage * ITEMS_PER_PAGE)
-                        .map((entry) => (
-                          <div key={entry.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="font-medium text-foreground">{entry.userName}</span>
-                              <span>•</span>
-                              <span>
-                                {new Date(entry.timestamp).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                })}
-                              </span>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap">{entry.text}</p>
+                  <div className="space-y-3 pt-2 border-t">
+                    {noteEntries
+                      .slice((notesPage - 1) * ITEMS_PER_PAGE, notesPage * ITEMS_PER_PAGE)
+                      .map((note) => (
+                        <div key={note.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {note.profile ? `${note.profile.first_name} ${note.profile.last_name}` : "Team Member"}
+                            </span>
+                            <span>•</span>
+                            <span>
+                              {new Date(note.created_at).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </span>
                           </div>
-                        ))}
-                    </div>
-                    
-                    {/* Pagination Controls */}
+                          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                        </div>
+                      ))}
                     {noteEntries.length > ITEMS_PER_PAGE && (
                       <div className="flex items-center justify-between pt-3 border-t">
                         <p className="text-xs text-muted-foreground">
-                          Showing {Math.min((notesPage - 1) * ITEMS_PER_PAGE + 1, noteEntries.length)} - {Math.min(notesPage * ITEMS_PER_PAGE, noteEntries.length)} of {noteEntries.length} notes
+                          Showing {Math.min((notesPage - 1) * ITEMS_PER_PAGE + 1, noteEntries.length)} - {Math.min(notesPage * ITEMS_PER_PAGE, noteEntries.length)} of {noteEntries.length}
                         </p>
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setNotesPage(notesPage - 1)}
-                            disabled={notesPage === 1}
-                          >
+                          <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage - 1)} disabled={notesPage === 1}>
                             <ChevronLeft className="h-4 w-4" />
                           </Button>
-                          <span className="text-xs text-muted-foreground">
-                            Page {notesPage} of {Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setNotesPage(notesPage + 1)}
-                            disabled={notesPage >= Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}
-                          >
+                          <span className="text-xs text-muted-foreground">Page {notesPage} of {Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}</span>
+                          <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage + 1)} disabled={notesPage >= Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}>
                             <ChevronRight className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
-                
-                {/* Add New Note */}
-                <div className="space-y-2">
-                  <Label htmlFor="client-notes" className="text-sm font-medium">
-                    Add New Note
-                  </Label>
-                  <Textarea
-                    id="client-notes"
-                    placeholder="Add notes for your internal team to review..."
-                    rows={6}
-                    className="resize-none"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    These notes are only visible to your team members
-                  </p>
-                </div>
-                <Button 
-                  size="sm" 
-                  onClick={handleSaveNotes} 
-                  disabled={savingNotes || !notes.trim()}
-                >
-                  {savingNotes ? "Saving..." : "Save Note"}
-                </Button>
               </CardContent>
             </Card>
 
@@ -994,7 +975,7 @@ export function ClientDetail() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Upload className="h-4 w-4" />
-                  Client Photos
+                  Client Files
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1006,7 +987,7 @@ export function ClientDetail() {
                     <input
                       id="photo-upload"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
                       multiple
                       className="hidden"
                       onChange={handlePhotoUpload}
@@ -1014,10 +995,10 @@ export function ClientDetail() {
                     <label htmlFor="photo-upload" className="cursor-pointer">
                       <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground">
-                        Click to upload client-provided photos
+                        Click to upload files
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        PNG, JPG, GIF up to 10MB each
+                        Images, PDF, Word, Excel up to 10MB
                       </p>
                     </label>
                   </div>
@@ -1027,29 +1008,47 @@ export function ClientDetail() {
                 </div>
                 {photos.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {photos.map((photo: any, index: number) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={photo.url}
-                          alt={`Client photo ${index + 1}`}
-                          className="w-full h-32 object-cover rounded-lg"
-                        />
-                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all rounded-lg flex items-center justify-center">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="opacity-0 group-hover:opacity-100"
-                            onClick={() => handleDeletePhoto(photo.name)}
+                    {photos.map((photo: any) => (
+                      <div key={photo.id} className="relative group rounded-lg overflow-hidden border bg-muted">
+                        {photo.mime_type?.startsWith("image/") ? (
+                          <img
+                            src={photo.file_url}
+                            alt={photo.file_name}
+                            className="w-full h-32 object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-32 flex flex-col items-center justify-center gap-1 px-2">
+                            <FileText className="h-8 w-8 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground truncate max-w-[90%] text-center">{photo.file_name}</span>
+                          </div>
+                        )}
+                        {/* action icons top-right */}
+                        <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {photo.mime_type?.startsWith("image/") && (
+                            <button
+                              className="bg-black/60 hover:bg-black/80 text-white rounded-md p-1"
+                              onClick={() => setPreviewFile({ url: photo.file_url, name: photo.file_name })}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <button
+                            className="bg-red-500/80 hover:bg-red-600 text-white rounded-md p-1"
+                            onClick={() => handleDeletePhoto(photo.id, photo.file_url)}
                           >
-                            Remove
-                          </Button>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {/* file name bottom */}
+                        <div className="absolute bottom-0 inset-x-0 bg-black/40 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <p className="text-white text-xs truncate">{photo.file_name}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="text-center py-4 text-sm text-muted-foreground">
-                    No photos uploaded yet
+                    No files uploaded yet
                   </div>
                 )}
               </CardContent>
@@ -1074,6 +1073,25 @@ export function ClientDetail() {
         client={client}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
+
+      {/* Image preview modal */}
+      <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none">
+          <button
+            className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
+            onClick={() => setPreviewFile(null)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+          {previewFile && (
+            <img
+              src={previewFile.url}
+              alt={previewFile.name}
+              className="w-full max-h-[80vh] object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
