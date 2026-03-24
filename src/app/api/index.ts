@@ -18,3 +18,5 @@ export { productsAPI }                                   from "./products";
 export { companySettingsAPI, emailTemplatesAPI, rolesAPI, permissionsAPI } from "./settings";
 export { filesAPI, photosAPI }                           from "./files";
 export { notesAPI, actionLogsAPI }                       from "./notes";
+export { receiptsAPI }                                   from "./receipts";
+export { projectPaymentsAPI }                            from "./project-payments";

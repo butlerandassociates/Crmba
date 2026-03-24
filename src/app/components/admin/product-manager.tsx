@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -20,24 +20,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { Plus, Edit, Trash2, Search } from "lucide-react";
-import { products } from "../../data/estimate-templates";
+import { Plus, Edit, Trash2, Search, Loader2 } from "lucide-react";
+// OLD: imported from mock data — replaced with DB
+// import { products } from "../../data/estimate-templates";
+import { productsAPI } from "../../utils/api";
 import { Textarea } from "../ui/textarea";
-
-const CATEGORIES = [
-  "Concrete",
-  "Pavers",
-  "Outdoor Kitchen",
-  "Pergola/Pavilion",
-  "Drainage + Irrigation",
-  "Landscaping",
-  "Lighting",
-  "Fencing",
-  "Labor",
-  "Equipment",
-  "Materials",
-  "Other",
-];
+import { toast } from "sonner";
 
 const UNITS = [
   "square foot",
@@ -53,30 +41,49 @@ const UNITS = [
   "pallet",
 ];
 
+const emptyForm = {
+  name: "",
+  category_id: "",
+  unit: "",
+  materialCost: "",
+  laborCost: "",
+  markupPercent: "50",
+  description: "",
+  salesTaxApplicable: false,
+  additionalCosts: "",
+};
+
 export function ProductManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [newProduct, setNewProduct] = useState({
-    name: "",
-    category: "",
-    unit: "",
-    customUnit: "",
-    materialCost: "",
-    laborCost: "",
-    markupPercent: "50",
-    description: "",
-    salesTaxApplicable: false,
-    additionalCosts: "",
-  });
+  const [newProduct, setNewProduct] = useState(emptyForm);
 
-  const filteredProducts = products.filter((product) => {
+  // DB state
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    Promise.all([productsAPI.getAll(), productsAPI.getCategories()])
+      .then(([prods, cats]) => {
+        setAllProducts(prods || []);
+        setCategories(cats || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filteredProducts = allProducts.filter((product) => {
+    const catName = product.category?.name ?? "";
     const matchesSearch =
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchQuery.toLowerCase());
+      catName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory =
-      selectedCategory === "all" || product.category === selectedCategory;
+      selectedCategory === "all" || product.category_id === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
@@ -88,39 +95,10 @@ export function ProductManager() {
     }).format(value);
   };
 
-  const handleAddProduct = () => {
-    // In real app, save to database
-    console.log("Adding product:", newProduct);
-    setShowAddDialog(false);
-    setNewProduct({
-      name: "",
-      category: "",
-      unit: "",
-      customUnit: "",
-      materialCost: "",
-      laborCost: "",
-      markupPercent: "50",
-      description: "",
-      salesTaxApplicable: false,
-      additionalCosts: "",
-    });
-  };
-
-  const handleEditProduct = (product: any) => {
-    setEditingProduct({
-      ...product,
-      customUnit: product.unit,
-      materialCost: "",
-      laborCost: "",
-      additionalCosts: "",
-      salesTaxApplicable: false,
-    });
-  };
-
-  const handleSaveEdit = () => {
-    // In real app, save to database
-    console.log("Saving product:", editingProduct);
-    setEditingProduct(null);
+  const calcPrice = (materialCost: number, laborCost: number, markup: number, salesTax: boolean, additional: number) => {
+    const matWithTax = salesTax ? materialCost * 1.09 : materialCost;
+    const totalCost = matWithTax + laborCost + additional;
+    return totalCost * (1 + markup / 100);
   };
 
   const calculatePrice = () => {
@@ -128,24 +106,92 @@ export function ProductManager() {
     const laborCost = parseFloat(newProduct.laborCost) || 0;
     const markup = parseFloat(newProduct.markupPercent) || 0;
     const additionalCosts = parseFloat(newProduct.additionalCosts) || 0;
-    
-    // Add sales tax to material cost if applicable (9% on materials only)
-    const materialWithTax = newProduct.salesTaxApplicable 
-      ? materialCost * 1.09 
-      : materialCost;
-    
-    const totalCost = materialWithTax + laborCost + additionalCosts;
-    return totalCost * (1 + markup / 100);
+    return calcPrice(materialCost, laborCost, markup, newProduct.salesTaxApplicable, additionalCosts);
   };
 
-  // Group products by category
-  const productsByCategory = filteredProducts.reduce((acc, product) => {
-    if (!acc[product.category]) {
-      acc[product.category] = [];
+  const getProductPrice = (p: any) => {
+    const cost = Number(p.material_cost) + Number(p.labor_cost);
+    return cost * (1 + Number(p.markup_percentage) / 100);
+  };
+
+  const handleAddProduct = async () => {
+    if (!newProduct.name || !newProduct.category_id || !newProduct.unit) {
+      toast.error("Name, category, and unit are required");
+      return;
     }
-    acc[product.category].push(product);
-    return acc;
-  }, {} as Record<string, typeof products>);
+    try {
+      setSaving(true);
+      await productsAPI.save({
+        name: newProduct.name,
+        category_id: newProduct.category_id,
+        unit: newProduct.unit,
+        material_cost: parseFloat(newProduct.materialCost) || 0,
+        labor_cost: parseFloat(newProduct.laborCost) || 0,
+        markup_percentage: parseFloat(newProduct.markupPercent) || 0,
+        sales_tax_rate: newProduct.salesTaxApplicable ? 9 : null,
+        description: newProduct.description || null,
+        is_active: true,
+      });
+      // Re-fetch to get joined category object
+      const refreshed = await productsAPI.getAll();
+      setAllProducts(refreshed || []);
+      setShowAddDialog(false);
+      setNewProduct(emptyForm);
+      toast.success("Product added");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add product");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditProduct = (product: any) => {
+    setEditingProduct({
+      ...product,
+      materialCost: String(product.material_cost ?? ""),
+      laborCost: String(product.labor_cost ?? ""),
+      markupPercent: String(product.markup_percentage ?? ""),
+      category_id: product.category_id ?? "",
+      salesTaxApplicable: product.sales_tax_rate != null,
+      additionalCosts: "",
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingProduct) return;
+    try {
+      setSaving(true);
+      await productsAPI.save({
+        id: editingProduct.id,
+        name: editingProduct.name,
+        category_id: editingProduct.category_id,
+        unit: editingProduct.unit,
+        material_cost: parseFloat(editingProduct.materialCost) || 0,
+        labor_cost: parseFloat(editingProduct.laborCost) || 0,
+        markup_percentage: parseFloat(editingProduct.markupPercent) || 0,
+        sales_tax_rate: editingProduct.salesTaxApplicable ? 9 : null,
+        description: editingProduct.description || null,
+      });
+      const refreshed = await productsAPI.getAll();
+      setAllProducts(refreshed || []);
+      setEditingProduct(null);
+      toast.success("Product updated");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update product");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    try {
+      await productsAPI.archive(id);
+      setAllProducts((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Product removed");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete product");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -164,14 +210,19 @@ export function ProductManager() {
               Add Product
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Add New Product</DialogTitle>
-              <DialogDescription>
-                Add a new product, material, or service to your catalog
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
+          <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+            {/* Fixed header */}
+            <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+              <DialogHeader>
+                <DialogTitle>Add New Product</DialogTitle>
+                <DialogDescription>
+                  Add a new product, material, or service to your catalog
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Product Name *</Label>
@@ -186,18 +237,18 @@ export function ProductManager() {
                 <div className="space-y-2">
                   <Label>Category *</Label>
                   <Select
-                    value={newProduct.category}
+                    value={newProduct.category_id}
                     onValueChange={(value) =>
-                      setNewProduct({ ...newProduct, category: value })
+                      setNewProduct({ ...newProduct, category_id: value })
                     }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -208,14 +259,19 @@ export function ProductManager() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Unit *</Label>
-                  <Input
-                    placeholder="e.g., square foot, each, linear foot"
-                    value={newProduct.customUnit || newProduct.unit}
-                    onChange={(e) =>
-                      setNewProduct({ ...newProduct, customUnit: e.target.value, unit: "" })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">Type your custom unit</p>
+                  <Select
+                    value={newProduct.unit}
+                    onValueChange={(value) => setNewProduct({ ...newProduct, unit: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNITS.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Material Cost (per unit) *</Label>
@@ -230,7 +286,7 @@ export function ProductManager() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Labor Cost (per unit) *</Label>
+                  <Label>Labor Cost (per unit)</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -245,7 +301,7 @@ export function ProductManager() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Markup % *</Label>
+                  <Label>Markup %</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -301,7 +357,7 @@ export function ProductManager() {
                 />
               </div>
 
-              {newProduct.materialCost && newProduct.laborCost && newProduct.markupPercent && (
+              {newProduct.materialCost && newProduct.markupPercent && (
                 <div className="p-4 bg-muted rounded-lg space-y-3">
                   <div className="grid grid-cols-4 gap-4 text-sm">
                     <div>
@@ -335,11 +391,11 @@ export function ProductManager() {
                   </div>
                   <div className="border-t pt-3 grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <div className="text-xs text-muted-foreground">Total Cost + Markup ({newProduct.markupPercent}%)</div>
+                      <div className="text-xs text-muted-foreground">Price ({newProduct.markupPercent}% markup)</div>
                       <div className="text-lg font-bold text-green-600">
                         {formatCurrency(calculatePrice())}
                       </div>
-                      <div className="text-xs text-muted-foreground">Client price per {newProduct.customUnit || newProduct.unit || 'unit'}</div>
+                      <div className="text-xs text-muted-foreground">per {newProduct.unit || 'unit'}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Profit Per Unit</div>
@@ -355,21 +411,17 @@ export function ProductManager() {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2">
+            </div>
+            {/* Fixed footer */}
+            <div className="px-6 py-4 border-t flex-shrink-0 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>
                 Cancel
               </Button>
               <Button
                 onClick={handleAddProduct}
-                disabled={
-                  !newProduct.name ||
-                  !newProduct.category ||
-                  (!newProduct.unit && !newProduct.customUnit) ||
-                  !newProduct.materialCost ||
-                  !newProduct.laborCost ||
-                  !newProduct.markupPercent
-                }
+                disabled={saving || !newProduct.name || !newProduct.category_id || !newProduct.unit}
               >
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Add Product
               </Button>
             </div>
@@ -394,9 +446,9 @@ export function ProductManager() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            {CATEGORIES.map((cat) => (
-              <SelectItem key={cat} value={cat}>
-                {cat}
+            {categories.map((cat) => (
+              <SelectItem key={cat.id} value={cat.id}>
+                {cat.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -406,6 +458,11 @@ export function ProductManager() {
       {/* Products Table */}
       <Card>
         <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-b bg-muted/50">
@@ -437,67 +494,77 @@ export function ProductManager() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredProducts.map((product) => (
-                  <tr key={product.id} className="hover:bg-accent/50">
-                    <td className="p-3">
-                      <div className="font-medium text-sm">{product.name}</div>
-                      {product.description && (
-                        <div className="text-xs text-muted-foreground">
-                          {product.description}
+                {filteredProducts.map((product) => {
+                  const cost = Number(product.material_cost) + Number(product.labor_cost);
+                  const price = getProductPrice(product);
+                  const profit = price - cost;
+                  return (
+                    <tr key={product.id} className="hover:bg-accent/50">
+                      <td className="p-3">
+                        <div className="font-medium text-sm">{product.name}</div>
+                        {product.description && (
+                          <div className="text-xs text-muted-foreground">
+                            {product.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <Badge variant="outline" className="text-xs">
+                          {product.category?.name ?? "—"}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="text-sm text-muted-foreground">
+                          {product.unit}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className="text-sm font-medium">
+                          {formatCurrency(cost)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <Badge variant="secondary" className="text-xs">
+                          {product.markup_percentage}%
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className="text-sm font-semibold text-green-600">
+                          {formatCurrency(price)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className="text-sm font-medium text-green-600">
+                          {formatCurrency(profit)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditProduct(product)}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteConfirm({ id: product.id, name: product.name })}
+                          >
+                            <Trash2 className="h-3 w-3 text-destructive" />
+                          </Button>
                         </div>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <Badge variant="outline" className="text-xs">
-                        {product.category}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="text-sm text-muted-foreground">
-                        {product.unit}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <span className="text-sm font-medium">
-                        {formatCurrency(product.pricePerUnit)}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <Badge variant="secondary" className="text-xs">
-                        {product.markupPercent}%
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-right">
-                      <span className="text-sm font-semibold text-green-600">
-                        {formatCurrency(product.pricePerUnit)}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <span className="text-sm font-medium text-green-600">
-                        {formatCurrency(product.pricePerUnit - product.pricePerUnit)}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleEditProduct(product)}
-                        >
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Trash2 className="h-3 w-3 text-destructive" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          )}
 
-          {filteredProducts.length === 0 && (
+          {!loading && filteredProducts.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No products found</p>
             </div>
@@ -514,7 +581,7 @@ export function ProductManager() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{products.length}</p>
+            <p className="text-2xl font-bold">{allProducts.length}</p>
           </CardContent>
         </Card>
         <Card>
@@ -525,7 +592,7 @@ export function ProductManager() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {new Set(products.map((p) => p.category)).size}
+              {new Set(allProducts.map((p) => p.category_id).filter(Boolean)).size}
             </p>
           </CardContent>
         </Card>
@@ -537,11 +604,9 @@ export function ProductManager() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {(
-                products.reduce((sum, p) => sum + p.markupPercent, 0) /
-                products.length
-              ).toFixed(0)}
-              %
+              {allProducts.length > 0
+                ? (allProducts.reduce((sum, p) => sum + Number(p.markup_percentage), 0) / allProducts.length).toFixed(0)
+                : 0}%
             </p>
           </CardContent>
         </Card>
@@ -560,14 +625,19 @@ export function ProductManager() {
       {/* Edit Product Dialog */}
       {editingProduct && (
         <Dialog open={!!editingProduct} onOpenChange={() => setEditingProduct(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Edit Product</DialogTitle>
-              <DialogDescription>
-                Update product details, pricing, and settings
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
+          <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+            {/* Fixed header */}
+            <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+              <DialogHeader>
+                <DialogTitle>Edit Product</DialogTitle>
+                <DialogDescription>
+                  Update product details, pricing, and settings
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Product Name *</Label>
@@ -582,18 +652,18 @@ export function ProductManager() {
                 <div className="space-y-2">
                   <Label>Category *</Label>
                   <Select
-                    value={editingProduct.category}
+                    value={editingProduct.category_id}
                     onValueChange={(value) =>
-                      setEditingProduct({ ...editingProduct, category: value })
+                      setEditingProduct({ ...editingProduct, category_id: value })
                     }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -604,21 +674,25 @@ export function ProductManager() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Unit *</Label>
-                  <Input
-                    placeholder="e.g., square foot, each, linear foot"
-                    value={editingProduct.customUnit || editingProduct.unit}
-                    onChange={(e) =>
-                      setEditingProduct({ ...editingProduct, customUnit: e.target.value, unit: "" })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">Type your custom unit</p>
+                  <Select
+                    value={editingProduct.unit}
+                    onValueChange={(value) => setEditingProduct({ ...editingProduct, unit: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNITS.map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Material Cost (per unit) *</Label>
+                  <Label>Material Cost</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder={formatCurrency(editingProduct.costPerUnit / 2)}
                     value={editingProduct.materialCost}
                     onChange={(e) =>
                       setEditingProduct({ ...editingProduct, materialCost: e.target.value })
@@ -626,11 +700,10 @@ export function ProductManager() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Labor Cost (per unit) *</Label>
+                  <Label>Labor Cost</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder={formatCurrency(editingProduct.costPerUnit / 2)}
                     value={editingProduct.laborCost}
                     onChange={(e) =>
                       setEditingProduct({ ...editingProduct, laborCost: e.target.value })
@@ -641,11 +714,10 @@ export function ProductManager() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Markup % *</Label>
+                  <Label>Markup %</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder={editingProduct.markupPercent.toString()}
                     value={editingProduct.markupPercent}
                     onChange={(e) =>
                       setEditingProduct({ ...editingProduct, markupPercent: e.target.value })
@@ -663,7 +735,6 @@ export function ProductManager() {
                       setEditingProduct({ ...editingProduct, additionalCosts: e.target.value })
                     }
                   />
-                  <p className="text-xs text-muted-foreground">Any other fees or costs</p>
                 </div>
               </div>
 
@@ -700,31 +771,69 @@ export function ProductManager() {
               <div className="p-4 bg-muted rounded-lg">
                 <div className="text-sm space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Current Cost:</span>
-                    <span className="font-semibold">{formatCurrency(editingProduct.costPerUnit)}</span>
+                    <span className="text-muted-foreground">Total Cost:</span>
+                    <span className="font-semibold">
+                      {formatCurrency((parseFloat(editingProduct.materialCost) || 0) + (parseFloat(editingProduct.laborCost) || 0))}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Current Markup:</span>
+                    <span className="text-muted-foreground">Markup:</span>
                     <span className="font-semibold">{editingProduct.markupPercent}%</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Current Price:</span>
-                    <span className="font-semibold text-green-600">{formatCurrency(editingProduct.pricePerUnit)}</span>
+                    <span className="text-muted-foreground">Client Price:</span>
+                    <span className="font-semibold text-green-600">
+                      {formatCurrency(calcPrice(
+                        parseFloat(editingProduct.materialCost) || 0,
+                        parseFloat(editingProduct.laborCost) || 0,
+                        parseFloat(editingProduct.markupPercent) || 0,
+                        editingProduct.salesTaxApplicable,
+                        parseFloat(editingProduct.additionalCosts) || 0
+                      ))}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2">
+            </div>
+            {/* Fixed footer */}
+            <div className="px-6 py-4 border-t flex-shrink-0 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditingProduct(null)}>
                 Cancel
               </Button>
-              <Button onClick={handleSaveEdit}>
+              <Button onClick={handleSaveEdit} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save Changes
               </Button>
             </div>
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Delete confirmation modal */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Product</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <span className="font-medium text-foreground">"{deleteConfirm?.name}"</span>? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (deleteConfirm) handleDeleteProduct(deleteConfirm.id);
+                setDeleteConfirm(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

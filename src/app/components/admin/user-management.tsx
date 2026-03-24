@@ -322,86 +322,93 @@ export function UserManagement() {
               Invite User
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
-            <form onSubmit={handleInvite}>
-              <DialogHeader>
-                <DialogTitle>Invite Team Member</DialogTitle>
-                <DialogDescription>
-                  An invite email will be sent. They set their own password on first login.
-                </DialogDescription>
-              </DialogHeader>
+          <DialogContent className="sm:max-w-[560px] max-h-[90vh] flex flex-col p-0 gap-0">
+            <form onSubmit={handleInvite} className="flex flex-col flex-1 min-h-0">
+              {/* Fixed header */}
+              <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+                <DialogHeader>
+                  <DialogTitle>Invite Team Member</DialogTitle>
+                  <DialogDescription>
+                    An invite email will be sent. They set their own password on first login.
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
 
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-3">
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                <div className="grid gap-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-2">
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input
+                        id="firstName"
+                        placeholder="John"
+                        value={formData.firstName}
+                        onChange={(e) => setFormData((f) => ({ ...f, firstName: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input
+                        id="lastName"
+                        placeholder="Doe"
+                        value={formData.lastName}
+                        onChange={(e) => setFormData((f) => ({ ...f, lastName: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
                   <div className="grid gap-2">
-                    <Label htmlFor="firstName">First Name</Label>
+                    <Label htmlFor="email">Email Address *</Label>
                     <Input
-                      id="firstName"
-                      placeholder="John"
-                      value={formData.firstName}
-                      onChange={(e) => setFormData((f) => ({ ...f, firstName: e.target.value }))}
+                      id="email"
+                      type="email"
+                      placeholder="john@company.com"
+                      required
+                      value={formData.email}
+                      onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
                     />
                   </div>
+
                   <div className="grid gap-2">
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input
-                      id="lastName"
-                      placeholder="Doe"
-                      value={formData.lastName}
-                      onChange={(e) => setFormData((f) => ({ ...f, lastName: e.target.value }))}
-                    />
+                    <Label>Role *</Label>
+                    <Select value={selectedRole} onValueChange={handleRoleChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles.map((r: any) => (
+                          <SelectItem key={r.id} value={r.name}>{r.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email Address *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="john@company.com"
-                    required
-                    value={formData.email}
-                    onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label>Role *</Label>
-                  <Select value={selectedRole} onValueChange={handleRoleChange}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles.map((r: any) => (
-                        <SelectItem key={r.id} value={r.name}>{r.label}</SelectItem>
+                  <div className="grid gap-2">
+                    <Label>Permissions</Label>
+                    <div className="border rounded-lg p-4 space-y-3">
+                      {allPermissions.map((permission: any) => (
+                        <div key={permission.key} className="flex items-center gap-2">
+                          <Checkbox
+                            id={permission.key}
+                            checked={selectedPermissions.includes(permission.key)}
+                            onCheckedChange={() => handlePermissionToggle(permission.key)}
+                          />
+                          <label htmlFor={permission.key} className="text-sm cursor-pointer">
+                            {permission.label}
+                          </label>
+                        </div>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label>Permissions</Label>
-                  <div className="border rounded-lg p-4 space-y-3">
-                    {allPermissions.map((permission: any) => (
-                      <div key={permission.key} className="flex items-center gap-2">
-                        <Checkbox
-                          id={permission.key}
-                          checked={selectedPermissions.includes(permission.key)}
-                          onCheckedChange={() => handlePermissionToggle(permission.key)}
-                        />
-                        <label htmlFor={permission.key} className="text-sm cursor-pointer">
-                          {permission.label}
-                        </label>
-                      </div>
-                    ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-selected based on role. Customize as needed.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Pre-selected based on role. Customize as needed.
-                  </p>
                 </div>
               </div>
 
-              <DialogFooter>
+              {/* Fixed footer */}
+              <div className="px-6 py-4 border-t flex-shrink-0 flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
                 </Button>
@@ -412,7 +419,7 @@ export function UserManagement() {
                     <><Mail className="h-4 w-4 mr-2" />Send Invite</>
                   )}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           </DialogContent>
         </Dialog>
