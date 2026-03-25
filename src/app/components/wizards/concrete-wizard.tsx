@@ -24,8 +24,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
   const [formData, setFormData] = useState<Record<string, any>>({
     projectType: "",
     location: "",
-    length: "",
-    width: "",
+    squareFootage: "",
     thickness: "",
     reinforcementType: "",
     finish: "",
@@ -43,7 +42,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
     },
     {
       title: "Measurements",
-      fields: ["length", "width", "thickness"],
+      fields: ["squareFootage", "thickness"],
     },
     {
       title: "Reinforcement",
@@ -82,11 +81,9 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
     const items: any[] = [];
     
     // Calculate dimensions
-    const length = parseFloat(formData.length) || 0;
-    const width = parseFloat(formData.width) || 0;
+    const squareFootage = parseFloat(formData.squareFootage) || 0;
     const thickness = parseFloat(formData.thickness) || 0;
-    const squareFootage = length * width;
-    const cubicYards = (length * width * (thickness / 12)) / 27;
+    const cubicYards = (squareFootage * (thickness / 12)) / 27;
 
     // Find products
     const concreteProduct = products.find((p) => p.id === "p1");
@@ -102,7 +99,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
       items.push({
         category: "Concrete",
         productName: `${formData.projectType} - Concrete (${thickness}")`,
-        description: `${length}' x ${width}' x ${thickness}" thick`,
+        description: `${squareFootage} sq ft x ${thickness}" thick`,
         quantity: Math.ceil(cubicYards * 10) / 10,
         unit: concreteProduct.unit,
         materialCost: concreteProduct.materialCost,
@@ -115,7 +112,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
 
     // Add gravel base
     if (gravelProduct) {
-      const gravelTons = ((length * width * (4 / 12)) / 27) * 1.35; // 4" base
+      const gravelTons = ((squareFootage * (4 / 12)) / 27) * 1.35; // 4" base
       items.push({
         category: "Concrete",
         productName: "Gravel Base (4\")",
@@ -132,7 +129,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
 
     // Add reinforcement
     if (formData.reinforcementType === "Rebar" && rebarProduct) {
-      const rebarLinearFeet = (length + width) * 4; // Simplified
+      const rebarLinearFeet = squareFootage * 0.8; // ~16" spacing estimate
       items.push({
         category: "Concrete",
         productName: "Rebar (#4)",
@@ -293,33 +290,25 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
 
         {currentStep === 2 && (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Length (feet)</Label>
+                <Label>Total Square Footage</Label>
                 <Input
                   type="number"
-                  placeholder="20"
-                  value={formData.length}
-                  onChange={(e) => handleFieldChange("length", e.target.value)}
+                  placeholder="e.g. 400"
+                  value={formData.squareFootage}
+                  onChange={(e) => handleFieldChange("squareFootage", e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">Total area in square feet</p>
               </div>
               <div className="space-y-2">
-                <Label>Width (feet)</Label>
-                <Input
-                  type="number"
-                  placeholder="15"
-                  value={formData.width}
-                  onChange={(e) => handleFieldChange("width", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Thickness (inches)</Label>
+                <Label>Depth (inches)</Label>
                 <Select
                   value={formData.thickness}
                   onValueChange={(value) => handleFieldChange("thickness", value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select" />
+                    <SelectValue placeholder="Select depth" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="4">4"</SelectItem>
@@ -328,11 +317,12 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
                     <SelectItem value="8">8"</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Standard driveway: 6", Patio: 4–5"</p>
               </div>
             </div>
-            {formData.length && formData.width && (
-              <div className="text-sm text-muted-foreground p-3 bg-muted rounded">
-                Total Area: <strong>{(parseFloat(formData.length) * parseFloat(formData.width)).toFixed(0)} sq ft</strong>
+            {formData.squareFootage && formData.thickness && (
+              <div className="text-sm p-3 bg-muted rounded">
+                Concrete needed: <strong>{((parseFloat(formData.squareFootage) * (parseFloat(formData.thickness) / 12)) / 27).toFixed(1)} cubic yards</strong>
               </div>
             )}
           </div>

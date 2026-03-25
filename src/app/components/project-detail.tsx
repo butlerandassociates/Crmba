@@ -252,6 +252,34 @@ export function ProjectDetail() {
   };
 
   // Receipt handling functions
+  // const handleAddReceipt = async () => {
+  //   if (!newReceipt.name || !newReceipt.amount) {
+  //     toast.error('Please enter receipt name and amount');
+  //     return;
+  //   }
+  //   if (!id) return;
+  //   try {
+  //     setSavingReceipt(true);
+  //     const saved = await receiptsAPI.create(
+  //       {
+  //         project_id: id,
+  //         name: newReceipt.name,
+  //         amount: parseFloat(newReceipt.amount),
+  //         category: newReceipt.category,
+  //         note: newReceipt.note || undefined,
+  //       },
+  //       droppedFile || undefined
+  //     );
+  //     setReceipts((prev) => [saved, ...prev]);
+  //     setNewReceipt({ name: '', amount: '', category: 'material', note: '', fileName: '' });
+  //     setDroppedFile(null);
+  //     toast.success('Receipt added');
+  //   } catch (err: any) {
+  //     toast.error(err.message || 'Failed to add receipt');
+  //   } finally {
+  //     setSavingReceipt(false);
+  //   }
+  // };
   const handleAddReceipt = async () => {
     if (!newReceipt.name || !newReceipt.amount) {
       toast.error('Please enter receipt name and amount');
@@ -271,6 +299,8 @@ export function ProjectDetail() {
         droppedFile || undefined
       );
       setReceipts((prev) => [saved, ...prev]);
+      const updatedProject = await projectsAPI.getById(id);
+      setProject(updatedProject); 
       setNewReceipt({ name: '', amount: '', category: 'material', note: '', fileName: '' });
       setDroppedFile(null);
       toast.success('Receipt added');
@@ -282,9 +312,12 @@ export function ProjectDetail() {
   };
 
   const handleDeleteReceipt = async (receiptId: string, fileUrl?: string) => {
+    if (!id) return;
     try {
       await receiptsAPI.delete(receiptId, fileUrl);
       setReceipts((prev) => prev.filter((r) => r.id !== receiptId));
+      const updatedProject = await projectsAPI.getById(id);
+      setProject(updatedProject);
       toast.success('Receipt deleted');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete receipt');
@@ -1055,13 +1088,24 @@ export function ProjectDetail() {
 
       {/* Receipt file preview modal */}
       <Dialog open={!!previewReceipt} onOpenChange={(open) => !open && setPreviewReceipt(null)}>
-        <DialogContent className="p-0 overflow-hidden w-fit max-w-[90vw]">
+        <DialogContent className="p-0 overflow-hidden max-w-[90vw] w-fit bg-white rounded-xl shadow-2xl [&>button]:text-foreground [&>button]:top-3 [&>button]:right-3">
           {previewReceipt && (
-            previewReceipt.name?.toLowerCase().endsWith('.pdf') ? (
-              <iframe src={previewReceipt.url} className="w-[80vw] h-[80vh]" />
-            ) : (
-              <img src={previewReceipt.url} alt={previewReceipt.name} className="max-w-[80vw] max-h-[80vh] object-contain" />
-            )
+            <div className="flex flex-col">
+              <div className="px-4 py-2.5 border-b bg-muted/40 flex items-center gap-2 pr-12">
+                <span className="text-sm font-medium truncate max-w-[60vw]">{previewReceipt.name}</span>
+              </div>
+              {previewReceipt.name?.toLowerCase().endsWith('.pdf') ? (
+                <iframe src={previewReceipt.url} className="w-[80vw] h-[80vh]" />
+              ) : (
+                <div className="p-4 flex items-center justify-center bg-muted/10">
+                  <img
+                    src={previewReceipt.url}
+                    alt={previewReceipt.name}
+                    className="max-w-[80vw] max-h-[78vh] object-contain rounded"
+                  />
+                </div>
+              )}
+            </div>
           )}
         </DialogContent>
       </Dialog>
