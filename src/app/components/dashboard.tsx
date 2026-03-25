@@ -1,5 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown } from "lucide-react";
+import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2 } from "lucide-react";
+import { Badge } from "./ui/badge";
+import { Link } from "react-router";
 import {
   XAxis,
   YAxis,
@@ -25,6 +27,8 @@ export function Dashboard() {
   const [weather, setWeather] = useState({ temp: 72, condition: 'Sunny' });
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [collections, setCollections] = useState<any[]>([]);
+  const [collectionsTab, setCollectionsTab] = useState<'today' | 'upcoming' | 'overdue'>('overdue');
   const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<'month' | 'quarter' | 'year' | 'custom'>('month');
@@ -71,6 +75,15 @@ export function Dashboard() {
       ]);
       setClients(clientsData);
       setProjects(projectsData);
+
+      // Fetch all unpaid payments with due dates
+      const { data: paymentsData } = await supabase
+        .from("project_payments")
+        .select(`*, project:projects(id, name, client:clients(first_name, last_name))`)
+        .eq("is_paid", false)
+        .not("due_date", "is", null)
+        .order("due_date", { ascending: true });
+      setCollections(paymentsData || []);
       // Fetch revenue goal from company_settings
       const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").single();
       if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
@@ -612,6 +625,98 @@ export function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Collections */}
+      {(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const overdue = collections.filter(p => p.due_date < today);
+        const dueToday = collections.filter(p => p.due_date === today);
+        const upcoming = collections.filter(p => p.due_date > today);
+        const activeList = collectionsTab === 'overdue' ? overdue : collectionsTab === 'today' ? dueToday : upcoming;
+
+        const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const formatCurrencyLocal = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
+
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Collections
+                </CardTitle>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setCollectionsTab('overdue')}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${collectionsTab === 'overdue' ? 'bg-red-100 text-red-700' : 'text-muted-foreground hover:bg-muted'}`}
+                  >
+                    Past Due {overdue.length > 0 && <span className="ml-1 bg-red-600 text-white rounded-full px-1.5 py-0.5 text-[10px]">{overdue.length}</span>}
+                  </button>
+                  <button
+                    onClick={() => setCollectionsTab('today')}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${collectionsTab === 'today' ? 'bg-orange-100 text-orange-700' : 'text-muted-foreground hover:bg-muted'}`}
+                  >
+                    Today {dueToday.length > 0 && <span className="ml-1 bg-orange-500 text-white rounded-full px-1.5 py-0.5 text-[10px]">{dueToday.length}</span>}
+                  </button>
+                  <button
+                    onClick={() => setCollectionsTab('upcoming')}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${collectionsTab === 'upcoming' ? 'bg-blue-100 text-blue-700' : 'text-muted-foreground hover:bg-muted'}`}
+                  >
+                    Upcoming {upcoming.length > 0 && <span className="ml-1 bg-blue-500 text-white rounded-full px-1.5 py-0.5 text-[10px]">{upcoming.length}</span>}
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {activeList.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                  <p className="text-sm">No payments {collectionsTab === 'overdue' ? 'past due' : collectionsTab === 'today' ? 'due today' : 'upcoming'}</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {activeList.map((payment) => {
+                    const clientName = payment.project?.client
+                      ? `${payment.project.client.first_name ?? ''} ${payment.project.client.last_name ?? ''}`.trim()
+                      : '—';
+                    return (
+                      <div key={payment.id} className="py-3 flex items-center justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          {collectionsTab === 'overdue' ? (
+                            <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                          ) : collectionsTab === 'today' ? (
+                            <Clock className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                          ) : (
+                            <DollarSign className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <Link to={`/projects/${payment.project?.id}`} className="font-medium text-sm hover:text-primary truncate block">
+                              {payment.project?.name ?? '—'}
+                            </Link>
+                            <div className="text-xs text-muted-foreground">{clientName} · {payment.label}</div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-semibold text-sm">{formatCurrencyLocal(payment.amount)}</div>
+                          <div className={`text-xs ${collectionsTab === 'overdue' ? 'text-red-600' : collectionsTab === 'today' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                            {formatDate(payment.due_date)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {(overdue.length > 0 || dueToday.length > 0 || upcoming.length > 0) && (
+                <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Total outstanding: <strong>{formatCurrencyLocal(collections.reduce((s, p) => s + p.amount, 0))}</strong></span>
+                  <span>{collections.length} payment{collections.length !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 }

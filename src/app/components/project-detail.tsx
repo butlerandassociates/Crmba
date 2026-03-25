@@ -39,6 +39,8 @@ import { useState, useEffect } from "react";
 import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
 import { ForemanPaymentBreakdown } from "./foreman-payment-breakdown";
+import { FieldInstallationOrderModal } from "./field-installation-order-modal";
+import { PurchaseOrderModal } from "./purchase-order-modal";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -76,6 +78,9 @@ export function ProjectDetail() {
 
   const client = project?.client ?? null;
 
+  const [fioOpen, setFioOpen] = useState(false);
+  const [poOpen, setPoOpen] = useState(false);
+
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'details' | 'cost-attributions' | 'docusign' | 'files' | 'crew-payment' | 'payments'>('details');
@@ -84,9 +89,9 @@ export function ProjectDetail() {
   // Payment tracking state
   const [projectPayments, setProjectPayments] = useState<any[]>([]);
   const [editingPayment, setEditingPayment] = useState<string | null>(null);
-  const [editPaymentForm, setEditPaymentForm] = useState<{ label: string; percentage: string; amount: string; notes: string }>({ label: '', percentage: '', amount: '', notes: '' });
+  const [editPaymentForm, setEditPaymentForm] = useState<{ label: string; percentage: string; amount: string; notes: string; due_date: string }>({ label: '', percentage: '', amount: '', notes: '', due_date: '' });
   const [addingPayment, setAddingPayment] = useState(false);
-  const [newPaymentForm, setNewPaymentForm] = useState({ label: '', percentage: '', amount: '' });
+  const [newPaymentForm, setNewPaymentForm] = useState({ label: '', percentage: '', amount: '', due_date: '' });
 
   // Load payments from DB when project loads
   useEffect(() => {
@@ -210,6 +215,7 @@ export function ProjectDetail() {
         percentage: parseFloat(editPaymentForm.percentage),
         amount: parseFloat(editPaymentForm.amount),
         notes: editPaymentForm.notes,
+        due_date: editPaymentForm.due_date || null,
       });
       setProjectPayments(prev => prev.map(p => p.id === paymentId ? updated : p));
       setEditingPayment(null);
@@ -231,9 +237,10 @@ export function ProjectDetail() {
         percentage: parseFloat(newPaymentForm.percentage) || 0,
         amount: parseFloat(newPaymentForm.amount),
         sort_order: projectPayments.length,
+        due_date: newPaymentForm.due_date || undefined,
       });
       setProjectPayments(prev => [...prev, created]);
-      setNewPaymentForm({ label: '', percentage: '', amount: '' });
+      setNewPaymentForm({ label: '', percentage: '', amount: '', due_date: '' });
       setAddingPayment(false);
       toast.success('Payment milestone added');
     } catch (err: any) {
@@ -402,6 +409,12 @@ export function ProjectDetail() {
                 <FileCheck className="h-4 w-4 mr-2" />
                 Create QuickBooks Invoice
               </DropdownMenuItem>
+              {['sold', 'active', 'completed', 'scheduled'].includes(project.status) && (
+                <DropdownMenuItem onClick={() => setPoOpen(true)}>
+                  <Receipt className="h-4 w-4 mr-2" />
+                  Purchase Orders
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -520,6 +533,15 @@ export function ProjectDetail() {
                 <Wallet className="h-4 w-4" />
                 Payments
               </button>
+              {['sold', 'active', 'completed', 'scheduled'].includes(project.status) && (
+                <button
+                  onClick={() => setPoOpen(true)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors hover:bg-muted"
+                >
+                  <Receipt className="h-4 w-4 flex-shrink-0" />
+                  Purchase Orders
+                </button>
+              )}
             </nav>
           </CardContent>
         </Card>
@@ -563,20 +585,37 @@ export function ProjectDetail() {
               <div>
                 <h3 className="font-semibold mb-2 text-sm">Team</h3>
                 <div className="space-y-2">
-                  <div className="flex items-start gap-2 p-2 border rounded-md">
-                    <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>
-                      <div className="text-xs text-muted-foreground">Project Manager</div>
-                      <div className="font-medium text-sm">{project.projectManagerName}</div>
+                  {project.projectManagerName && (
+                    <div className="flex items-start gap-2 p-2 border rounded-md">
+                      <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Project Manager</div>
+                        <div className="font-medium text-sm">{project.projectManagerName}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-2 border rounded-md">
-                    <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
-                    <div>
-                      <div className="text-xs text-muted-foreground">Foreman</div>
-                      <div className="font-medium text-sm">{project.foremanName}</div>
+                  )}
+                  {project.foremanName && (
+                    <button
+                      onClick={() => setFioOpen(true)}
+                      className="w-full flex items-start gap-2 p-2 border rounded-md hover:bg-primary/5 hover:border-primary transition-colors text-left"
+                    >
+                      <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Foreman</div>
+                        <div className="font-medium text-sm text-primary">{project.foremanName}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">Click to view payment breakdown</div>
+                      </div>
+                    </button>
+                  )}
+                  {project.salesRepName && (
+                    <div className="flex items-start gap-2 p-2 border rounded-md">
+                      <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Sales Rep</div>
+                        <div className="font-medium text-sm">{project.salesRepName}</div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -716,10 +755,14 @@ export function ProjectDetail() {
                 <div key={payment.id}>
                   {editingPayment === payment.id ? (
                     <div className="p-3 border rounded-md bg-muted/20 space-y-3">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">Label</Label>
                           <Input value={editPaymentForm.label} onChange={(e) => setEditPaymentForm(f => ({ ...f, label: e.target.value }))} className="h-8 text-sm mt-1" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Due Date</Label>
+                          <Input type="date" value={editPaymentForm.due_date} onChange={(e) => setEditPaymentForm(f => ({ ...f, due_date: e.target.value }))} className="h-8 text-sm mt-1" />
                         </div>
                         <div>
                           <Label className="text-xs">Percentage %</Label>
@@ -744,16 +787,27 @@ export function ProjectDetail() {
                         />
                         <div>
                           <div className="font-medium text-sm">{payment.label}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {payment.percentage}% · {formatCurrency(payment.amount)}
-                            {payment.is_paid && payment.paid_date && <span className="ml-2 text-green-600">Paid {payment.paid_date}</span>}
+                          <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                            <span>{payment.percentage}% · {formatCurrency(payment.amount)}</span>
+                            {payment.is_paid && payment.paid_date && <span className="text-green-600">Paid {payment.paid_date}</span>}
+                            {!payment.is_paid && payment.due_date && (() => {
+                              const today = new Date().toISOString().split('T')[0];
+                              const isOverdue = payment.due_date < today;
+                              const isToday = payment.due_date === today;
+                              return (
+                                <span className={`font-medium ${isOverdue ? 'text-red-600' : isToday ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                  {isOverdue ? '⚠ Overdue · ' : isToday ? '● Due Today · ' : 'Due '}
+                                  {new Date(payment.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
                           setEditingPayment(payment.id);
-                          setEditPaymentForm({ label: payment.label, percentage: String(payment.percentage), amount: String(payment.amount), notes: payment.notes || '' });
+                          setEditPaymentForm({ label: payment.label, percentage: String(payment.percentage), amount: String(payment.amount), notes: payment.notes || '', due_date: payment.due_date || '' });
                         }}>
                           <Edit className="h-3.5 w-3.5 text-muted-foreground" />
                         </Button>
@@ -872,7 +926,6 @@ export function ProjectDetail() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="material">Material</SelectItem>
-                      <SelectItem value="labor">Labor</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1037,7 +1090,7 @@ export function ProjectDetail() {
               <div className="text-xs text-muted-foreground mb-1">Labor Costs</div>
               <div className="font-bold text-lg">{formatCurrency(financialHealth.laborCost)}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                from actual receipts
+                from Field Installation Order
               </div>
             </div>
             <div className="p-3 bg-background rounded-md border">
@@ -1088,20 +1141,20 @@ export function ProjectDetail() {
 
       {/* Receipt file preview modal */}
       <Dialog open={!!previewReceipt} onOpenChange={(open) => !open && setPreviewReceipt(null)}>
-        <DialogContent className="p-0 overflow-hidden max-w-[90vw] w-fit bg-white rounded-xl shadow-2xl [&>button]:text-foreground [&>button]:top-3 [&>button]:right-3">
+        <DialogContent className="p-0 overflow-hidden w-[90vw] max-w-[90vw] bg-white rounded-xl shadow-2xl [&>button]:text-foreground [&>button]:top-3 [&>button]:right-3">
           {previewReceipt && (
-            <div className="flex flex-col">
-              <div className="px-4 py-2.5 border-b bg-muted/40 flex items-center gap-2 pr-12">
-                <span className="text-sm font-medium truncate max-w-[60vw]">{previewReceipt.name}</span>
+            <div className="flex flex-col h-[90vh]">
+              <div className="px-4 py-2.5 border-b bg-muted/40 flex items-center gap-2 pr-12 shrink-0">
+                <span className="text-sm font-medium truncate max-w-[70vw]">{previewReceipt.name}</span>
               </div>
               {previewReceipt.name?.toLowerCase().endsWith('.pdf') ? (
-                <iframe src={previewReceipt.url} className="w-[80vw] h-[80vh]" />
+                <iframe src={previewReceipt.url} className="w-full flex-1" />
               ) : (
-                <div className="p-4 flex items-center justify-center bg-muted/10">
+                <div className="flex-1 flex items-center justify-center bg-muted/10 p-4 overflow-auto">
                   <img
                     src={previewReceipt.url}
                     alt={previewReceipt.name}
-                    className="max-w-[80vw] max-h-[78vh] object-contain rounded"
+                    className="max-w-full max-h-full object-contain rounded"
                   />
                 </div>
               )}
@@ -1136,7 +1189,7 @@ export function ProjectDetail() {
       </Dialog>
 
       {/* Add Milestone modal */}
-      <Dialog open={addingPayment} onOpenChange={(open) => { setAddingPayment(open); if (!open) setNewPaymentForm({ label: '', percentage: '', amount: '' }); }}>
+      <Dialog open={addingPayment} onOpenChange={(open) => { setAddingPayment(open); if (!open) setNewPaymentForm({ label: '', percentage: '', amount: '', due_date: '' }); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1181,9 +1234,17 @@ export function ProjectDetail() {
                 {newPaymentForm.percentage}% of {formatCurrency(project.totalValue)} = {formatCurrency(project.totalValue * parseFloat(newPaymentForm.percentage) / 100)}
               </p>
             )}
+            <div className="space-y-1.5">
+              <Label>Due Date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input
+                type="date"
+                value={newPaymentForm.due_date}
+                onChange={(e) => setNewPaymentForm(f => ({ ...f, due_date: e.target.value }))}
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => { setAddingPayment(false); setNewPaymentForm({ label: '', percentage: '', amount: '' }); }}>
+            <Button variant="outline" onClick={() => { setAddingPayment(false); setNewPaymentForm({ label: '', percentage: '', amount: '', due_date: '' }); }}>
               Cancel
             </Button>
             <Button onClick={handleAddPayment}>
@@ -1193,6 +1254,24 @@ export function ProjectDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Field Installation Order Modal */}
+      {project && (
+        <FieldInstallationOrderModal
+          open={fioOpen}
+          onOpenChange={setFioOpen}
+          project={project}
+        />
+      )}
+
+      {/* Purchase Order Modal */}
+      {project && (
+        <PurchaseOrderModal
+          open={poOpen}
+          onOpenChange={setPoOpen}
+          project={project}
+        />
+      )}
     </div>
   );
 }

@@ -85,9 +85,9 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
     });
 
     calcRules.forEach((rule: any) => {
-      // Check conditional
+      // Check conditional (use String() so boolean true matches "true")
       if (rule.conditional_field_id && rule.conditional_value) {
-        if (formData[rule.conditional_field_id] !== rule.conditional_value) return;
+        if (String(formData[rule.conditional_field_id]) !== rule.conditional_value) return;
       }
 
       const qty = safeEval(rule.formula, vars);

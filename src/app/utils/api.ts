@@ -18,6 +18,8 @@ export { receiptsAPI }                                   from "../api/receipts";
 export { projectPaymentsAPI }                            from "../api/project-payments";
 export { activityLogAPI }                                from "../api/activity-log";
 export { estimateTemplatesAPI }                          from "../api/estimate-templates";
+export { fioAPI }                                        from "../api/field-installation-orders";
+export { purchaseOrdersAPI }                             from "../api/purchase-orders";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";
