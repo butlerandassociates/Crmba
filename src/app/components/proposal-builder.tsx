@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,10 +21,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp } from "lucide-react";
-import { clientsAPI } from "../utils/api";
-import { products } from "../data/estimate-templates";
-import { ConcreteWizard } from "./wizards/concrete-wizard";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
+import { TemplateWizard } from "./wizards/template-wizard";
+import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
+import { toast } from "sonner";
 
 interface LineItem {
   id: string;
@@ -41,27 +42,34 @@ interface LineItem {
   totalPrice: number;
 }
 
-const CATEGORIES = [
-  "Concrete",
-  "Pavers",
-  "Outdoor Kitchen",
-  "Pergola/Pavilion",
-  "Drainage + Irrigation",
-  "Landscaping",
-  "Lighting",
-  "Fencing",
-  "Other",
-];
-
+// Will be dynamic once templates are in DB — categories with a template show wizard button
 const COMPLEX_CATEGORIES = ["Concrete", "Outdoor Kitchen", "Pergola/Pavilion"];
 
 export function ProposalBuilder() {
   const { clientId } = useParams();
   const [client, setClient] = useState<any>(null);
+  const [loadingClient, setLoadingClient] = useState(true);
 
   useEffect(() => {
-    if (clientId) clientsAPI.getById(clientId).then(setClient).catch(console.error);
+    if (clientId) {
+      clientsAPI.getById(clientId)
+        .then(setClient)
+        .catch(console.error)
+        .finally(() => setLoadingClient(false));
+    }
   }, [clientId]);
+
+  const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [dbProducts, setDbProducts] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+
+  useEffect(() => {
+    productsAPI.getCategories().then(setCategories).catch(console.error);
+    productsAPI.getAll().then(setDbProducts).catch(console.error);
+    estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
+  }, []);
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");
@@ -70,6 +78,15 @@ export function ProposalBuilder() {
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardType, setWizardType] = useState("");
+  const [activeTemplate, setActiveTemplate] = useState<any>(null);
+
+  if (loadingClient) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!client) {
     return (
@@ -88,8 +105,15 @@ export function ProposalBuilder() {
     setSelectedCategory(category);
     setSelectedProduct("");
 
-    // If it's a complex category, show wizard
-    if (COMPLEX_CATEGORIES.includes(category)) {
+    // Check if a template exists for this category → show wizard
+    const template = templates.find((t: any) => t.category === category);
+    if (template) {
+      setActiveTemplate(template);
+      setWizardType(category);
+      setShowWizard(true);
+    } else if (COMPLEX_CATEGORIES.includes(category)) {
+      // Legacy fallback for categories without a DB template yet
+      setActiveTemplate(null);
       setWizardType(category);
       setShowWizard(true);
     }
@@ -97,21 +121,20 @@ export function ProposalBuilder() {
 
   const handleProductSelect = (productId: string) => {
     setSelectedProduct(productId);
-    const product = products.find((p) => p.id === productId);
-    
+    const product = dbProducts.find((p: any) => p.id === productId);
+
     if (product) {
-      // Add simple product to line items
       addLineItem({
         category: selectedCategory,
         productName: product.name,
         description: product.description,
         quantity: 1,
         unit: product.unit,
-        costPerUnit: product.pricePerUnit,
-        markupPercent: product.markupPercent,
-        pricePerUnit: product.pricePerUnit,
-        materialCost: product.pricePerUnit,
-        laborCost: product.laborCost ?? 0,
+        costPerUnit: (product.material_cost ?? 0) + (product.labor_cost ?? 0),
+        markupPercent: product.markup_percentage ?? 0,
+        pricePerUnit: product.price_per_unit ?? 0,
+        materialCost: product.material_cost ?? 0,
+        laborCost: product.labor_cost ?? 0,
       });
       
       // Reset selections
@@ -158,6 +181,58 @@ export function ProposalBuilder() {
     setLineItems(lineItems.filter((item) => item.id !== id));
   };
 
+  const handleSaveProposal = async () => {
+    if (!proposalTitle.trim()) {
+      toast.error("Please enter a proposal title");
+      return;
+    }
+    if (lineItems.length === 0) {
+      toast.error("Please add at least one line item");
+      return;
+    }
+    setSaving(true);
+    try {
+      const subtotalVal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const totalCostVal = lineItems.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0);
+      const grossProfitVal = subtotalVal - totalCostVal;
+      const profitMarginVal = subtotalVal > 0 ? (grossProfitVal / subtotalVal) * 100 : 0;
+
+      const estimate = {
+        client_id: clientId,
+        title: proposalTitle.trim(),
+        description: proposalDescription.trim() || null,
+        status: "draft",
+        subtotal: subtotalVal,
+        total: subtotalVal,
+        total_cost: totalCostVal,
+        gross_profit: grossProfitVal,
+        profit_margin: profitMarginVal,
+      };
+
+      const items = lineItems.map((item) => ({
+        category: item.category,
+        product_name: item.productName,
+        description: item.description || null,
+        quantity: item.quantity,
+        unit: item.unit,
+        material_cost: item.materialCost,
+        labor_cost: item.laborCost,
+        cost_per_unit: item.costPerUnit,
+        markup_percent: item.markupPercent,
+        price_per_unit: item.pricePerUnit,
+        total_price: item.totalPrice,
+      }));
+
+      const saved = await estimatesAPI.create(estimate, items, []);
+      toast.success("Proposal saved!");
+      navigate(`/proposals/${saved.id}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save proposal");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -166,9 +241,9 @@ export function ProposalBuilder() {
     }).format(value);
   };
 
-  // Get products for selected category
-  const categoryProducts = products.filter(
-    (p) => p.category === selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory)
+  // Get products for selected category from DB
+  const categoryProducts = dbProducts.filter(
+    (p: any) => p.category?.name === selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory)
   );
 
   // Group line items by category
@@ -207,9 +282,9 @@ export function ProposalBuilder() {
               <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
             </div>
           </div>
-          <Button>
-            <Save className="h-4 w-4 mr-2" />
-            Save Proposal
+          <Button onClick={handleSaveProposal} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+            {saving ? "Saving..." : "Save Proposal"}
           </Button>
         </div>
       </div>
@@ -263,16 +338,19 @@ export function ProposalBuilder() {
                         <SelectValue placeholder="Choose a product category..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {CATEGORIES.map((cat) => (
-                          <SelectItem key={cat} value={cat}>
-                            {cat}
-                            {COMPLEX_CATEGORIES.includes(cat) && (
-                              <Badge variant="secondary" className="ml-2 text-xs">
-                                Wizard
-                              </Badge>
-                            )}
-                          </SelectItem>
-                        ))}
+                        {categories.map((cat: any) => {
+                          const hasTemplate = templates.some((t: any) => t.category === cat.name);
+                          return (
+                            <SelectItem key={cat.id} value={cat.name}>
+                              {cat.name}
+                              {hasTemplate && (
+                                <Badge variant="secondary" className="ml-2 text-xs">
+                                  Wizard
+                                </Badge>
+                              )}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
@@ -464,7 +542,19 @@ export function ProposalBuilder() {
               Follow the steps to build your {wizardType.toLowerCase()} estimate
             </DialogDescription>
           </DialogHeader>
-          {wizardType === "Concrete" && (
+          {activeTemplate ? (
+            <TemplateWizard
+              template={activeTemplate}
+              dbProducts={dbProducts}
+              onComplete={addLineItemsFromWizard}
+              onCancel={() => {
+                setShowWizard(false);
+                setSelectedCategory("");
+                setActiveTemplate(null);
+              }}
+            />
+          ) : wizardType === "Concrete" ? (
+            // Legacy fallback — replaced once Concrete template is confirmed in DB
             <ConcreteWizard
               onComplete={addLineItemsFromWizard}
               onCancel={() => {
@@ -472,7 +562,7 @@ export function ProposalBuilder() {
                 setSelectedCategory("");
               }}
             />
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

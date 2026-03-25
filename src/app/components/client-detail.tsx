@@ -28,12 +28,13 @@ import {
   Eye,
   Trash2,
   X,
+  History,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
 } from "./ui/dialog";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI } from "../utils/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
@@ -110,13 +111,19 @@ export function ClientDetail() {
   const [noteEntries, setNoteEntries] = useState<any[]>([]);
   const [notesPage, setNotesPage] = useState(1);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  const [activityLog, setActivityLog] = useState<any[]>([]);
+  const [activityPage, setActivityPage] = useState(1);
+  const [filesPage, setFilesPage] = useState(1);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const ITEMS_PER_PAGE = 10;
+  const FILES_PER_PAGE = 6;
   
-  // Load photos and notes when client loads
+  // Load photos, notes and activity log when client loads
   useEffect(() => {
     if (client && id) {
       loadPhotos();
       loadNotes();
+      loadActivityLog();
     }
   }, [client?.id]);
 
@@ -127,6 +134,16 @@ export function ClientDetail() {
       setNoteEntries(data || []);
     } catch (error) {
       console.error("Failed to load notes:", error);
+    }
+  };
+
+  const loadActivityLog = async () => {
+    if (!id) return;
+    try {
+      const data = await activityLogAPI.getByClient(id);
+      setActivityLog(data || []);
+    } catch (error) {
+      console.error("Failed to load activity log:", error);
     }
   };
 
@@ -179,6 +196,24 @@ export function ClientDetail() {
     e.target.value = "";
   };
   
+  const handleFileDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    if (!id || !e.dataTransfer.files.length) return;
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      try {
+        setUploadingPhoto(true);
+        await photosAPI.upload(id, file);
+        toast.success(`Uploaded ${file.name}`);
+      } catch (error: any) {
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+    setUploadingPhoto(false);
+    loadPhotos();
+  };
+
   const handleDeletePhoto = async (fileId: string, fileUrl: string) => {
     try {
       await photosAPI.delete(fileId, fileUrl);
@@ -688,6 +723,141 @@ export function ClientDetail() {
             </p>
           </CardContent>
         </Card>
+
+      </div>
+
+      {/* Notes + Activity Log - side by side below Project Details */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <StickyNote className="h-4 w-4" />
+              Internal Notes
+              {noteEntries.length > 0 && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{noteEntries.length} note{noteEntries.length !== 1 ? "s" : ""}</span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="client-notes" className="text-sm font-medium">Add New Note</Label>
+              <Textarea
+                id="client-notes"
+                placeholder="Add notes for your internal team to review..."
+                rows={3}
+                className="resize-none"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Visible to your team only</p>
+            </div>
+            <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()}>
+              {savingNotes ? "Saving..." : "Save Note"}
+            </Button>
+            {noteEntries.length > 0 && (
+              <div className="space-y-3 pt-2 border-t">
+                {noteEntries
+                  .slice((notesPage - 1) * ITEMS_PER_PAGE, notesPage * ITEMS_PER_PAGE)
+                  .map((note) => (
+                    <div key={note.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          {note.profile ? `${note.profile.first_name} ${note.profile.last_name}` : "Team Member"}
+                        </span>
+                        <span>•</span>
+                        <span>
+                          {new Date(note.created_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                    </div>
+                  ))}
+                {noteEntries.length > ITEMS_PER_PAGE && (
+                  <div className="flex items-center justify-between pt-3 border-t">
+                    <p className="text-xs text-muted-foreground">
+                      Page {notesPage} of {Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage - 1)} disabled={notesPage === 1}>
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage + 1)} disabled={notesPage >= Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}>
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {noteEntries.length === 0 && (
+              <div className="text-center py-4 text-sm text-muted-foreground">No notes yet</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Activity Log
+              {activityLog.length > 0 && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{activityLog.length} event{activityLog.length !== 1 ? "s" : ""}</span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {activityLog.length > 0 ? (
+              <div className="space-y-1">
+                {activityLog
+                  .slice((activityPage - 1) * ITEMS_PER_PAGE, activityPage * ITEMS_PER_PAGE)
+                  .map((entry) => (
+                    <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
+                      <div className="mt-0.5 h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm">{entry.description}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(entry.created_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                {activityLog.length > ITEMS_PER_PAGE && (
+                  <div className="flex items-center justify-between pt-3">
+                    <p className="text-xs text-muted-foreground">
+                      Page {activityPage} of {Math.ceil(activityLog.length / ITEMS_PER_PAGE)}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" onClick={() => setActivityPage(activityPage - 1)} disabled={activityPage === 1}>
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setActivityPage(activityPage + 1)} disabled={activityPage >= Math.ceil(activityLog.length / ITEMS_PER_PAGE)}>
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 space-y-2">
+                <History className="h-8 w-8 mx-auto text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">No activity yet</p>
+                <p className="text-xs text-muted-foreground">Actions like emails sent, appointments scheduled, and contracts signed will appear here automatically.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="projects">
@@ -695,7 +865,7 @@ export function ClientDetail() {
           <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
           <TabsTrigger value="proposals">Proposals ({clientProposals.length})</TabsTrigger>
           <TabsTrigger value="appointments">Appointments ({clientAppointments.length})</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger value="notes">Client Files {photos.length > 0 && `(${photos.length})`}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="projects" className="mt-4">
@@ -794,10 +964,12 @@ export function ClientDetail() {
                 <div className="text-center py-12">
                   <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No proposals yet</p>
-                  <Button className="mt-4" size="sm">
-                    <FilePlus className="h-4 w-4 mr-2" />
-                    Create First Proposal
-                  </Button>
+                  <Link to={`/clients/${client.id}/create-proposal`}>
+                    <Button className="mt-4" size="sm">
+                      <FilePlus className="h-4 w-4 mr-2" />
+                      Create First Proposal
+                    </Button>
+                  </Link>
                 </div>
               )}
             </CardContent>
@@ -903,7 +1075,7 @@ export function ClientDetail() {
 
         <TabsContent value="notes" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
+            {/* <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <StickyNote className="h-4 w-4" />
@@ -969,7 +1141,7 @@ export function ClientDetail() {
                   </div>
                 )}
               </CardContent>
-            </Card>
+            </Card> */}
 
             <Card>
               <CardHeader>
@@ -979,73 +1151,98 @@ export function ClientDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="photo-upload" className="text-sm font-medium">
-                    Upload Photos
-                  </Label>
-                  <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
-                    <input
-                      id="photo-upload"
-                      type="file"
-                      accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
-                      multiple
-                      className="hidden"
-                      onChange={handlePhotoUpload}
-                    />
-                    <label htmlFor="photo-upload" className="cursor-pointer">
+                <div
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                    isDraggingFile ? "border-primary bg-primary/5" : "hover:border-primary"
+                  } ${uploadingPhoto ? "opacity-60 pointer-events-none" : ""}`}
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => document.getElementById("photo-upload")?.click()}
+                >
+                  <input
+                    id="photo-upload"
+                    type="file"
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+                    multiple
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                  />
+                  {uploadingPhoto ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground">Uploading...</p>
+                    </div>
+                  ) : (
+                    <>
                       <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground">
-                        Click to upload files
+                        {isDraggingFile ? "Drop files here" : "Click or drag files to upload"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Images, PDF, Word, Excel up to 10MB
                       </p>
-                    </label>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Photos uploaded by the client for reference
-                  </p>
+                    </>
+                  )}
                 </div>
                 {photos.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    {photos.map((photo: any) => (
-                      <div key={photo.id} className="relative group rounded-lg overflow-hidden border bg-muted">
-                        {photo.mime_type?.startsWith("image/") ? (
-                          <img
-                            src={photo.file_url}
-                            alt={photo.file_name}
-                            className="w-full h-32 object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-32 flex flex-col items-center justify-center gap-1 px-2">
-                            <FileText className="h-8 w-8 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground truncate max-w-[90%] text-center">{photo.file_name}</span>
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      {photos
+                        .slice((filesPage - 1) * FILES_PER_PAGE, filesPage * FILES_PER_PAGE)
+                        .map((photo: any) => (
+                          <div key={photo.id} className="relative group rounded-lg overflow-hidden border bg-muted">
+                            {photo.mime_type?.startsWith("image/") ? (
+                              <img
+                                src={photo.file_url}
+                                alt={photo.file_name}
+                                className="w-full h-32 object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-32 flex flex-col items-center justify-center gap-1 px-2">
+                                <FileText className="h-8 w-8 text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground truncate max-w-[90%] text-center">{photo.file_name}</span>
+                              </div>
+                            )}
+                            <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {photo.mime_type?.startsWith("image/") && (
+                                <button
+                                  className="bg-black/60 hover:bg-black/80 text-white rounded-md p-1"
+                                  onClick={() => setPreviewFile({ url: photo.file_url, name: photo.file_name })}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              <button
+                                className="bg-red-500/80 hover:bg-red-600 text-white rounded-md p-1"
+                                onClick={() => handleDeletePhoto(photo.id, photo.file_url)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <div className="absolute bottom-0 inset-x-0 bg-black/40 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <p className="text-white text-xs truncate">{photo.file_name}</p>
+                            </div>
                           </div>
-                        )}
-                        {/* action icons top-right */}
-                        <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {photo.mime_type?.startsWith("image/") && (
-                            <button
-                              className="bg-black/60 hover:bg-black/80 text-white rounded-md p-1"
-                              onClick={() => setPreviewFile({ url: photo.file_url, name: photo.file_name })}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <button
-                            className="bg-red-500/80 hover:bg-red-600 text-white rounded-md p-1"
-                            onClick={() => handleDeletePhoto(photo.id, photo.file_url)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        {/* file name bottom */}
-                        <div className="absolute bottom-0 inset-x-0 bg-black/40 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <p className="text-white text-xs truncate">{photo.file_name}</p>
+                        ))}
+                    </div>
+                    {photos.length > FILES_PER_PAGE && (
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <p className="text-xs text-muted-foreground">
+                          {(filesPage - 1) * FILES_PER_PAGE + 1}–{Math.min(filesPage * FILES_PER_PAGE, photos.length)} of {photos.length} files
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Button variant="outline" size="sm" onClick={() => setFilesPage(filesPage - 1)} disabled={filesPage === 1}>
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <span className="text-xs text-muted-foreground px-1">Page {filesPage} of {Math.ceil(photos.length / FILES_PER_PAGE)}</span>
+                          <Button variant="outline" size="sm" onClick={() => setFilesPage(filesPage + 1)} disabled={filesPage >= Math.ceil(photos.length / FILES_PER_PAGE)}>
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-4 text-sm text-muted-foreground">
                     No files uploaded yet

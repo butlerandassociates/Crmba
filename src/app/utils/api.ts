@@ -16,6 +16,8 @@ export { filesAPI, photosAPI }                           from "../api/files";
 export { notesAPI, actionLogsAPI }                       from "../api/notes";
 export { receiptsAPI }                                   from "../api/receipts";
 export { projectPaymentsAPI }                            from "../api/project-payments";
+export { activityLogAPI }                                from "../api/activity-log";
+export { estimateTemplatesAPI }                          from "../api/estimate-templates";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";
