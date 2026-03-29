@@ -211,6 +211,7 @@ export function ProposalBuilder() {
 
       const items = lineItems.map((item) => ({
         category: item.category,
+        name: item.productName,
         product_name: item.productName,
         description: item.description || null,
         quantity: item.quantity,
@@ -220,6 +221,7 @@ export function ProposalBuilder() {
         cost_per_unit: item.costPerUnit,
         markup_percent: item.markupPercent,
         price_per_unit: item.pricePerUnit,
+        client_price: item.pricePerUnit,
         total_price: item.totalPrice,
       }));
 

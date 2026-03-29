@@ -19,6 +19,7 @@ import { EstimateTemplateManager } from "./components/admin/estimate-template-ma
 import { ProposalBuilder } from "./components/proposal-builder";
 import { Settings } from "./components/settings";
 import { DocuSignCallback } from "./components/docusign-callback";
+import { PublicProposal } from "./components/public-proposal";
 import { DataMigration } from "./components/admin/data-migration";
 import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
@@ -65,6 +66,10 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: ClientDashboard },
     ],
+  },
+  {
+    path: "/p/:id",
+    Component: PublicProposal,
   },
   {
     path: "/docusign-callback",

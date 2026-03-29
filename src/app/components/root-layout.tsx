@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import {
   LayoutDashboard,
   Users,
-  FolderKanban,
   UsersRound,
   DollarSign,
   Settings as SettingsIcon,
@@ -17,6 +16,11 @@ import {
   UserCircle,
   Eye,
   EyeOff,
+  UserRoundSearch,
+  UserRoundCog,
+  UserRoundCheck,
+  UserRoundPlus,
+  UserCheck,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -44,9 +48,11 @@ import {
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Stats", href: "/pipeline", icon: Workflow },
-  { name: "Clients", href: "/clients", icon: Users },
-  { name: "Projects", href: "/projects", icon: FolderKanban },
-  { name: "Team", href: "/team", icon: UsersRound },
+  { name: "Prospect", href: "/clients?stage=prospect", icon: UserRoundSearch },
+  { name: "Selling", href: "/clients?stage=selling", icon: UserRoundCog },
+  { name: "Sold", href: "/clients?stage=sold", icon: UserRoundCheck },
+  { name: "Active", href: "/clients?stage=active", icon: UserRoundPlus },
+  { name: "Completed", href: "/clients?stage=completed", icon: UserCheck },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -147,18 +153,23 @@ export function RootLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Business name bar */}
+      <div className="bg-black px-6 py-1.5">
+        <p className="text-white text-xs font-medium tracking-widest uppercase text-center">
+          Butler & Associates Construction, Inc.
+        </p>
+      </div>
+
       {/* Horizontal Top Navigation */}
       <header className="border-b bg-card">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-8">
-            <div>
-              <h1 className="text-2xl font-bold text-primary">Butler & Associates Construction, Inc</h1>
-              <p className="text-xs text-muted-foreground">Premier Design + Build Experts</p>
-            </div>
             <nav className="hidden md:flex items-center gap-2">
               {navigation.map((item) => {
-                const isActive = location.pathname === item.href ||
-                  (item.href !== "/" && location.pathname.startsWith(item.href));
+                const isActive = item.href === "/"
+                  ? location.pathname === "/"
+                  : location.pathname + location.search === item.href ||
+                    (item.href.includes("?") ? false : location.pathname.startsWith(item.href));
                 return (
                   <Link
                     key={item.name}
@@ -217,12 +228,20 @@ export function RootLayout() {
                   </Link>
                 </DropdownMenuItem>
                 {user.profile?.role === "admin" && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/admin" className="cursor-pointer flex items-center">
-                      <ShieldCheck className="mr-2 h-4 w-4" />
-                      Admin Portal
-                    </Link>
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/team" className="cursor-pointer flex items-center">
+                        <UsersRound className="mr-2 h-4 w-4" />
+                        Team
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin" className="cursor-pointer flex items-center">
+                        <ShieldCheck className="mr-2 h-4 w-4" />
+                        Admin Portal
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="cursor-pointer" onClick={() => signOut()}>

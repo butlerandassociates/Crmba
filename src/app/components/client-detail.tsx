@@ -33,8 +33,13 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "./ui/dialog";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI } from "../utils/api";
+import { MoveToSoldModal } from "./move-to-sold-modal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
@@ -66,6 +71,9 @@ export function ClientDetail() {
   const [error, setError] = useState<string | null>(null);
   const [clientProjects, setClientProjects] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
+  const [proposalToDelete, setProposalToDelete] = useState<any>(null);
+  const [deletingProposal, setDeletingProposal] = useState(false);
+  const [soldModalOpen, setSoldModalOpen] = useState(false);
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   
   // Fetch client from API
@@ -97,9 +105,11 @@ export function ClientDetail() {
     estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
     appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
     leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);
+    pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
   }, [id]);
 
   const [leadSources, setLeadSources] = useState<any[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
@@ -227,13 +237,17 @@ export function ClientDetail() {
   
   const handleStatusChange = async (newStatus: string) => {
     if (!client) return;
-    
     try {
       setUpdating(true);
-      await clientsAPI.update(client.id, { status: newStatus });
-      setClient({ ...client, status: newStatus });
-      
-      toast.success(`Client status updated to ${newStatus}`);
+      const matchingStage = pipelineStages.find(
+        (s) => s.name.toLowerCase() === newStatus.toLowerCase()
+      );
+      await clientsAPI.update(client.id, {
+        status: newStatus,
+        pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
+      });
+      setClient({ ...client, status: newStatus, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
+      toast.success(`Moved to ${newStatus}`);
     } catch (err: any) {
       console.error("Failed to update client status:", err);
       toast.error(err.message || "Failed to update status");
@@ -437,7 +451,7 @@ export function ClientDetail() {
               Selling
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleStatusChange('sold')}
+              onClick={() => setSoldModalOpen(true)}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Sold
@@ -947,14 +961,34 @@ export function ClientDetail() {
                               Created {formatDate(proposal.created_at)}
                             </span>
                           </div>
+                          {proposal.status === "declined" && (
+                            <div className="mt-1.5 text-xs text-red-600">
+                              {proposal.declined_at && (
+                                <span>Declined {formatDate(proposal.declined_at)}</span>
+                              )}
+                              {proposal.decline_reason && (
+                                <span className="block italic text-muted-foreground mt-0.5">"{proposal.decline_reason}"</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="text-right space-y-2">
                           <div className="font-semibold">{formatCurrency(proposal.total)}</div>
-                          <Link to={`/proposals/${proposal.id}`}>
-                            <Button variant="outline" size="sm">
-                              View Proposal
+                          <div className="flex gap-2 justify-end">
+                            <Link to={`/proposals/${proposal.id}`}>
+                              <Button variant="outline" size="sm">
+                                View Proposal
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setProposalToDelete(proposal)}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          </Link>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1270,6 +1304,52 @@ export function ClientDetail() {
         client={client}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
+
+      {/* Move to Sold Modal */}
+      <MoveToSoldModal
+        open={soldModalOpen}
+        onOpenChange={setSoldModalOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+        onSuccess={() => {
+          setClient({ ...client, status: "sold" });
+        }}
+      />
+
+      {/* Delete Proposal Confirmation */}
+      <Dialog open={!!proposalToDelete} onOpenChange={(open) => !open && setProposalToDelete(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Proposal</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &quot;{proposalToDelete?.title}&quot;? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setProposalToDelete(null)} disabled={deletingProposal}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deletingProposal}
+              onClick={async () => {
+                setDeletingProposal(true);
+                try {
+                  await estimatesAPI.delete(proposalToDelete.id);
+                  setClientProposals((prev) => prev.filter((p) => p.id !== proposalToDelete.id));
+                  setProposalToDelete(null);
+                } finally {
+                  setDeletingProposal(false);
+                }
+              }}
+            >
+              {deletingProposal ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
