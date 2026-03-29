@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video } from "lucide-react";
 import { format } from "date-fns";
 import { useGoogleCalendar } from "../hooks/use-google-calendar";
-import { clientsAPI, appointmentsAPI } from "../utils/api";
+import { clientsAPI, appointmentsAPI, usersAPI } from "../utils/api";
 
 interface AppointmentDialogProps {
   open: boolean;
@@ -55,6 +55,12 @@ export function AppointmentDialog({
   const [notes, setNotes]                     = useState("");
   const [ccEmails, setCcEmails]               = useState("");
   const [scheduling, setScheduling]           = useState(false);
+  const [teamMembers, setTeamMembers]         = useState<any[]>([]);
+  const [assignedUserId, setAssignedUserId]   = useState("");
+
+  useEffect(() => {
+    usersAPI.getAll().then(setTeamMembers).catch(console.error);
+  }, []);
 
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || client?.company || "Client";
   const clientAddress = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
@@ -87,7 +93,12 @@ export function AppointmentDialog({
         return;
       }
 
-      const ccList = ccEmails.split(",").map((e) => e.trim()).filter(Boolean);
+      const assignedUser = teamMembers.find((u) => u.id === assignedUserId);
+      const assignedEmail = assignedUser?.email ?? null;
+      const ccList = [
+        ...(assignedEmail ? [assignedEmail] : []),
+        ...ccEmails.split(",").map((e) => e.trim()).filter(Boolean),
+      ];
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       const createdEvent = await createEvent({
@@ -149,6 +160,7 @@ export function AppointmentDialog({
       setEndTime("");
       setNotes("");
       setCcEmails("");
+      setAssignedUserId("");
 
       onOpenChange(false);
       onAppointmentScheduled?.();
@@ -200,6 +212,25 @@ export function AppointmentDialog({
               Connect your Google Calendar to automatically create the event and send the invite to the client.
             </p>
           )}
+
+          {/* Assigned To */}
+          <div className="space-y-2">
+            <Label>Assigned To *</Label>
+            <Select value={assignedUserId} onValueChange={setAssignedUserId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select team member" />
+              </SelectTrigger>
+              <SelectContent>
+                {teamMembers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.first_name} {u.last_name}
+                    {u.email && <span className="text-muted-foreground ml-1 text-xs">({u.email})</span>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">They will receive the calendar invite alongside the client.</p>
+          </div>
 
           {/* Appointment Type */}
           <div className="space-y-2">
@@ -278,7 +309,7 @@ export function AppointmentDialog({
           </div>
 
           {/* Preview */}
-          {appointmentType && selectedDate && startTime && endTime && (
+          {assignedUserId && appointmentType && selectedDate && startTime && endTime && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-sm">
               <p className="font-medium flex items-center gap-2">
                 <Video className="h-4 w-4 text-blue-500" />
@@ -292,6 +323,15 @@ export function AppointmentDialog({
                   Invite will be sent to {client.email}
                 </p>
               )}
+              {assignedUserId && (() => {
+                const u = teamMembers.find((m) => m.id === assignedUserId);
+                return u?.email ? (
+                  <p className="text-muted-foreground flex items-center gap-1">
+                    <LinkIcon className="h-3 w-3" />
+                    Also sent to {u.first_name} {u.last_name} ({u.email})
+                  </p>
+                ) : null;
+              })()}
               <p className="text-xs text-blue-600">Google Meet link will be created automatically</p>
             </div>
           )}
@@ -303,7 +343,7 @@ export function AppointmentDialog({
           </Button>
           <Button
             onClick={handleSchedule}
-            disabled={scheduling || !appointmentType || !selectedDate || !startTime || !endTime || !isConnected}
+            disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || !isConnected}
           >
             {scheduling ? (
               <>
