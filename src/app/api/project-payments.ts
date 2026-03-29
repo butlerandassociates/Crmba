@@ -17,15 +17,28 @@ export const projectPaymentsAPI = {
     return data;
   },
 
+  /** All payment milestones for a client (across all their projects) */
+  getByClient: async (client_id: string) => {
+    const { data, error } = await supabase
+      .from("project_payments")
+      .select("*, project:projects(id, name)")
+      .eq("client_id", client_id)
+      .order("sort_order", { ascending: true });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
   /** Create a new payment milestone */
   create: async (payment: {
     project_id: string;
+    client_id?: string;
     label: string;
-    percentage: number;
+    percentage?: number;
     amount: number;
     sort_order?: number;
     notes?: string;
     due_date?: string;
+    payment_method?: string;
   }) => {
     const { data, error } = await supabase
       .from("project_payments")
@@ -45,6 +58,7 @@ export const projectPaymentsAPI = {
     paid_date?: string | null;
     notes?: string;
     due_date?: string | null;
+    payment_method?: string | null;
   }) => {
     const { data, error } = await supabase
       .from("project_payments")

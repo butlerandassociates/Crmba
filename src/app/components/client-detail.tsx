@@ -29,6 +29,7 @@ import {
   Trash2,
   X,
   History,
+  Plus,
 } from "lucide-react";
 import {
   Dialog,
@@ -38,7 +39,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
@@ -58,6 +59,7 @@ import {
 } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
 import { Label } from "./ui/label";
+import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
@@ -74,6 +76,9 @@ export function ClientDetail() {
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
+  const [editClientOpen, setEditClientOpen] = useState(false);
+  const [clientForm, setClientForm] = useState<any>({});
+  const [savingClient, setSavingClient] = useState(false);
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   
   // Fetch client from API
@@ -106,10 +111,18 @@ export function ClientDetail() {
     appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
     leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);
     pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
+    projectPaymentsAPI.getByClient(id).then(setClientPayments).catch(console.error);
   }, [id]);
 
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
+  const [clientPayments, setClientPayments] = useState<any[]>([]);
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [markPaidOpen, setMarkPaidOpen] = useState<any>(null);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "" };
+  const [newPayment, setNewPayment] = useState(EMPTY_PAYMENT);
+  const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "" });
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
@@ -474,22 +487,38 @@ export function ClientDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Contact Information</CardTitle>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
+              setClientForm({
+                first_name: client.first_name ?? "",
+                last_name: client.last_name ?? "",
+                company: client.company ?? "",
+                email: client.email ?? "",
+                phone: client.phone ?? "",
+                address: client.address ?? "",
+                city: client.city ?? "",
+                state: client.state ?? "",
+                zip: client.zip ?? "",
+              });
+              setEditClientOpen(true);
+            }}>
+              Edit
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-start gap-3">
               <Mail className="h-4 w-4 mt-0.5 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium">Email</div>
-                <div className="text-sm text-muted-foreground">{client.email}</div>
+                <div className="text-sm text-muted-foreground">{client.email || "—"}</div>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <Phone className="h-4 w-4 mt-0.5 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium">Phone</div>
-                <div className="text-sm text-muted-foreground">{client.phone}</div>
+                <div className="text-sm text-muted-foreground">{client.phone || "—"}</div>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -878,6 +907,7 @@ export function ClientDetail() {
         <TabsList>
           <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
           <TabsTrigger value="proposals">Proposals ({clientProposals.length})</TabsTrigger>
+          <TabsTrigger value="payments">Payments ({clientPayments.length})</TabsTrigger>
           <TabsTrigger value="appointments">Appointments ({clientAppointments.length})</TabsTrigger>
           <TabsTrigger value="notes">Client Files {photos.length > 0 && `(${photos.length})`}</TabsTrigger>
         </TabsList>
@@ -1008,6 +1038,205 @@ export function ClientDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Client Payments Tab ── */}
+        <TabsContent value="payments" className="mt-4 space-y-4">
+          {/* Summary */}
+          {(() => {
+            const totalAmount = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
+            const totalPaid   = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
+            const outstanding = totalAmount - totalPaid;
+            return (
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Contract Total</p>
+                    <p className="text-xl font-bold mt-1">{formatCurrency(totalAmount)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Total Paid</p>
+                    <p className="text-xl font-bold mt-1 text-green-600">{formatCurrency(totalPaid)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Outstanding</p>
+                    <p className={`text-xl font-bold mt-1 ${outstanding > 0 ? "text-orange-500" : "text-muted-foreground"}`}>{formatCurrency(outstanding)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
+
+          {/* Payments Table */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Payment Schedule</CardTitle>
+              <Button size="sm" onClick={() => { setNewPayment(EMPTY_PAYMENT); setAddPaymentOpen(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {clientPayments.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground text-sm">No payments added yet.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Add payment milestones from the signed contract.</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="border-b bg-muted/50">
+                    <tr>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Milestone</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Amount</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Due Date</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Paid Date</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Method / Note</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {clientPayments.map((payment) => (
+                      <tr key={payment.id} className="hover:bg-accent/50">
+                        <td className="p-3 font-medium text-sm">{payment.label}</td>
+                        <td className="p-3 text-sm font-semibold">{formatCurrency(payment.amount)}</td>
+                        <td className="p-3 text-sm text-muted-foreground">{payment.due_date ? formatDate(payment.due_date) : "—"}</td>
+                        <td className="p-3">
+                          <Badge className={payment.is_paid ? "bg-green-100 text-green-800 border-green-200" : "bg-orange-100 text-orange-800 border-orange-200"} variant="outline">
+                            {payment.is_paid ? "Paid" : "Pending"}
+                          </Badge>
+                        </td>
+                        <td className="p-3 text-sm text-muted-foreground">{payment.paid_date ? formatDate(payment.paid_date) : "—"}</td>
+                        <td className="p-3 text-sm text-muted-foreground max-w-[180px] truncate">
+                          {payment.payment_method && <span className="font-medium text-foreground">{payment.payment_method}</span>}
+                          {payment.payment_method && payment.notes && <span className="mx-1">·</span>}
+                          {payment.notes}
+                        </td>
+                        <td className="p-3">
+                          {!payment.is_paid ? (
+                            <Button size="sm" variant="outline" className="text-xs" onClick={() => { setMarkPaidOpen(payment); setPaidForm({ payment_method: "", notes: payment.notes ?? "" }); }}>
+                              Mark Paid
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={async () => {
+                              await projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
+                              setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
+                            }}>
+                              Undo
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Add Payment Dialog */}
+          <Dialog open={addPaymentOpen} onOpenChange={setAddPaymentOpen}>
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader>
+                <DialogTitle>Add Payment Milestone</DialogTitle>
+                <DialogDescription>Add a progress payment from the signed contract.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <Label>Label</Label>
+                  <Input placeholder="e.g. Deposit, Progress Payment, Final" value={newPayment.label} onChange={(e) => setNewPayment((p) => ({ ...p, label: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Amount ($)</Label>
+                  <Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Due Date</Label>
+                  <Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment((p) => ({ ...p, due_date: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Notes</Label>
+                  <Input placeholder="Optional note" value={newPayment.notes} onChange={(e) => setNewPayment((p) => ({ ...p, notes: e.target.value }))} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
+                <Button disabled={savingPayment || !newPayment.label || !newPayment.amount} onClick={async () => {
+                  if (!client) return;
+                  setSavingPayment(true);
+                  try {
+                    const project = clientProjects[0];
+                    const created = await projectPaymentsAPI.create({
+                      project_id: project?.id ?? "",
+                      client_id: client.id,
+                      label: newPayment.label,
+                      amount: parseFloat(newPayment.amount) || 0,
+                      due_date: newPayment.due_date || undefined,
+                      notes: newPayment.notes || undefined,
+                      sort_order: clientPayments.length,
+                    });
+                    setClientPayments((prev) => [...prev, created]);
+                    setAddPaymentOpen(false);
+                    toast.success("Payment added.");
+                  } catch (err: any) {
+                    toast.error(err.message || "Failed to add payment.");
+                  } finally {
+                    setSavingPayment(false);
+                  }
+                }}>
+                  {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Mark as Paid Dialog */}
+          <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) setMarkPaidOpen(null); }}>
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader>
+                <DialogTitle>Mark as Paid</DialogTitle>
+                <DialogDescription>{markPaidOpen?.label} — {formatCurrency(markPaidOpen?.amount ?? 0)}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <Label>Payment Method</Label>
+                  <Input placeholder="e.g. Check #1042, ACH #8829, Cash" value={paidForm.payment_method} onChange={(e) => setPaidForm((p) => ({ ...p, payment_method: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Notes (optional)</Label>
+                  <Input placeholder="Any additional notes" value={paidForm.notes} onChange={(e) => setPaidForm((p) => ({ ...p, notes: e.target.value }))} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setMarkPaidOpen(null)}>Cancel</Button>
+                <Button disabled={savingPayment} onClick={async () => {
+                  if (!markPaidOpen) return;
+                  setSavingPayment(true);
+                  try {
+                    const updated = await projectPaymentsAPI.update(markPaidOpen.id, {
+                      is_paid: true,
+                      paid_date: new Date().toISOString().split("T")[0],
+                      payment_method: paidForm.payment_method || null,
+                      notes: paidForm.notes || null,
+                    });
+                    setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
+                    setMarkPaidOpen(null);
+                    toast.success("Payment marked as paid.");
+                  } catch (err: any) {
+                    toast.error(err.message || "Failed to update payment.");
+                  } finally {
+                    setSavingPayment(false);
+                  }
+                }}>
+                  {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm Paid"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="appointments" className="mt-4">
@@ -1315,6 +1544,76 @@ export function ClientDetail() {
           setClient({ ...client, status: "sold" });
         }}
       />
+
+      {/* Edit Client Dialog */}
+      <Dialog open={editClientOpen} onOpenChange={setEditClientOpen}>
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Edit Client</DialogTitle>
+            <DialogDescription>Update contact information for this client.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-3 py-2 pr-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>First Name</Label>
+                <Input value={clientForm.first_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, first_name: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Last Name</Label>
+                <Input value={clientForm.last_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, last_name: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Company</Label>
+              <Input value={clientForm.company ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, company: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input type="email" value={clientForm.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Phone</Label>
+              <Input type="tel" value={clientForm.phone ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Street Address</Label>
+              <Input value={clientForm.address ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, address: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>City</Label>
+                <Input value={clientForm.city ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, city: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>State</Label>
+                <Input value={clientForm.state ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, state: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>ZIP</Label>
+                <Input value={clientForm.zip ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, zip: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="pt-4 border-t">
+            <Button variant="outline" onClick={() => setEditClientOpen(false)}>Cancel</Button>
+            <Button disabled={savingClient} onClick={async () => {
+              setSavingClient(true);
+              try {
+                await clientsAPI.update(client.id, clientForm);
+                setClient({ ...client, ...clientForm });
+                setEditClientOpen(false);
+                toast.success("Client updated.");
+              } catch (err: any) {
+                toast.error(err.message || "Failed to update client.");
+              } finally {
+                setSavingClient(false);
+              }
+            }}>
+              {savingClient ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Proposal Confirmation */}
       <Dialog open={!!proposalToDelete} onOpenChange={(open) => !open && setProposalToDelete(null)}>
