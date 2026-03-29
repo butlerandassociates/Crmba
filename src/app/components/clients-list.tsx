@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar } from "lucide-react";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,9 @@ import {
 import { toast } from "sonner";
 
 export function ClientsList() {
+  const location = useLocation();
+  const stageFilter = new URLSearchParams(location.search).get("stage");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [clients, setClients] = useState<any[]>([]);
   const [leadSources, setLeadSources] = useState<any[]>([]);
@@ -132,8 +134,9 @@ export function ClientsList() {
     }
   };
 
-  const needsScheduling = clients.filter((c) => !c.appointment_met);
-  const clientsMet = clients.filter((c) => c.appointment_met);
+  const stageClients = stageFilter
+    ? clients.filter((c) => c.status === stageFilter)
+    : clients;
 
   const filterClients = (list: any[]) =>
     list.filter((c) => {
@@ -319,22 +322,14 @@ export function ClientsList() {
       )}
 
       {!loading && !error && (
-        <Tabs defaultValue="needsScheduling">
-          <TabsList className="w-full">
-            <TabsTrigger value="needsScheduling">
-              Needs Scheduling ({needsScheduling.length})
-            </TabsTrigger>
-            <TabsTrigger value="clientsMet">
-              Clients Met ({clientsMet.length})
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="needsScheduling">
-            <ClientTable list={needsScheduling} />
-          </TabsContent>
-          <TabsContent value="clientsMet">
-            <ClientTable list={clientsMet} />
-          </TabsContent>
-        </Tabs>
+        <div>
+          <p className="text-sm text-muted-foreground mb-3">
+            {stageFilter
+              ? `${stageClients.length} client${stageClients.length !== 1 ? "s" : ""} in ${stageFilter.charAt(0).toUpperCase() + stageFilter.slice(1)}`
+              : `${clients.length} client${clients.length !== 1 ? "s" : ""} total`}
+          </p>
+          <ClientTable list={stageClients} />
+        </div>
       )}
 
       {/* Add Client Dialog */}

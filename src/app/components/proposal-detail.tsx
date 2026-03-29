@@ -15,8 +15,12 @@ import {
   Mail,
   Eye,
   Share2,
+  Loader2,
+  XCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -41,16 +45,84 @@ export function ProposalDetail() {
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailMessage, setEmailMessage] = useState("");
+
+  // Editable fields
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLineItems, setEditLineItems] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
     estimatesAPI.getById(id).then((est) => {
       setProposal(est);
+      setEditTitle(est.title ?? "");
+      setEditDescription(est.description ?? "");
+      setEditLineItems(est.line_items ?? []);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
       }
-    }).catch(console.error);
+    }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
+
+  const computedSubtotal = editLineItems.reduce(
+    (sum, item) => sum + (Number(item.quantity) * Number(item.client_price)),
+    0
+  );
+  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0);
+
+  const updateQty = (idx: number, qty: number) => {
+    setEditLineItems((prev) =>
+      prev.map((item, i) => i === idx ? { ...item, quantity: qty } : item)
+    );
+  };
+
+  const handleSave = async () => {
+    if (!proposal) return;
+    setSaving(true);
+    try {
+      await estimatesAPI.update(proposal.id, {
+        title: editTitle,
+        description: editDescription,
+        subtotal: computedSubtotal,
+        total: computedTotal,
+      });
+      await Promise.all(
+        editLineItems.map((item) =>
+          supabase.from("estimate_line_items").update({
+            quantity: item.quantity,
+            total_price: Number(item.quantity) * Number(item.client_price),
+          }).eq("id", item.id)
+        )
+      );
+      setProposal((p: any) => ({
+        ...p,
+        title: editTitle,
+        description: editDescription,
+        subtotal: computedSubtotal,
+        total: computedTotal,
+        line_items: editLineItems,
+      }));
+      toast.success("Proposal saved.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!proposal) {
     return (
@@ -116,9 +188,48 @@ export function ProposalDetail() {
   };
 
   const handleEmail = () => {
+    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+    setEmailTo(client?.email ?? "");
+    setEmailSubject(`Proposal: ${proposal.title}`);
+    setEmailMessage(`Hi ${clientName},\n\nPlease review our proposal for your project. You can view, accept, or decline it using the link below.\n\nBest regards,\nButler & Associates Construction`);
     setShowEmailDialog(true);
-    // In a real app, this would send the proposal via email
-    console.log("Sending proposal to:", client.email);
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailTo) return;
+    setSendingEmail(true);
+    try {
+      const proposalLink = `${window.location.origin}/p/${proposal.id}`;
+      const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+      const html = `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#111;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <p style="color:#fff;font-weight:700;font-size:16px;margin:0;">Butler & Associates Construction</p>
+          </div>
+          <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+            <p style="color:#374151;white-space:pre-line;">${emailMessage}</p>
+            <div style="margin:28px 0;text-align:center;">
+              <a href="${proposalLink}" style="background:#111;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">
+                View Proposal
+              </a>
+            </div>
+            <p style="color:#6b7280;font-size:13px;">This proposal is valid for 30 days. Questions? Reply to this email or call us directly.</p>
+          </div>
+        </div>
+      `;
+      const { error } = await supabase.functions.invoke("send-email", {
+        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction" },
+      });
+      if (error) throw error;
+      await estimatesAPI.updateStatus(proposal.id, "sent");
+      setProposal({ ...proposal, status: "sent", sent_at: new Date().toISOString() });
+      setShowEmailDialog(false);
+      toast.success("Proposal sent to " + clientName);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send email");
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   return (
@@ -170,8 +281,8 @@ export function ProposalDetail() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="outline">
-            <Save className="h-4 w-4 mr-2" />
+          <Button variant="outline" onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
             Save
           </Button>
         </div>
@@ -217,6 +328,52 @@ export function ProposalDetail() {
         </Card>
       </div>
 
+      {/* Accepted banner */}
+      {proposal.status === "accepted" && (
+        <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-green-800">Proposal Accepted</p>
+            {proposal.accepted_at && (
+              <p className="text-xs text-green-700 mt-0.5">Accepted on {formatDate(proposal.accepted_at)}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Declined banner */}
+      {proposal.status === "declined" && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <XCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">Proposal Declined</p>
+              {proposal.declined_at && (
+                <p className="text-xs text-red-700 mt-0.5">Declined on {formatDate(proposal.declined_at)}</p>
+              )}
+              {proposal.decline_reason && (
+                <p className="text-sm text-red-700 mt-1.5 italic">"{proposal.decline_reason}"</p>
+              )}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 text-xs"
+            onClick={async () => {
+              await supabase.from("estimates").update({
+                status: "sent",
+                declined_at: null,
+                decline_reason: null,
+              }).eq("id", proposal.id);
+              setProposal({ ...proposal, status: "sent", declined_at: null, decline_reason: null });
+            }}
+          >
+            Reset to Sent
+          </Button>
+        </div>
+      )}
+
       {/* Proposal Details */}
       <Card>
         <CardHeader>
@@ -225,11 +382,11 @@ export function ProposalDetail() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Title</Label>
-            <Input defaultValue={proposal.title} />
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Description</Label>
-            <Textarea defaultValue={proposal.description} rows={3} />
+            <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} />
           </div>
         </CardContent>
       </Card>
@@ -269,22 +426,30 @@ export function ProposalDetail() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {(proposal.line_items ?? []).map((item: any) => (
+                {editLineItems.map((item: any, idx: number) => (
                   <tr key={item.id} className="hover:bg-accent/50">
                     <td className="p-3">
-                      <div className="font-medium text-sm">{item.name}</div>
+                      <div className="font-medium text-sm">{item.name ?? item.product_name}</div>
                     </td>
                     <td className="p-3">
-                      <Input type="number" defaultValue={item.quantity} className="w-24" />
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateQty(idx, Number(e.target.value))}
+                        className="w-24"
+                      />
                     </td>
                     <td className="p-3">
-                      <span className="text-sm text-muted-foreground">{item.unit}</span>
+                      <span className="text-sm text-muted-foreground">{item.unit ?? "—"}</span>
                     </td>
                     <td className="p-3">
-                      <Input type="number" defaultValue={item.client_price} className="w-28" />
+                      <span className="text-sm text-muted-foreground">{formatCurrency(item.client_price)}</span>
                     </td>
                     <td className="p-3">
-                      <span className="font-semibold">{formatCurrency(item.quantity * item.client_price)}</span>
+                      <span className="font-semibold">
+                        {formatCurrency(Number(item.quantity) * Number(item.client_price))}
+                      </span>
                     </td>
                     <td className="p-3">
                       <Button variant="ghost" size="sm">
@@ -301,7 +466,7 @@ export function ProposalDetail() {
           <div className="border-t p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-semibold">{formatCurrency(proposal.subtotal)}</span>
+              <span className="font-semibold">{formatCurrency(computedSubtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{proposal.tax_label ?? "Tax"}</span>
@@ -309,7 +474,7 @@ export function ProposalDetail() {
             </div>
             <div className="flex justify-between text-lg pt-2 border-t">
               <span className="font-bold">Total</span>
-              <span className="font-bold text-green-600">{formatCurrency(proposal.total)}</span>
+              <span className="font-bold text-green-600">{formatCurrency(computedTotal)}</span>
             </div>
           </div>
         </CardContent>
@@ -340,29 +505,24 @@ export function ProposalDetail() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>To</Label>
-              <Input defaultValue={client?.email ?? ""} />
+              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Subject</Label>
-              <Input defaultValue={`Proposal: ${proposal.title}`} />
+              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Message</Label>
-              <Textarea
-                defaultValue={`Hi ${client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""},\n\nPlease find attached our proposal for your project. We look forward to working with you.\n\nBest regards,\nButler & Associates Construction, Inc.`}
-                rows={6}
-              />
+              <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={6} />
             </div>
+            <p className="text-xs text-muted-foreground">A "View Proposal" button linking to the proposal page will be included automatically.</p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowEmailDialog(false)}>
+            <Button variant="outline" onClick={() => setShowEmailDialog(false)} disabled={sendingEmail}>
               Cancel
             </Button>
-            <Button onClick={() => {
-              setShowEmailDialog(false);
-              toast.success("Proposal sent successfully!");
-            }}>
-              <Mail className="h-4 w-4 mr-2" />
+            <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo}>
+              {sendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
               Send Email
             </Button>
           </div>

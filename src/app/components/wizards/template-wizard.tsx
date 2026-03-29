@@ -108,7 +108,9 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
         laborCost: product?.labor_cost ?? 0,
         costPerUnit: (product?.material_cost ?? 0) + (product?.labor_cost ?? 0),
         markupPercent: product?.markup_percentage ?? 0,
-        pricePerUnit: product?.price_per_unit ?? 0,
+        pricePerUnit: product
+          ? ((product.material_cost ?? 0) + (product.labor_cost ?? 0)) * (1 + (product.markup_percentage ?? 0) / 100)
+          : 0,
       });
     });
 
