@@ -8,19 +8,19 @@ import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
@@ -392,7 +392,6 @@ export function ProposalBuilder() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {/* Step 1: Select Category */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium">1. Select Category</Label>
                     <Select value={selectedCategory} onValueChange={handleCategorySelect}>
@@ -405,11 +404,7 @@ export function ProposalBuilder() {
                           return (
                             <SelectItem key={cat.id} value={cat.name}>
                               {cat.name}
-                              {hasTemplate && (
-                                <Badge variant="secondary" className="ml-2 text-xs">
-                                  Wizard
-                                </Badge>
-                              )}
+                              {hasTemplate && <Badge variant="secondary" className="ml-2 text-xs">Wizard</Badge>}
                             </SelectItem>
                           );
                         })}
@@ -417,7 +412,6 @@ export function ProposalBuilder() {
                     </Select>
                   </div>
 
-                  {/* Step 2: Select Product (only for simple categories) */}
                   {selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory) && (
                     <div className="space-y-1.5">
                       <Label className="text-xs font-medium">2. Select Item</Label>
@@ -429,18 +423,11 @@ export function ProposalBuilder() {
                           {categoryProducts.length > 0 ? (
                             categoryProducts.map((product) => (
                               <SelectItem key={product.id} value={product.id}>
-                                <div className="flex items-center justify-between w-full">
-                                  <span>{product.name}</span>
-                                  <span className="text-xs text-muted-foreground ml-4">
-                                    {formatCurrency(product.pricePerUnit)}/{product.unit}
-                                  </span>
-                                </div>
+                                {product.name}
                               </SelectItem>
                             ))
                           ) : (
-                            <SelectItem value="none" disabled>
-                              No products available - Add in Admin Portal
-                            </SelectItem>
+                            <SelectItem value="none" disabled>No products available - Add in Admin Portal</SelectItem>
                           )}
                         </SelectContent>
                       </Select>

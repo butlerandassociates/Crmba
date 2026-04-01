@@ -368,9 +368,10 @@ export function ProjectDetail() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/projects">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-5 w-5" />
+        <Link to={`/clients/${project.client_id ?? project.client?.id}`}>
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Client
           </Button>
         </Link>
         <div className="flex-1">

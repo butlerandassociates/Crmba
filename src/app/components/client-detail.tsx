@@ -30,6 +30,7 @@ import {
   X,
   History,
   Plus,
+  Hammer,
 } from "lucide-react";
 import {
   Dialog,
@@ -41,7 +42,6 @@ import {
 } from "./ui/dialog";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -903,75 +903,75 @@ export function ClientDetail() {
         </Card>
       </div>
 
-      <Tabs defaultValue="projects">
-        <TabsList>
-          <TabsTrigger value="projects">Projects ({clientProjects.length})</TabsTrigger>
-          <TabsTrigger value="proposals">Proposals ({clientProposals.length})</TabsTrigger>
-          <TabsTrigger value="payments">Payments ({clientPayments.length})</TabsTrigger>
-          <TabsTrigger value="appointments">Appointments ({clientAppointments.length})</TabsTrigger>
-          <TabsTrigger value="notes">Client Files {photos.length > 0 && `(${photos.length})`}</TabsTrigger>
-        </TabsList>
+      <div className="space-y-4">
 
-        <TabsContent value="projects" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              {clientProjects.length > 0 ? (
-                <div className="divide-y">
-                  {clientProjects.map((project) => (
-                    <Link
-                      key={project.id}
-                      to={`/projects/${project.id}`}
-                      className="block p-4 hover:bg-accent transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1 flex-1">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-sm">{project.name}</h3>
-                            <Badge className={getProjectStatusColor(project.status)}>
-                              {project.status.replace("_", " ")}
-                            </Badge>
-                          </div>
-                          <div className="flex gap-3 text-xs text-muted-foreground">
-                            {project.projectManagerName && <span>PM: {project.projectManagerName}</span>}
-                            {project.foremanName && <span>Foreman: {project.foremanName}</span>}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatDate(project.startDate)}
-                            {project.endDate && ` — ${formatDate(project.endDate)}`}
-                          </div>
-                        </div>
-                        <div className="text-right space-y-0.5">
-                          <div className="font-semibold text-sm">
-                            {formatCurrency(project.totalValue)}
-                          </div>
-                          <div className="text-xs text-green-600">
-                            {formatCurrency(project.grossProfit)} profit
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {project.profitMargin.toFixed(1)}% margin
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
+        {/* ── Project Info ── */}
+        {clientProjects.length > 0 && clientProjects.map((project) => (
+          <Card key={project.id}>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Hammer className="h-4 w-4" />
+                Project
+                <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
+              </CardTitle>
+              <Link to={`/projects/${project.id}`}>
+                <Button variant="outline" size="sm">View Full Project</Button>
+              </Link>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Project Name</p>
+                  <p className="font-medium">{project.name || "—"}</p>
                 </div>
-              ) : (
-                <div className="text-center py-12">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No projects yet</p>
-                  <Button className="mt-4" size="sm">
-                    <FilePlus className="h-4 w-4 mr-2" />
-                    Create First Project
-                  </Button>
+                <div>
+                  <p className="text-xs text-muted-foreground">Project Manager</p>
+                  <p className="font-medium">{project.projectManagerName || "—"}</p>
                 </div>
-              )}
+                <div>
+                  <p className="text-xs text-muted-foreground">Foreman</p>
+                  <p className="font-medium">{project.foremanName || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Contract Value</p>
+                  <p className="font-medium">{formatCurrency(project.totalValue ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Start Date</p>
+                  <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">End Date</p>
+                  <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Gross Profit</p>
+                  <p className="font-medium text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Margin</p>
+                  <p className="font-medium">{project.profitMargin?.toFixed(1) ?? "0.0"}%</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        ))}
 
-        <TabsContent value="proposals" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
+        {/* ── Proposals ── */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Proposals {clientProposals.length > 0 && <Badge variant="secondary">{clientProposals.length}</Badge>}
+            </CardTitle>
+            <Link to={`/clients/${client.id}/create-proposal`}>
+              <Button size="sm">
+                <FilePlus className="h-4 w-4 mr-2" />
+                New Proposal
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
               {clientProposals.length > 0 ? (
                 <div className="divide-y">
                   {clientProposals.map((proposal) => (
@@ -1038,10 +1038,9 @@ export function ClientDetail() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* ── Client Payments Tab ── */}
-        <TabsContent value="payments" className="mt-4 space-y-4">
+        {/* ── Payments ── */}
+        <div className="space-y-4">
           {/* Summary */}
           {(() => {
             const totalAmount = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
@@ -1237,11 +1236,21 @@ export function ClientDetail() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="appointments" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
+        {/* ── Appointments ── */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Appointments {clientAppointments.length > 0 && <Badge variant="secondary">{clientAppointments.length}</Badge>}
+            </CardTitle>
+            <Button size="sm" onClick={() => setAppointmentDialogOpen(true)}>
+              <Calendar className="h-4 w-4 mr-2" />
+              Schedule
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
               {clientAppointments.length === 0 ? (
                 <div className="text-center py-12">
                   <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -1334,10 +1343,9 @@ export function ClientDetail() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="notes" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ── Client Files ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
@@ -1514,8 +1522,8 @@ export function ClientDetail() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+
+      </div>
 
       <EmailTemplatesDialog
         open={emailDialogOpen}
