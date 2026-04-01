@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
@@ -102,6 +102,9 @@ export function ProposalBuilder() {
   const [taxRate, setTaxRate] = useState<number>(0);
   const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
   const [taxCounty, setTaxCounty] = useState<string>("");
+  const [badOverride, setBadOverride] = useState<number | null>(null);
+  const [editingBad, setEditingBad] = useState(false);
+  const [badInputValue, setBadInputValue] = useState("");
 
   // Qualifying categories for Base, Aggregate & Disposal
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
@@ -314,8 +317,9 @@ export function ProposalBuilder() {
     .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
     .reduce((sum, item) => sum + item.totalPrice, 0);
   const badCost = badQualifyingSubtotal * 0.015;
-  const badPrice = badCost * 1.5; // 50% markup
-  const hasBad = badPrice > 0;
+  const badPriceAuto = badCost * 1.5; // 50% markup
+  const badPrice = badOverride !== null ? badOverride : badPriceAuto;
+  const hasBad = badPriceAuto > 0;
 
   const total = subtotal + (hasBad ? badPrice : 0) + tax;
 
@@ -348,218 +352,206 @@ export function ProposalBuilder() {
         </div>
       </div>
 
-      {/* Main Content - Horizontal Split */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Side - Proposal Details & Builder */}
-        <div className="flex-1 p-4 overflow-y-auto border-r">
-          <div className="space-y-4 max-w-3xl">
-            {/* Proposal Info */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Proposal Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Title</Label>
-                  <Input
-                    placeholder="e.g., Backyard Patio & Outdoor Kitchen"
-                    value={proposalTitle}
-                    onChange={(e) => setProposalTitle(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Description</Label>
-                  <Textarea
-                    placeholder="Brief description of the project..."
-                    rows={2}
-                    value={proposalDescription}
-                    onChange={(e) => setProposalDescription(e.target.value)}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+      {/* Main Content - Full Width Vertical Layout */}
+      <div className="flex-1 overflow-y-auto p-6">
 
-            {/* Add Items Section */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add Items to Proposal
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
+        {/* Top Row: Proposal Details + Add Items + Metrics */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {/* Proposal Details */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Proposal Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Title</Label>
+                <Input
+                  placeholder="e.g., Backyard Patio & Outdoor Kitchen"
+                  value={proposalTitle}
+                  onChange={(e) => setProposalTitle(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Description</Label>
+                <Textarea
+                  placeholder="Brief description of the project..."
+                  rows={3}
+                  value={proposalDescription}
+                  onChange={(e) => setProposalDescription(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Add Items Section */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Add Items to Proposal
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">1. Select Category</Label>
+                  <Select value={selectedCategory} onValueChange={handleCategorySelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a product category..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat: any) => {
+                        const hasTemplate = templates.some((t: any) => t.category === cat.name);
+                        return (
+                          <SelectItem key={cat.id} value={cat.name}>
+                            {cat.name}
+                            {hasTemplate && <Badge variant="secondary" className="ml-2 text-xs">Wizard</Badge>}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory) && (
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">1. Select Category</Label>
-                    <Select value={selectedCategory} onValueChange={handleCategorySelect}>
+                    <Label className="text-xs font-medium">2. Select Item</Label>
+                    <Select value={selectedProduct} onValueChange={handleProductSelect}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Choose a product category..." />
+                        <SelectValue placeholder="Choose an item to add..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((cat: any) => {
-                          const hasTemplate = templates.some((t: any) => t.category === cat.name);
-                          return (
-                            <SelectItem key={cat.id} value={cat.name}>
-                              {cat.name}
-                              {hasTemplate && <Badge variant="secondary" className="ml-2 text-xs">Wizard</Badge>}
+                        {categoryProducts.length > 0 ? (
+                          categoryProducts.map((product) => (
+                            <SelectItem key={product.id} value={product.id}>
+                              {product.name}
                             </SelectItem>
-                          );
-                        })}
+                          ))
+                        ) : (
+                          <SelectItem value="none" disabled>No products available - Add in Admin Portal</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
+                )}
 
-                  {selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory) && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-medium">2. Select Item</Label>
-                      <Select value={selectedProduct} onValueChange={handleProductSelect}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Choose an item to add..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categoryProducts.length > 0 ? (
-                            categoryProducts.map((product) => (
-                              <SelectItem key={product.id} value={product.id}>
-                                {product.name}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <SelectItem value="none" disabled>No products available - Add in Admin Portal</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {selectedCategory && COMPLEX_CATEGORIES.includes(selectedCategory) && (
-                    <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg">
-                      <Hammer className="h-4 w-4 inline mr-2" />
-                      {wizardType} wizard will guide you through the estimate
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Stats (Admin Only) */}
-            <Card className="bg-muted/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm text-muted-foreground">Internal Metrics (Admin Only)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Total Cost</div>
-                    <div className="font-semibold">{formatCurrency(totalCost)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Gross Profit</div>
-                    <div className="font-semibold text-green-600">{formatCurrency(grossProfit)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Margin</div>
-                    <div className="font-semibold">{profitMargin.toFixed(1)}%</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* Right Side - Line Items & Totals */}
-        <div className="w-[550px] flex flex-col bg-muted/20">
-          {/* Line Items */}
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-sm mb-2">Proposal Line Items</h3>
-                {lineItems.length === 0 && (
-                  <div className="text-center py-12 text-muted-foreground text-sm">
-                    No items added yet
+                {selectedCategory && COMPLEX_CATEGORIES.includes(selectedCategory) && (
+                  <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg">
+                    <Hammer className="h-4 w-4 inline mr-2" />
+                    {wizardType} wizard will guide you through the estimate
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
 
-              {Object.entries(groupedLineItems).map(([category, items]) => (
-                <div key={category} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {category}
-                    </Badge>
-                    <Separator className="flex-1" />
-                  </div>
+          {/* Internal Metrics */}
+          <Card className="bg-muted/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-muted-foreground">Internal Metrics (Admin Only)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground">Total Cost</div>
+                  <div className="font-semibold">{formatCurrency(totalCost)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Gross Profit</div>
+                  <div className="font-semibold text-green-600">{formatCurrency(grossProfit)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Margin</div>
+                  <div className="font-semibold">{profitMargin.toFixed(1)}%</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-                  {items.map((item) => (
-                    <Card key={item.id} className="bg-white">
-                      <CardContent className="p-3">
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
+        {/* Full-Width Line Items Table */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Proposal Line Items</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {lineItems.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                No items added yet — select a category above to get started
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left px-6 py-3 font-semibold text-muted-foreground">Product</th>
+                      <th className="text-center px-4 py-3 font-semibold text-muted-foreground w-[130px]">Qty</th>
+                      <th className="text-left px-4 py-3 font-semibold text-muted-foreground w-[110px]">Unit</th>
+                      <th className="text-right px-4 py-3 font-semibold text-muted-foreground w-[140px]">Rate ($)</th>
+                      <th className="text-right px-6 py-3 font-semibold text-muted-foreground w-[130px]">Total</th>
+                      <th className="px-4 py-3 w-[60px]"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(groupedLineItems).map(([category, items]) => (
+                      <>
+                        {/* Category section header */}
+                        <tr key={`cat-${category}`} className="bg-slate-50 border-y border-slate-200">
+                          <td colSpan={6} className="px-6 py-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{category}</span>
+                          </td>
+                        </tr>
+                        {items.map((item) => (
+                          <tr key={item.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
+                            <td className="px-6 py-3">
                               <div className="font-medium text-sm">{item.productName}</div>
                               {item.description && (
-                                <div className="text-xs text-muted-foreground">
-                                  {item.description}
-                                </div>
+                                <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
                               )}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeLineItem(item.id)}
-                              className="h-6 w-6 p-0"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Qty</Label>
+                            </td>
+                            <td className="px-4 py-3 text-center">
                               <Input
                                 type="number"
                                 value={item.quantity}
-                                onChange={(e) =>
-                                  updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)
-                                }
-                                className="h-7 text-xs"
+                                onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
+                                className="h-8 text-sm text-center w-24 mx-auto"
                               />
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Unit</Label>
-                              <div className="h-7 flex items-center text-xs">{item.unit}</div>
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Rate</Label>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground text-sm">{item.unit}</td>
+                            <td className="px-4 py-3">
                               <Input
                                 type="number"
                                 value={item.pricePerUnit}
-                                onChange={(e) =>
-                                  updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)
-                                }
-                                className="h-7 text-xs"
+                                onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
+                                className="h-8 text-sm text-right w-32 ml-auto"
                               />
-                            </div>
-                          </div>
+                            </td>
+                            <td className="px-6 py-3 text-right font-semibold text-sm">{formatCurrency(item.totalPrice)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeLineItem(item.id)}
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-                          <div className="flex justify-between items-center pt-1 border-t">
-                            <span className="text-xs text-muted-foreground">Total:</span>
-                            <span className="font-semibold text-sm">
-                              {formatCurrency(item.totalPrice)}
-                            </span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-
-
-          {/* Totals Footer */}
-          {lineItems.length > 0 && (
-            <div className="border-t p-4 bg-white">
+        {/* Totals */}
+        {lineItems.length > 0 && (
+          <div className="mt-4 flex justify-end">
+            <div className="w-[520px] bg-white border rounded-lg p-5">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -568,33 +560,110 @@ export function ProposalBuilder() {
 
                 {/* Base, Aggregate & Disposal */}
                 {hasBad && (
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-sm items-center">
                     <div className="flex items-center gap-1.5">
                       <span className="text-muted-foreground">Base, Aggregate & Disposal</span>
-                      <Badge variant="secondary" className="text-xs px-1.5 py-0">auto</Badge>
+                      {badOverride === null
+                        ? <Badge variant="secondary" className="text-xs px-1.5 py-0">auto</Badge>
+                        : <Badge variant="outline" className="text-xs px-1.5 py-0 text-orange-600 border-orange-400">manual</Badge>
+                      }
                     </div>
-                    <span className="font-semibold">{formatCurrency(badPrice)}</span>
+                    <div className="flex items-center gap-1.5">
+                      {editingBad ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-24 border rounded px-1 py-0.5 text-right text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                            value={badInputValue}
+                            onChange={(e) => setBadInputValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const val = parseFloat(badInputValue);
+                                if (!isNaN(val) && val >= 0) setBadOverride(val);
+                                else setBadOverride(null);
+                                setEditingBad(false);
+                              }
+                              if (e.key === "Escape") {
+                                setEditingBad(false);
+                                setBadInputValue(badPrice.toFixed(2));
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            className="text-xs text-green-600 hover:text-green-700 font-medium"
+                            onClick={() => {
+                              const val = parseFloat(badInputValue);
+                              if (!isNaN(val) && val >= 0) setBadOverride(val);
+                              else setBadOverride(null);
+                              setEditingBad(false);
+                            }}
+                          >✓</button>
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setEditingBad(false);
+                              setBadInputValue(badPrice.toFixed(2));
+                            }}
+                          >✕</button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-semibold">{formatCurrency(badPrice)}</span>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                            title="Override BAD amount"
+                            onClick={() => {
+                              setBadInputValue(badPrice.toFixed(2));
+                              setEditingBad(true);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          {badOverride !== null && (
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                              title="Reset to auto"
+                              onClick={() => {
+                                setBadOverride(null);
+                                setBadInputValue("");
+                              }}
+                            >↩</button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {/* Tax */}
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-muted-foreground">Sales Tax (materials)</span>
-                    {taxSource === "auto" && taxCounty && (
-                      <Badge variant="secondary" className="text-xs px-1.5 py-0 flex items-center gap-1">
-                        <MapPin className="h-2.5 w-2.5" />
-                        {taxCounty}
-                      </Badge>
-                    )}
-                    {taxSource === "unknown" && (
-                      <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-600 border-amber-300 flex items-center gap-1">
-                        <AlertTriangle className="h-2.5 w-2.5" />
-                        Unknown zip
-                      </Badge>
-                    )}
+                <div className="text-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-muted-foreground">Sales Tax (materials)</span>
+                      {taxSource === "auto" && taxCounty && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 flex items-center gap-1">
+                          <MapPin className="h-2.5 w-2.5" />
+                          {taxCounty}
+                        </Badge>
+                      )}
+                      {taxSource === "unknown" && (
+                        <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-600 border-amber-300 flex items-center gap-1">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          Unknown zip
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="font-semibold">{formatCurrency(tax)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className="text-xs text-muted-foreground">Rate:</span>
                     <Input
                       type="number"
                       min={0}
@@ -602,10 +671,9 @@ export function ProposalBuilder() {
                       step={0.01}
                       value={taxRate}
                       onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
-                      className="h-7 w-20 text-xs text-right"
+                      className="h-6 w-16 text-xs text-right"
                     />
                     <span className="text-xs text-muted-foreground">%</span>
-                    <span className="font-semibold w-24 text-right">{formatCurrency(tax)}</span>
                   </div>
                 </div>
 
@@ -616,13 +684,13 @@ export function ProposalBuilder() {
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={setShowWizard}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{wizardType} Estimate Builder</DialogTitle>
             <DialogDescription>

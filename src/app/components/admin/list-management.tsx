@@ -331,18 +331,128 @@ function AppointmentTypeSection({
   );
 }
 
+interface ZipTaxRate { zip_code: string; county: string; total_rate: number; }
+
+function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
+  items: ZipTaxRate[];
+  loading: boolean;
+  onAdd: (zip: string, county: string, rate: number) => Promise<void>;
+  onEdit: (zip: string, county: string, rate: number) => Promise<void>;
+  onDelete: (zip: string) => Promise<void>;
+}) {
+  const [zip, setZip]       = useState("");
+  const [county, setCounty] = useState("");
+  const [rate, setRate]     = useState("");
+  const [adding, setAdding] = useState(false);
+  const [editingZip, setEditingZip]     = useState<string | null>(null);
+  const [editCounty, setEditCounty]     = useState("");
+  const [editRate, setEditRate]         = useState("");
+  const [savingZip, setSavingZip]       = useState<string | null>(null);
+  const [deletingZip, setDeletingZip]   = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const handleAdd = async () => {
+    if (!zip.trim() || !county.trim() || !rate) return;
+    setAdding(true);
+    try {
+      await onAdd(zip.trim(), county.trim(), parseFloat(rate));
+      setZip(""); setCounty(""); setRate("");
+      toast.success(`Zip ${zip.trim()} added.`);
+    } catch (err: any) { toast.error(err.message || "Failed to add."); }
+    finally { setAdding(false); }
+  };
+
+  const handleSave = async (zipCode: string) => {
+    setSavingZip(zipCode);
+    try {
+      await onEdit(zipCode, editCounty.trim(), parseFloat(editRate));
+      setEditingZip(null);
+      toast.success("Updated.");
+    } catch (err: any) { toast.error(err.message || "Failed to update."); }
+    finally { setSavingZip(null); }
+  };
+
+  const filtered = items.filter((i) =>
+    i.zip_code.includes(search) || i.county.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <Card className="md:col-span-2">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Sales Tax Rates by Zip Code</CardTitle>
+        <p className="text-xs text-muted-foreground">Auto-applied to proposals based on client zip code.</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Add row */}
+        <div className="grid grid-cols-4 gap-2 pb-2 border-b">
+          <Input placeholder="Zip Code" value={zip} onChange={(e) => setZip(e.target.value)} className="h-8 text-sm" onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }} />
+          <Input placeholder="County" value={county} onChange={(e) => setCounty(e.target.value)} className="h-8 text-sm" onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }} />
+          <Input placeholder="Rate % (e.g. 9.0)" type="number" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} className="h-8 text-sm" onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }} />
+          <Button size="sm" onClick={handleAdd} disabled={adding || !zip.trim() || !county.trim() || !rate} className="h-8">
+            {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}Add
+          </Button>
+        </div>
+
+        {/* Search */}
+        <Input placeholder="Search zip or county..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 text-sm" />
+
+        {loading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">No zip codes added yet.</p>
+        ) : (
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {filtered.map((item) => (
+              <div key={item.zip_code} className="flex items-center gap-2 group">
+                {editingZip === item.zip_code ? (
+                  <>
+                    <span className="text-sm font-mono w-20 shrink-0">{item.zip_code}</span>
+                    <Input value={editCounty} onChange={(e) => setEditCounty(e.target.value)} className="h-7 text-sm flex-1" />
+                    <Input type="number" step="0.01" value={editRate} onChange={(e) => setEditRate(e.target.value)} className="h-7 text-sm w-24" />
+                    <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={() => handleSave(item.zip_code)} disabled={!!savingZip}>
+                      {savingZip === item.zip_code ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingZip(null)}><X className="h-3.5 w-3.5" /></Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-mono text-sm w-20 shrink-0">{item.zip_code}</span>
+                    <span className="text-sm flex-1">{item.county}</span>
+                    <span className="text-sm font-semibold w-16 text-right">{item.total_rate}%</span>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={() => { setEditingZip(item.zip_code); setEditCounty(item.county); setEditRate(String(item.total_rate)); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={() => { setDeletingZip(item.zip_code); onDelete(item.zip_code).then(() => toast.success(`Zip ${item.zip_code} removed.`)).catch((e) => toast.error(e.message)).finally(() => setDeletingZip(null)); }} disabled={deletingZip === item.zip_code}>
+                      {deletingZip === item.zip_code ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ListManagement() {
   const [categories,        setCategories]        = useState<ListItem[]>([]);
   const [leadSources,       setLeadSources]        = useState<ListItem[]>([]);
   const [appointmentTypes,  setAppointmentTypes]   = useState<AppointmentType[]>([]);
   const [units,             setUnits]              = useState<ListItem[]>([]);
+  const [zipRates,          setZipRates]           = useState<ZipTaxRate[]>([]);
 
   const [loadingCats,  setLoadingCats]  = useState(true);
   const [loadingLS,    setLoadingLS]    = useState(true);
   const [loadingApts,  setLoadingApts]  = useState(true);
   const [loadingUnits, setLoadingUnits] = useState(true);
+  const [loadingZips,  setLoadingZips]  = useState(true);
 
   useEffect(() => {
+    supabase.from("zip_tax_rates").select("*").order("zip_code")
+      .then(({ data }) => { setZipRates(data ?? []); setLoadingZips(false); });
+
     productsAPI.getCategories()
       .then(setCategories).catch(console.error).finally(() => setLoadingCats(false));
     leadSourcesAPI.getAll()
@@ -421,6 +531,26 @@ export function ListManagement() {
           onDelete={async (id) => {
             await appointmentTypesAPI.delete(id);
             setAppointmentTypes((prev) => prev.filter((a) => a.id !== id));
+          }}
+        />
+
+        <ZipTaxSection
+          items={zipRates}
+          loading={loadingZips}
+          onAdd={async (zip, county, rate) => {
+            const { data, error } = await supabase.from("zip_tax_rates").insert({ zip_code: zip, county, total_rate: rate }).select().single();
+            if (error) throw new Error(error.message);
+            setZipRates((prev) => [...prev, data].sort((a, b) => a.zip_code.localeCompare(b.zip_code)));
+          }}
+          onEdit={async (zip, county, rate) => {
+            const { error } = await supabase.from("zip_tax_rates").update({ county, total_rate: rate }).eq("zip_code", zip);
+            if (error) throw new Error(error.message);
+            setZipRates((prev) => prev.map((z) => z.zip_code === zip ? { ...z, county, total_rate: rate } : z));
+          }}
+          onDelete={async (zip) => {
+            const { error } = await supabase.from("zip_tax_rates").delete().eq("zip_code", zip);
+            if (error) throw new Error(error.message);
+            setZipRates((prev) => prev.filter((z) => z.zip_code !== zip));
           }}
         />
 
