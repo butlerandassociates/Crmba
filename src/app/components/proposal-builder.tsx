@@ -102,7 +102,6 @@ export function ProposalBuilder() {
   const [taxRate, setTaxRate] = useState<number>(0);
   const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
   const [taxCounty, setTaxCounty] = useState<string>("");
-  const [showAddScope, setShowAddScope] = useState(false);
 
   // Qualifying categories for Base, Aggregate & Disposal
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
@@ -174,8 +173,7 @@ export function ProposalBuilder() {
 
       setSelectedCategory("");
       setSelectedProduct("");
-      setShowAddScope(true);
-    }
+          }
   };
 
   const addLineItem = (item: Omit<LineItem, "id" | "totalPrice">) => {
@@ -196,8 +194,7 @@ export function ProposalBuilder() {
     setLineItems([...lineItems, ...newItems]);
     setShowWizard(false);
     setSelectedCategory("");
-    setShowAddScope(true);
-  };
+      };
 
   const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
     setLineItems(
@@ -559,20 +556,6 @@ export function ProposalBuilder() {
             </div>
           </div>
 
-          {/* Add Another Scope button */}
-          {showAddScope && lineItems.length > 0 && (
-            <div className="px-4 pb-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-dashed"
-                onClick={() => { setShowAddScope(false); setSelectedCategory(""); }}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Another Scope of Work
-              </Button>
-            </div>
-          )}
 
           {/* Totals Footer */}
           {lineItems.length > 0 && (
