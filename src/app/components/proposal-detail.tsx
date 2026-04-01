@@ -395,7 +395,16 @@ export function ProposalDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Line Items</CardTitle>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => {
+            setEditLineItems((prev) => [...prev, {
+              id: `new-${Date.now()}`,
+              name: "",
+              product_name: "",
+              quantity: 1,
+              unit: "",
+              client_price: 0,
+            }]);
+          }}>
             <Plus className="h-4 w-4 mr-2" />
             Add Item
           </Button>
@@ -429,7 +438,17 @@ export function ProposalDetail() {
                 {editLineItems.map((item: any, idx: number) => (
                   <tr key={item.id} className="hover:bg-accent/50">
                     <td className="p-3">
-                      <div className="font-medium text-sm">{item.name ?? item.product_name}</div>
+                      {item.id?.startsWith("new-") ? (
+                        <Input
+                          value={item.name ?? ""}
+                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, name: e.target.value, product_name: e.target.value } : li))}
+                          placeholder="Item name"
+                          className="h-8 text-sm w-48"
+                          autoFocus
+                        />
+                      ) : (
+                        <div className="font-medium text-sm">{item.name ?? item.product_name}</div>
+                      )}
                     </td>
                     <td className="p-3">
                       <Input
@@ -441,10 +460,29 @@ export function ProposalDetail() {
                       />
                     </td>
                     <td className="p-3">
-                      <span className="text-sm text-muted-foreground">{item.unit ?? "—"}</span>
+                      {item.id?.startsWith("new-") ? (
+                        <Input
+                          value={item.unit ?? ""}
+                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, unit: e.target.value } : li))}
+                          placeholder="unit"
+                          className="h-8 text-sm w-20"
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground">{item.unit ?? "—"}</span>
+                      )}
                     </td>
                     <td className="p-3">
-                      <span className="text-sm text-muted-foreground">{formatCurrency(item.client_price)}</span>
+                      {item.id?.startsWith("new-") ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          value={item.client_price}
+                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, client_price: Number(e.target.value) } : li))}
+                          className="h-8 text-sm w-28"
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground">{formatCurrency(item.client_price)}</span>
+                      )}
                     </td>
                     <td className="p-3">
                       <span className="font-semibold">
@@ -452,7 +490,7 @@ export function ProposalDetail() {
                       </span>
                     </td>
                     <td className="p-3">
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </td>

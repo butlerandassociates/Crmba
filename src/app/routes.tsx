@@ -21,6 +21,7 @@ import { Settings } from "./components/settings";
 import { DocuSignCallback } from "./components/docusign-callback";
 import { PublicProposal } from "./components/public-proposal";
 import { DataMigration } from "./components/admin/data-migration";
+import { ListManagement } from "./components/admin/list-management";
 import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
 
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: "admin", Component: AdminPortal },
       { path: "admin/estimate-templates", Component: EstimateTemplateManager },
       { path: "admin/data-migration", Component: DataMigration },
+      { path: "admin/list-management", Component: ListManagement },
       { path: "pipeline", Component: PipelineForecast },
       { path: "*", Component: NotFound },
     ],

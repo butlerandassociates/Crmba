@@ -28,6 +28,35 @@ export const productsAPI = {
     return data;
   },
 
+  createCategory: async (name: string) => {
+    const { data, error } = await supabase
+      .from("service_categories")
+      .insert({ name })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  updateCategory: async (id: string, name: string) => {
+    const { data, error } = await supabase
+      .from("service_categories")
+      .update({ name })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  deleteCategory: async (id: string) => {
+    const { error } = await supabase
+      .from("service_categories")
+      .update({ is_active: false })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+  },
+
   /** Create or update a product (upsert by id presence) */
   save: async (product: Record<string, unknown>) => {
     if (product.id) {
