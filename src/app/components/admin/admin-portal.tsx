@@ -5,7 +5,7 @@ import { ProductManager } from "./product-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Link } from "react-router";
-import { FileText, Settings, DollarSign, Package } from "lucide-react";
+import { FileText, Settings, DollarSign, Package, List } from "lucide-react";
 
 export function AdminPortal() {
   return (
@@ -28,6 +28,22 @@ export function AdminPortal() {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 Create and manage estimate workflows
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="/admin/list-management">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <List className="h-5 w-5 text-primary" />
+                List Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Manage dropdown lists — categories, lead sources, and more
               </p>
             </CardContent>
           </Card>

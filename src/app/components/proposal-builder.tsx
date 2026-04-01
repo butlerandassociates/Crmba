@@ -21,11 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 
 interface LineItem {
   id: string;
@@ -53,7 +54,26 @@ export function ProposalBuilder() {
   useEffect(() => {
     if (clientId) {
       clientsAPI.getById(clientId)
-        .then(setClient)
+        .then((c) => {
+          setClient(c);
+          // Auto-lookup tax rate from zip code
+          if (c?.zip) {
+            supabase
+              .from("zip_tax_rates")
+              .select("total_rate, county")
+              .eq("zip_code", c.zip.trim())
+              .maybeSingle()
+              .then(({ data }) => {
+                if (data) {
+                  setTaxRate(data.total_rate);
+                  setTaxCounty(data.county);
+                  setTaxSource("auto");
+                } else {
+                  setTaxSource("unknown");
+                }
+              });
+          }
+        })
         .catch(console.error)
         .finally(() => setLoadingClient(false));
     }
@@ -79,6 +99,13 @@ export function ProposalBuilder() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardType, setWizardType] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
+  const [taxRate, setTaxRate] = useState<number>(0);
+  const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
+  const [taxCounty, setTaxCounty] = useState<string>("");
+  const [showAddScope, setShowAddScope] = useState(false);
+
+  // Qualifying categories for Base, Aggregate & Disposal
+  const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
 
   if (loadingClient) {
     return (
@@ -124,22 +151,30 @@ export function ProposalBuilder() {
     const product = dbProducts.find((p: any) => p.id === productId);
 
     if (product) {
+      const materialCost = product.material_cost ?? 0;
+      const laborCost = product.labor_cost ?? 0;
+      const markup = product.markup_percentage ?? 0;
+      const costPerUnit = materialCost + laborCost;
+      const pricePerUnit = product.price_per_unit
+        ? product.price_per_unit
+        : costPerUnit * (1 + markup / 100);
+
       addLineItem({
         category: selectedCategory,
         productName: product.name,
         description: product.description,
         quantity: 1,
         unit: product.unit,
-        costPerUnit: (product.material_cost ?? 0) + (product.labor_cost ?? 0),
-        markupPercent: product.markup_percentage ?? 0,
-        pricePerUnit: product.price_per_unit ?? 0,
-        materialCost: product.material_cost ?? 0,
-        laborCost: product.labor_cost ?? 0,
+        costPerUnit,
+        markupPercent: markup,
+        pricePerUnit,
+        materialCost,
+        laborCost,
       });
-      
-      // Reset selections
+
       setSelectedCategory("");
       setSelectedProduct("");
+      setShowAddScope(true);
     }
   };
 
@@ -161,6 +196,7 @@ export function ProposalBuilder() {
     setLineItems([...lineItems, ...newItems]);
     setShowWizard(false);
     setSelectedCategory("");
+    setShowAddScope(true);
   };
 
   const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
@@ -197,16 +233,30 @@ export function ProposalBuilder() {
       const grossProfitVal = subtotalVal - totalCostVal;
       const profitMarginVal = subtotalVal > 0 ? (grossProfitVal / subtotalVal) * 100 : 0;
 
+      const taxableVal = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
+      const taxAmountVal = taxableVal * (taxRate / 100);
+
+      // BAD calc for save
+      const badQualifyingVal = lineItems
+        .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
+        .reduce((sum, item) => sum + item.totalPrice, 0);
+      const badPriceVal = badQualifyingVal * 0.015 * 1.5;
+
+      const totalVal = subtotalVal + (badPriceVal > 0 ? badPriceVal : 0) + taxAmountVal;
+
       const estimate = {
         client_id: clientId,
         title: proposalTitle.trim(),
         description: proposalDescription.trim() || null,
         status: "draft",
         subtotal: subtotalVal,
-        total: subtotalVal,
+        tax_amount: taxAmountVal,
+        tax_label: taxRate > 0 ? `Sales Tax (${taxRate}% on materials)${taxCounty ? ` — ${taxCounty} County` : ""}` : "Sales Tax",
+        total: totalVal,
         total_cost: totalCostVal,
         gross_profit: grossProfitVal,
         profit_margin: profitMarginVal,
+        bad_amount: badPriceVal > 0 ? badPriceVal : null,
       };
 
       const items = lineItems.map((item) => ({
@@ -257,10 +307,20 @@ export function ProposalBuilder() {
     return acc;
   }, {} as Record<string, LineItem[]>);
 
-  // Calculate totals
+  // Calculate totals — tax on materials only
   const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const tax = subtotal * 0.08;
-  const total = subtotal + tax;
+  const taxableMaterials = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
+  const tax = taxableMaterials * (taxRate / 100);
+
+  // Base, Aggregate & Disposal — 1.5% of qualifying scope subtotals, 50% markup
+  const badQualifyingSubtotal = lineItems
+    .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
+    .reduce((sum, item) => sum + item.totalPrice, 0);
+  const badCost = badQualifyingSubtotal * 0.015;
+  const badPrice = badCost * 1.5; // 50% markup
+  const hasBad = badPrice > 0;
+
+  const total = subtotal + (hasBad ? badPrice : 0) + tax;
 
   // Calculate cost (what it costs you)
   const totalCost = lineItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0);
@@ -512,6 +572,21 @@ export function ProposalBuilder() {
             </div>
           </div>
 
+          {/* Add Another Scope button */}
+          {showAddScope && lineItems.length > 0 && (
+            <div className="px-4 pb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-dashed"
+                onClick={() => { setShowAddScope(false); setSelectedCategory(""); }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Another Scope of Work
+              </Button>
+            </div>
+          )}
+
           {/* Totals Footer */}
           {lineItems.length > 0 && (
             <div className="border-t p-4 bg-white">
@@ -520,10 +595,50 @@ export function ProposalBuilder() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-semibold">{formatCurrency(subtotal)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax (8%)</span>
-                  <span className="font-semibold">{formatCurrency(tax)}</span>
+
+                {/* Base, Aggregate & Disposal */}
+                {hasBad && (
+                  <div className="flex justify-between text-sm">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">Base, Aggregate & Disposal</span>
+                      <Badge variant="secondary" className="text-xs px-1.5 py-0">auto</Badge>
+                    </div>
+                    <span className="font-semibold">{formatCurrency(badPrice)}</span>
+                  </div>
+                )}
+
+                {/* Tax */}
+                <div className="flex items-center justify-between text-sm gap-2">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-muted-foreground">Sales Tax (materials)</span>
+                    {taxSource === "auto" && taxCounty && (
+                      <Badge variant="secondary" className="text-xs px-1.5 py-0 flex items-center gap-1">
+                        <MapPin className="h-2.5 w-2.5" />
+                        {taxCounty}
+                      </Badge>
+                    )}
+                    {taxSource === "unknown" && (
+                      <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-600 border-amber-300 flex items-center gap-1">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        Unknown zip
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      value={taxRate}
+                      onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
+                      className="h-7 w-20 text-xs text-right"
+                    />
+                    <span className="text-xs text-muted-foreground">%</span>
+                    <span className="font-semibold w-24 text-right">{formatCurrency(tax)}</span>
+                  </div>
                 </div>
+
                 <Separator />
                 <div className="flex justify-between text-lg">
                   <span className="font-bold">Total</span>

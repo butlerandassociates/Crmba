@@ -29,7 +29,13 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
   const [editItems, setEditItems] = useState<any[]>([]);
   const [suggestedItems, setSuggestedItems] = useState<any[]>([]);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [units, setUnits] = useState<string[]>([]);
   const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.from("units").select("name").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setUnits((data ?? []).map((u: any) => u.name)));
+  }, []);
 
   useEffect(() => {
     if (!open || !project?.id) return;
@@ -294,7 +300,14 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Unit</Label>
-                        <Input value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="h-8 text-sm" placeholder="hr, sq ft" />
+                        <select
+                          value={item.unit}
+                          onChange={(e) => updateItem(idx, "unit", e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="">Select</option>
+                          {units.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select>
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Qty</Label>

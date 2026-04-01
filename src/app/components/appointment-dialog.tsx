@@ -24,6 +24,7 @@ import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Vid
 import { format } from "date-fns";
 import { useGoogleCalendar } from "../hooks/use-google-calendar";
 import { clientsAPI, appointmentsAPI, usersAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 
 interface AppointmentDialogProps {
   open: boolean;
@@ -32,13 +33,6 @@ interface AppointmentDialogProps {
   onAppointmentScheduled?: () => void;
 }
 
-const APPOINTMENT_TYPES = [
-  { value: "initial",      label: "Initial Appointment" },
-  { value: "followup",     label: "Followup Appointment" },
-  { value: "presentation", label: "Presentation Appointment" },
-  { value: "prewalk",      label: "PreWalk Appointment" },
-  { value: "finalwalk",    label: "Final Walk Appointment" },
-];
 
 export function AppointmentDialog({
   open,
@@ -55,11 +49,14 @@ export function AppointmentDialog({
   const [notes, setNotes]                     = useState("");
   const [ccEmails, setCcEmails]               = useState("");
   const [scheduling, setScheduling]           = useState(false);
-  const [teamMembers, setTeamMembers]         = useState<any[]>([]);
-  const [assignedUserId, setAssignedUserId]   = useState("");
+  const [teamMembers, setTeamMembers]           = useState<any[]>([]);
+  const [assignedUserId, setAssignedUserId]     = useState("");
+  const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
 
   useEffect(() => {
     usersAPI.getAll().then(setTeamMembers).catch(console.error);
+    supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setAppointmentTypes(data ?? []));
   }, []);
 
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || client?.company || "Client";
@@ -78,7 +75,7 @@ export function AppointmentDialog({
     try {
       setScheduling(true);
 
-      const typeLabel = APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.label ?? appointmentType;
+      const typeLabel = appointmentTypes.find((t) => t.value === appointmentType)?.label ?? appointmentType;
 
       const [sh, sm] = startTime.split(":").map(Number);
       const [eh, em] = endTime.split(":").map(Number);
@@ -240,7 +237,7 @@ export function AppointmentDialog({
                 <SelectValue placeholder="Select appointment type" />
               </SelectTrigger>
               <SelectContent>
-                {APPOINTMENT_TYPES.map((type) => (
+                {appointmentTypes.map((type) => (
                   <SelectItem key={type.value} value={type.value}>
                     {type.label}
                   </SelectItem>
@@ -313,7 +310,7 @@ export function AppointmentDialog({
             <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-sm">
               <p className="font-medium flex items-center gap-2">
                 <Video className="h-4 w-4 text-blue-500" />
-                {APPOINTMENT_TYPES.find((t) => t.value === appointmentType)?.label} — {clientName}
+                {appointmentTypes.find((t) => t.value === appointmentType)?.label} — {clientName}
               </p>
               <p className="text-muted-foreground">{format(selectedDate, "EEEE, MMMM d, yyyy")} · {startTime} – {endTime}</p>
               {clientAddress && <p className="text-muted-foreground">{clientAddress}</p>}
