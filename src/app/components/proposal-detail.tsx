@@ -19,7 +19,7 @@ import {
   XCircle,
   CheckCircle2,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,17 @@ export function ProposalDetail() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
+
+  // Item picker
+  const [showItemPicker, setShowItemPicker] = useState(false);
+  const [pickerCategory, setPickerCategory] = useState("");
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
+  const [dbProducts, setDbProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    productsAPI.getCategories().then(setDbCategories).catch(console.error);
+    productsAPI.getAll().then(setDbProducts).catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -395,16 +406,7 @@ export function ProposalDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Line Items</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => {
-            setEditLineItems((prev) => [...prev, {
-              id: `new-${Date.now()}`,
-              name: "",
-              product_name: "",
-              quantity: 1,
-              unit: "",
-              client_price: 0,
-            }]);
-          }}>
+          <Button variant="outline" size="sm" onClick={() => { setShowItemPicker(true); setPickerCategory(""); }}>
             <Plus className="h-4 w-4 mr-2" />
             Add Item
           </Button>
@@ -438,7 +440,7 @@ export function ProposalDetail() {
                 {editLineItems.map((item: any, idx: number) => (
                   <tr key={item.id} className="hover:bg-accent/50">
                     <td className="p-3">
-                      {item.id?.startsWith("new-") ? (
+                      {item.id?.startsWith("new-") && !item.fromPicker ? (
                         <Input
                           value={item.name ?? ""}
                           onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, name: e.target.value, product_name: e.target.value } : li))}
@@ -460,7 +462,7 @@ export function ProposalDetail() {
                       />
                     </td>
                     <td className="p-3">
-                      {item.id?.startsWith("new-") ? (
+                      {item.id?.startsWith("new-") && !item.fromPicker ? (
                         <Input
                           value={item.unit ?? ""}
                           onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, unit: e.target.value } : li))}
@@ -472,7 +474,7 @@ export function ProposalDetail() {
                       )}
                     </td>
                     <td className="p-3">
-                      {item.id?.startsWith("new-") ? (
+                      {item.id?.startsWith("new-") && !item.fromPicker ? (
                         <Input
                           type="number"
                           min={0}
@@ -517,6 +519,86 @@ export function ProposalDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Item Picker Dialog */}
+      <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-6 pb-3">
+            <DialogTitle>Add Item</DialogTitle>
+            <DialogDescription>Select a category then choose a product</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-1 overflow-hidden border-t">
+            {/* Categories */}
+            <div className="w-48 shrink-0 overflow-y-auto border-r p-2 space-y-1">
+              {dbCategories.map((cat: any) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setPickerCategory(cat.name)}
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                    pickerCategory === cat.name ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Products */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {!pickerCategory && (
+                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                  Select a category
+                </div>
+              )}
+              {pickerCategory && (() => {
+                const products = dbProducts.filter((p: any) => p.category?.name === pickerCategory);
+                if (products.length === 0) return (
+                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                    No products in this category
+                  </div>
+                );
+                return products.map((product: any) => {
+                  const cost = (product.material_cost ?? 0) + (product.labor_cost ?? 0);
+                  const price = product.price_per_unit ?? cost * (1 + (product.markup_percentage ?? 0) / 100);
+                  const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => {
+                        setEditLineItems((prev) => [...prev, {
+                          id: `new-${Date.now()}`,
+                          fromPicker: true,
+                          name: product.name,
+                          product_name: product.name,
+                          category: product.category?.name ?? pickerCategory,
+                          quantity: 1,
+                          unit: product.unit ?? "",
+                          client_price: price,
+                          price_per_unit: price,
+                          material_cost: product.material_cost ?? 0,
+                          labor_cost: product.labor_cost ?? 0,
+                          total_price: price,
+                        }]);
+                        setShowItemPicker(false);
+                        setPickerCategory("");
+                      }}
+                      className="w-full text-left p-3 rounded-lg border hover:bg-muted/50 hover:border-primary transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">{product.name}</span>
+                        <span className="text-sm font-semibold">{formatC(price)}<span className="text-xs text-muted-foreground font-normal">/{product.unit}</span></span>
+                      </div>
+                      {product.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{product.description}</p>
+                      )}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Preview Dialog */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>

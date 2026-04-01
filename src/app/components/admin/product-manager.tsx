@@ -26,20 +26,7 @@ import { Plus, Edit, Trash2, Search, Loader2 } from "lucide-react";
 import { productsAPI } from "../../utils/api";
 import { Textarea } from "../ui/textarea";
 import { toast } from "sonner";
-
-const UNITS = [
-  "square foot",
-  "linear foot",
-  "cubic yard",
-  "ton",
-  "each",
-  "hour",
-  "day",
-  "flat",
-  "bag",
-  "gallon",
-  "pallet",
-];
+import { supabase } from "@/lib/supabase";
 
 const emptyForm = {
   name: "",
@@ -63,11 +50,15 @@ export function ProductManager() {
   // DB state
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [units, setUnits] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
+    supabase.from("units").select("name").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setUnits((data ?? []).map((u: any) => u.name)));
+
     Promise.all([productsAPI.getAll(), productsAPI.getCategories()])
       .then(([prods, cats]) => {
         setAllProducts(prods || []);
@@ -267,7 +258,7 @@ export function ProductManager() {
                       <SelectValue placeholder="Select unit" />
                     </SelectTrigger>
                     <SelectContent>
-                      {UNITS.map((u) => (
+                      {units.map((u) => (
                         <SelectItem key={u} value={u}>{u}</SelectItem>
                       ))}
                     </SelectContent>
@@ -682,7 +673,7 @@ export function ProductManager() {
                       <SelectValue placeholder="Select unit" />
                     </SelectTrigger>
                     <SelectContent>
-                      {UNITS.map((u) => (
+                      {units.map((u) => (
                         <SelectItem key={u} value={u}>{u}</SelectItem>
                       ))}
                     </SelectContent>
