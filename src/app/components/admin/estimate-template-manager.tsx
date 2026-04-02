@@ -96,10 +96,163 @@ const emptyRule = () => ({
   conditional_value: "",
 });
 
+// ── Visual Formula Builder ─────────────────────────────────────────────────────
+type Token = { id: string; type: "var" | "op" | "num"; value: string; label?: string };
+
+function FormulaBuilder({
+  value,
+  onChange,
+  variables,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  variables: { id: string; label: string }[];
+}) {
+  const [tokens, setTokens] = useState<Token[]>(() => {
+    if (!value.trim()) return [];
+    return value.trim().split(/\s+/).map((v, i) => {
+      const isOp = ["+", "-", "*", "/", "(", ")", "%"].includes(v);
+      const isNum = !isNaN(Number(v));
+      const varMatch = variables.find((vr) => vr.id === v);
+      return {
+        id: `t-${i}`,
+        type: isOp ? "op" : isNum ? "num" : "var",
+        value: v,
+        label: varMatch?.label,
+      };
+    });
+  });
+  const [numInput, setNumInput] = useState("");
+
+  const pushToken = (token: Omit<Token, "id">) => {
+    const newTokens = [...tokens, { ...token, id: `t-${Date.now()}` }];
+    setTokens(newTokens);
+    onChange(newTokens.map((t) => t.value).join(" "));
+  };
+
+  const removeToken = (id: string) => {
+    const newTokens = tokens.filter((t) => t.id !== id);
+    setTokens(newTokens);
+    onChange(newTokens.map((t) => t.value).join(" "));
+  };
+
+  const clearAll = () => { setTokens([]); onChange(""); };
+
+  const OPERATORS = ["+", "-", "*", "/", "(", ")", "%"];
+
+  return (
+    <div className="space-y-3 bg-slate-50 border rounded-lg p-4">
+      {/* Step 1 — Pick a variable */}
+      {variables.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">1. Click a field to use it</p>
+          <div className="flex flex-wrap gap-2">
+            {variables.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => pushToken({ type: "var", value: v.id, label: v.label })}
+                className="px-2.5 py-1 rounded-md bg-blue-100 border border-blue-300 text-blue-800 text-xs font-medium hover:bg-blue-200 transition-colors"
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 2 — Operators */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">2. Add an operator</p>
+        <div className="flex gap-2">
+          {OPERATORS.map((op) => (
+            <button
+              key={op}
+              type="button"
+              onClick={() => pushToken({ type: "op", value: op })}
+              className="w-9 h-9 rounded-md bg-slate-200 border border-slate-300 text-slate-700 text-sm font-bold hover:bg-slate-300 transition-colors"
+            >
+              {op}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Step 3 — Number */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">3. Or type a number</p>
+        <div className="flex gap-2 items-center">
+          <Input
+            type="number"
+            placeholder="e.g. 27"
+            value={numInput}
+            onChange={(e) => setNumInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && numInput.trim()) {
+                pushToken({ type: "num", value: numInput.trim() });
+                setNumInput("");
+              }
+            }}
+            className="h-9 w-32 text-sm"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (numInput.trim()) {
+                pushToken({ type: "num", value: numInput.trim() });
+                setNumInput("");
+              }
+            }}
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+
+      {/* Formula display */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Formula</p>
+          {tokens.length > 0 && (
+            <button type="button" onClick={clearAll} className="text-xs text-destructive hover:underline">Clear all</button>
+          )}
+        </div>
+        <div className="min-h-[44px] flex flex-wrap gap-1.5 p-2 bg-white border rounded-md">
+          {tokens.length === 0 ? (
+            <span className="text-xs text-muted-foreground self-center">Build your formula above — tokens will appear here</span>
+          ) : (
+            tokens.map((t) => (
+              <span
+                key={t.id}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  t.type === "var" ? "bg-blue-100 text-blue-800 border border-blue-300" :
+                  t.type === "num" ? "bg-green-100 text-green-800 border border-green-300" :
+                  "bg-slate-100 text-slate-700 border border-slate-300 font-mono"
+                }`}
+              >
+                {t.type === "var" ? (t.label ?? t.value) : t.value}
+                <button type="button" onClick={() => removeToken(t.id)} className="opacity-50 hover:opacity-100 ml-0.5">×</button>
+              </span>
+            ))
+          )}
+        </div>
+        {tokens.length > 0 && (
+          <p className="text-[11px] text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+            {tokens.map((t) => t.value).join(" ")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EstimateTemplateManager() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
+  const [dbUnits, setDbUnits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -119,6 +272,7 @@ export function EstimateTemplateManager() {
     loadAll();
     productsAPI.getCategories().then(setCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
+    productsAPI.getUnits().then(setDbUnits).catch(console.error);
   }, []);
 
   const loadAll = async () => {
@@ -419,7 +573,7 @@ export function EstimateTemplateManager() {
 
       {/* ── Template Editor Dialog ── */}
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-[95vw] w-[1300px] h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>{editingId ? "Edit Template" : "New Template"}</DialogTitle>
             <DialogDescription>
@@ -606,28 +760,48 @@ export function EstimateTemplateManager() {
                             </div>
                           </div>
 
-                          {/* Options for radio/select */}
+                          {/* Options for radio/select — individual rows */}
                           {(field.type === "radio" || field.type === "select") && (
-                            <div className="space-y-1">
-                              <Label className="text-xs">Choices (comma-separated)</Label>
-                              <Input
-                                placeholder="e.g., Driveway, Patio, Walkway"
-                                value={
-                                  Array.isArray(field.options) ? field.options.join(", ") : ""
-                                }
-                                onChange={(e) =>
-                                  updateField(
-                                    stepIdx,
-                                    fieldIdx,
-                                    "options",
-                                    e.target.value
-                                      .split(",")
-                                      .map((o) => o.trim())
-                                      .filter(Boolean)
-                                  )
-                                }
-                                className="h-8 text-sm"
-                              />
+                            <div className="space-y-2">
+                              <Label className="text-xs">Choices</Label>
+                              <div className="space-y-1.5">
+                                {(Array.isArray(field.options) ? field.options : []).map((opt: string, optIdx: number) => (
+                                  <div key={optIdx} className="flex items-center gap-2">
+                                    <Input
+                                      placeholder={`Option ${optIdx + 1}`}
+                                      value={opt}
+                                      onChange={(e) => {
+                                        const updated = [...field.options];
+                                        updated[optIdx] = e.target.value;
+                                        updateField(stepIdx, fieldIdx, "options", updated);
+                                      }}
+                                      className="h-8 text-sm"
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = field.options.filter((_: string, i: number) => i !== optIdx);
+                                        updateField(stepIdx, fieldIdx, "options", updated);
+                                      }}
+                                      className="h-8 w-8 p-0 text-destructive hover:text-destructive shrink-0"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() => updateField(stepIdx, fieldIdx, "options", [...(field.options ?? []), ""])}
+                                className="h-7 text-xs"
+                              >
+                                <Plus className="h-3 w-3 mr-1" />
+                                Add Option
+                              </Button>
                             </div>
                           )}
 
@@ -728,57 +902,56 @@ export function EstimateTemplateManager() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* Formula */}
-                        <div className="space-y-1">
-                          <Label className="text-xs">Quantity Formula *</Label>
-                          <Input
-                            placeholder="e.g., (squareFootage * (thickness / 12)) / 27"
-                            value={rule.formula}
-                            onChange={(e) => updateRule(ruleIdx, "formula", e.target.value)}
-                            className="h-8 text-xs font-mono"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Math using variable names above. Result = quantity added to proposal.
-                          </p>
-                        </div>
+                      {/* Product */}
+                      <div className="space-y-1">
+                        <Label className="text-xs">Product to Add</Label>
+                        <Select
+                          value={rule.product_name || "_none"}
+                          onValueChange={(v) =>
+                            updateRule(ruleIdx, "product_name", v === "_none" ? "" : v)
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="Select product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none" className="text-xs">— None —</SelectItem>
+                            {dbProducts.map((p: any) => (
+                              <SelectItem key={p.id} value={p.name} className="text-xs">{p.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        {/* Product */}
-                        <div className="space-y-1">
-                          <Label className="text-xs">Product to Add</Label>
-                          <Select
-                            value={rule.product_name || "_none"}
-                            onValueChange={(v) =>
-                              updateRule(ruleIdx, "product_name", v === "_none" ? "" : v)
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Select product" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none" className="text-xs">
-                                — None —
-                              </SelectItem>
-                              {dbProducts.map((p: any) => (
-                                <SelectItem key={p.id} value={p.name} className="text-xs">
-                                  {p.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      {/* Formula Builder */}
+                      <div className="space-y-1">
+                        <Label className="text-xs font-semibold">Quantity Formula <span className="text-destructive">*</span></Label>
+                        <p className="text-xs text-muted-foreground">Result = quantity added to the proposal line item</p>
+                        <FormulaBuilder
+                          value={rule.formula}
+                          onChange={(v) => updateRule(ruleIdx, "formula", v)}
+                          variables={allFields}
+                        />
                       </div>
 
                       <div className="grid grid-cols-3 gap-3">
-                        {/* Unit override */}
+                        {/* Unit dropdown */}
                         <div className="space-y-1">
-                          <Label className="text-xs">Unit (optional override)</Label>
-                          <Input
-                            placeholder="e.g., cubic yards"
-                            value={rule.unit}
-                            onChange={(e) => updateRule(ruleIdx, "unit", e.target.value)}
-                            className="h-8 text-sm"
-                          />
+                          <Label className="text-xs">Unit</Label>
+                          <Select
+                            value={rule.unit || "_none"}
+                            onValueChange={(v) => updateRule(ruleIdx, "unit", v === "_none" ? "" : v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Select unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none" className="text-xs">— Use product default —</SelectItem>
+                              {dbUnits.map((u: any) => (
+                                <SelectItem key={u.id} value={u.name} className="text-xs">{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         {/* Conditional field */}

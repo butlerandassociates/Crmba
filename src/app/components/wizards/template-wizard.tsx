@@ -26,8 +26,8 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
   const [formData, setFormData] = useState<Record<string, any>>({});
 
   const steps: any[] = template.steps ?? [];
+  const calcRules: any[] = template.calc_rules ?? [];
 
-  // Filter steps based on conditional_on
   const visibleSteps = steps.filter((step: any) => {
     if (!step.conditional_on) return true;
     return formData[step.conditional_on.field_id] === step.conditional_on.value;
@@ -73,19 +73,68 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
     }
   };
 
-  const calculateAndComplete = () => {
-    const items: any[] = [];
-    const calcRules: any[] = template.calc_rules ?? [];
-
-    // Build numeric vars from formData
+  // Build numeric vars from current formData
+  const buildVars = () => {
     const vars: Record<string, any> = {};
     Object.entries(formData).forEach(([k, v]) => {
-      const num = parseFloat(v);
+      const num = parseFloat(v as string);
       vars[k] = isNaN(num) ? v : num;
     });
+    return vars;
+  };
+
+  // Get calc rules that have at least one variable from the current step's fields
+  // AND produce a non-zero result with current formData
+  const getLiveCalcsForStep = () => {
+    if (!activeStep) return [];
+    const stepFieldIds = new Set<string>((activeStep.fields ?? []).map((f: any) => f.id as string));
+    const vars = buildVars();
+
+    return calcRules
+      .filter((rule: any) => {
+        if (rule.conditional_field_id && rule.conditional_value) {
+          // Conditional rule: show on the step that CONTAINS the conditional field
+          // and only when the condition is currently met
+          if (!stepFieldIds.has(rule.conditional_field_id)) return false;
+          return String(formData[rule.conditional_field_id]) === rule.conditional_value;
+        }
+        // Non-conditional rule: show on the step that contains a formula variable
+        // AND that variable has a value entered
+        return [...stepFieldIds].some((id) => {
+          const fieldId = id as string;
+          return new RegExp(`\\b${fieldId}\\b`).test(rule.formula ?? "") &&
+            formData[fieldId] !== undefined && formData[fieldId] !== "" && formData[fieldId] !== null;
+        });
+      })
+      .map((rule: any) => {
+        const qty = safeEval(rule.formula, vars);
+        const product = dbProducts.find(
+          (p: any) => p.name?.trim().toLowerCase() === rule.product_name?.trim().toLowerCase()
+        );
+        const costPerUnit = (product?.material_cost ?? 0) + (product?.labor_cost ?? 0);
+        const price = product
+          ? costPerUnit * (1 + (product.markup_percentage ?? 0) / 100)
+          : 0;
+        return {
+          name: rule.product_name,
+          description: rule.description,
+          qty: qty > 0 ? Math.ceil(qty * 10) / 10 : null,
+          unit: rule.unit ?? product?.unit ?? "each",
+          price: qty > 0 ? qty * price : null,
+          hasPrice: price > 0,
+        };
+      })
+      .filter((r) => r.qty !== null);
+  };
+
+  const formatCurrency = (val: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
+
+  const calculateAndComplete = () => {
+    const items: any[] = [];
+    const vars = buildVars();
 
     calcRules.forEach((rule: any) => {
-      // Check conditional (use String() so boolean true matches "true")
       if (rule.conditional_field_id && rule.conditional_value) {
         if (String(formData[rule.conditional_field_id]) !== rule.conditional_value) return;
       }
@@ -93,7 +142,6 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
       const qty = safeEval(rule.formula, vars);
       if (qty <= 0) return;
 
-      // Find matching product from DB by name
       const product = dbProducts.find(
         (p: any) => p.name?.toLowerCase() === rule.product_name?.toLowerCase()
       );
@@ -122,6 +170,8 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
     : 100;
 
   if (!activeStep) return null;
+
+  const liveCalcs = getLiveCalcsForStep();
 
   const renderField = (field: any) => {
     switch (field.type) {
@@ -225,46 +275,35 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
     }
   };
 
-  // Live preview for measurement steps
-  const hasMeasurements = activeStep.fields.some((f: any) =>
-    ["squareFootage", "linearFeet", "length", "width"].includes(f.id)
-  );
-  const sqft = parseFloat(formData.squareFootage) || 0;
-  const thickness = parseFloat(formData.thickness) || 0;
-
   return (
     <div className="space-y-6">
       {/* Progress */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">{activeStep.title}</span>
-          <Badge variant="outline">
-            Step {currentStep + 1} of {visibleSteps.length}
-          </Badge>
+          <Badge variant="outline">Step {currentStep + 1} of {visibleSteps.length}</Badge>
         </div>
         <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-primary transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
       {/* Step Content */}
-      <div className="min-h-[280px] p-6 border rounded-lg bg-muted/20 space-y-5">
+      <div className="p-6 border rounded-lg bg-muted/20 space-y-5">
         {activeStep.fields.map((field: any) => renderField(field))}
 
-        {/* Live measurement preview */}
-        {hasMeasurements && sqft > 0 && thickness > 0 && (
-          <div className="text-sm p-3 bg-muted rounded">
-            Concrete needed: <strong>{((sqft * (thickness / 12)) / 27).toFixed(1)} cubic yards</strong>
+        {/* Live calculations — subtle inline preview */}
+        {liveCalcs.map((calc, idx) => (
+          <div key={idx} className="flex items-center justify-between px-3 py-1.5 bg-muted/60 rounded text-xs text-muted-foreground">
+            <span>{calc.name}</span>
+            <span className="font-semibold text-foreground ml-4">
+              {calc.qty} {calc.unit}
+              {calc.hasPrice && calc.price !== null && (
+                <span className="text-muted-foreground font-normal ml-2">— {formatCurrency(calc.price)}</span>
+              )}
+            </span>
           </div>
-        )}
-        {hasMeasurements && sqft > 0 && !thickness && (
-          <div className="text-sm p-3 bg-muted rounded">
-            Area: <strong>{sqft} sq ft</strong>
-          </div>
-        )}
+        ))}
       </div>
 
       {/* Navigation */}
@@ -275,15 +314,9 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
         </Button>
         <Button onClick={handleNext} disabled={!validateStep()}>
           {currentStep === visibleSteps.length - 1 ? (
-            <>
-              <Check className="h-4 w-4 mr-2" />
-              Add to Proposal
-            </>
+            <><Check className="h-4 w-4 mr-2" />Add to Proposal</>
           ) : (
-            <>
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </>
+            <>Next<ArrowRight className="h-4 w-4 ml-2" /></>
           )}
         </Button>
       </div>
