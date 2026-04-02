@@ -57,6 +57,16 @@ export const productsAPI = {
     if (error) throw new Error(error.message);
   },
 
+  /** All units from the units table */
+  getUnits: async () => {
+    const { data, error } = await supabase
+      .from("units")
+      .select("*")
+      .order("name");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  },
+
   /** Create or update a product (upsert by id presence) */
   save: async (product: Record<string, unknown>) => {
     if (product.id) {

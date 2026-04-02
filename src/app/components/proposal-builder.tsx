@@ -329,9 +329,9 @@ export function ProposalBuilder() {
   const profitMargin = subtotal > 0 ? (grossProfit / subtotal) * 100 : 0;
 
   return (
-    <div className="h-screen flex flex-col">
-      {/* Header */}
-      <div className="border-b p-4">
+    <div className="flex flex-col">
+      {/* Header — sticky so it stays visible while scrolling */}
+      <div className="sticky top-0 z-20 border-b p-4 bg-white shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link to={`/clients/${clientId}`}>
@@ -352,8 +352,8 @@ export function ProposalBuilder() {
         </div>
       </div>
 
-      {/* Main Content - Full Width Vertical Layout */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* Main Content - no inner scroll, parent main handles it */}
+      <div className="p-6">
 
         {/* Top Row: Proposal Details + Add Items + Metrics */}
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -690,13 +690,14 @@ export function ProposalBuilder() {
 
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={setShowWizard}>
-        <DialogContent className="max-w-6xl w-[95vw] max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[92vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="sticky top-0 z-10 bg-white border-b px-6 py-4 pr-12 shrink-0 rounded-t-lg">
             <DialogTitle>{wizardType} Estimate Builder</DialogTitle>
             <DialogDescription>
               Follow the steps to build your {wizardType.toLowerCase()} estimate
             </DialogDescription>
           </DialogHeader>
+          <div className="overflow-y-auto flex-1 px-6 py-4">
           {activeTemplate ? (
             <TemplateWizard
               template={activeTemplate}
@@ -718,6 +719,7 @@ export function ProposalBuilder() {
               }}
             />
           ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

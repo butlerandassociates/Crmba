@@ -173,14 +173,13 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
       });
     }
 
-    // Add labor
+    // Add labor — quantity is square footage (priced per sqft)
     if (laborProduct) {
-      const laborHours = Math.ceil(squareFootage / 40); // 40 sq ft per hour
       items.push({
         category: "Concrete",
-        productName: "Labor - Concrete Installation",
+        productName: "Install Concrete (4\")",
         description: "Form, pour, finish, and cure",
-        quantity: laborHours,
+        quantity: squareFootage,
         unit: laborProduct.unit,
         materialCost: laborProduct.materialCost,
         laborCost: laborProduct.laborCost,

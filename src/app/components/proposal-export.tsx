@@ -94,21 +94,15 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
           <thead>
             <tr className="bg-gray-100">
               <th className="text-left p-3 text-sm font-semibold">Description</th>
-              <th className="text-center p-3 text-sm font-semibold w-24">Qty</th>
-              <th className="text-center p-3 text-sm font-semibold w-24">Unit</th>
-              <th className="text-right p-3 text-sm font-semibold w-32">Rate</th>
-              <th className="text-right p-3 text-sm font-semibold w-32">Amount</th>
+              <th className="text-right p-3 text-sm font-semibold w-40">Amount</th>
             </tr>
           </thead>
           <tbody>
             {(proposal?.line_items ?? []).map((item: any, index: number) => (
               <tr key={item.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                <td className="p-3 text-sm">{item.name}</td>
-                <td className="p-3 text-sm text-center">{Number(item.quantity).toLocaleString()}</td>
-                <td className="p-3 text-sm text-center">{item.unit}</td>
-                <td className="p-3 text-sm text-right">{formatCurrency(item.client_price)}</td>
+                <td className="p-3 text-sm">{item.name ?? item.product_name}</td>
                 <td className="p-3 text-sm text-right font-semibold">
-                  {formatCurrency(item.quantity * item.client_price)}
+                  {formatCurrency(Number(item.quantity) * Number(item.client_price))}
                 </td>
               </tr>
             ))}
