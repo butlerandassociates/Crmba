@@ -165,35 +165,35 @@ export function ProposalDetail() {
   };
 
   const handleDownload = () => {
-    // Create a printable version
+    const exportElement = document.getElementById("proposal-export-content");
+    if (!exportElement) return;
     const printWindow = window.open("", "_blank");
     if (printWindow) {
       printWindow.document.write(`
         <html>
           <head>
-            <title>Proposal - ${proposal.title}</title>
+            <title>Estimate #${proposal.estimate_number} - ${proposal.title}</title>
             <style>
-              body { font-family: system-ui, -apple-system, sans-serif; }
+              * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; color-adjust: exact !important; print-color-adjust: exact !important; }
+              body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #111; background: #fff; }
+              img { max-width: 100%; }
+              table { border-collapse: collapse; }
+              @page { margin: 0; size: letter portrait; }
               @media print {
-                @page { margin: 0.5in; }
+                body { padding: 0.4in; }
+                .page-break { page-break-before: always; }
               }
             </style>
           </head>
           <body>
             <div id="proposal-content"></div>
             <script>
-              window.onload = function() {
-                window.print();
-                window.close();
-              }
+              window.onload = function() { window.print(); }
             </script>
           </body>
         </html>
       `);
-      const exportElement = document.getElementById("proposal-export-content");
-      if (exportElement) {
-        printWindow.document.getElementById("proposal-content")!.innerHTML = exportElement.innerHTML;
-      }
+      printWindow.document.getElementById("proposal-content")!.innerHTML = exportElement.innerHTML;
       printWindow.document.close();
     }
   };
@@ -600,16 +600,42 @@ export function ProposalDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview Dialog */}
+      {/* Preview Dialog — full-width PDF viewer */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Proposal Preview</DialogTitle>
-            <DialogDescription>
-              This is how the proposal will appear to the client
-            </DialogDescription>
-          </DialogHeader>
-          <ProposalExport proposal={proposal} client={client} />
+        <DialogContent className="max-w-[99vw] w-[99vw] h-[99vh] p-0 overflow-hidden flex flex-col gap-0 [&>button:last-child]:hidden">
+          {/* Sticky toolbar — stays visible while document scrolls */}
+          <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-[#3c3c3c] text-white shrink-0">
+            <span className="text-sm font-medium opacity-80">
+              Estimate #{proposal.estimate_number} — {proposal.title}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-white text-gray-900 border-white h-7 text-xs hover:bg-transparent hover:text-white hover:border-white"
+                onClick={handleDownload}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Download PDF
+              </Button>
+              <button
+                onClick={() => setShowPreview(false)}
+                className="ml-1 opacity-60 hover:opacity-100 transition-opacity"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable PDF viewer area */}
+          <div className="flex-1 overflow-y-auto bg-[#525659]">
+            {/* White document — centered in dark PDF viewer chrome */}
+            <div className="py-8 px-4 flex justify-center">
+              <div className="bg-white shadow-2xl w-full" style={{ maxWidth: 1050 }}>
+                <ProposalExport proposal={proposal} client={client} />
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -4,218 +4,228 @@ interface ProposalExportProps {
 }
 
 export function ProposalExport({ proposal, client }: ProposalExportProps) {
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(value || 0);
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const sentDate = proposal?.sent_at || proposal?.created_at;
+  const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
+
+  // Group line items by category → one row per category (client sees category totals only)
+  const groupedItems = (() => {
+    const groups: Record<string, { name: string; descriptions: string[]; total: number }> = {};
+    (proposal?.line_items ?? []).forEach((item: any) => {
+      const key = item.category || item.product_name || item.name || "Other";
+      if (!groups[key]) groups[key] = { name: key, descriptions: [], total: 0 };
+      groups[key].total += Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0);
+      const desc = item.description;
+      if (desc && !groups[key].descriptions.includes(desc)) groups[key].descriptions.push(desc);
     });
-  };
+    return Object.values(groups);
+  })();
+
+  const subtotal = proposal?.subtotal ?? groupedItems.reduce((s, i) => s + i.total, 0);
+  const discountAmount = proposal?.discount_amount ?? 0;
+  const taxAmount = proposal?.tax_amount ?? 0;
+  const total = proposal?.total ?? subtotal + taxAmount - discountAmount;
+  const taxLabel = proposal?.tax_label ?? "Tax";
+
+  const GREEN = "#6B8C50";
+
+  // Repeating page header — logo left, ESTIMATE # right — identical to Example.pdf
+  const PageHeader = () => (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <img
+          src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/company-logo.jpg"
+          alt="Butler & Associates Construction"
+          style={{ height: 72, objectFit: "contain" as const }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+        <div style={{ textAlign: "right" as const }}>
+          <h1 style={{ fontSize: 26, fontWeight: "bold", margin: "0 0 4px 0", letterSpacing: 0.5 }}>
+            ESTIMATE #{proposal?.estimate_number ?? "—"}
+          </h1>
+          <p style={{ margin: 0, fontSize: 11, fontWeight: "bold" as const }}>SENT ON:</p>
+          <p style={{ margin: "2px 0 0 0", fontSize: 11 }}>{sentDate ? formatDate(sentDate) : "—"}</p>
+        </div>
+      </div>
+      <hr style={{ border: "none", borderTop: "3px solid #6B8C50", margin: "0 0 28px 0" }} />
+    </div>
+  );
 
   return (
-    <div className="bg-white text-black p-8 space-y-8">
-      {/* Header - Branding Section */}
-      <div className="border-b-4 border-primary pb-6">
-        <div className="flex items-start justify-between">
+    <div style={{ fontFamily: "Arial, Helvetica, sans-serif", color: "#111", background: "#fff", maxWidth: 816, margin: "0 auto", fontSize: 13 }}>
+
+      {/* ══ PAGE 1 ══ RECIPIENT/SENDER + Project + Line Items + Totals */}
+      <div style={{ padding: "36px 48px" }}>
+        <PageHeader />
+
+        {/* RECIPIENT + SENDER two-column */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 28 }}>
           <div>
-            {/* Company Logo Placeholder */}
-            <div className="h-16 w-48 bg-gradient-to-r from-primary to-primary/80 rounded flex items-center justify-center mb-4">
-              <h1 className="text-white font-bold text-xl">BUTLER & ASSOCIATES</h1>
-            </div>
-            <p className="text-sm text-gray-600">Construction, Inc.</p>
-            <p className="text-xs text-gray-500 mt-2">
-              Licensed • Bonded • Insured
-            </p>
+            <p style={{ fontSize: 11, fontWeight: "bold", margin: "0 0 8px 0", letterSpacing: 0.5 }}>RECIPIENT:</p>
+            <p style={{ fontSize: 14, fontWeight: "bold", margin: "0 0 3px 0" }}>{clientName || "—"}</p>
+            {client?.address && <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>{client.address}</p>}
+            {(client?.city || client?.state || client?.zip) && (
+              <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>
+                {[client?.city, client?.state, client?.zip].filter(Boolean).join(", ")}
+              </p>
+            )}
+            {client?.phone && <p style={{ fontSize: 13, margin: 0 }}>Phone: {client.phone}</p>}
           </div>
-          
-          <div className="text-right text-sm">
-            <p className="font-semibold">Contact Information</p>
-            <p className="text-gray-600">(555) 123-4567</p>
-            <p className="text-gray-600">info@butlerassociates.com</p>
-            <p className="text-gray-600 mt-2">
-              123 Construction Way<br />
-              Suite 100<br />
-              Your City, ST 12345
-            </p>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: "bold", margin: "0 0 8px 0", letterSpacing: 0.5 }}>SENDER:</p>
+            <p style={{ fontSize: 14, fontWeight: "bold", margin: "0 0 3px 0" }}>Butler & Associates Construction, Inc</p>
+            <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>6275 University Drive Northwest</p>
+            <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>Suite 37-314</p>
+            <p style={{ fontSize: 13, margin: "0 0 8px 0" }}>Huntsville, Alabama 35806</p>
+            <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>Phone: (256) 617-4691</p>
+            <p style={{ fontSize: 13, margin: "0 0 2px 0" }}>Email: jonathan@butlerconstruction.co</p>
+            <p style={{ fontSize: 13, margin: 0 }}>Website: www.butlerconstruction.co</p>
           </div>
         </div>
-      </div>
 
-      {/* Proposal Header */}
-      <div>
-        <h2 className="text-3xl font-bold text-primary mb-2">PROJECT PROPOSAL</h2>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500 text-xs uppercase font-medium mb-1">Prepared For</p>
-            <p className="font-semibold">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
-            <p className="text-gray-600">{client?.email}</p>
-            <p className="text-gray-600">{client?.phone}</p>
-            <p className="text-gray-600 mt-1">{[client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ")}</p>
+        {/* Project title + description */}
+        {(proposal?.title || proposal?.description) && (
+          <div style={{ marginBottom: 24 }}>
+            {proposal?.title && (
+              <h2 style={{ fontSize: 15, fontWeight: "bold", margin: "0 0 8px 0" }}>{proposal.title}</h2>
+            )}
+            {proposal?.description && (
+              <p style={{ fontSize: 13, lineHeight: 1.7, margin: 0, color: "#374151" }}>{proposal.description}</p>
+            )}
           </div>
-          <div>
-            <p className="text-gray-500 text-xs uppercase font-medium mb-1">Proposal Details</p>
-            <div className="space-y-1">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Date:</span>
-                <span className="font-medium">{proposal?.created_at ? formatDate(proposal.created_at) : "—"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Estimate #:</span>
-                <span className="font-medium">{proposal?.estimate_number ?? "—"}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        )}
 
-      {/* Project Overview */}
-      <div>
-        <h3 className="text-xl font-bold border-b-2 border-gray-200 pb-2 mb-3">
-          {proposal?.title}
-        </h3>
-        <p className="text-gray-700 leading-relaxed">{proposal?.description}</p>
-      </div>
-
-      {/* Scope of Work */}
-      <div>
-        <h3 className="text-xl font-bold border-b-2 border-gray-200 pb-2 mb-4">
-          Scope of Work
-        </h3>
-        
-        <table className="w-full">
+        {/* Line items table — matches Example.pdf green header */}
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr className="bg-gray-100">
-              <th className="text-left p-3 text-sm font-semibold">Description</th>
-              <th className="text-right p-3 text-sm font-semibold w-40">Amount</th>
+            <tr style={{ background: GREEN }}>
+              <th style={{ padding: "10px 14px", textAlign: "left", color: "#fff", fontSize: 12, fontWeight: "bold", width: "22%" }}>
+                Product/Service
+              </th>
+              <th style={{ padding: "10px 14px", textAlign: "left", color: "#fff", fontSize: 12, fontWeight: "bold" }}>
+                Description
+              </th>
+              <th style={{ padding: "10px 14px", textAlign: "right", color: "#fff", fontSize: 12, fontWeight: "bold", whiteSpace: "nowrap" }}>
+                Total
+              </th>
             </tr>
           </thead>
           <tbody>
-            {(proposal?.line_items ?? []).map((item: any, index: number) => (
-              <tr key={item.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                <td className="p-3 text-sm">{item.name ?? item.product_name}</td>
-                <td className="p-3 text-sm text-right font-semibold">
-                  {formatCurrency(Number(item.quantity) * Number(item.client_price))}
+            {groupedItems.map((item, idx) => (
+              <tr key={idx} style={{ borderBottom: "1px solid #e5e7eb", background: idx % 2 === 0 ? "#fff" : "#fafaf8" }}>
+                <td style={{ padding: "14px 14px", fontSize: 12, verticalAlign: "top", lineHeight: 1.5 }}>
+                  {item.name}
+                </td>
+                <td style={{ padding: "14px 14px", fontSize: 12, lineHeight: 1.65, verticalAlign: "top", color: "#374151" }}>
+                  {item.descriptions.length > 0 ? item.descriptions.join(" ") : <span style={{ color: "#9ca3af" }}>—</span>}
+                </td>
+                <td style={{ padding: "14px 14px", fontSize: 12, fontWeight: "bold", textAlign: "right", verticalAlign: "top", whiteSpace: "nowrap" }}>
+                  {formatCurrency(item.total)}
                 </td>
               </tr>
             ))}
+            {groupedItems.length === 0 && (
+              <tr>
+                <td colSpan={3} style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                  No line items
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+
+        {/* Totals — right-aligned table matching Example.pdf */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 0 }}>
+          <table style={{ borderCollapse: "collapse", minWidth: 300, borderLeft: "1px solid #e5e7eb", borderRight: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" }}>
+            <tbody>
+              <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13, fontWeight: "bold", borderRight: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                  Subtotal
+                </td>
+                <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13 }}>
+                  {formatCurrency(subtotal)}
+                </td>
+              </tr>
+              {discountAmount > 0 && (
+                <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13, borderRight: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                    Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}
+                  </td>
+                  <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13 }}>
+                    - {formatCurrency(discountAmount)}
+                  </td>
+                </tr>
+              )}
+              {taxAmount > 0 && (
+                <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13, fontWeight: "bold", borderRight: "1px solid #e5e7eb", background: "#f9fafb", whiteSpace: "nowrap" }}>
+                    {taxLabel}
+                  </td>
+                  <td style={{ padding: "7px 16px", textAlign: "right", fontSize: 13 }}>
+                    {formatCurrency(taxAmount)}
+                  </td>
+                </tr>
+              )}
+              <tr>
+                <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 14, fontWeight: "bold", borderRight: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                  Total
+                </td>
+                <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 14, fontWeight: "bold" }}>
+                  {formatCurrency(total)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
       </div>
 
-      {/* Totals */}
-      <div className="flex justify-end">
-        <div className="w-80 space-y-2">
-          <div className="flex justify-between py-2 border-b">
-            <span className="text-gray-600">Subtotal</span>
-            <span className="font-semibold">{formatCurrency(proposal?.subtotal ?? 0)}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b">
-            <span className="text-gray-600">{proposal?.tax_label ?? "Tax"}</span>
-            <span className="font-semibold">{formatCurrency(proposal?.tax_amount ?? 0)}</span>
-          </div>
-          <div className="flex justify-between py-3 border-t-2 border-primary">
-            <span className="text-lg font-bold">Total Investment</span>
-            <span className="text-xl font-bold text-primary">
-              {formatCurrency(proposal?.total ?? 0)}
-            </span>
-          </div>
-        </div>
-      </div>
+      {/* ══ PAGE 2 ══ Reviews + Signature */}
+      <div style={{ padding: "36px 48px", pageBreakBefore: "always" as const, minHeight: "10.5in", display: "flex", flexDirection: "column" as const }}>
+        <PageHeader />
 
-      {/* Terms & Conditions */}
-      <div className="border-t-2 border-gray-200 pt-6 space-y-4">
-        <div>
-          <h3 className="text-lg font-bold mb-3">Payment Terms</h3>
-          <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
-            <li>50% deposit required upon acceptance of proposal</li>
-            <li>25% due at project midpoint</li>
-            <li>25% due upon project completion</li>
-            <li>Payment accepted via check, ACH, or credit card</li>
-          </ul>
+        <h3 style={{ fontSize: 15, fontWeight: "bold", margin: "0 0 20px 0" }}>Reviews</h3>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 40 }}>
+          {[
+            {
+              name: "Dan Ordonez",
+              text: "The crew and Jonathan, the general manager, did an amazing job! The patio is now much easier to reach, enhancing the backyard's appearance. Their prices are extremely competitive and the transparency of the quote were the main reason why I chose them for this project. Jonathan was flexible with all the changes and adjustments we had during the project. Communication throughout this process was excellent as well. Highly recommend.",
+            },
+            {
+              name: 'Drew "Smith" Mills',
+              text: "Jonathan and his team at Butler & Associates Construction are some of the most professional and friendly people I've had the pleasure of working with in this industry. Words can't describe how amazing this team is and how precisely they executed our project. They were thoughtful in their design and layout, making sure everything matched exactly what we were looking for.",
+            },
+            {
+              name: "B Robey",
+              text: "After years of water issues, I had a specific vision for my backyard and reached out to Butler & Associates for a free estimate. Jonathan was incredibly responsive; he returned my call immediately and performed a thorough walkthrough, listening to my ideas while providing expert recommendations. The follow-up was impressive — within a day, we were reviewing the invoice and tweaking the design. Highly recommend.",
+            },
+          ].map((r) => (
+            <div key={r.name}>
+              <p style={{ fontWeight: "bold", margin: "0 0 4px 0", fontSize: 13 }}>{r.name}</p>
+              <p style={{ color: "#F5A623", fontSize: 18, margin: "0 0 8px 0", lineHeight: 1 }}>★★★★★</p>
+              <p style={{ fontSize: 12, lineHeight: 1.65, color: "#374151", margin: 0 }}>{r.text}</p>
+            </div>
+          ))}
         </div>
 
-        <div>
-          <h3 className="text-lg font-bold mb-3">Project Timeline</h3>
-          <p className="text-sm text-gray-700">
-            Work will commence within 2 weeks of signed agreement and deposit receipt. 
-            Estimated completion time will be discussed during project kickoff meeting.
+        {/* Spacer — pushes signature to bottom */}
+        <div style={{ flex: 1 }} />
+
+        {/* Signature — pinned to bottom of page */}
+        <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 28 }}>
+          <p style={{ fontSize: 13, margin: 0 }}>
+            Signature: _____________________ &nbsp;&nbsp;&nbsp; Date: _____________
           </p>
         </div>
 
-        <div>
-          <h3 className="text-lg font-bold mb-3">Terms & Conditions</h3>
-          <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
-            <li>This proposal is valid for 30 days from the date above</li>
-            <li>All work performed according to local building codes and regulations</li>
-            <li>Change orders may affect final price and timeline</li>
-            <li>1-year warranty on all workmanship</li>
-            <li>Client responsible for obtaining necessary permits unless otherwise stated</li>
-            <li>Final payment due upon completion and client approval</li>
-          </ul>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-bold mb-3">What's Included</h3>
-          <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
-            <li>All materials and labor as specified in scope of work</li>
-            <li>Professional project management throughout the project</li>
-            <li>Site cleanup upon completion</li>
-            <li>Licensed and insured contractors</li>
-            <li>Quality assurance and final inspection</li>
-          </ul>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-bold mb-3">Exclusions</h3>
-          <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
-            <li>Permit fees (unless specifically included in proposal)</li>
-            <li>Work not explicitly mentioned in scope of work section</li>
-            <li>Repairs to underground utilities</li>
-            <li>Landscaping restoration beyond immediate work area</li>
-          </ul>
-        </div>
       </div>
 
-      {/* Acceptance Section */}
-      <div className="border-2 border-primary rounded-lg p-6 mt-8 bg-gray-50">
-        <h3 className="text-lg font-bold mb-4">Proposal Acceptance</h3>
-        <p className="text-sm text-gray-700 mb-6">
-          By signing below, you authorize Butler & Associates Construction, Inc. to proceed with the 
-          work outlined in this proposal under the terms and conditions stated above.
-        </p>
-        
-        <div className="grid grid-cols-2 gap-8">
-          <div>
-            <div className="border-b-2 border-gray-400 mb-2 pb-8"></div>
-            <p className="text-sm font-semibold">Client Signature</p>
-            <p className="text-xs text-gray-500">Date: _______________</p>
-          </div>
-          <div>
-            <div className="border-b-2 border-gray-400 mb-2 pb-8"></div>
-            <p className="text-sm font-semibold">Butler & Associates Representative</p>
-            <p className="text-xs text-gray-500">Date: _______________</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="border-t pt-6 text-center text-xs text-gray-500">
-        <p>Thank you for considering Butler & Associates Construction, Inc. for your project.</p>
-        <p className="mt-2">
-          Questions? Contact us at (555) 123-4567 or info@butlerassociates.com
-        </p>
-        <p className="mt-4 font-semibold">
-          License #123456 | Bonded & Insured | Serving the Community Since 2010
-        </p>
-      </div>
     </div>
   );
 }

@@ -51,10 +51,13 @@ export const estimatesAPI = {
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
 
-    const { count } = await supabase
+    const { data: maxRow } = await supabase
       .from("estimates")
-      .select("*", { count: "exact", head: true });
-    const estimateNumber = 1000 + (count ?? 0) + 1;
+      .select("estimate_number")
+      .order("estimate_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const estimateNumber = (maxRow?.estimate_number ?? 1000) + 1;
 
     const { data: est, error: estError } = await supabase
       .from("estimates")
