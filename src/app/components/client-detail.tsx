@@ -73,6 +73,9 @@ export function ClientDetail() {
   const [error, setError] = useState<string | null>(null);
   const [clientProjects, setClientProjects] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
@@ -874,7 +877,47 @@ export function ClientDetail() {
 
       <div className="space-y-4">
 
-        {/* ── Project Info ── */}
+        {/* ── Projects ── */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Hammer className="h-4 w-4" />
+              Projects {clientProjects.length > 0 && <Badge variant="secondary">{clientProjects.length}</Badge>}
+            </CardTitle>
+            <Button size="sm" onClick={() => { setNewProjectName(""); setShowNewProject(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Project
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            {clientProjects.length === 0 ? (
+              <div className="text-center py-10">
+                <Hammer className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                <p className="text-muted-foreground text-sm">No projects yet</p>
+                <Button className="mt-3" size="sm" onClick={() => { setNewProjectName(""); setShowNewProject(true); }}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First Project
+                </Button>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {clientProjects.map((project) => (
+                  <div key={project.id} className="flex items-center justify-between px-4 py-3">
+                    <div>
+                      <p className="font-medium text-sm">{project.name || "—"}</p>
+                      <p className="text-xs text-muted-foreground">{project.status?.replace("_", " ")}</p>
+                    </div>
+                    <Link to={`/projects/${project.id}`}>
+                      <Button variant="outline" size="sm">View Project</Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Project Info (detailed cards) ── */}
         {clientProjects.length > 0 && clientProjects.map((project) => (
           <Card key={project.id}>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -1512,6 +1555,51 @@ export function ClientDetail() {
         client={client}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
+
+      {/* New Project Dialog */}
+      <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Project</DialogTitle>
+            <DialogDescription>Create a project for {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "this client"}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Project Name</Label>
+            <Input
+              placeholder="e.g. Backyard Patio & Concrete"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewProject(false)} disabled={creatingProject}>Cancel</Button>
+            <Button
+              disabled={!newProjectName.trim() || creatingProject}
+              onClick={async () => {
+                setCreatingProject(true);
+                try {
+                  await projectsAPI.create({
+                    client_id: client.id,
+                    name: newProjectName.trim(),
+                    status: "active",
+                  });
+                  const all = await projectsAPI.getAll();
+                  setClientProjects(all.filter((p: any) => p.client_id === id));
+                  setShowNewProject(false);
+                  setNewProjectName("");
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to create project");
+                } finally {
+                  setCreatingProject(false);
+                }
+              }}
+            >
+              {creatingProject ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+              Create Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Move to Sold Modal */}
       <MoveToSoldModal

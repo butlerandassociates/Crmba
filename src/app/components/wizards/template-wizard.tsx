@@ -192,9 +192,10 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
                     className={`flex items-center gap-2 border rounded-lg p-4 cursor-pointer transition-colors ${
                       formData[field.id] === opt ? "border-primary bg-primary/5" : "hover:bg-accent/50"
                     }`}
+                    onClick={() => handleFieldChange(field.id, opt)}
                   >
                     <RadioGroupItem value={opt} id={`${field.id}-${opt}`} />
-                    <Label htmlFor={`${field.id}-${opt}`} className="cursor-pointer font-normal flex-1">
+                    <Label htmlFor={`${field.id}-${opt}`} className="cursor-pointer font-normal flex-1 pointer-events-none">
                       {opt}
                     </Label>
                   </div>
