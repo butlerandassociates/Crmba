@@ -11,6 +11,7 @@ import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Mail, Send, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   Select,
   SelectContent,
@@ -19,10 +20,12 @@ import {
   SelectValue,
 } from "./ui/select";
 import { supabase } from "@/lib/supabase";
+import { activityLogAPI } from "../utils/api";
 interface EmailTemplatesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   client: Record<string, any>;
+  onSent?: () => void;
 }
 
 
@@ -37,6 +40,7 @@ export function EmailTemplatesDialog({
   open,
   onOpenChange,
   client,
+  onSent,
 }: EmailTemplatesDialogProps) {
   const firstName = client.first_name ?? client.name?.split(" ")[0] ?? "there";
   const clientAddress = [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ");
@@ -81,16 +85,45 @@ export function EmailTemplatesDialog({
     }
   };
 
-  const handleSend = () => {
-    // In production, this would integrate with an email service
-    console.log("Sending email:", { to, subject, body });
-    alert(`Email sent successfully to ${client.name}!`);
-    onOpenChange(false);
-    // Reset form
-    setSelectedTemplate("");
-    setSubject("");
-    setBody("");
-    setTo(client.email);
+  const [sending, setSending] = useState(false);
+
+  const handleSend = async () => {
+    if (!to || !subject || !body) return;
+    setSending(true);
+    try {
+      const html = `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111;">
+          <div style="background:#111;padding:16px 24px;margin-bottom:24px;">
+            <span style="color:#fff;font-size:18px;font-weight:bold;">Butler &amp; Associates Construction</span>
+          </div>
+          <div style="padding:0 24px 32px;">
+            <p style="white-space:pre-line;font-size:14px;line-height:1.7;color:#374151;">${body}</p>
+          </div>
+          <div style="border-top:1px solid #e5e7eb;padding:16px 24px;font-size:11px;color:#9ca3af;text-align:center;">
+            Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
+          </div>
+        </div>`;
+      const { error } = await supabase.functions.invoke("send-email", {
+        body: { to, subject, html, from_name: "Butler & Associates Construction" },
+      });
+      if (error) throw error;
+      await activityLogAPI.create({
+        client_id: client.id,
+        action_type: "email_sent",
+        description: `Email sent to ${to}: "${subject}"`,
+      }).catch(() => {});
+      toast.success(`Email sent to ${to}`);
+      onSent?.();
+      onOpenChange(false);
+      setSelectedTemplate("");
+      setSubject("");
+      setBody("");
+      setTo(client.email);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send email");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -186,10 +219,10 @@ export function EmailTemplatesDialog({
           </Button>
           <Button
             onClick={handleSend}
-            disabled={!to || !subject || !body}
+            disabled={!to || !subject || !body || sending}
           >
-            <Send className="h-4 w-4 mr-2" />
-            Send Email
+            {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+            {sending ? "Sending..." : "Send Email"}
           </Button>
         </div>
       </DialogContent>

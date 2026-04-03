@@ -4,7 +4,7 @@ export const activityLogAPI = {
   getByClient: async (clientId: string) => {
     const { data, error } = await supabase
       .from("activity_log")
-      .select("*, performer:profiles(first_name, last_name)")
+      .select("*")
       .eq("client_id", clientId)
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -14,7 +14,7 @@ export const activityLogAPI = {
   getByProject: async (projectId: string) => {
     const { data, error } = await supabase
       .from("activity_log")
-      .select("*, performer:profiles(first_name, last_name)")
+      .select("*")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false });
     if (error) throw error;

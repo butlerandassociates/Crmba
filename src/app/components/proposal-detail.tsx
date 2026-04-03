@@ -18,8 +18,11 @@ import {
   Loader2,
   XCircle,
   CheckCircle2,
+  Wand2,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI, productsAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI } from "../utils/api";
+import { TemplateWizard } from "./wizards/template-wizard";
+import { ConcreteWizard } from "./wizards/concrete-wizard";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -63,9 +66,17 @@ export function ProposalDetail() {
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
 
+  // Wizard edit
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardCategory, setWizardCategory] = useState("");
+  const [activeTemplate, setActiveTemplate] = useState<any>(null);
+  const COMPLEX_CATEGORIES = ["Concrete"];
+
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
+    estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -93,6 +104,57 @@ export function ProposalDetail() {
     );
   };
 
+  const handleWizardEdit = (category: string) => {
+    const template = templates.find((t: any) => t.category === category);
+    setActiveTemplate(template ?? null);
+    setWizardCategory(category);
+    setShowWizard(true);
+  };
+
+  const handleWizardComplete = async (items: any[], formData?: Record<string, any>) => {
+    if (!proposal?.id) return;
+    // Delete old items for this category from DB
+    const oldIds = editLineItems
+      .filter((li) => li.category === wizardCategory && !li.id?.startsWith("new-"))
+      .map((li) => li.id);
+    if (oldIds.length > 0) {
+      await supabase.from("estimate_line_items").delete().in("id", oldIds);
+    }
+    // Insert new items
+    const newRows = items.map((item, i) => ({
+      estimate_id: proposal.id,
+      category: wizardCategory,
+      name: item.productName,
+      product_name: item.productName,
+      description: item.description ?? null,
+      quantity: item.quantity,
+      unit: item.unit,
+      material_cost: item.materialCost ?? 0,
+      labor_cost: item.laborCost ?? 0,
+      markup_percentage: item.markupPercent ?? 0,
+      client_price: item.pricePerUnit ?? 0,
+      total_price: (item.quantity ?? 0) * (item.pricePerUnit ?? 0),
+      sort_order: i,
+    }));
+    const { data: inserted } = await supabase
+      .from("estimate_line_items")
+      .insert(newRows)
+      .select();
+    // Update local state — remove old, add new
+    setEditLineItems((prev) => [
+      ...prev.filter((li) => li.category !== wizardCategory),
+      ...(inserted ?? newRows.map((r, i) => ({ ...r, id: `new-${Date.now()}-${i}` }))),
+    ]);
+    // Save wizard inputs so we can pre-fill next time
+    if (formData) {
+      const updatedInputs = { ...(proposal.wizard_inputs ?? {}), [wizardCategory]: formData };
+      await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+      setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    }
+    setShowWizard(false);
+    toast.success(`${wizardCategory} items updated`);
+  };
+
   const handleSave = async () => {
     if (!proposal) return;
     setSaving(true);
@@ -105,10 +167,15 @@ export function ProposalDetail() {
       });
       await Promise.all(
         editLineItems.map((item) =>
-          supabase.from("estimate_line_items").update({
-            quantity: item.quantity,
-            total_price: Number(item.quantity) * Number(item.client_price),
-          }).eq("id", item.id)
+          item.id?.startsWith("new-")
+            ? Promise.resolve()
+            : supabase.from("estimate_line_items").update({
+                product_name: item.product_name ?? item.name,
+                unit: item.unit ?? "",
+                quantity: item.quantity,
+                client_price: Number(item.client_price),
+                total_price: Number(item.quantity) * Number(item.client_price),
+              }).eq("id", item.id)
         )
       );
       setProposal((p: any) => ({
@@ -412,95 +479,81 @@ export function ProposalDetail() {
           </Button>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Item
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Quantity
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Unit
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Price/Unit
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Total
-                  </th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {editLineItems.map((item: any, idx: number) => (
-                  <tr key={item.id} className="hover:bg-accent/50">
-                    <td className="p-3">
-                      {item.id?.startsWith("new-") && !item.fromPicker ? (
-                        <Input
-                          value={item.name ?? ""}
-                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, name: e.target.value, product_name: e.target.value } : li))}
-                          placeholder="Item name"
-                          className="h-8 text-sm w-48"
-                          autoFocus
-                        />
-                      ) : (
-                        <div className="font-medium text-sm">{item.name ?? item.product_name}</div>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateQty(idx, Number(e.target.value))}
-                        className="w-24"
-                      />
-                    </td>
-                    <td className="p-3">
-                      {item.id?.startsWith("new-") && !item.fromPicker ? (
-                        <Input
-                          value={item.unit ?? ""}
-                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, unit: e.target.value } : li))}
-                          placeholder="unit"
-                          className="h-8 text-sm w-20"
-                        />
-                      ) : (
-                        <span className="text-sm text-muted-foreground">{item.unit ?? "—"}</span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      {item.id?.startsWith("new-") && !item.fromPicker ? (
-                        <Input
-                          type="number"
-                          min={0}
-                          value={item.client_price}
-                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, client_price: Number(e.target.value) } : li))}
-                          className="h-8 text-sm w-28"
-                        />
-                      ) : (
-                        <span className="text-sm text-muted-foreground">{formatCurrency(item.client_price)}</span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <span className="font-semibold">
-                        {formatCurrency(Number(item.quantity) * Number(item.client_price))}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <Button variant="ghost" size="sm" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
+          {(() => {
+            // Group items by category
+            const groups: Record<string, any[]> = {};
+            editLineItems.forEach((item, idx) => {
+              const cat = item.category || "(No Category)";
+              if (!groups[cat]) groups[cat] = [];
+              groups[cat].push({ ...item, _idx: idx });
+            });
+            return Object.entries(groups).map(([cat, groupItems]) => {
+              const hasWizard = templates.some((t: any) => t.category === cat) || COMPLEX_CATEGORIES.includes(cat);
+              return (
+                <div key={cat} className="border-b last:border-0">
+                  {/* Category header */}
+                  <div className="flex items-center justify-between px-4 py-2 bg-muted/30">
+                    <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
+                    {hasWizard && (
+                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
+                        <Wand2 className="h-3.5 w-3.5" />
+                        Edit in Wizard
                       </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="border-b bg-muted/20">
+                        <tr>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Item</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Qty</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Unit</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Price/Unit</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Total</th>
+                          <th className="p-3 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {groupItems.map((item: any) => {
+                          const idx = item._idx;
+                          return (
+                            <tr key={item.id} className="hover:bg-accent/50">
+                              <td className="p-3">
+                                <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
+                                {item.description && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={item.quantity}
+                                  onChange={(e) => updateQty(idx, Number(e.target.value))}
+                                  className="w-20"
+                                />
+                              </td>
+                              <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
+                              <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
+                              <td className="p-3">
+                                <span className="font-semibold text-sm">{formatCurrency(Number(item.quantity) * Number(item.client_price))}</span>
+                              </td>
+                              <td className="p-3">
+                                <Button variant="ghost" size="sm" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            });
+          })()}
 
           {/* Totals */}
           <div className="border-t p-4 space-y-2">
@@ -596,6 +649,40 @@ export function ProposalDetail() {
                 });
               })()}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Wizard Edit Dialog */}
+      <Dialog open={showWizard} onOpenChange={setShowWizard}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[92vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4" />
+              Edit {wizardCategory} — Wizard
+            </DialogTitle>
+            <DialogDescription>
+              Complete the wizard to replace the existing {wizardCategory} line items
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 px-6 py-4">
+            {showWizard && (
+              activeTemplate ? (
+                <TemplateWizard
+                  template={activeTemplate}
+                  dbProducts={dbProducts}
+                  onComplete={handleWizardComplete}
+                  onCancel={() => setShowWizard(false)}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
+                />
+              ) : COMPLEX_CATEGORIES.includes(wizardCategory) ? (
+                <ConcreteWizard
+                  onComplete={handleWizardComplete}
+                  onCancel={() => setShowWizard(false)}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
+                />
+              ) : null
+            )}
           </div>
         </DialogContent>
       </Dialog>

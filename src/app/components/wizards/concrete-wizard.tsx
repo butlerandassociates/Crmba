@@ -15,13 +15,14 @@ import { ArrowRight, ArrowLeft, Check } from "lucide-react";
 import { products } from "../../data/estimate-templates";
 
 interface ConcreteWizardProps {
-  onComplete: (items: any[]) => void;
+  onComplete: (items: any[], formData: Record<string, any>) => void;
   onCancel: () => void;
+  initialData?: Record<string, any>;
 }
 
-export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
+export function ConcreteWizard({ onComplete, onCancel, initialData }: ConcreteWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({
+  const [formData, setFormData] = useState<Record<string, any>>(initialData ?? {
     projectType: "",
     location: "",
     squareFootage: "",
@@ -86,12 +87,12 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
     const cubicYards = (squareFootage * (thickness / 12)) / 27;
 
     // Find products
-    const concreteProduct = products.find((p) => p.id === "p1");
+    const concreteProduct = products.find((p) => p.id === "p1"); // Concrete Mix (3500 PSI)
     const gravelProduct = products.find((p) => p.id === "p2");
     const rebarProduct = products.find((p) => p.id === "p3");
     const meshProduct = products.find((p) => p.id === "p4");
     const sealerProduct = products.find((p) => p.id === "p5");
-    const laborProduct = products.find((p) => p.id === "p6");
+    const laborProduct = products.find((p) => p.id === "p9");
     const pumpProduct = products.find((p) => p.id === "p8");
 
     // Add concrete
@@ -173,14 +174,14 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
       });
     }
 
-    // Add labor — quantity is square footage (priced per sqft)
+    // Add install labor — $3/sqft material + $7/sqft labor, client rate $7/sqft
     if (laborProduct) {
       items.push({
         category: "Concrete",
-        productName: "Install Concrete (4\")",
+        productName: `Install Concrete (${thickness}")`,
         description: "Form, pour, finish, and cure",
         quantity: squareFootage,
-        unit: laborProduct.unit,
+        unit: "sqft",
         materialCost: laborProduct.materialCost,
         laborCost: laborProduct.laborCost,
         costPerUnit: laborProduct.totalCost,
@@ -205,7 +206,7 @@ export function ConcreteWizard({ onComplete, onCancel }: ConcreteWizardProps) {
       });
     }
 
-    onComplete(items);
+    onComplete(items, formData);
   };
 
   const progress = ((currentStep + 1) / steps.length) * 100;

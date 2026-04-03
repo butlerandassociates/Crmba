@@ -260,6 +260,7 @@ export function ClientDetail() {
         pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
       });
       setClient({ ...client, status: newStatus, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Status changed to "${newStatus}"` }).then(loadActivityLog).catch(() => {});
       toast.success(`Moved to ${newStatus}`);
     } catch (err: any) {
       console.error("Failed to update client status:", err);
@@ -299,6 +300,7 @@ export function ClientDetail() {
           prev.map((a) => a.id === matching.id ? { ...a, is_met: true } : a)
         );
       }
+      activityLogAPI.create({ client_id: client.id, action_type: "appointment_met", description: "Appointment marked as met" }).then(loadActivityLog).catch(() => {});
       toast.success("Appointment marked as met!");
     } catch (err: any) {
       toast.error(err.message || "Failed to update appointment");
@@ -797,11 +799,10 @@ export function ClientDetail() {
             <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()}>
               {savingNotes ? "Saving..." : "Save Note"}
             </Button>
-            {noteEntries.length > 0 && (
-              <div className="space-y-3 pt-2 border-t">
-                {noteEntries
-                  .slice((notesPage - 1) * ITEMS_PER_PAGE, notesPage * ITEMS_PER_PAGE)
-                  .map((note) => (
+            {noteEntries.length > 0 ? (
+              <div className="pt-2 border-t">
+                <div className="max-h-64 overflow-y-auto pr-1 space-y-3 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                  {noteEntries.map((note) => (
                     <div key={note.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">
@@ -821,24 +822,9 @@ export function ClientDetail() {
                       <p className="text-sm whitespace-pre-wrap">{note.content}</p>
                     </div>
                   ))}
-                {noteEntries.length > ITEMS_PER_PAGE && (
-                  <div className="flex items-center justify-between pt-3 border-t">
-                    <p className="text-xs text-muted-foreground">
-                      Page {notesPage} of {Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage - 1)} disabled={notesPage === 1}>
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage + 1)} disabled={notesPage >= Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}>
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
-            )}
-            {noteEntries.length === 0 && (
+            ) : (
               <div className="text-center py-4 text-sm text-muted-foreground">No notes yet</div>
             )}
           </CardContent>
@@ -856,41 +842,24 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent>
             {activityLog.length > 0 ? (
-              <div className="space-y-1">
-                {activityLog
-                  .slice((activityPage - 1) * ITEMS_PER_PAGE, activityPage * ITEMS_PER_PAGE)
-                  .map((entry) => (
-                    <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
-                      <div className="mt-0.5 h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm">{entry.description}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {new Date(entry.created_at).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                {activityLog.length > ITEMS_PER_PAGE && (
-                  <div className="flex items-center justify-between pt-3">
-                    <p className="text-xs text-muted-foreground">
-                      Page {activityPage} of {Math.ceil(activityLog.length / ITEMS_PER_PAGE)}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" onClick={() => setActivityPage(activityPage - 1)} disabled={activityPage === 1}>
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setActivityPage(activityPage + 1)} disabled={activityPage >= Math.ceil(activityLog.length / ITEMS_PER_PAGE)}>
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+              <div className="max-h-64 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                {activityLog.map((entry) => (
+                  <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm">{entry.description}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(entry.created_at).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </p>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
             ) : (
               <div className="text-center py-8 space-y-2">
@@ -1224,6 +1193,7 @@ export function ClientDetail() {
                     });
                     setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
                     setMarkPaidOpen(null);
+                    activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});
                     toast.success("Payment marked as paid.");
                   } catch (err: any) {
                     toast.error(err.message || "Failed to update payment.");
@@ -1529,6 +1499,7 @@ export function ClientDetail() {
         open={emailDialogOpen}
         onOpenChange={setEmailDialogOpen}
         client={client}
+        onSent={loadActivityLog}
       />
       <DocuSignDialog
         open={docusignDialogOpen}
@@ -1550,6 +1521,7 @@ export function ClientDetail() {
         project={clientProjects[0] ?? null}
         onSuccess={() => {
           setClient({ ...client, status: "sold" });
+          loadActivityLog();
         }}
       />
 

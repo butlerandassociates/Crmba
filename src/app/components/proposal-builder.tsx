@@ -99,6 +99,7 @@ export function ProposalBuilder() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardType, setWizardType] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
+  const [wizardInputs, setWizardInputs] = useState<Record<string, any>>({});
   const [taxRate, setTaxRate] = useState<number>(0);
   const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
   const [taxCounty, setTaxCounty] = useState<string>("");
@@ -188,16 +189,19 @@ export function ProposalBuilder() {
     setLineItems([...lineItems, newItem]);
   };
 
-  const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[]) => {
+  const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[], formData?: Record<string, any>) => {
     const newItems = items.map((item) => ({
       ...item,
       id: `item-${Date.now()}-${Math.random()}`,
       totalPrice: item.quantity * item.pricePerUnit,
     }));
     setLineItems([...lineItems, ...newItems]);
+    if (formData && wizardType) {
+      setWizardInputs((prev) => ({ ...prev, [wizardType]: formData }));
+    }
     setShowWizard(false);
     setSelectedCategory("");
-      };
+  };
 
   const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
     setLineItems(
@@ -257,6 +261,7 @@ export function ProposalBuilder() {
         gross_profit: grossProfitVal,
         profit_margin: profitMarginVal,
         bad_amount: badPriceVal > 0 ? badPriceVal : null,
+        wizard_inputs: Object.keys(wizardInputs).length > 0 ? wizardInputs : undefined,
       };
 
       const items = lineItems.map((item) => ({

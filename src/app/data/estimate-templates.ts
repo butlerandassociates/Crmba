@@ -69,14 +69,14 @@ export interface Product {
 export const products: Product[] = [
   {
     id: 'p1',
-    name: 'Concrete Mix (3000 PSI)',
+    name: 'Concrete Mix (3500 PSI)',
     category: 'Concrete',
     unit: 'cubic yard',
-    materialCost: 125,
+    materialCost: 190,
     laborCost: 0,
-    markupPercent: 30,
-    totalCost: 125,
-    pricePerUnit: 162.50,
+    markupPercent: 50,
+    totalCost: 190,
+    pricePerUnit: 285,
     isHiddenFromClient: false,
   },
   {
@@ -162,6 +162,18 @@ export const products: Product[] = [
     totalCost: 400,
     pricePerUnit: 500,
     description: 'Required for backyard pours',
+    isHiddenFromClient: false,
+  },
+  {
+    id: 'p9',
+    name: 'Install Concrete (4")',
+    category: 'Concrete',
+    unit: 'sqft',
+    materialCost: 3,
+    laborCost: 7,
+    markupPercent: 50,
+    totalCost: 10,
+    pricePerUnit: 15,
     isHiddenFromClient: false,
   },
 ];

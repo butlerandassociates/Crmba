@@ -18,14 +18,20 @@ ON CONFLICT (name) DO NOTHING;
 -- ── 3. Concrete products — all pre-markup rates ──────────────
 -- markup_percentage = 50 → client price = (labor + material) × 1.50
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 SELECT p.name, p.description, p.material_cost, p.labor_cost, 50, p.unit, true,
   (SELECT id FROM service_categories WHERE name = 'Concrete' LIMIT 1)
 FROM (VALUES
-  -- Base labor — same rate regardless of depth or finish
-  ('Concrete Labor Base',
-   'Concrete installation base labor — $5.50/SF',
-   0.00, 5.50, 'SF'),
+  -- Base labor — varies by pour depth
+  ('Concrete Labor 4 inch',
+   'Concrete installation labor — 4-inch pour depth — $6.00/SF',
+   0.00, 6.00, 'SF'),
+  ('Concrete Labor 5 inch',
+   'Concrete installation labor — 5-inch pour depth — $6.00/SF',
+   0.00, 6.00, 'SF'),
+  ('Concrete Labor 6 inch',
+   'Concrete installation labor — 6-inch pour depth — $7.00/SF',
+   0.00, 7.00, 'SF'),
 
   -- Material by pour depth (hardcoded per spec — avoids floating-point rounding)
   ('Concrete Material 4 inch',
@@ -56,21 +62,13 @@ FROM (VALUES
    'Rebar for driveway reinforcement — ~1 stick per 20-25 SF at 2-ft grid; admin enters actual count',
    11.00, 0.00, 'stick'),
 
-  -- Demo
-  ('Demo Labor',
-   'Remove existing concrete/paving material — demo labor per SF',
-   0.00, 1.75, 'SF'),
-  ('Demo Container Haul-off',
-   'Debris container for demo material haul-off — admin enters load count',
-   350.00, 0.00, 'load'),
-
   -- Site conditions
   ('Difficult Access Surcharge',
    'Backyard or confined-access labor surcharge — $1.00/SF',
    0.00, 1.00, 'SF'),
   ('Line Pump',
    'Concrete line pump — flat rate when truck cannot reach pour zone directly',
-   800.00, 0.00, 'flat')
+   650.00, 0.00, 'flat')
 ) AS p(name, description, material_cost, labor_cost, unit)
 ON CONFLICT (name) DO NOTHING;
 
@@ -176,47 +174,35 @@ SELECT
           "label": "Line pump required?",
           "required": true,
           "options": ["Yes", "No"],
-          "help_text": "Required when truck cannot reach pour zone directly. Flat $800 material."
-        },
-        {
-          "id": "demoRequired",
-          "type": "radio",
-          "label": "Existing material to demo & haul off?",
-          "required": true,
-          "options": ["Yes", "No"]
-        }
-      ]
-    },
-    {
-      "id": "step_demo",
-      "title": "Demo Details",
-      "conditional_on": { "field_id": "demoRequired", "value": "Yes" },
-      "fields": [
-        {
-          "id": "demoLoads",
-          "type": "number",
-          "label": "Haul-off loads (containers)",
-          "required": true,
-          "placeholder": "e.g. 2",
-          "help_text": "$350/load for container haul-off."
-        },
-        {
-          "id": "demoSF",
-          "type": "number",
-          "label": "Demo area (SF)",
-          "required": true,
-          "placeholder": "e.g. 820",
-          "help_text": "Square footage of material to remove. $1.75/SF labor."
+          "help_text": "Required when truck cannot reach pour zone directly. Flat $650 material."
         }
       ]
     }
   ]'::jsonb,
   '[
     {
-      "product_name": "Concrete Labor Base",
-      "description": "Concrete installation base labor",
+      "product_name": "Concrete Labor 4 inch",
+      "description": "Concrete installation labor — 4-inch pour",
       "formula": "squareFootage",
-      "unit": "SF"
+      "unit": "SF",
+      "conditional_field_id": "pourDepth",
+      "conditional_value": "4\""
+    },
+    {
+      "product_name": "Concrete Labor 5 inch",
+      "description": "Concrete installation labor — 5-inch pour",
+      "formula": "squareFootage",
+      "unit": "SF",
+      "conditional_field_id": "pourDepth",
+      "conditional_value": "5\""
+    },
+    {
+      "product_name": "Concrete Labor 6 inch",
+      "description": "Concrete installation labor — 6-inch pour",
+      "formula": "squareFootage",
+      "unit": "SF",
+      "conditional_field_id": "pourDepth",
+      "conditional_value": "6\""
     },
     {
       "product_name": "Concrete Material 4 inch",
@@ -271,22 +257,6 @@ SELECT
       "unit": "stick",
       "conditional_field_id": "projectType",
       "conditional_value": "Driveway"
-    },
-    {
-      "product_name": "Demo Labor",
-      "description": "Remove existing concrete/paving material",
-      "formula": "demoSF",
-      "unit": "SF",
-      "conditional_field_id": "demoRequired",
-      "conditional_value": "Yes"
-    },
-    {
-      "product_name": "Demo Container Haul-off",
-      "description": "Container haul-off for demo material",
-      "formula": "demoLoads",
-      "unit": "load",
-      "conditional_field_id": "demoRequired",
-      "conditional_value": "Yes"
     },
     {
       "product_name": "Difficult Access Surcharge",
