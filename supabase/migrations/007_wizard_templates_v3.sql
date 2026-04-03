@@ -23,7 +23,7 @@ ON CONFLICT (name) DO NOTHING;
 -- ── 3. Products — Pavers ─────────────────────────────────────
 -- All rates are PRE-markup. markup_percentage=50 → client price = cost × 1.50
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 SELECT
   p.name, p.description, p.material_cost, p.labor_cost, 50, p.unit, true,
   (SELECT id FROM service_categories WHERE name = p.cat)
@@ -51,7 +51,7 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ── 4. Products — Retaining Walls ────────────────────────────
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 SELECT
   p.name, p.description, p.material_cost, p.labor_cost, 50, p.unit, true,
   (SELECT id FROM service_categories WHERE name = p.cat)
@@ -103,13 +103,16 @@ FROM (VALUES
    0.00, 30.00, 'Retaining Walls', 'LF'),
   ('Demo Container Haul-off',
    'Debris container for demo material haul-off',
-   350.00, 0.00, 'Retaining Walls', 'load')
+   350.00, 0.00, 'Retaining Walls', 'load'),
+  ('Wall Delivery',
+   'Material delivery — $275.00/load (10 pallets per truck)',
+   275.00, 0.00, 'Retaining Walls', 'load')
 ) AS p(name, description, material_cost, labor_cost, cat, unit)
 ON CONFLICT (name) DO NOTHING;
 
 -- ── 5. Products — Outdoor Kitchens ───────────────────────────
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 SELECT
   p.name, p.description, p.material_cost, p.labor_cost, 50, p.unit, true,
   (SELECT id FROM service_categories WHERE name = p.cat)
@@ -140,7 +143,7 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ── 6. Products — Sod ────────────────────────────────────────
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 SELECT
   p.name, p.description, p.material_cost, p.labor_cost, 50, p.unit, true,
   (SELECT id FROM service_categories WHERE name = p.cat)
@@ -165,11 +168,9 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ── 7. Shared products (Concrete already has these, upsert safe) ─
 
-INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, service_category_id)
+INSERT INTO products_services (name, description, material_cost, labor_cost, markup_percentage, unit, is_active, category_id)
 VALUES
-  ('Demo Labor',      'Remove existing concrete/paving material',   0.00, 1.75, 50, 'SF', true,
-    (SELECT id FROM service_categories WHERE name = 'Concrete' LIMIT 1)),
-  ('Line Pump',       'Concrete line pump — flat rate',             800.00, 0.00, 50, 'flat', true,
+  ('Line Pump', 'Concrete line pump — flat rate', 650.00, 0.00, 50, 'flat', true,
     (SELECT id FROM service_categories WHERE name = 'Concrete' LIMIT 1))
 ON CONFLICT (name) DO NOTHING;
 
@@ -305,246 +306,21 @@ SELECT
       "unit": "load",
       "conditional_field_id": "demoRequired",
       "conditional_value": "Yes"
+    },
+    {
+      "product_name": "Wall Delivery",
+      "description": "Paver delivery — SF × 1.1 waste ÷ 120 SF/pallet ÷ 10 pallets/truck = loads",
+      "formula": "Math.ceil(Math.ceil(squareFootage * 1.1 / 120) / 10)",
+      "unit": "load"
     }
   ]'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM estimate_templates WHERE category = 'Pavers' AND is_active = true);
 
 
 -- ── WIZARD 3 — RETAINING WALLS ───────────────────────────────
+-- ⚠ Retaining Walls wizard moved to migration 009 (updated spec with Gravity/CMU/Freestanding branching)
 
--- Guard: only inserts if no template for 'Retaining Walls' category already exists
-INSERT INTO estimate_templates (name, category, description, is_active, steps, calc_rules)
-SELECT
-  'Retaining Walls Wizard',
-  'Retaining Walls',
-  'Wizard for segmental block and CMU retaining walls under 4 ft. Auto-calculates block count, installation labor, cap, gravel base, drainage aggregate, drain pipe, geotextile fabric, and adhesive.',
-  true,
-  '[
-    {
-      "id": "step_wall_system",
-      "title": "Wall System",
-      "fields": [
-        {
-          "id": "wallSystem",
-          "type": "radio",
-          "label": "Wall System",
-          "required": true,
-          "options": ["Segmental Block", "CMU Block"]
-        }
-      ]
-    },
-    {
-      "id": "step_dimensions",
-      "title": "Wall Dimensions",
-      "fields": [
-        {
-          "id": "wallLF",
-          "type": "number",
-          "label": "Wall Length (linear feet)",
-          "required": true,
-          "placeholder": "e.g. 40"
-        },
-        {
-          "id": "wallHeight",
-          "type": "number",
-          "label": "Wall Height (ft, max 4 ft)",
-          "required": true,
-          "placeholder": "e.g. 3",
-          "help_text": "Walls over 4 ft require an engineer-stamped design."
-        }
-      ]
-    },
-    {
-      "id": "step_block",
-      "title": "Block Product",
-      "fields": [
-        {
-          "id": "blockFaceSF",
-          "type": "number",
-          "label": "Block face size (SF per block)",
-          "required": true,
-          "placeholder": "e.g. 0.67",
-          "help_text": "For standard 8x8x16 CMU: 0.44 SF. For segmental block: check catalog (typical 0.5–0.75 SF)."
-        },
-        {
-          "id": "capBlockLength",
-          "type": "number",
-          "label": "Cap block length (ft per cap)",
-          "required": true,
-          "placeholder": "e.g. 1.33",
-          "help_text": "Check catalog for cap block length. Typical: 1.33 ft."
-        }
-      ]
-    },
-    {
-      "id": "step_options",
-      "title": "Additional Scope",
-      "fields": [
-        {
-          "id": "backfillImport",
-          "type": "radio",
-          "label": "Backfill import required?",
-          "required": true,
-          "options": ["Yes", "No"]
-        },
-        {
-          "id": "demoRequired",
-          "type": "radio",
-          "label": "Existing wall to demo & haul off?",
-          "required": true,
-          "options": ["Yes", "No"]
-        }
-      ]
-    },
-    {
-      "id": "step_backfill",
-      "title": "Backfill Details",
-      "conditional_on": { "field_id": "backfillImport", "value": "Yes" },
-      "fields": [
-        {
-          "id": "backfillCY",
-          "type": "number",
-          "label": "Backfill import (cubic yards)",
-          "required": true,
-          "placeholder": "e.g. 5"
-        }
-      ]
-    },
-    {
-      "id": "step_demo",
-      "title": "Demo Details",
-      "conditional_on": { "field_id": "demoRequired", "value": "Yes" },
-      "fields": [
-        {
-          "id": "demoWallLF",
-          "type": "number",
-          "label": "Existing wall to remove (LF)",
-          "required": true,
-          "placeholder": "e.g. 30"
-        },
-        {
-          "id": "demoLoads",
-          "type": "number",
-          "label": "Haul-off loads",
-          "required": true,
-          "placeholder": "e.g. 2"
-        }
-      ]
-    }
-  ]'::jsonb,
-  '[
-    {
-      "product_name": "Segmental Block",
-      "description": "Segmental retaining wall block with 5% waste — verify unit cost in catalog",
-      "formula": "Math.ceil((wallLF * wallHeight / blockFaceSF) * 1.05)",
-      "unit": "each",
-      "conditional_field_id": "wallSystem",
-      "conditional_value": "Segmental Block"
-    },
-    {
-      "product_name": "CMU Block",
-      "description": "CMU block with 5% waste",
-      "formula": "Math.ceil((wallLF * wallHeight / blockFaceSF) * 1.05)",
-      "unit": "each",
-      "conditional_field_id": "wallSystem",
-      "conditional_value": "CMU Block"
-    },
-    {
-      "product_name": "Block Installation Labor",
-      "description": "Install retaining wall block — per SF of wall face",
-      "formula": "wallLF * wallHeight",
-      "unit": "SF"
-    },
-    {
-      "product_name": "Cap Block Material",
-      "description": "Cap blocks — LF ÷ cap block length",
-      "formula": "Math.ceil(wallLF / capBlockLength)",
-      "unit": "each"
-    },
-    {
-      "product_name": "Cap Block Labor",
-      "description": "Install cap blocks",
-      "formula": "Math.ceil(wallLF / capBlockLength)",
-      "unit": "each"
-    },
-    {
-      "product_name": "Gravel Base (Wall)",
-      "description": "Compacted gravel base under first course — LF × 1.5ft wide × 0.5ft deep ÷ 27 × 1.35",
-      "formula": "Math.ceil((wallLF * 1.5 * 0.5 / 27 * 1.35) * 10) / 10",
-      "unit": "ton"
-    },
-    {
-      "product_name": "Drainage Aggregate",
-      "description": "3/4 clean stone behind wall — LF × height × 1ft wide ÷ 27 × 1.35",
-      "formula": "Math.ceil((wallLF * wallHeight * 1 / 27 * 1.35) * 10) / 10",
-      "unit": "ton"
-    },
-    {
-      "product_name": "Perforated Drain Pipe Material",
-      "description": "Perforated drain pipe at wall base — LF + 5ft outlet extension",
-      "formula": "wallLF + 5",
-      "unit": "LF"
-    },
-    {
-      "product_name": "Perforated Drain Pipe Labor",
-      "description": "Install perforated drain pipe",
-      "formula": "wallLF + 5",
-      "unit": "LF"
-    },
-    {
-      "product_name": "Geotextile Fabric",
-      "description": "Filter fabric — 1 roll per 200 SF of LF × (height+1) × 1.10",
-      "formula": "Math.ceil((wallLF * (wallHeight + 1) * 1.10) / 200)",
-      "unit": "roll"
-    },
-    {
-      "product_name": "Construction Adhesive",
-      "description": "Adhesive for cap blocks — 1 tube per 30 LF",
-      "formula": "Math.ceil(wallLF / 30)",
-      "unit": "tube"
-    },
-    {
-      "product_name": "Rebar (Wall)",
-      "description": "Rebar for CMU — every other core, Math.ceil(LF / 2) sticks",
-      "formula": "Math.ceil(wallLF / 2)",
-      "unit": "stick",
-      "conditional_field_id": "wallSystem",
-      "conditional_value": "CMU Block"
-    },
-    {
-      "product_name": "Mortar Grout",
-      "description": "Mortar/grout for CMU — approx 1 bag per 8-10 blocks",
-      "formula": "Math.ceil((wallLF * wallHeight / blockFaceSF) / 9)",
-      "unit": "bag",
-      "conditional_field_id": "wallSystem",
-      "conditional_value": "CMU Block"
-    },
-    {
-      "product_name": "Backfill Import",
-      "description": "Import backfill material",
-      "formula": "backfillCY",
-      "unit": "CY",
-      "conditional_field_id": "backfillImport",
-      "conditional_value": "Yes"
-    },
-    {
-      "product_name": "Demo Wall Labor",
-      "description": "Remove existing retaining wall",
-      "formula": "demoWallLF",
-      "unit": "LF",
-      "conditional_field_id": "demoRequired",
-      "conditional_value": "Yes"
-    },
-    {
-      "product_name": "Demo Container Haul-off",
-      "description": "Container haul-off for demo debris",
-      "formula": "demoLoads",
-      "unit": "load",
-      "conditional_field_id": "demoRequired",
-      "conditional_value": "Yes"
-    }
-  ]'::jsonb
-WHERE NOT EXISTS (SELECT 1 FROM estimate_templates WHERE category = 'Retaining Walls' AND is_active = true);
+-- Retaining Walls wizard is in migration 009 with the updated spec.
 
 
 -- ── WIZARD 4 — OUTDOOR KITCHENS ──────────────────────────────
@@ -716,6 +492,12 @@ SELECT
       "unit": "load",
       "conditional_field_id": "demoRequired",
       "conditional_value": "Yes"
+    },
+    {
+      "product_name": "Wall Delivery",
+      "description": "CMU block delivery — block count ÷ 200 per pallet ÷ 10 pallets/truck = loads",
+      "formula": "Math.ceil(Math.ceil(Math.ceil((islandLF * (islandHeightIn / 8) / blockFaceSF) * 1.05) / 200) / 10)",
+      "unit": "load"
     }
   ]'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM estimate_templates WHERE category = 'Outdoor Kitchens' AND is_active = true);
@@ -856,6 +638,12 @@ SELECT
       "unit": "CY",
       "conditional_field_id": "demoRequired",
       "conditional_value": "Yes"
+    },
+    {
+      "product_name": "Wall Delivery",
+      "description": "Sod delivery — flat 1 load charge (delivery always applies)",
+      "formula": "1",
+      "unit": "load"
     }
   ]'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM estimate_templates WHERE category = 'Sod' AND is_active = true);

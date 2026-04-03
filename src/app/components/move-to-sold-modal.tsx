@@ -19,7 +19,7 @@ import {
 } from "./ui/select";
 import { Loader2, ChevronRight, ChevronLeft, Check } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { usersAPI, fioAPI, projectsAPI } from "../utils/api";
+import { usersAPI, fioAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
 
 interface MoveToSoldModalProps {
@@ -119,7 +119,45 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       // 1. Update client status to sold
       await supabase.from("clients").update({ status: "sold" }).eq("id", client.id);
 
-      // 2. Update project with crew + dates
+      // 2. Calculate financials from latest estimate
+      let financials: Record<string, number> = {};
+      if (client?.id) {
+        const { data: estimates } = await supabase
+          .from("estimates")
+          .select("id, total, subtotal")
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (estimates && estimates.length > 0) {
+          const { data: lineItems } = await supabase
+            .from("estimate_line_items")
+            .select("material_cost, labor_cost, quantity")
+            .eq("estimate_id", estimates[0].id);
+
+          const totalValue = Number(estimates[0].total || estimates[0].subtotal || 0);
+          const totalCosts = (lineItems || []).reduce(
+            (s: number, item: any) =>
+              s + (Number(item.material_cost || 0) + Number(item.labor_cost || 0)) * Number(item.quantity || 1),
+            0
+          );
+          const grossProfit = totalValue - totalCosts;
+          const profitMargin = totalValue > 0 ? (grossProfit / totalValue) * 100 : 0;
+
+          // Fetch commission_rate from project (or default to 0)
+          const { data: proj } = await supabase
+            .from("projects")
+            .select("commission_rate")
+            .eq("id", project?.id)
+            .single();
+          const commissionRate = Number(proj?.commission_rate ?? 0);
+          const commission = totalValue * (commissionRate / 100);
+
+          financials = { total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin, commission };
+        }
+      }
+
+      // 3. Update project with crew + dates + financials
       if (project?.id) {
         await supabase.from("projects").update({
           foreman_id: selectedForeman || null,
@@ -127,9 +165,10 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           start_date: startDate,
           end_date: endDate || null,
           status: "sold",
+          ...financials,
         }).eq("id", project.id);
 
-        // 3. Create FIO if labor items selected
+        // 4. Create FIO if labor items selected
         if (selectedItems.length > 0) {
           const fioItems = selectedItems.map((item) => ({
             product_name: item.product_name,
@@ -145,6 +184,11 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         }
       }
 
+      await activityLogAPI.create({
+        client_id: client.id,
+        action_type: "status_changed",
+        description: `Client moved to Sold${financials.total_value ? ` — Project value ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(financials.total_value)}` : ""}`,
+      }).catch(() => {});
       toast.success("Client moved to Sold");
       onSuccess();
       onOpenChange(false);

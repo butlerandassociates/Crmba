@@ -17,13 +17,14 @@ import {
 interface TemplateWizardProps {
   template: any;
   dbProducts: any[];
-  onComplete: (items: any[]) => void;
+  onComplete: (items: any[], formData: Record<string, any>) => void;
   onCancel: () => void;
+  initialData?: Record<string, any>;
 }
 
-export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: TemplateWizardProps) {
+export function TemplateWizard({ template, dbProducts, onComplete, onCancel, initialData }: TemplateWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>(initialData ?? {});
 
   const steps: any[] = template.steps ?? [];
   const calcRules: any[] = template.calc_rules ?? [];
@@ -162,7 +163,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel }: T
       });
     });
 
-    onComplete(items);
+    onComplete(items, formData);
   };
 
   const progress = visibleSteps.length > 0

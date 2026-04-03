@@ -13,20 +13,39 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
   const sentDate = proposal?.sent_at || proposal?.created_at;
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
 
-  // Group line items by category → one row per category (client sees category totals only)
+  // Group line items by category
+  // - Items WITH a category: listed individually (name + qty + unit), no per-item price, category total shown at bottom
+  // - Items WITHOUT a category (one-off): shown individually with qty + total
+  type LineGroup = {
+    category: string;
+    items: { name: string; qty: number; unit: string }[];
+    total: number;
+    isUncategorized: boolean;
+  };
   const groupedItems = (() => {
-    const groups: Record<string, { name: string; descriptions: string[]; total: number }> = {};
+    const groups: Record<string, LineGroup> = {};
+    const uncategorized: LineGroup = { category: "", items: [], total: 0, isUncategorized: true };
     (proposal?.line_items ?? []).forEach((item: any) => {
-      const key = item.category || item.product_name || item.name || "Other";
-      if (!groups[key]) groups[key] = { name: key, descriptions: [], total: 0 };
-      groups[key].total += Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0);
-      const desc = item.description;
-      if (desc && !groups[key].descriptions.includes(desc)) groups[key].descriptions.push(desc);
+      const cat = item.category;
+      const name = item.name ?? item.product_name ?? "Item";
+      const qty = Number(item.quantity || 1);
+      const unit = item.unit ?? "";
+      const lineTotal = qty * Number(item.client_price || item.price_per_unit || 0);
+      if (cat) {
+        if (!groups[cat]) groups[cat] = { category: cat, items: [], total: 0, isUncategorized: false };
+        groups[cat].items.push({ name, qty, unit });
+        groups[cat].total += lineTotal;
+      } else {
+        uncategorized.items.push({ name, qty, unit });
+        uncategorized.total += lineTotal;
+      }
     });
-    return Object.values(groups);
+    const result = Object.values(groups);
+    if (uncategorized.items.length > 0) result.push(uncategorized);
+    return result;
   })();
 
-  const subtotal = proposal?.subtotal ?? groupedItems.reduce((s, i) => s + i.total, 0);
+  const subtotal = proposal?.subtotal ?? groupedItems.reduce((s, g) => s + g.total, 0);
   const discountAmount = proposal?.discount_amount ?? 0;
   const taxAmount = proposal?.tax_amount ?? 0;
   const total = proposal?.total ?? subtotal + taxAmount - discountAmount;
@@ -116,19 +135,6 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
             </tr>
           </thead>
           <tbody>
-            {groupedItems.map((item, idx) => (
-              <tr key={idx} style={{ borderBottom: "1px solid #e5e7eb", background: idx % 2 === 0 ? "#fff" : "#fafaf8" }}>
-                <td style={{ padding: "14px 14px", fontSize: 12, verticalAlign: "top", lineHeight: 1.5 }}>
-                  {item.name}
-                </td>
-                <td style={{ padding: "14px 14px", fontSize: 12, lineHeight: 1.65, verticalAlign: "top", color: "#374151" }}>
-                  {item.descriptions.length > 0 ? item.descriptions.join(" ") : <span style={{ color: "#9ca3af" }}>—</span>}
-                </td>
-                <td style={{ padding: "14px 14px", fontSize: 12, fontWeight: "bold", textAlign: "right", verticalAlign: "top", whiteSpace: "nowrap" }}>
-                  {formatCurrency(item.total)}
-                </td>
-              </tr>
-            ))}
             {groupedItems.length === 0 && (
               <tr>
                 <td colSpan={3} style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
@@ -136,6 +142,51 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
                 </td>
               </tr>
             )}
+            {groupedItems.map((group, gIdx) => (
+              group.isUncategorized ? (
+                // One-off items — show name + qty + total per line
+                group.items.map((item, iIdx) => (
+                  <tr key={`u-${iIdx}`} style={{ borderBottom: "1px solid #e5e7eb", background: (gIdx + iIdx) % 2 === 0 ? "#fff" : "#fafaf8" }}>
+                    <td style={{ padding: "10px 14px", fontSize: 12, verticalAlign: "top" }}>{item.name}</td>
+                    <td style={{ padding: "10px 14px", fontSize: 12, color: "#374151", verticalAlign: "top" }}>
+                      {item.qty} {item.unit}
+                    </td>
+                    <td style={{ padding: "10px 14px", fontSize: 12, fontWeight: "bold", textAlign: "right", verticalAlign: "top" }}>
+                      {formatCurrency(group.total / group.items.length)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                // Categorized (wizard) items — category header + items with qty only + category total
+                <>
+                  {/* Category header */}
+                  <tr key={`cat-${gIdx}`} style={{ background: "#f3f4f6" }}>
+                    <td colSpan={3} style={{ padding: "8px 14px", fontSize: 11, fontWeight: "bold", letterSpacing: 0.8, color: "#374151", textTransform: "uppercase" as const }}>
+                      {group.category}
+                    </td>
+                  </tr>
+                  {/* Items — name + qty + unit, no price */}
+                  {group.items.map((item, iIdx) => (
+                    <tr key={`${gIdx}-${iIdx}`} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                      <td style={{ padding: "7px 14px 7px 20px", fontSize: 12, verticalAlign: "top" }}>{item.name}</td>
+                      <td style={{ padding: "7px 14px", fontSize: 12, color: "#6b7280", verticalAlign: "top" }}>
+                        {item.qty} {item.unit}
+                      </td>
+                      <td style={{ padding: "7px 14px", textAlign: "right", verticalAlign: "top" }} />
+                    </tr>
+                  ))}
+                  {/* Category total */}
+                  <tr key={`tot-${gIdx}`} style={{ borderBottom: "1px solid #e5e7eb", borderTop: "1px solid #e5e7eb" }}>
+                    <td colSpan={2} style={{ padding: "8px 14px", fontSize: 12, fontWeight: "bold", textAlign: "right", color: "#374151" }}>
+                      {group.category} Total
+                    </td>
+                    <td style={{ padding: "8px 14px", fontSize: 12, fontWeight: "bold", textAlign: "right", whiteSpace: "nowrap" as const }}>
+                      {formatCurrency(group.total)}
+                    </td>
+                  </tr>
+                </>
+              )
+            ))}
           </tbody>
         </table>
 

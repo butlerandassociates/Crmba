@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -21,8 +21,6 @@ import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, ShoppingCart } from "l
 import { purchaseOrdersAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
 
 interface PurchaseOrderModalProps {
   open: boolean;
@@ -38,9 +36,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewingPO, setViewingPO] = useState<any | null>(null);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
-  const printRef = useRef<HTMLDivElement>(null);
 
   const emptyForm = () => ({
     supplier_name: "",
@@ -62,21 +58,8 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [pos, user] = await Promise.all([
-        purchaseOrdersAPI.getByProject(project.id),
-        supabase.auth.getUser(),
-      ]);
+      const pos = await purchaseOrdersAPI.getByProject(project.id);
       setPurchaseOrders(pos);
-
-      // Get current user profile
-      if (user.data.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("first_name, last_name, phone, email")
-          .eq("id", user.data.user.id)
-          .single();
-        setCurrentUser(profile);
-      }
 
       // Fetch material items from latest estimate for dropdown
       if (project?.client?.id) {
@@ -196,22 +179,80 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
     updateItem(idx, "product_id", estimateItem.product_id || "");
   };
 
-  const exportPDF = async (po: any) => {
-    setViewingPO(po);
-    setTimeout(async () => {
-      if (!printRef.current) return;
-      try {
-        const canvas = await html2canvas(printRef.current, { scale: 2, useCORS: true, logging: false });
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const ratio = pdfWidth / canvas.width;
-        pdf.addImage(imgData, "PNG", 0, 10, canvas.width * ratio, canvas.height * ratio);
-        pdf.save(`purchase-order-${po.supplier_name.replace(/\s+/g, "-")}.pdf`);
-      } catch (e) {
-        toast.error("Failed to export PDF");
-      }
-    }, 300);
+  const exportPDF = (po: any) => {
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const GOLD = "#C9A84C";
+    const BLACK = "#111111";
+    const fmtDate = (d: string) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
+    const senderName = po.sent_by ? `${po.sent_by.first_name ?? ""} ${po.sent_by.last_name ?? ""}`.trim() : "";
+
+    const rows = (po.items || []).map((item: any, idx: number) => `
+      <tr style="background:${idx % 2 === 0 ? "#fff" : "#f9fafb"};border-bottom:1px solid #e5e7eb;">
+        <td style="padding:10px 14px;font-size:12px;">${item.product_name}</td>
+        <td style="padding:10px 14px;text-align:center;font-size:12px;">${item.unit}</td>
+        <td style="padding:10px 14px;text-align:center;font-size:12px;">${item.quantity}</td>
+      </tr>`).join("");
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<title>Purchase Order — ${po.supplier_name}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px 48px;}@page{margin:0;}table{border-collapse:collapse;width:100%;}</style>
+</head><body style="display:flex;flex-direction:column;min-height:100vh;">
+<div style="background:${BLACK};color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+  <div style="font-size:22px;font-weight:bold;">Butler &amp; Associates Construction</div>
+  <div style="font-size:17px;font-weight:bold;color:${GOLD};">Purchase Order</div>
+</div>
+<div style="display:flex;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #d1d5db;">
+  <div>
+    <div style="color:${GOLD};font-size:13px;">Supplier: ${po.supplier_name}</div>
+    ${po.delivery_address ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">${po.delivery_address}</div>` : ""}
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:13px;">Date: ${today}</div>
+    ${po.delivery_date ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">Delivery: ${fmtDate(po.delivery_date)}</div>` : ""}
+  </div>
+</div>
+<div style="margin-bottom:20px;font-size:12px;">
+  <span style="color:#6b7280;">Project: </span><span style="font-weight:600;">${project.name ?? "—"}</span>
+  ${project.clientName ? `&nbsp;&nbsp;<span style="color:#6b7280;">Client: </span><span>${project.clientName}</span>` : ""}
+</div>
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:15px;font-weight:bold;margin-bottom:12px;">Materials &amp; Products</h3>
+  <table>
+    <thead>
+      <tr style="background:${BLACK};color:#fff;">
+        <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:bold;">Product / Material</th>
+        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:80px;">Unit</th>
+        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:80px;">Qty</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>
+${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font-size:13px;margin-bottom:8px;">Notes</div><p style="font-size:12px;line-height:1.65;color:#374151;">${po.notes}</p></div>` : ""}
+<div style="flex:1;"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:48px;">
+  <div>
+    <div style="font-size:12px;margin-bottom:40px;">Butler &amp; Associates Construction${senderName ? ` — ${senderName}` : ""}</div>
+    <div style="border-bottom:1px solid #111;margin-bottom:6px;"></div>
+    <div style="font-size:11px;color:#6b7280;">Authorized Signature / Date</div>
+  </div>
+  <div>
+    <div style="font-size:12px;margin-bottom:40px;">Supplier / Vendor — ${po.supplier_name}</div>
+    <div style="border-bottom:1px solid #111;margin-bottom:6px;"></div>
+    <div style="font-size:11px;color:#6b7280;">Signature / Date</div>
+  </div>
+</div>
+<div style="margin-top:48px;text-align:center;font-size:10px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:12px;">
+  Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
+</div>
+</body></html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) { toast.error("Popup blocked — allow popups and try again."); return; }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.onload = () => { win.print(); };
   };
 
   const formatDate = (d: string) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
@@ -219,7 +260,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-h-[90vh] flex flex-col p-0" style={{ width: "95vw", maxWidth: "95vw" }}>
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <div className="flex items-center justify-between pr-6">
               <div>
@@ -257,48 +298,61 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
 
                 {/* Line Items */}
                 <div className="space-y-2">
-                  <Label>Items</Label>
-                  {form.items.map((item: any, idx: number) => (
-                    <div key={idx} className="grid grid-cols-[2fr,1fr,1fr,auto] gap-2 items-end border rounded-lg p-3 bg-muted/20">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Product Name</Label>
-                        <div className="flex gap-1">
-                          <Input
-                            placeholder="Type or select below"
-                            value={item.product_name}
-                            onChange={(e) => updateItem(idx, "product_name", e.target.value)}
-                            className="h-8 text-sm"
-                          />
-                          {catalogItems.length > 0 && (
-                            <Select onValueChange={(val) => {
-                              const found = catalogItems.find((c: any) => c.id === val);
-                              if (found) selectCatalogItem(idx, found);
-                            }}>
-                              <SelectTrigger className="h-8 w-28 text-xs shrink-0">
-                                <SelectValue placeholder="From sold" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {catalogItems.map((c: any) => (
-                                  <SelectItem key={c.id} value={c.id} className="text-xs">{c.product_name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Quantity</Label>
-                        <Input type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="h-8 text-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Unit</Label>
-                        <Input placeholder="sq ft, each" value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="h-8 text-sm" />
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => removeItem(idx)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                  <Label className="text-sm font-medium">Items</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-muted/60 border-b">
+                          <th className="text-left text-xs font-semibold px-3 py-2">Product / Material</th>
+                          <th className="text-left text-xs font-semibold px-3 py-2 w-[18%]">Qty</th>
+                          <th className="text-left text-xs font-semibold px-3 py-2 w-[18%]">Unit</th>
+                          <th className="w-10" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {form.items.map((item: any, idx: number) => (
+                          <tr key={idx} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-muted/20"}`}>
+                            <td className="px-2 py-1.5">
+                              <div className="flex gap-1">
+                                <Input
+                                  placeholder="Product name"
+                                  value={item.product_name}
+                                  onChange={(e) => updateItem(idx, "product_name", e.target.value)}
+                                  className="h-8 text-sm"
+                                />
+                                {catalogItems.length > 0 && (
+                                  <Select onValueChange={(val) => {
+                                    const found = catalogItems.find((c: any) => c.id === val);
+                                    if (found) selectCatalogItem(idx, found);
+                                  }}>
+                                    <SelectTrigger className="h-8 w-24 text-xs shrink-0">
+                                      <SelectValue placeholder="Proposal" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {catalogItems.map((c: any) => (
+                                        <SelectItem key={c.id} value={c.id} className="text-xs">{c.product_name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} className="h-8 text-sm" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input placeholder="SF, EA…" value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="h-8 text-sm" />
+                            </td>
+                            <td className="px-1 py-1.5 text-center">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => removeItem(idx)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   <Button variant="outline" size="sm" onClick={addItem}>
                     <Plus className="h-4 w-4 mr-1.5" /> Add Item
                   </Button>
@@ -315,61 +369,94 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
                 </div>
               </div>
             ) : viewingPO ? (
-              /* ── View Single PO ── */
+              /* ── View Single PO — matches Butler Purchase Order PDF design ── */
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" onClick={() => setViewingPO(null)}>← Back</Button>
                   <Button variant="outline" size="sm" onClick={() => openEdit(viewingPO)}><Edit className="h-4 w-4 mr-1.5" /> Edit</Button>
                   <Button variant="outline" size="sm" onClick={() => exportPDF(viewingPO)}><FileDown className="h-4 w-4 mr-1.5" /> Export PDF</Button>
                 </div>
-                <div ref={printRef} className="bg-white p-6 space-y-6">
-                  {/* PO Header */}
-                  <div className="flex items-start justify-between pb-4 border-b-2 border-gray-900">
+
+                <div className="bg-white space-y-5 font-sans text-[13px]">
+
+                  {/* Black header bar */}
+                  <div className="flex items-center justify-between bg-[#111111] text-white px-6 py-4 rounded-sm">
+                    <span className="text-[18px] font-bold">Butler &amp; Associates Construction</span>
+                    <span className="text-[15px] font-bold text-[#C9A84C]">Purchase Order</span>
+                  </div>
+
+                  {/* Supplier / Date row */}
+                  <div className="flex items-start justify-between border-b border-gray-300 pb-3">
                     <div>
-                      <h2 className="text-lg font-bold">Purchase Order</h2>
-                      <div className="text-sm space-y-0.5 mt-1">
-                        <div className="font-semibold">{viewingPO.supplier_name}</div>
-                        {viewingPO.delivery_address && <div className="text-gray-600">{viewingPO.delivery_address}</div>}
-                        {viewingPO.delivery_date && <div className="text-gray-600">Delivery: {formatDate(viewingPO.delivery_date)}</div>}
-                      </div>
+                      <div className="text-[#C9A84C] text-sm">Supplier: {viewingPO.supplier_name}</div>
+                      {viewingPO.delivery_address && <div className="text-xs text-gray-500 mt-0.5">{viewingPO.delivery_address}</div>}
                     </div>
                     <div className="text-right">
-                      <h2 className="text-lg font-bold">Butler & Associates Construction</h2>
-                      <div className="text-sm space-y-0.5 mt-1 text-gray-600">
-                        {viewingPO.sent_by && (
-                          <>
-                            <div className="font-semibold text-gray-900">{viewingPO.sent_by.first_name} {viewingPO.sent_by.last_name}</div>
-                            {viewingPO.sent_by.phone && <div>{viewingPO.sent_by.phone}</div>}
-                            {viewingPO.sent_by.email && <div>{viewingPO.sent_by.email}</div>}
-                          </>
-                        )}
-                      </div>
+                      <div className="text-sm">Date: {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+                      {viewingPO.delivery_date && <div className="text-xs text-gray-500 mt-0.5">Delivery: {formatDate(viewingPO.delivery_date)}</div>}
                     </div>
                   </div>
 
-                  {/* Items Table */}
+                  {/* Project / client */}
+                  <div className="text-xs text-gray-600">
+                    <span className="text-gray-400">Project: </span>
+                    <span className="font-semibold text-gray-800">{project?.name ?? "—"}</span>
+                    {project?.clientName && <><span className="mx-2 text-gray-300">|</span><span className="text-gray-400">Client: </span><span>{project.clientName}</span></>}
+                    <span className="ml-3"><Badge variant="outline" className="capitalize text-xs">{viewingPO.status}</Badge></span>
+                  </div>
+
+                  {/* Items table */}
                   <div>
-                    <div className="grid grid-cols-[3fr,1fr,1fr] gap-2 bg-gray-100 px-3 py-2 rounded-t-lg font-semibold text-xs border-b-2 border-gray-300">
-                      <div>Product / Material</div>
-                      <div className="text-right">Quantity</div>
-                      <div className="text-right">Unit</div>
-                    </div>
-                    <div className="border-x-2 border-b-2 border-gray-300 rounded-b-lg">
-                      {(viewingPO.items || []).map((item: any, idx: number) => (
-                        <div key={item.id} className={`grid grid-cols-[3fr,1fr,1fr] gap-2 px-3 py-2.5 text-sm ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${idx !== viewingPO.items.length - 1 ? "border-b border-gray-200" : ""}`}>
-                          <div className="font-medium">{item.product_name}</div>
-                          <div className="text-right">{item.quantity}</div>
-                          <div className="text-right">{item.unit}</div>
-                        </div>
-                      ))}
-                    </div>
+                    <h3 className="text-[14px] font-bold mb-3">Materials &amp; Products</h3>
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#111111] text-white">
+                          <th className="py-2.5 px-3 text-left font-semibold">Product / Material</th>
+                          <th className="py-2.5 px-3 text-center font-semibold w-16">Unit</th>
+                          <th className="py-2.5 px-3 text-center font-semibold w-14">Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(viewingPO.items || []).map((item: any, idx: number) => (
+                          <tr key={item.id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                            <td className="py-2.5 px-3">{item.product_name}</td>
+                            <td className="py-2.5 px-3 text-center">{item.unit}</td>
+                            <td className="py-2.5 px-3 text-center">{item.quantity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
+                  {/* Notes */}
                   {viewingPO.notes && (
-                    <div className="p-3 bg-gray-50 rounded border text-sm">
-                      <span className="font-medium">Notes: </span>{viewingPO.notes}
+                    <div>
+                      <div className="font-bold text-sm mb-1">Notes</div>
+                      <p className="text-xs text-gray-600 leading-relaxed">{viewingPO.notes}</p>
                     </div>
                   )}
+
+                  {/* Signatures */}
+                  <div className="grid grid-cols-2 gap-10 pt-4 border-t border-gray-300">
+                    <div>
+                      <div className="text-xs mb-8">
+                        Butler &amp; Associates Construction
+                        {viewingPO.sent_by && ` — ${viewingPO.sent_by.first_name ?? ""} ${viewingPO.sent_by.last_name ?? ""}`.trim()}
+                      </div>
+                      <div className="border-b border-gray-800 mb-1" />
+                      <div className="text-[11px] text-gray-500">Authorized Signature / Date</div>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-8">Supplier / Vendor — {viewingPO.supplier_name}</div>
+                      <div className="border-b border-gray-800 mb-1" />
+                      <div className="text-[11px] text-gray-500">Signature / Date</div>
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="text-center text-[10px] text-gray-400 border-t border-gray-200 pt-3">
+                    Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
+                  </div>
                 </div>
               </div>
             ) : (
