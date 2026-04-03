@@ -245,9 +245,10 @@ export function ConcreteWizard({ onComplete, onCancel, initialData }: ConcreteWi
                     className={`flex items-center space-x-2 border rounded-lg p-4 cursor-pointer ${
                       formData.projectType === type ? "border-primary bg-primary/5" : ""
                     }`}
+                    onClick={() => handleFieldChange("projectType", type)}
                   >
                     <RadioGroupItem value={type} id={type} />
-                    <Label htmlFor={type} className="cursor-pointer font-normal flex-1">
+                    <Label htmlFor={type} className="cursor-pointer font-normal flex-1 pointer-events-none">
                       {type}
                     </Label>
                   </div>
@@ -271,9 +272,10 @@ export function ConcreteWizard({ onComplete, onCancel, initialData }: ConcreteWi
                     className={`flex items-center space-x-2 border rounded-lg p-4 cursor-pointer ${
                       formData.location === loc ? "border-primary bg-primary/5" : ""
                     }`}
+                    onClick={() => handleFieldChange("location", loc)}
                   >
                     <RadioGroupItem value={loc} id={loc} />
-                    <Label htmlFor={loc} className="cursor-pointer font-normal flex-1">
+                    <Label htmlFor={loc} className="cursor-pointer font-normal flex-1 pointer-events-none">
                       {loc}
                     </Label>
                   </div>
@@ -342,9 +344,10 @@ export function ConcreteWizard({ onComplete, onCancel, initialData }: ConcreteWi
                     className={`flex items-center space-x-2 border rounded-lg p-4 cursor-pointer ${
                       formData.reinforcementType === type ? "border-primary bg-primary/5" : ""
                     }`}
+                    onClick={() => handleFieldChange("reinforcementType", type)}
                   >
                     <RadioGroupItem value={type} id={`reinf-${type}`} />
-                    <Label htmlFor={`reinf-${type}`} className="cursor-pointer font-normal flex-1">
+                    <Label htmlFor={`reinf-${type}`} className="cursor-pointer font-normal flex-1 pointer-events-none">
                       {type}
                     </Label>
                   </div>
@@ -387,9 +390,10 @@ export function ConcreteWizard({ onComplete, onCancel, initialData }: ConcreteWi
                       className={`flex items-center space-x-2 border rounded-lg p-4 cursor-pointer ${
                         formData.sealer === option ? "border-primary bg-primary/5" : ""
                       }`}
+                      onClick={() => handleFieldChange("sealer", option)}
                     >
                       <RadioGroupItem value={option} id={`sealer-${option}`} />
-                      <Label htmlFor={`sealer-${option}`} className="cursor-pointer font-normal flex-1">
+                      <Label htmlFor={`sealer-${option}`} className="cursor-pointer font-normal flex-1 pointer-events-none">
                         {option}
                       </Label>
                     </div>
