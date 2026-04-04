@@ -8,6 +8,8 @@ import {
   Mail,
   Phone,
   MapPin,
+  DollarSign,
+  Pencil,
   Calendar,
   FileText,
   FilePlus,
@@ -42,6 +44,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import {
@@ -125,8 +128,11 @@ export function ClientDetail() {
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
+  const [paymentTrackingOpen, setPaymentTrackingOpen] = useState(false);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [markPaidOpen, setMarkPaidOpen] = useState<any>(null);
+  const [editPaymentOpen, setEditPaymentOpen] = useState(false);
+  const [editPayment, setEditPayment] = useState<any>(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "" };
   const [newPayment, setNewPayment] = useState(EMPTY_PAYMENT);
@@ -151,6 +157,9 @@ export function ClientDetail() {
   const [activityPage, setActivityPage] = useState(1);
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  const [scopePopoverOpen, setScopePopoverOpen] = useState(false);
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 6;
   
@@ -178,6 +187,7 @@ export function ClientDetail() {
       loadPhotos();
       loadNotes();
       loadActivityLog();
+      setSelectedScopes(Array.isArray(client.scope_of_work) ? client.scope_of_work : []);
     }
   }, [client?.id]);
 
@@ -562,15 +572,28 @@ export function ClientDetail() {
                   {[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || "—"}
                 </div>
                 {(client.address || client.city) && (
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([client.address, client.city, client.state, client.zip].filter(Boolean).join(", "))}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-primary hover:underline"
-                  >
-                    <MapPin className="h-3 w-3" />
-                    View Map
-                  </a>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setMapOpen((v) => !v)}
+                      className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      <MapPin className="h-3 w-3" />
+                      {mapOpen ? "Hide Map" : "View Map"}
+                    </button>
+                    {mapOpen && (
+                      <div className="mt-2 rounded-lg overflow-hidden border shadow-sm">
+                        <iframe
+                          title="Client Location"
+                          width="100%"
+                          height="220"
+                          style={{ border: 0, display: "block" }}
+                          loading="lazy"
+                          src={`https://maps.google.com/maps?q=${encodeURIComponent([client.address, client.city, client.state, client.zip].filter(Boolean).join(", "))}&output=embed`}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -702,6 +725,169 @@ export function ClientDetail() {
         </Card>
       </div>
 
+      {/* ── Project Info ── */}
+      {clientProjects.length > 0 && clientProjects.map((project) => (
+        <Card key={project.id}>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Contract Value</p>
+                <p className="font-semibold text-base">{formatCurrency(project.totalValue ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Gross Profit</p>
+                <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">GP %</p>
+                <p className="font-semibold text-base">{(project.profitMargin ?? 0).toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Commission</p>
+                <p className="font-semibold text-base text-blue-600">{formatCurrency(project.commission ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Start Date</p>
+                <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">End Date</p>
+                <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Project Manager</p>
+                <p className="font-medium">{project.projectManagerName || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Foreman</p>
+                <p className="font-medium">{project.foremanName || "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Sales Rep</p>
+                <p className="font-medium">{project.salesRepName || "—"}</p>
+              </div>
+            </div>
+            {client.status === "active" && (() => {
+              const paid = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
+              const total = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
+              const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+              return (
+                <div className="pt-2 border-t space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground font-medium">Payment Progress</span>
+                    <span className="font-semibold">{pct}% · {formatCurrency(paid)} of {formatCurrency(total)}</span>
+                  </div>
+                  <Progress value={pct} className="h-2" />
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      ))}
+
+      {/* ── Project Actions ── */}
+      {clientProjects.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <button onClick={() => setPurchaseOrdersOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
+            <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
+            <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">Order materials</p></div>
+          </button>
+          <button onClick={() => setChangeOrdersOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
+            <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
+            <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">Scope changes</p></div>
+          </button>
+          <button onClick={() => setFioOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
+            <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0"><FileText className="h-5 w-5 text-green-600" /></div>
+            <div><p className="font-semibold text-sm">FIO</p><p className="text-xs text-muted-foreground">Crew labor schedule</p></div>
+          </button>
+          <button onClick={() => setCostAttributionsOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
+            <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
+            <div><p className="font-semibold text-sm">Cost Attributions</p><p className="text-xs text-muted-foreground">Receipts &amp; actuals</p></div>
+          </button>
+          <button onClick={() => setCrewPaymentOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
+            <div className="h-9 w-9 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0"><Hammer className="h-5 w-5 text-rose-600" /></div>
+            <div><p className="font-semibold text-sm">Crew Payment</p><p className="text-xs text-muted-foreground">Foreman labor breakdown</p></div>
+          </button>
+          {["sold", "active", "completed"].includes(client.status) && (
+            <button
+              onClick={() => setPaymentTrackingOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                <DollarSign className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Payments</p>
+                <p className="text-xs text-muted-foreground">Monitor collections</p>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Proposals ── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Proposals {clientProposals.length > 0 && <Badge variant="secondary">{clientProposals.length}</Badge>}
+          </CardTitle>
+          <Link to={`/clients/${client.id}/create-proposal`}>
+            <Button size="sm"><FilePlus className="h-4 w-4 mr-2" />New Proposal</Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="p-0">
+          {clientProposals.length > 0 ? (
+            <div className="divide-y">
+              {clientProposals.map((proposal) => (
+                <div key={proposal.id} className="p-4 hover:bg-accent transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1 flex-1">
+                      <Link to={`/proposals/${proposal.id}`} className="font-semibold text-sm hover:text-primary">
+                        {proposal.title ?? `Estimate #${proposal.estimate_number}`}
+                      </Link>
+                      <p className="text-xs text-muted-foreground">{proposal.notes}</p>
+                      <div className="flex gap-2 mt-2">
+                        <Badge variant="outline">{proposal.status}</Badge>
+                        <span className="text-xs text-muted-foreground">Created {formatDate(proposal.created_at)}</span>
+                      </div>
+                      {proposal.status === "declined" && (
+                        <div className="mt-1.5 text-xs text-red-600">
+                          {proposal.declined_at && <span>Declined {formatDate(proposal.declined_at)}</span>}
+                          {proposal.decline_reason && <span className="block italic text-muted-foreground mt-0.5">"{proposal.decline_reason}"</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right space-y-2">
+                      <div className="font-semibold">{formatCurrency(proposal.total)}</div>
+                      <div className="flex gap-2 justify-end">
+                        <Link to={`/proposals/${proposal.id}`}><Button variant="outline" size="sm">View Proposal</Button></Link>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setProposalToDelete(proposal)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No proposals yet</p>
+              <Link to={`/clients/${client.id}/create-proposal`}>
+                <Button className="mt-4" size="sm"><FilePlus className="h-4 w-4 mr-2" />Create First Proposal</Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-3">
@@ -768,28 +954,89 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="scope-of-work" className="text-sm font-medium">
-                Scope of Work
-              </Label>
-              <Select defaultValue={client.scope_of_work?.[0]}>
-                <SelectTrigger id="scope-of-work">
-                  <SelectValue placeholder="Select scope of work" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="concrete-driveway">Concrete (Driveway, Walkway, Patio)</SelectItem>
-                  <SelectItem value="outdoor-kitchen">Outdoor Kitchen</SelectItem>
-                  <SelectItem value="pergola-pavilion">Pergola/Pavilion</SelectItem>
-                  <SelectItem value="landscaping">Landscaping</SelectItem>
-                  <SelectItem value="drainage">Drainage</SelectItem>
-                  <SelectItem value="pool-deck">Pool Deck</SelectItem>
-                  <SelectItem value="retaining-wall">Retaining Wall</SelectItem>
-                  <SelectItem value="fire-pit">Fire Pit/Fireplace</SelectItem>
-                  <SelectItem value="deck">Deck/Patio Cover</SelectItem>
-                  <SelectItem value="fencing">Fencing</SelectItem>
-                  <SelectItem value="lighting">Outdoor Lighting</SelectItem>
-                  <SelectItem value="irrigation">Irrigation System</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-sm font-medium">Scope of Work</Label>
+              {(() => {
+                const SCOPE_OPTIONS = [
+                  { value: "concrete-driveway", label: "Concrete (Driveway, Walkway, Patio)" },
+                  { value: "outdoor-kitchen",   label: "Outdoor Kitchen" },
+                  { value: "pergola-pavilion",  label: "Pergola/Pavilion" },
+                  { value: "landscaping",       label: "Landscaping" },
+                  { value: "drainage",          label: "Drainage" },
+                  { value: "pool-deck",         label: "Pool Deck" },
+                  { value: "retaining-wall",    label: "Retaining Wall" },
+                  { value: "fire-pit",          label: "Fire Pit/Fireplace" },
+                  { value: "deck",              label: "Deck/Patio Cover" },
+                  { value: "fencing",           label: "Fencing" },
+                  { value: "lighting",          label: "Outdoor Lighting" },
+                  { value: "irrigation",        label: "Irrigation System" },
+                ];
+                const toggleScope = async (value: string) => {
+                  const next = selectedScopes.includes(value)
+                    ? selectedScopes.filter((s) => s !== value)
+                    : [...selectedScopes, value];
+                  setSelectedScopes(next);
+                  try { await clientsAPI.update(id!, { scope_of_work: next }); }
+                  catch { toast.error("Failed to save scope of work"); }
+                };
+                return (
+                  <div className="space-y-2">
+                    <Popover open={scopePopoverOpen} onOpenChange={setScopePopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent/30 transition-colors"
+                        >
+                          <span className="text-muted-foreground">
+                            {selectedScopes.length === 0 ? "Select scope of work" : "Add or remove scopes..."}
+                          </span>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
+                        avoidCollisions={false}
+                        className="w-72 p-2"
+                      >
+                        <div className="space-y-1 max-h-60 overflow-y-auto">
+                          {SCOPE_OPTIONS.map((opt) => (
+                            <label
+                              key={opt.value}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/40 cursor-pointer text-sm"
+                            >
+                              <Checkbox
+                                checked={selectedScopes.includes(opt.value)}
+                                onCheckedChange={() => toggleScope(opt.value)}
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    {selectedScopes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedScopes.map((s) => {
+                          const label = SCOPE_OPTIONS.find((o) => o.value === s)?.label;
+                          return (
+                            <Badge key={s} variant="secondary" className="text-xs flex items-center gap-1 pr-1">
+                              {label}
+                              <button
+                                type="button"
+                                onClick={() => toggleScope(s)}
+                                className="ml-0.5 hover:text-destructive rounded-full"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="flex items-center gap-3 pt-2">
@@ -916,595 +1163,202 @@ export function ClientDetail() {
 
       <div className="space-y-4">
 
-        {/* ── Project Info ── */}
-        {clientProjects.length > 0 && clientProjects.map((project) => (
-          <Card key={project.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Contract Value</p>
-                  <p className="font-semibold text-base">{formatCurrency(project.totalValue ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Gross Profit</p>
-                  <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">GP %</p>
-                  <p className="font-semibold text-base">{(project.profitMargin ?? 0).toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Commission</p>
-                  <p className="font-semibold text-base text-blue-600">{formatCurrency(project.commission ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Start Date</p>
-                  <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">End Date</p>
-                  <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Project Manager</p>
-                  <p className="font-medium">{project.projectManagerName || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Foreman</p>
-                  <p className="font-medium">{project.foremanName || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Sales Rep</p>
-                  <p className="font-medium">{project.salesRepName || "—"}</p>
-                </div>
-              </div>
-              {/* Progress bar — active jobs only */}
-              {client.status === "active" && (() => {
-                const paid = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
-                const total = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
-                const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
-                return (
-                  <div className="pt-2 border-t space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground font-medium">Payment Progress</span>
-                      <span className="font-semibold">{pct}% · {formatCurrency(paid)} of {formatCurrency(total)}</span>
+        {/* ── Payment Tracking Modal ── */}
+        <Dialog open={paymentTrackingOpen} onOpenChange={setPaymentTrackingOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Payment Tracking
+              </DialogTitle>
+              <DialogDescription>Monitor collections for {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</DialogDescription>
+            </DialogHeader>
+            {(() => {
+              const totalAmount = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
+              const totalPaid   = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
+              const pct = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
+              return (
+                <div className="space-y-4">
+                  {/* Progress bar */}
+                  <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center justify-between text-sm font-medium">
+                      <span>Payment Progress</span>
+                      <span>{pct}%</span>
                     </div>
                     <Progress value={pct} className="h-2" />
-                  </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
-        ))}
-
-        {/* ── Project Actions ── */}
-        {clientProjects.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <button
-              onClick={() => setPurchaseOrdersOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
-                <Package className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Purchase Orders</p>
-                <p className="text-xs text-muted-foreground">Order materials</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setChangeOrdersOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
-                <ClipboardEdit className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Change Orders</p>
-                <p className="text-xs text-muted-foreground">Scope changes</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setFioOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0">
-                <FileText className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">FIO</p>
-                <p className="text-xs text-muted-foreground">Crew labor schedule</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setCostAttributionsOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0">
-                <TrendingUp className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Cost Attributions</p>
-                <p className="text-xs text-muted-foreground">Receipts &amp; actuals</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setCrewPaymentOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
-                <Hammer className="h-5 w-5 text-rose-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Crew Payment</p>
-                <p className="text-xs text-muted-foreground">Foreman labor breakdown</p>
-              </div>
-            </button>
-          </div>
-        )}
-
-        {/* ── Proposals ── */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Proposals {clientProposals.length > 0 && <Badge variant="secondary">{clientProposals.length}</Badge>}
-            </CardTitle>
-            <Link to={`/clients/${client.id}/create-proposal`}>
-              <Button size="sm">
-                <FilePlus className="h-4 w-4 mr-2" />
-                New Proposal
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent className="p-0">
-              {clientProposals.length > 0 ? (
-                <div className="divide-y">
-                  {clientProposals.map((proposal) => (
-                    <div key={proposal.id} className="p-4 hover:bg-accent transition-colors">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1 flex-1">
-                          <Link
-                            to={`/proposals/${proposal.id}`}
-                            className="font-semibold text-sm hover:text-primary"
-                          >
-                            {proposal.title ?? `Estimate #${proposal.estimate_number}`}
-                          </Link>
-                          <p className="text-xs text-muted-foreground">{proposal.notes}</p>
-                          <div className="flex gap-2 mt-2">
-                            <Badge variant="outline">{proposal.status}</Badge>
-                            <span className="text-xs text-muted-foreground">
-                              Created {formatDate(proposal.created_at)}
-                            </span>
-                          </div>
-                          {proposal.status === "declined" && (
-                            <div className="mt-1.5 text-xs text-red-600">
-                              {proposal.declined_at && (
-                                <span>Declined {formatDate(proposal.declined_at)}</span>
-                              )}
-                              {proposal.decline_reason && (
-                                <span className="block italic text-muted-foreground mt-0.5">"{proposal.decline_reason}"</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-right space-y-2">
-                          <div className="font-semibold">{formatCurrency(proposal.total)}</div>
-                          <div className="flex gap-2 justify-end">
-                            <Link to={`/proposals/${proposal.id}`}>
-                              <Button variant="outline" size="sm">
-                                View Proposal
-                              </Button>
-                            </Link>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setProposalToDelete(proposal)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Received: {formatCurrency(totalPaid)}</span>
+                      <span>Remaining: {formatCurrency(totalAmount - totalPaid)}</span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No proposals yet</p>
-                  <Link to={`/clients/${client.id}/create-proposal`}>
-                    <Button className="mt-4" size="sm">
-                      <FilePlus className="h-4 w-4 mr-2" />
-                      Create First Proposal
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  </div>
 
-        {/* ── Payments ── */}
-        <div className="space-y-4">
-          {/* Summary */}
-          {(() => {
-            const totalAmount = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
-            const totalPaid   = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
-            const outstanding = totalAmount - totalPaid;
-            return (
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Contract Total</p>
-                    <p className="text-xl font-bold mt-1">{formatCurrency(totalAmount)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Total Paid</p>
-                    <p className="text-xl font-bold mt-1 text-green-600">{formatCurrency(totalPaid)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Outstanding</p>
-                    <p className={`text-xl font-bold mt-1 ${outstanding > 0 ? "text-orange-500" : "text-muted-foreground"}`}>{formatCurrency(outstanding)}</p>
-                  </CardContent>
-                </Card>
-              </div>
-            );
-          })()}
-
-          {/* Payments Table */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base">Payment Schedule</CardTitle>
-              <Button size="sm" onClick={() => { setNewPayment(EMPTY_PAYMENT); setAddPaymentOpen(true); }}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment
-              </Button>
-            </CardHeader>
-            <CardContent className="p-0">
-              {clientPayments.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground text-sm">No payments added yet.</p>
-                  <p className="text-xs text-muted-foreground mt-1">Add payment milestones from the signed contract.</p>
-                </div>
-              ) : (
-                <table className="w-full">
-                  <thead className="border-b bg-muted/50">
-                    <tr>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Milestone</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Amount</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Due Date</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Paid Date</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Method / Note</th>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {clientPayments.map((payment) => (
-                      <tr key={payment.id} className="hover:bg-accent/50">
-                        <td className="p-3 font-medium text-sm">{payment.label}</td>
-                        <td className="p-3 text-sm font-semibold">{formatCurrency(payment.amount)}</td>
-                        <td className="p-3 text-sm text-muted-foreground">{payment.due_date ? formatDate(payment.due_date) : "—"}</td>
-                        <td className="p-3">
-                          <Badge className={payment.is_paid ? "bg-green-100 text-green-800 border-green-200" : "bg-orange-100 text-orange-800 border-orange-200"} variant="outline">
-                            {payment.is_paid ? "Paid" : "Pending"}
-                          </Badge>
-                        </td>
-                        <td className="p-3 text-sm text-muted-foreground">{payment.paid_date ? formatDate(payment.paid_date) : "—"}</td>
-                        <td className="p-3 text-sm text-muted-foreground max-w-[180px] truncate">
-                          {payment.payment_method && <span className="font-medium text-foreground">{payment.payment_method}</span>}
-                          {payment.payment_method && payment.notes && <span className="mx-1">·</span>}
-                          {payment.notes}
-                        </td>
-                        <td className="p-3">
-                          {!payment.is_paid ? (
-                            <Button size="sm" variant="outline" className="text-xs" onClick={() => { setMarkPaidOpen(payment); setPaidForm({ payment_method: "", notes: payment.notes ?? "" }); }}>
-                              Mark Paid
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={async () => {
-                              await projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
-                              setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
-                            }}>
-                              Undo
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Add Payment Dialog */}
-          <Dialog open={addPaymentOpen} onOpenChange={setAddPaymentOpen}>
-            <DialogContent className="sm:max-w-[420px]">
-              <DialogHeader>
-                <DialogTitle>Add Payment Milestone</DialogTitle>
-                <DialogDescription>Add a progress payment from the signed contract.</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="space-y-1.5">
-                  <Label>Label</Label>
-                  <Input placeholder="e.g. Deposit, Progress Payment, Final" value={newPayment.label} onChange={(e) => setNewPayment((p) => ({ ...p, label: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Amount ($)</Label>
-                  <Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Due Date</Label>
-                  <Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment((p) => ({ ...p, due_date: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Notes</Label>
-                  <Input placeholder="Optional note" value={newPayment.notes} onChange={(e) => setNewPayment((p) => ({ ...p, notes: e.target.value }))} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
-                <Button disabled={savingPayment || !newPayment.label || !newPayment.amount} onClick={async () => {
-                  if (!client) return;
-                  setSavingPayment(true);
-                  try {
-                    const project = clientProjects[0];
-                    const created = await projectPaymentsAPI.create({
-                      project_id: project?.id ?? "",
-                      client_id: client.id,
-                      label: newPayment.label,
-                      amount: parseFloat(newPayment.amount) || 0,
-                      due_date: newPayment.due_date || undefined,
-                      notes: newPayment.notes || undefined,
-                      sort_order: clientPayments.length,
-                    });
-                    setClientPayments((prev) => [...prev, created]);
-                    setAddPaymentOpen(false);
-                    toast.success("Payment added.");
-                  } catch (err: any) {
-                    toast.error(err.message || "Failed to add payment.");
-                  } finally {
-                    setSavingPayment(false);
-                  }
-                }}>
-                  {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Payment"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Mark as Paid Dialog */}
-          <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) setMarkPaidOpen(null); }}>
-            <DialogContent className="sm:max-w-[420px]">
-              <DialogHeader>
-                <DialogTitle>Mark as Paid</DialogTitle>
-                <DialogDescription>{markPaidOpen?.label} — {formatCurrency(markPaidOpen?.amount ?? 0)}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="space-y-1.5">
-                  <Label>Payment Method</Label>
-                  <Input placeholder="e.g. Check #1042, ACH #8829, Cash" value={paidForm.payment_method} onChange={(e) => setPaidForm((p) => ({ ...p, payment_method: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Notes (optional)</Label>
-                  <Input placeholder="Any additional notes" value={paidForm.notes} onChange={(e) => setPaidForm((p) => ({ ...p, notes: e.target.value }))} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setMarkPaidOpen(null)}>Cancel</Button>
-                <Button disabled={savingPayment} onClick={async () => {
-                  if (!markPaidOpen) return;
-                  setSavingPayment(true);
-                  try {
-                    const updated = await projectPaymentsAPI.update(markPaidOpen.id, {
-                      is_paid: true,
-                      paid_date: new Date().toISOString().split("T")[0],
-                      payment_method: paidForm.payment_method || null,
-                      notes: paidForm.notes || null,
-                    });
-                    setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
-                    setMarkPaidOpen(null);
-                    activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});
-                    toast.success("Payment marked as paid.");
-                  } catch (err: any) {
-                    toast.error(err.message || "Failed to update payment.");
-                  } finally {
-                    setSavingPayment(false);
-                  }
-                }}>
-                  {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm Paid"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        {/* ── Appointments ── */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Appointments {clientAppointments.length > 0 && <Badge variant="secondary">{clientAppointments.length}</Badge>}
-            </CardTitle>
-            <Button size="sm" onClick={() => setAppointmentDialogOpen(true)}>
-              <Calendar className="h-4 w-4 mr-2" />
-              Schedule
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-              {clientAppointments.length === 0 ? (
-                <div className="text-center py-12">
-                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No appointments scheduled yet</p>
-                  <Button className="mt-4" size="sm" onClick={() => setAppointmentDialogOpen(true)}>
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Schedule Appointment
-                  </Button>
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {clientAppointments.map((appt) => {
-                    const APPOINTMENT_TYPES: Record<string, string> = {
-                      initial: "Initial Appointment",
-                      followup: "Followup Appointment",
-                      presentation: "Presentation Appointment",
-                      prewalk: "PreWalk Appointment",
-                      finalwalk: "Final Walk Appointment",
-                    };
-                    const typeLabel = APPOINTMENT_TYPES[appt.appointment_type] ?? appt.title ?? "Appointment";
-                    const timeRange = appt.end_time
-                      ? `${appt.appointment_time?.slice(0, 5)} – ${appt.end_time?.slice(0, 5)}`
-                      : appt.appointment_time?.slice(0, 5);
-
-                    return (
-                      <div key={appt.id} className="p-4 hover:bg-accent/30 transition-colors">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="space-y-1 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-sm">{typeLabel}</span>
-                              {appt.is_met ? (
-                                <Badge className="bg-green-500 text-white text-xs">Met</Badge>
-                              ) : (
-                                <Badge className="bg-blue-500 text-white text-xs">Upcoming</Badge>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(appt.appointment_date)} · {timeRange}
-                            </div>
-                            {appt.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{appt.notes}</p>
-                            )}
-                            {appt.google_meet_link && (
-                              <a
-                                href={appt.google_meet_link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-600 underline flex items-center gap-1 mt-1"
-                              >
-                                <Clock className="h-3 w-3" />
-                                Join Google Meet
-                              </a>
-                            )}
-                          </div>
-                          {!appt.is_met && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0"
-                              onClick={async () => {
-                                try {
-                                  await appointmentsAPI.markAsMet(appt.id);
-                                  setClientAppointments((prev) =>
-                                    prev.map((a) => a.id === appt.id ? { ...a, is_met: true } : a)
-                                  );
-                                  // Only update clients.appointment_met if this is the latest appointment
-                                  // (matches the date stored on the client record)
-                                  const apptDate = appt.appointment_date?.split("T")[0];
-                                  const clientApptDate = client.appointment_date?.split("T")[0];
-                                  if (apptDate === clientApptDate) {
-                                    await clientsAPI.update(client.id, { appointment_met: true });
-                                    setClient((prev: any) => ({ ...prev, appointment_met: true }));
-                                  }
-                                  toast.success("Appointment marked as met!");
-                                } catch (err: any) {
-                                  toast.error(err.message || "Failed to update");
+                  {/* Milestones */}
+                  {clientPayments.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-muted-foreground">No milestones added yet.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {clientPayments.map((payment) => {
+                        const pctOfTotal = totalAmount > 0 ? Math.round((payment.amount / totalAmount) * 100) : 0;
+                        return (
+                          <div key={payment.id} className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}`}>
+                            <Checkbox
+                              checked={payment.is_paid}
+                              onCheckedChange={() => {
+                                if (!payment.is_paid) {
+                                  setMarkPaidOpen(payment);
+                                  setPaidForm({ payment_method: "", notes: payment.notes ?? "" });
+                                } else {
+                                  projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
+                                  setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
                                 }
                               }}
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-green-600" />
-                              Mark as Met
-                            </Button>
-                          )}
-                        </div>
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className={`font-semibold text-sm ${payment.is_paid ? "line-through text-muted-foreground" : ""}`}>{payment.label}</p>
+                              <p className="text-xs text-muted-foreground">{pctOfTotal}% · {formatCurrency(payment.amount)}{payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}</p>
+                              {payment.is_paid && payment.payment_method && (
+                                <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button onClick={() => { setEditPayment({ ...payment, amount: String(payment.amount), due_date: payment.due_date ?? "" }); setEditPaymentOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={async () => { await projectPaymentsAPI.delete(payment.id); setClientPayments((prev) => prev.filter((p) => p.id !== payment.id)); toast.success("Milestone removed"); }} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-destructive">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="space-y-1">
+                      <div className="flex justify-between gap-16 text-sm font-semibold">
+                        <span>Total Contract Value</span>
+                        <span>{formatCurrency(clientProjects[0]?.totalValue ?? 0)}</span>
                       </div>
-                    );
-                  })}
+                      <div className="flex justify-between gap-16 text-sm text-muted-foreground">
+                        <span>Total Milestones</span>
+                        <span>{formatCurrency(totalAmount)}</span>
+                      </div>
+                    </div>
+                    <Button size="sm" onClick={() => { setNewPayment(EMPTY_PAYMENT); setAddPaymentOpen(true); }}>
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Add Milestone
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Payment Dialog */}
+        <Dialog open={addPaymentOpen} onOpenChange={setAddPaymentOpen}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Add Payment Milestone</DialogTitle>
+              <DialogDescription>Add a progress payment from the signed contract.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>Label</Label><Input placeholder="e.g. Deposit, Progress Payment, Final" value={newPayment.label} onChange={(e) => setNewPayment((p) => ({ ...p, label: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment((p) => ({ ...p, due_date: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Notes</Label><Input placeholder="Optional note" value={newPayment.notes} onChange={(e) => setNewPayment((p) => ({ ...p, notes: e.target.value }))} /></div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
+              <Button disabled={savingPayment || !newPayment.label || !newPayment.amount} onClick={async () => {
+                if (!client) return;
+                setSavingPayment(true);
+                try {
+                  const project = clientProjects[0];
+                  const created = await projectPaymentsAPI.create({ project_id: project?.id ?? "", client_id: client.id, label: newPayment.label, amount: parseFloat(newPayment.amount) || 0, due_date: newPayment.due_date || undefined, notes: newPayment.notes || undefined, sort_order: clientPayments.length });
+                  setClientPayments((prev) => [...prev, created]);
+                  setAddPaymentOpen(false);
+                  toast.success("Payment added.");
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to add payment.");
+                } finally { setSavingPayment(false); }
+              }}>
+                {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Mark as Paid Dialog */}
+        <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) setMarkPaidOpen(null); }}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Mark as Paid</DialogTitle>
+              <DialogDescription>{markPaidOpen?.label} — {formatCurrency(markPaidOpen?.amount ?? 0)}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>Payment Method</Label><Input placeholder="e.g. Check #1042, ACH #8829, Cash" value={paidForm.payment_method} onChange={(e) => setPaidForm((p) => ({ ...p, payment_method: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Notes (optional)</Label><Input placeholder="Any additional notes" value={paidForm.notes} onChange={(e) => setPaidForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMarkPaidOpen(null)}>Cancel</Button>
+              <Button disabled={savingPayment} onClick={async () => {
+                if (!markPaidOpen) return;
+                setSavingPayment(true);
+                try {
+                  const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null });
+                  setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
+                  setMarkPaidOpen(null);
+                  activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});
+                  toast.success("Payment marked as paid.");
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to update payment.");
+                } finally { setSavingPayment(false); }
+              }}>
+                {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm Paid"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Payment Dialog */}
+        <Dialog open={editPaymentOpen} onOpenChange={setEditPaymentOpen}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Edit Milestone</DialogTitle>
+              <DialogDescription>Update this payment milestone.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>Label</Label><Input value={editPayment?.label ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, label: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" value={editPayment?.amount ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, amount: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={editPayment?.due_date ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, due_date: e.target.value }))} /></div>
+              <div className="space-y-1.5"><Label>Notes</Label><Input placeholder="Optional note" value={editPayment?.notes ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, notes: e.target.value }))} /></div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditPaymentOpen(false)}>Cancel</Button>
+              <Button disabled={savingPayment} onClick={async () => {
+                if (!editPayment) return;
+                setSavingPayment(true);
+                try {
+                  const updated = await projectPaymentsAPI.update(editPayment.id, { label: editPayment.label, amount: parseFloat(editPayment.amount) || 0, due_date: editPayment.due_date || undefined, notes: editPayment.notes || undefined });
+                  setClientPayments((prev) => prev.map((p) => p.id === editPayment.id ? { ...p, ...updated } : p));
+                  setEditPaymentOpen(false);
+                  toast.success("Milestone updated");
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to update");
+                } finally { setSavingPayment(false); }
+              }}>
+                {savingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
 
         {/* ── Client Files ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <StickyNote className="h-4 w-4" />
-                  Internal Notes
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client-notes" className="text-sm font-medium">Add New Note</Label>
-                  <Textarea
-                    id="client-notes"
-                    placeholder="Add notes for your internal team to review..."
-                    rows={4}
-                    className="resize-none"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">These notes are only visible to your team members</p>
-                </div>
-                <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()}>
-                  {savingNotes ? "Saving..." : "Save Note"}
-                </Button>
-                {noteEntries.length > 0 && (
-                  <div className="space-y-3 pt-2 border-t">
-                    {noteEntries
-                      .slice((notesPage - 1) * ITEMS_PER_PAGE, notesPage * ITEMS_PER_PAGE)
-                      .map((note) => (
-                        <div key={note.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              {note.profile ? `${note.profile.first_name} ${note.profile.last_name}` : "Team Member"}
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {new Date(note.created_at).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
-                          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                        </div>
-                      ))}
-                    {noteEntries.length > ITEMS_PER_PAGE && (
-                      <div className="flex items-center justify-between pt-3 border-t">
-                        <p className="text-xs text-muted-foreground">
-                          Showing {Math.min((notesPage - 1) * ITEMS_PER_PAGE + 1, noteEntries.length)} - {Math.min(notesPage * ITEMS_PER_PAGE, noteEntries.length)} of {noteEntries.length}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage - 1)} disabled={notesPage === 1}>
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                          <span className="text-xs text-muted-foreground">Page {notesPage} of {Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}</span>
-                          <Button variant="outline" size="sm" onClick={() => setNotesPage(notesPage + 1)} disabled={notesPage >= Math.ceil(noteEntries.length / ITEMS_PER_PAGE)}>
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card> */}
 
             <Card>
               <CardHeader>
