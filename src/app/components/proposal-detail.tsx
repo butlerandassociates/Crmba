@@ -612,7 +612,9 @@ export function ProposalDetail() {
                 );
                 return products.map((product: any) => {
                   const cost = (product.material_cost ?? 0) + (product.labor_cost ?? 0);
-                  const price = product.price_per_unit ?? cost * (1 + (product.markup_percentage ?? 0) / 100);
+                  const price = (Number(product.price_per_unit) > 0)
+                    ? Number(product.price_per_unit)
+                    : cost * (1 + (product.markup_percentage ?? 0) / 100);
                   const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
                   return (
                     <button
