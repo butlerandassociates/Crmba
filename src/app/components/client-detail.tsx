@@ -35,6 +35,7 @@ import {
   Hammer,
   Package,
   ClipboardEdit,
+  Archive,
 } from "lucide-react";
 import {
   Dialog,
@@ -45,7 +46,7 @@ import {
   DialogFooter,
 } from "./ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import {
   DropdownMenu,
@@ -72,7 +73,6 @@ import { AppointmentDialog } from "./appointment-dialog";
 import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
 import { ChangeOrdersSheet } from "./change-orders-sheet";
 import { CostAttributionsSheet } from "./cost-attributions-sheet";
-import { CrewPaymentSheet } from "./crew-payment-sheet";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
 import { Progress } from "./ui/progress";
 import { toast } from "sonner";
@@ -144,7 +144,6 @@ export function ClientDetail() {
   const [changeOrdersOpen, setChangeOrdersOpen] = useState(false);
   const [fioOpen, setFioOpen] = useState(false);
   const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
-  const [crewPaymentOpen, setCrewPaymentOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -158,10 +157,15 @@ export function ClientDetail() {
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [gpHealthOpen, setGpHealthOpen] = useState<Record<string, boolean>>({});
+  const [gpHealthData, setGpHealthData] = useState<Record<string, any>>({});
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [discardReason, setDiscardReason] = useState("");
+  const [discarding, setDiscarding] = useState(false);
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopePopoverOpen, setScopePopoverOpen] = useState(false);
   const ITEMS_PER_PAGE = 10;
-  const FILES_PER_PAGE = 6;
+  const FILES_PER_PAGE = 5;
   
   // Auto-move SOLD → ACTIVE when start date has passed
   useEffect(() => {
@@ -308,6 +312,74 @@ export function ClientDetail() {
       toast.error(err.message || "Failed to update status");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!client) return;
+    setDiscarding(true);
+    try {
+      await clientsAPI.update(client.id, {
+        is_discarded: true,
+        discarded_at: new Date().toISOString(),
+        discarded_reason: discardReason.trim() || null,
+      });
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded${discardReason.trim() ? `: ${discardReason.trim()}` : ""}` }).catch(() => {});
+      toast.success("Client discarded. You can revive them anytime.");
+      setDiscardOpen(false);
+      setDiscardReason("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to discard client");
+    } finally {
+      setDiscarding(false);
+    }
+  };
+
+  const toggleGPHealth = async (projectId: string) => {
+    const isOpen = gpHealthOpen[projectId];
+    setGpHealthOpen((prev) => ({ ...prev, [projectId]: !isOpen }));
+    if (isOpen || gpHealthData[projectId]) return; // already loaded
+
+    try {
+      const receipts = await receiptsAPI.getByProject(projectId);
+      // Use accepted proposal, fall back to most recent non-declined (move-to-sold may not set "accepted")
+      const acceptedProposal =
+        clientProposals.find((p) => p.status === "accepted") ??
+        [...clientProposals]
+          .filter((p) => p.status !== "declined")
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      const lineItems = acceptedProposal?.line_items ?? [];
+      const estimateTotalCost = acceptedProposal?.total_cost ?? 0;
+
+      // Budgeted costs from proposal line items
+      const materialBudget = lineItems.reduce((s: number, li: any) =>
+        s + (parseFloat(li.material_cost) || 0) * (parseFloat(li.quantity) || 1), 0);
+      const laborBudget = lineItems.reduce((s: number, li: any) =>
+        s + (parseFloat(li.labor_cost) || 0) * (parseFloat(li.quantity) || 1), 0);
+      // If line items have no cost breakdown, distribute estimate.total_cost proportionally
+      const lineItemCostTotal = materialBudget + laborBudget;
+      const effectiveMaterialBudget = lineItemCostTotal > 0 ? materialBudget : estimateTotalCost * 0.7;
+      const effectiveLaborBudget = lineItemCostTotal > 0 ? laborBudget : estimateTotalCost * 0.3;
+
+      // Actual spend from receipts
+      const materialActual = receipts.filter((r: any) => r.category === "material")
+        .reduce((s: number, r: any) => s + (r.amount || 0), 0);
+      const laborActual = receipts.filter((r: any) => r.category === "labor")
+        .reduce((s: number, r: any) => s + (r.amount || 0), 0);
+
+      setGpHealthData((prev) => ({
+        ...prev,
+        [projectId]: {
+          materialBudget: effectiveMaterialBudget,
+          laborBudget: effectiveLaborBudget,
+          materialActual,
+          laborActual,
+          receipts,
+          isFallbackBudget: lineItemCostTotal === 0 && estimateTotalCost > 0,
+        },
+      }));
+    } catch {
+      toast.error("Failed to load financial health data");
     }
   };
 
@@ -523,6 +595,14 @@ export function ClientDetail() {
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Completed
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setDiscardOpen(true)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Archive className="h-4 w-4 mr-2" />
+              Discard Client
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -744,8 +824,18 @@ export function ClientDetail() {
                 <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">GP %</p>
-                <p className="font-semibold text-base">{(project.profitMargin ?? 0).toFixed(1)}%</p>
+                <button
+                  className="text-left group"
+                  onClick={() => toggleGPHealth(project.id)}
+                >
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    GP %
+                    <ChevronDown className={`h-3 w-3 transition-transform ${gpHealthOpen[project.id] ? "rotate-180" : ""}`} />
+                  </p>
+                  <p className="font-semibold text-base group-hover:text-primary transition-colors">
+                    {(project.profitMargin ?? 0).toFixed(1)}%
+                  </p>
+                </button>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Commission</p>
@@ -772,6 +862,114 @@ export function ClientDetail() {
                 <p className="font-medium">{project.salesRepName || "—"}</p>
               </div>
             </div>
+            {/* ── GP Health Panel ── */}
+            {gpHealthOpen[project.id] && (() => {
+              const d = gpHealthData[project.id];
+              if (!d) return (
+                <div className="border-t pt-3 flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              );
+
+              const contractValue = project.totalValue ?? 0;
+              const totalBudget = d.materialBudget + d.laborBudget;
+              const totalActual = d.materialActual + d.laborActual;
+              const liveGP = contractValue - totalActual;
+              const liveGPPct = contractValue > 0 ? (liveGP / contractValue) * 100 : 0;
+              const budgetedGP = project.grossProfit ?? 0;
+
+              const health = (actual: number, budget: number) => {
+                if (budget === 0) return "text-muted-foreground";
+                const ratio = actual / budget;
+                if (ratio <= 0.9) return "text-green-600";
+                if (ratio <= 1.0) return "text-amber-500";
+                return "text-red-600";
+              };
+              const healthBg = (actual: number, budget: number) => {
+                if (budget === 0) return "bg-gray-50";
+                const ratio = actual / budget;
+                if (ratio <= 0.9) return "bg-green-50 border-green-200";
+                if (ratio <= 1.0) return "bg-amber-50 border-amber-200";
+                return "bg-red-50 border-red-200";
+              };
+              const overUnder = (actual: number, budget: number) => {
+                if (budget === 0) return null;
+                const diff = budget - actual;
+                return diff >= 0
+                  ? <span className="text-green-600 text-xs font-medium">{formatCurrency(diff)} under budget</span>
+                  : <span className="text-red-600 text-xs font-medium">{formatCurrency(Math.abs(diff))} OVER budget</span>;
+              };
+
+              return (
+                <div className="border-t pt-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Financial Health</p>
+
+                  {/* Live GP vs Budgeted GP */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3 bg-gray-50">
+                      <p className="text-xs text-muted-foreground">Budgeted GP</p>
+                      <p className="font-bold text-base text-green-600">{formatCurrency(budgetedGP)}</p>
+                      <p className="text-xs text-muted-foreground">{(project.profitMargin ?? 0).toFixed(1)}% margin</p>
+                    </div>
+                    <div className={`border rounded-lg p-3 ${liveGP >= budgetedGP ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+                      <p className="text-xs text-muted-foreground">Live GP (based on receipts)</p>
+                      <p className={`font-bold text-base ${liveGP >= budgetedGP ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
+                        {formatCurrency(liveGP)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{liveGPPct.toFixed(1)}% margin</p>
+                    </div>
+                  </div>
+
+                  {/* Material breakdown */}
+                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(d.materialActual, d.materialBudget)}`}>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">Materials</p>
+                      {overUnder(d.materialActual, d.materialBudget)}
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.materialBudget)}</span></span>
+                      <span>Actual: <span className={`font-semibold ${health(d.materialActual, d.materialBudget)}`}>{formatCurrency(d.materialActual)}</span></span>
+                    </div>
+                    {d.materialBudget > 0 && (
+                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${d.materialActual / d.materialBudget > 1 ? "bg-red-500" : d.materialActual / d.materialBudget > 0.9 ? "bg-amber-400" : "bg-green-500"}`}
+                          style={{ width: `${Math.min((d.materialActual / d.materialBudget) * 100, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Labor breakdown */}
+                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(d.laborActual, d.laborBudget)}`}>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">Labor</p>
+                      {overUnder(d.laborActual, d.laborBudget)}
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.laborBudget)}</span></span>
+                      <span>Actual: <span className={`font-semibold ${health(d.laborActual, d.laborBudget)}`}>{formatCurrency(d.laborActual)}</span></span>
+                    </div>
+                    {d.laborBudget > 0 && (
+                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${d.laborActual / d.laborBudget > 1 ? "bg-red-500" : d.laborActual / d.laborBudget > 0.9 ? "bg-amber-400" : "bg-green-500"}`}
+                          style={{ width: `${Math.min((d.laborActual / d.laborBudget) * 100, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {totalActual === 0 && (
+                    <p className="text-xs text-muted-foreground text-center pb-1">No receipts uploaded yet. Live GP will update as you add receipts via Cost Attributions.</p>
+                  )}
+                  {d.isFallbackBudget && (
+                    <p className="text-xs text-muted-foreground text-center pb-1">* Material/labor split estimated at 70/30 — product cost breakdown not available in proposal line items.</p>
+                  )}
+                </div>
+              );
+            })()}
+
             {client.status === "active" && (() => {
               const paid = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
               const total = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
@@ -791,44 +989,36 @@ export function ClientDetail() {
       ))}
 
       {/* ── Project Actions ── */}
-      {clientProjects.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <button onClick={() => setPurchaseOrdersOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
-            <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
-            <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">Order materials</p></div>
-          </button>
-          <button onClick={() => setChangeOrdersOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
-            <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
-            <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">Scope changes</p></div>
-          </button>
-          <button onClick={() => setFioOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
-            <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0"><FileText className="h-5 w-5 text-green-600" /></div>
-            <div><p className="font-semibold text-sm">FIO</p><p className="text-xs text-muted-foreground">Crew labor schedule</p></div>
-          </button>
-          <button onClick={() => setCostAttributionsOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
-            <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
-            <div><p className="font-semibold text-sm">Cost Attributions</p><p className="text-xs text-muted-foreground">Receipts &amp; actuals</p></div>
-          </button>
-          <button onClick={() => setCrewPaymentOpen(true)} className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left">
-            <div className="h-9 w-9 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0"><Hammer className="h-5 w-5 text-rose-600" /></div>
-            <div><p className="font-semibold text-sm">Crew Payment</p><p className="text-xs text-muted-foreground">Foreman labor breakdown</p></div>
-          </button>
-          {["sold", "active", "completed"].includes(client.status) && (
-            <button
-              onClick={() => setPaymentTrackingOpen(true)}
-              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
-            >
-              <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
-                <DollarSign className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Payments</p>
-                <p className="text-xs text-muted-foreground">Monitor collections</p>
-              </div>
+      {clientProjects.length > 0 && (() => {
+        const isSold = ["sold", "active", "completed"].includes(client.status);
+        const tileClass = "flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left";
+        return (
+          <div className={`grid grid-cols-2 gap-3 ${isSold ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+            <button onClick={() => setPurchaseOrdersOpen(true)} className={tileClass}>
+              <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
+              <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">Order materials</p></div>
             </button>
-          )}
-        </div>
-      )}
+            <button onClick={() => setChangeOrdersOpen(true)} className={tileClass}>
+              <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
+              <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">Scope changes</p></div>
+            </button>
+            <button onClick={() => setFioOpen(true)} className={tileClass}>
+              <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0"><FileText className="h-5 w-5 text-green-600" /></div>
+              <div><p className="font-semibold text-sm">FIO</p><p className="text-xs text-muted-foreground">Crew labor schedule</p></div>
+            </button>
+            <button onClick={() => setCostAttributionsOpen(true)} className={tileClass}>
+              <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
+              <div><p className="font-semibold text-sm">Cost Attributions</p><p className="text-xs text-muted-foreground">Receipts &amp; actuals</p></div>
+            </button>
+            {isSold && (
+              <button onClick={() => setPaymentTrackingOpen(true)} className={tileClass}>
+                <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
+                <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Proposals ── */}
       <Card>
@@ -1404,44 +1594,43 @@ export function ClientDetail() {
                 </div>
                 {photos.length > 0 ? (
                   <>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="divide-y rounded-lg border overflow-hidden">
                       {photos
                         .slice((filesPage - 1) * FILES_PER_PAGE, filesPage * FILES_PER_PAGE)
-                        .map((photo: any) => (
-                          <div key={photo.id} className="relative group rounded-lg overflow-hidden border bg-muted">
-                            {photo.mime_type?.startsWith("image/") ? (
-                              <img
-                                src={photo.file_url}
-                                alt={photo.file_name}
-                                className="w-full h-32 object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-32 flex flex-col items-center justify-center gap-1 px-2">
-                                <FileText className="h-8 w-8 text-muted-foreground" />
-                                <span className="text-xs text-muted-foreground truncate max-w-[90%] text-center">{photo.file_name}</span>
-                              </div>
-                            )}
-                            <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {photo.mime_type?.startsWith("image/") && (
-                                <button
-                                  className="bg-black/60 hover:bg-black/80 text-white rounded-md p-1"
-                                  onClick={() => setPreviewFile({ url: photo.file_url, name: photo.file_name })}
-                                >
-                                  <Eye className="h-3.5 w-3.5" />
-                                </button>
-                              )}
+                        .map((photo: any) => {
+                          const isImage = photo.mime_type?.startsWith("image/");
+                          const isPdf = photo.mime_type === "application/pdf";
+                          return (
+                            <div key={photo.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors group">
+                              {/* File type icon */}
+                              <FileText className={`h-4 w-4 shrink-0 ${isPdf ? "text-red-500" : isImage ? "text-blue-500" : "text-muted-foreground"}`} />
+
+                              {/* Clickable file name */}
                               <button
-                                className="bg-red-500/80 hover:bg-red-600 text-white rounded-md p-1"
+                                className="flex-1 text-left text-sm font-medium truncate hover:underline"
+                                onClick={() => {
+                                  if (isImage) setPreviewFile({ url: photo.file_url, name: photo.file_name });
+                                  else window.open(photo.file_url, "_blank");
+                                }}
+                              >
+                                {photo.file_name}
+                              </button>
+
+                              {/* Date */}
+                              <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
+                                {new Date(photo.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              </span>
+
+                              {/* Delete */}
+                              <button
+                                className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                                 onClick={() => handleDeletePhoto(photo.id, photo.file_url)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>
-                            <div className="absolute bottom-0 inset-x-0 bg-black/40 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <p className="text-white text-xs truncate">{photo.file_name}</p>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                     </div>
                     {photos.length > FILES_PER_PAGE && (
                       <div className="flex items-center justify-between pt-2 border-t">
@@ -1607,6 +1796,39 @@ export function ClientDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Discard Client Dialog */}
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-destructive" />
+              Discard Client
+            </DialogTitle>
+            <DialogDescription>
+              {client?.first_name} {client?.last_name} will be discarded but not deleted. You can revive them at any time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="discard-reason">Reason (optional)</Label>
+            <Textarea
+              id="discard-reason"
+              placeholder="e.g. Not interested, budget too low, went with competitor..."
+              rows={3}
+              className="resize-none"
+              value={discardReason}
+              onChange={(e) => setDiscardReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setDiscardOpen(false); setDiscardReason(""); }}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDiscard} disabled={discarding}>
+              {discarding ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
+              Discard Client
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Purchase Orders Sheet */}
       <PurchaseOrdersSheet
         open={purchaseOrdersOpen}
@@ -1638,30 +1860,25 @@ export function ClientDetail() {
         project={clientProjects[0] ?? null}
       />
 
-      {/* Crew Payment Sheet */}
-      <CrewPaymentSheet
-        open={crewPaymentOpen}
-        onOpenChange={setCrewPaymentOpen}
-        client={client}
-        project={clientProjects[0] ?? null}
-      />
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none">
-          <button
-            className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
-            onClick={() => setPreviewFile(null)}
-          >
-            <X className="h-4 w-4" />
-          </button>
-          {previewFile && (
-            <img
-              src={previewFile.url}
-              alt={previewFile.name}
-              className="w-full max-h-[80vh] object-contain"
-            />
-          )}
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none [&>button]:hidden">
+          <div className="relative">
+            <button
+              className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
+              onClick={() => setPreviewFile(null)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {previewFile && (
+              <img
+                src={previewFile.url}
+                alt={previewFile.name}
+                className="w-full max-h-[80vh] object-contain"
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

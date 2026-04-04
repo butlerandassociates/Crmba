@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download, FileText, GitMerge, Check } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -7,6 +7,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { changeOrdersAPI } from "../api/change-orders";
+import { estimatesAPI } from "../api/estimates";
 import { toast } from "sonner";
 
 interface ChangeOrdersSheetProps {
@@ -23,6 +24,7 @@ const STATUS_CONFIG = {
   pending_client: { label: "Pending Client", className: "bg-amber-100 text-amber-700" },
   approved:       { label: "Approved",       className: "bg-green-100 text-green-700" },
   rejected:       { label: "Rejected",       className: "bg-red-100 text-red-700" },
+  merged:         { label: "Merged",         className: "bg-purple-100 text-purple-700" },
 } as const;
 
 const CATEGORIES = ["Materials", "Labor", "Equipment", "Permits", "Subcontractor", "Other"];
@@ -37,6 +39,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
   const [loading, setLoading] = useState(false);
   const [selectedCo, setSelectedCo] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [acceptedProposal, setAcceptedProposal] = useState<any>(null);
+  const [merging, setMerging] = useState(false);
 
   // Form state
   const [title, setTitle] = useState("");
@@ -57,10 +61,21 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
     }
   };
 
+  const loadAcceptedProposal = async () => {
+    if (!client?.id) return;
+    try {
+      const proposal = await estimatesAPI.getAccepted(client.id);
+      setAcceptedProposal(proposal);
+    } catch {
+      // non-fatal — banner just won't show
+    }
+  };
+
   useEffect(() => {
     if (open) {
       setView("list");
       loadCOs();
+      loadAcceptedProposal();
     }
   }, [open, client?.id]);
 
@@ -134,6 +149,23 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
     }
   };
 
+  const handleMerge = async () => {
+    if (!selectedCo) return;
+    setMerging(true);
+    try {
+      const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
+      toast.success(`Merged into proposal. New contract total: ${formatCurrency(newEstimateTotal)}`);
+      const merged = { ...selectedCo, status: "merged" };
+      setCos((prev) => prev.map((c) => c.id === selectedCo.id ? merged : c));
+      setSelectedCo(merged);
+      loadAcceptedProposal();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to merge change order");
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const addItem = () =>
     setItems((prev) => [...prev, { ...EMPTY_ITEM, id: Date.now().toString() }]);
   const removeItem = (id: string) =>
@@ -194,6 +226,17 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
           {/* ── LIST VIEW ── */}
           {view === "list" && (
             <div className="p-4 space-y-3">
+              {acceptedProposal && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                  <FileText className="h-4 w-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-800">Source of Truth — Approved Proposal</p>
+                    <p className="text-xs text-amber-700 truncate">
+                      #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
+                    </p>
+                  </div>
+                </div>
+              )}
               {!loading && cos.length > 0 && (
                 <div className="flex justify-end">
                   <Button size="sm" onClick={() => { resetForm(); setView("create"); }}>
@@ -250,6 +293,18 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
           {/* ── CREATE VIEW ── */}
           {view === "create" && (
             <div className="p-4 space-y-4">
+
+              {acceptedProposal && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                  <FileText className="h-4 w-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-800">Amending Approved Proposal</p>
+                    <p className="text-xs text-amber-700 truncate">
+                      #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Card 1: Change Order Details */}
               <Card>
@@ -453,9 +508,9 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
           {/* ── DETAIL VIEW ── */}
           {view === "detail" && selectedCo && (
             <div className="p-6 space-y-5">
-              {/* Status buttons */}
+              {/* Status buttons — merged is set via the Merge button, not manually */}
               <div className="flex flex-wrap gap-2">
-                {(["draft", "pending_client", "approved", "rejected"] as const).map((s) => {
+                {(["draft", "pending_client", "approved", "rejected"] as const).filter(() => selectedCo.status !== "merged").map((s) => {
                   const cfg = STATUS_CONFIG[s];
                   const active = selectedCo.status === s;
                   return (
@@ -518,13 +573,46 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
               )}
 
               {/* Contract Update info on detail */}
-              {contractAmount > 0 && selectedCo.cost_impact != null && (
+              {contractAmount > 0 && selectedCo.cost_impact != null && selectedCo.status !== "merged" && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-900">
                     <strong>Contract Update:</strong> Original contract amount of{" "}
                     <strong>{formatCurrency(contractAmount)}</strong> will become{" "}
                     <strong>{formatCurrency(contractAmount + (selectedCo.cost_impact || 0))}</strong>{" "}
                     if approved by client.
+                  </p>
+                </div>
+              )}
+
+              {/* Merge into Proposal — only shown when approved and not yet merged */}
+              {selectedCo.status === "approved" && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-green-800">Ready to Merge</p>
+                    <p className="text-xs text-green-700 mt-0.5">
+                      This will add the line items to the approved proposal and update the contract total by{" "}
+                      <strong>{(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}</strong>.
+                    </p>
+                  </div>
+                  <Button
+                    className="w-full bg-green-700 hover:bg-green-800 text-white"
+                    onClick={handleMerge}
+                    disabled={merging}
+                  >
+                    {merging
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <GitMerge className="h-4 w-4 mr-2" />}
+                    Merge into Proposal
+                  </Button>
+                </div>
+              )}
+
+              {/* Merged confirmation */}
+              {selectedCo.status === "merged" && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
+                  <Check className="h-4 w-4 text-purple-600 shrink-0" />
+                  <p className="text-sm text-purple-800">
+                    This change order has been merged into the approved proposal. The contract total has been updated.
                   </p>
                 </div>
               )}

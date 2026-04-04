@@ -25,9 +25,11 @@ export function LoginPage() {
     if (!email.trim() || !password) { toast.error("Email and password are required."); return; }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
-      navigate("/", { replace: true, state: { loginSuccess: true } });
+      const { data: profile } = await supabase.from("profiles").select("first_name").eq("id", data.user.id).single();
+      toast.success(`Welcome back${profile?.first_name ? `, ${profile.first_name}` : ""}!`);
+      navigate("/", { replace: true, state: {} });
     } catch (err: any) {
       toast.error(err.message || "Invalid email or password.");
     } finally {

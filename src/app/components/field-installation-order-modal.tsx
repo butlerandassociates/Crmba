@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
@@ -9,10 +9,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from "./ui/sheet";
-import { Plus, Trash2, FileDown, Loader2, Edit, Check, X } from "lucide-react";
+import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft } from "lucide-react";
 import { fioAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 interface FIOModalProps {
   open: boolean;
@@ -20,15 +22,35 @@ interface FIOModalProps {
   project: any;
 }
 
+type View = "view" | "edit" | "pay_crew";
+
 export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIOModalProps) {
+  const [view, setView] = useState<View>("view");
   const [fio, setFio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [editItems, setEditItems] = useState<any[]>([]);
   const [suggestedItems, setSuggestedItems] = useState<any[]>([]);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [units, setUnits] = useState<string[]>([]);
+
+  // Pay Crew state
+  const [completionPct, setCompletionPct] = useState<Record<string, number>>({});
+  const [crewPayments, setCrewPayments] = useState<any[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [weekEndingDate, setWeekEndingDate] = useState(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const daysUntilSunday = day === 0 ? 0 : 7 - day;
+    const d = new Date(today);
+    d.setDate(today.getDate() + daysUntilSunday);
+    return d.toISOString().split("T")[0];
+  });
+  const [payNotes, setPayNotes] = useState("");
+
+  const fioDocRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     supabase.from("units").select("name").eq("is_active", true).order("sort_order")
@@ -40,6 +62,42 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
     loadFIO();
   }, [open, project?.id]);
 
+  const loadCrewPayments = async (fioId: string) => {
+    setLoadingPayments(true);
+    try {
+      const data = await fioAPI.getCrewPayments(fioId);
+      setCrewPayments(data);
+    } catch {
+      toast.error("Failed to load payment history");
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const handleRecordPayment = async () => {
+    if (!fio) return;
+    const entries = (fio.items || [])
+      .filter((item: any) => (completionPct[item.id] || 0) > 0)
+      .map((item: any) => {
+        const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0);
+        const pct = completionPct[item.id] || 0;
+        return { fio_item_id: item.id, completion_pct: pct, amount_paid: total * (pct / 100) };
+      });
+    if (entries.length === 0) { toast.error("Enter a % for at least one item"); return; }
+    setRecording(true);
+    try {
+      await fioAPI.recordCrewPayment(fio.id, weekEndingDate, entries, payNotes);
+      toast.success("Payment recorded successfully");
+      setCompletionPct({});
+      setPayNotes("");
+      loadCrewPayments(fio.id);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to record payment");
+    } finally {
+      setRecording(false);
+    }
+  };
+
   const loadFIO = async () => {
     setLoading(true);
     try {
@@ -47,14 +105,18 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
       if (existing) {
         setFio(existing);
         setEditItems(existing.items || []);
+        // Init completion pct to 0
+        const init: Record<string, number> = {};
+        (existing.items || []).forEach((item: any) => { init[item.id] = 0; });
+        setCompletionPct(init);
+        setView("view");
       } else {
-        // No FIO yet — fetch labor items as suggestions, let admin select manually
         setFio(null);
         const items = await fetchLaborFromEstimate();
         setSuggestedItems(items);
         setCheckedIds(new Set());
         setEditItems([]);
-        setEditMode(true);
+        setView("edit");
       }
     } catch (e) {
       console.error(e);
@@ -66,17 +128,11 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
   const fetchLaborFromEstimate = async () => {
     if (!project?.client?.id) return [];
     const { data: estimates } = await supabase
-      .from("estimates")
-      .select("id")
-      .eq("client_id", project.client.id)
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .from("estimates").select("id").eq("client_id", project.client.id)
+      .order("created_at", { ascending: false }).limit(1);
     if (!estimates || estimates.length === 0) return [];
     const { data: items } = await supabase
-      .from("estimate_line_items")
-      .select("*")
-      .eq("estimate_id", estimates[0].id)
-      .gt("labor_cost", 0);
+      .from("estimate_line_items").select("*").eq("estimate_id", estimates[0].id).gt("labor_cost", 0);
     return (items || []).map((item: any, i: number) => ({
       id: `new-${i}`,
       product_name: item.product_name,
@@ -89,10 +145,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
   };
 
   const handleSave = async () => {
-    if (editItems.length === 0) {
-      toast.error("Add at least one labor item");
-      return;
-    }
+    if (editItems.length === 0) { toast.error("Add at least one labor item"); return; }
     setSaving(true);
     try {
       const items = editItems.map((item) => ({
@@ -112,7 +165,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
         );
         toast.success("Field Installation Order created");
       }
-      setEditMode(false);
+      setView("view");
       loadFIO();
     } catch (err: any) {
       toast.error(err.message || "Failed to save");
@@ -121,168 +174,136 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
     }
   };
 
-  const addItem = () => {
-    setEditItems([...editItems, { id: `new-${Date.now()}`, product_name: "", unit: "", quantity: 1, labor_cost_per_unit: 0, notes: "" }]);
+  const exportPDF = async () => {
+    if (!fioDocRef.current) return;
+    setExporting(true);
+    try {
+      const canvas = await html2canvas(fioDocRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        width: 750,
+        windowWidth: 750,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW - 20;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let y = 10;
+      if (imgH <= pageH - 20) {
+        pdf.addImage(imgData, "PNG", 10, y, imgW, imgH);
+      } else {
+        // multi-page
+        let remaining = imgH;
+        let srcY = 0;
+        while (remaining > 0) {
+          const sliceH = Math.min(remaining, pageH - 20);
+          pdf.addImage(imgData, "PNG", 10, y, imgW, imgH, undefined, "FAST", 0);
+          remaining -= sliceH;
+          srcY += sliceH;
+          if (remaining > 0) { pdf.addPage(); y = 10; }
+        }
+      }
+      const projectName = project?.name?.replace(/[^a-z0-9]/gi, "_") ?? "FIO";
+      pdf.save(`FIO_${projectName}.pdf`);
+    } catch (err) {
+      toast.error("Failed to export PDF");
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const removeItem = (idx: number) => {
-    setEditItems(editItems.filter((_, i) => i !== idx));
-  };
-
-  const updateItem = (idx: number, key: string, value: any) => {
+  const addItem = () => setEditItems([...editItems, { id: `new-${Date.now()}`, product_name: "", unit: "", quantity: 1, labor_cost_per_unit: 0, notes: "" }]);
+  const removeItem = (idx: number) => setEditItems(editItems.filter((_, i) => i !== idx));
+  const updateItem = (idx: number, key: string, value: any) =>
     setEditItems(editItems.map((item, i) => i === idx ? { ...item, [key]: value } : item));
-  };
-
-  const exportPDF = () => {
-    const items: any[] = fio?.items || [];
-    const total = items.reduce((s: number, it: any) =>
-      s + (parseFloat(it.quantity) || 0) * (parseFloat(it.labor_cost_per_unit) || 0), 0);
-    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const GOLD = "#C9A84C";
-    const BLACK = "#111111";
-    const fmt = (v: number) =>
-      new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
-
-    const rows = items.map((item: any, idx: number) => {
-      const qty = parseFloat(item.quantity) || 0;
-      const rate = parseFloat(item.labor_cost_per_unit) || 0;
-      return `<tr style="background:${idx % 2 === 0 ? "#fff" : "#f9fafb"};border-bottom:1px solid #e5e7eb;">
-        <td style="padding:10px 14px;font-size:12px;">${item.product_name}</td>
-        <td style="padding:10px 14px;text-align:center;font-size:12px;">${item.unit}</td>
-        <td style="padding:10px 14px;text-align:center;font-size:12px;">${qty.toLocaleString()}</td>
-        <td style="padding:10px 14px;text-align:right;font-size:12px;">${rate > 0 ? fmt(rate) : "—"}</td>
-        <td style="padding:10px 14px;text-align:right;font-size:12px;font-weight:600;">${fmt(qty * rate)}</td>
-      </tr>`;
-    }).join("");
-
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<title>Crew Labor Schedule — ${project.name ?? "Project"}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px 48px;}@page{margin:0;}table{border-collapse:collapse;width:100%;}</style>
-</head><body style="display:flex;flex-direction:column;min-height:100vh;">
-<div style="background:${BLACK};color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-  <div style="font-size:22px;font-weight:bold;">Butler &amp; Associates Construction</div>
-  <div style="font-size:17px;font-weight:bold;color:${GOLD};">Crew Labor Schedule</div>
-</div>
-<div style="display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:12px;border-bottom:1px solid #d1d5db;">
-  <div style="color:${GOLD};font-size:13px;">Project: ${project.name ?? "—"}</div>
-  <div style="font-size:13px;">Date: ${today}</div>
-</div>
-<div style="margin-bottom:24px;">
-  <h3 style="font-size:15px;font-weight:bold;margin-bottom:12px;">Scope 1 — ${project.name ?? "Labor Items"}</h3>
-  <table>
-    <thead>
-      <tr style="background:${BLACK};color:#fff;">
-        <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:bold;">Scope Item</th>
-        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:80px;">Unit</th>
-        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:70px;">Qty</th>
-        <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:bold;width:90px;">Rate</th>
-        <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:bold;width:110px;">Crew Pay</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows}
-      <tr>
-        <td colspan="4" style="padding:10px 14px;text-align:right;font-size:12px;color:${GOLD};font-weight:bold;border-top:1px solid #e5e7eb;">Subtotal</td>
-        <td style="padding:10px 14px;text-align:right;font-size:12px;color:${GOLD};font-weight:bold;border-top:1px solid #e5e7eb;">${fmt(total)}</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<div style="background:${BLACK};color:#fff;display:flex;justify-content:space-between;align-items:center;padding:16px 24px;margin-bottom:36px;">
-  <div style="font-size:14px;font-weight:bold;letter-spacing:0.5px;">TOTAL CREW PAYOUT</div>
-  <div style="font-size:18px;font-weight:bold;color:${GOLD};">${fmt(total)}</div>
-</div>
-${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font-size:13px;margin-bottom:8px;">Notes</div><p style="font-size:12px;line-height:1.65;color:#374151;">${fio.notes}</p></div>` : ""}
-<div style="flex:1;"></div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:48px;">
-  <div>
-    <div style="font-size:12px;margin-bottom:40px;">Butler &amp; Associates Construction</div>
-    <div style="border-bottom:1px solid #111;margin-bottom:6px;"></div>
-    <div style="font-size:11px;color:#6b7280;">Authorized Signature / Date</div>
-  </div>
-  <div>
-    <div style="font-size:12px;margin-bottom:40px;">Crew Lead / Subcontractor${project.foremanName ? ` — ${project.foremanName}` : ""}</div>
-    <div style="border-bottom:1px solid #111;margin-bottom:6px;"></div>
-    <div style="font-size:11px;color:#6b7280;">Signature / Date</div>
-  </div>
-</div>
-<div style="margin-top:48px;text-align:center;font-size:10px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:12px;">
-  Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
-</div>
-</body></html>`;
-
-    const win = window.open("", "_blank");
-    if (!win) { toast.error("Popup blocked — allow popups and try again."); return; }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    win.onload = () => { win.print(); };
-  };
 
   const formatCurrency = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
 
-  const grandTotal = (editMode ? editItems : fio?.items || []).reduce(
-    (sum: number, item: any) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0),
-    0
+  const grandTotal = (fio?.items || []).reduce(
+    (sum: number, item: any) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0), 0
   );
+
+  const editTotal = editItems.reduce(
+    (sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0), 0
+  );
+
+  // Pay crew totals
+  const weeklyPayout = (fio?.items || []).reduce((sum: number, item: any) => {
+    const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0);
+    const pct = completionPct[item.id] || 0;
+    return sum + total * (pct / 100);
+  }, 0);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-3xl flex flex-col p-0 gap-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+
+        {/* Header */}
+        <SheetHeader className="px-6 pt-5 pb-4 border-b shrink-0">
           <div className="flex items-center justify-between pr-6">
-            <div>
-              <SheetTitle>Field Installation Order</SheetTitle>
-              <SheetDescription asChild>
-                <div className="space-y-0.5 mt-1">
-                  {project?.name && project?.clientName && (
-                    <p className="text-sm text-muted-foreground">{project.name}</p>
-                  )}
-                  <p className="text-sm text-muted-foreground">{project?.foremanName || "No foreman assigned"}</p>
-                </div>
-              </SheetDescription>
+            <div className="flex items-center gap-3">
+              {view === "pay_crew" && (
+                <button onClick={() => setView("view")} className="text-muted-foreground hover:text-foreground">
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              )}
+              <div>
+                <SheetTitle>
+                  {view === "pay_crew" ? "Pay Crew — Weekly Completion" : "Field Installation Order"}
+                </SheetTitle>
+                <SheetDescription asChild>
+                  <div className="mt-0.5">
+                    <p className="text-sm text-muted-foreground">{project?.name ?? "—"}</p>
+                    {project?.foremanName && <p className="text-xs text-muted-foreground">{project.foremanName}</p>}
+                  </div>
+                </SheetDescription>
+              </div>
             </div>
-            <div className="flex gap-2">
-              {!editMode && fio && (
-                <Button variant="outline" size="sm" onClick={() => { setEditMode(true); setEditItems(fio.items || []); }}>
+
+            {/* Action buttons */}
+            {view === "view" && fio && (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); }}>
                   <Edit className="h-4 w-4 mr-1.5" /> Edit
                 </Button>
-              )}
-              {!editMode && (
-                <Button variant="outline" size="sm" onClick={exportPDF}>
-                  <FileDown className="h-4 w-4 mr-1.5" /> Export PDF
+                <Button variant="outline" size="sm" onClick={exportPDF} disabled={exporting}>
+                  {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
+                  Export PDF
                 </Button>
-              )}
-            </div>
+                <Button size="sm" onClick={() => { setView("pay_crew"); loadCrewPayments(fio.id); }}>
+                  <DollarSign className="h-4 w-4 mr-1.5" /> Pay Crew
+                </Button>
+              </div>
+            )}
           </div>
         </SheetHeader>
 
+        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : editMode ? (
+
+          ) : view === "edit" ? (
             /* ── Edit / Create Mode ── */
             <div className="space-y-4">
-              {/* Suggestions checklist — only shown when creating new FIO */}
               {!fio && suggestedItems.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Suggested labor items from proposal — select which to include:</p>
                   {suggestedItems.map((item) => {
                     const checked = checkedIds.has(item.id);
                     return (
-                      <div key={item.id} className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer transition-colors ${checked ? "bg-primary/5 border-primary/30" : "bg-muted/20"}`}
+                      <div key={item.id}
+                        className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer transition-colors ${checked ? "bg-primary/5 border-primary/30" : "bg-muted/20"}`}
                         onClick={() => {
                           const next = new Set(checkedIds);
-                          if (checked) {
-                            next.delete(item.id);
-                            setEditItems(editItems.filter((e) => e.id !== item.id));
-                          } else {
-                            next.add(item.id);
-                            setEditItems([...editItems, { ...item }]);
-                          }
+                          if (checked) { next.delete(item.id); setEditItems(editItems.filter((e) => e.id !== item.id)); }
+                          else { next.add(item.id); setEditItems([...editItems, { ...item }]); }
                           setCheckedIds(next);
                         }}
                       >
@@ -298,7 +319,6 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
               {!fio && suggestedItems.length === 0 && (
                 <p className="text-sm text-muted-foreground">No labor items found in the proposal. Add items manually below.</p>
               )}
-              {/* Selected / manual items — editable table */}
               {editItems.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm border-collapse">
@@ -318,11 +338,7 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
                             <Input value={item.product_name} onChange={(e) => updateItem(idx, "product_name", e.target.value)} className="h-8 text-sm" placeholder="e.g., Labor — Concrete Pour" />
                           </td>
                           <td className="px-2 py-1.5">
-                            <select
-                              value={item.unit}
-                              onChange={(e) => updateItem(idx, "unit", e.target.value)}
-                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            >
+                            <select value={item.unit} onChange={(e) => updateItem(idx, "unit", e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm">
                               <option value="">—</option>
                               {units.map((u) => <option key={u} value={u}>{u}</option>)}
                             </select>
@@ -348,9 +364,9 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
                 <Plus className="h-4 w-4 mr-1.5" /> Add Item
               </Button>
               <div className="flex items-center justify-between pt-2 border-t">
-                <span className="font-semibold text-sm">Grand Total: {formatCurrency(grandTotal)}</span>
+                <span className="font-semibold text-sm">Total: {formatCurrency(editTotal)}</span>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => { setEditMode(false); if (!fio) onOpenChange(false); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setView("view"); if (!fio) onOpenChange(false); }}>
                     <X className="h-4 w-4 mr-1.5" /> Cancel
                   </Button>
                   <Button size="sm" onClick={handleSave} disabled={saving}>
@@ -360,17 +376,164 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
                 </div>
               </div>
             </div>
-          ) : (
-            /* ── View Mode — matches Butler Crew Labor Schedule PDF design ── */
-            <div className="bg-white space-y-5 font-sans text-[13px]">
 
-              {/* Black header bar */}
-              <div className="flex items-center justify-between bg-[#111111] text-white px-6 py-4 -mx-0 rounded-sm">
-                <span className="text-[18px] font-bold">Butler &amp; Associates Construction</span>
-                <span className="text-[15px] font-bold text-[#C9A84C]">Crew Labor Schedule</span>
+          ) : view === "pay_crew" ? (
+            /* ── Pay Crew ── */
+            <div className="space-y-5">
+
+              {/* Week ending date */}
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium shrink-0">Week Ending</label>
+                <input
+                  type="date"
+                  value={weekEndingDate}
+                  onChange={(e) => setWeekEndingDate(e.target.value)}
+                  className="h-8 rounded-md border border-input bg-background px-3 text-sm"
+                />
               </div>
 
-              {/* Project / Date row */}
+              {/* Line items table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-gray-900 text-white text-xs font-semibold">
+                  <div className="col-span-4">Scope Item</div>
+                  <div className="col-span-2 text-center">Total Pay</div>
+                  <div className="col-span-2 text-center">Paid to Date</div>
+                  <div className="col-span-2 text-center">This Week %</div>
+                  <div className="col-span-2 text-right">This Week $</div>
+                </div>
+                {(fio?.items || []).map((item: any, idx: number) => {
+                  const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0);
+                  const paidPct = crewPayments
+                    .filter((p) => p.fio_item_id === item.id)
+                    .reduce((s, p) => s + (p.completion_pct || 0), 0);
+                  const paidAmt = crewPayments
+                    .filter((p) => p.fio_item_id === item.id)
+                    .reduce((s, p) => s + (p.amount_paid || 0), 0);
+                  const remainingPct = Math.max(0, 100 - paidPct);
+                  const pct = completionPct[item.id] || 0;
+                  const weekAmt = total * (pct / 100);
+                  return (
+                    <div key={item.id} className={`border-t ${idx % 2 === 0 ? "bg-white" : "bg-muted/20"}`}>
+                      <div className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm">
+                        <div className="col-span-4 font-medium truncate">{item.product_name}</div>
+                        <div className="col-span-2 text-center text-xs text-muted-foreground">{formatCurrency(total)}</div>
+                        <div className="col-span-2 text-center">
+                          <span className={`text-xs font-semibold ${paidPct >= 100 ? "text-green-600" : paidPct > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
+                            {paidPct.toFixed(0)}% · {formatCurrency(paidAmt)}
+                          </span>
+                        </div>
+                        <div className="col-span-2 text-center">
+                          {paidPct >= 100 ? (
+                            <span className="text-xs text-green-600 font-medium">Fully paid</span>
+                          ) : (
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={remainingPct}
+                                className="h-8 text-sm text-center pr-5"
+                                value={pct || ""}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const val = Math.min(remainingPct, Math.max(0, parseFloat(e.target.value) || 0));
+                                  setCompletionPct((prev) => ({ ...prev, [item.id]: val }));
+                                }}
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">%</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className={`col-span-2 text-right font-semibold ${weekAmt > 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                          {formatCurrency(weekAmt)}
+                        </div>
+                      </div>
+                      {/* Cumulative progress bar */}
+                      <div className="px-4 pb-2">
+                        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full transition-all"
+                            style={{ width: `${Math.min(paidPct + pct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <input
+                  type="text"
+                  placeholder="Notes (optional)"
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                  className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                />
+              </div>
+
+              {/* Payout total + Record button */}
+              <div className="flex items-center justify-between bg-gray-900 text-white rounded-lg px-5 py-4">
+                <span className="font-bold tracking-wide text-sm">WEEKLY CREW PAYOUT</span>
+                <span className="text-lg font-bold text-[#C9A84C]">{formatCurrency(weeklyPayout)}</span>
+              </div>
+
+              <Button
+                className="w-full bg-black hover:bg-gray-800 text-white"
+                onClick={handleRecordPayment}
+                disabled={recording || weeklyPayout === 0}
+              >
+                {recording ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <DollarSign className="h-4 w-4 mr-2" />}
+                Record Payment
+              </Button>
+
+              {/* Payment history */}
+              {loadingPayments ? (
+                <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+              ) : crewPayments.length > 0 && (() => {
+                // Group by week_ending_date
+                const weeks = [...new Set(crewPayments.map((p) => p.week_ending_date))];
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment History</p>
+                    {weeks.map((week) => {
+                      const weekEntries = crewPayments.filter((p) => p.week_ending_date === week);
+                      const weekTotal = weekEntries.reduce((s, p) => s + (p.amount_paid || 0), 0);
+                      const recorder = weekEntries[0]?.paidBy;
+                      return (
+                        <div key={week} className="border rounded-lg overflow-hidden opacity-75">
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-muted/40 text-xs font-semibold">
+                            <span>Week ending {new Date(week + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                            <div className="flex items-center gap-3">
+                              {recorder && <span className="text-muted-foreground">by {recorder.first_name} {recorder.last_name}</span>}
+                              <span className="text-green-700">{formatCurrency(weekTotal)}</span>
+                            </div>
+                          </div>
+                          {weekEntries.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between px-4 py-1.5 text-xs border-t text-muted-foreground">
+                              <span>{p.fio_item_id ? (fio?.items || []).find((i: any) => i.id === p.fio_item_id)?.product_name ?? "—" : "—"}</span>
+                              <span>{p.completion_pct}% · {formatCurrency(p.amount_paid)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+          ) : (
+            /* ── View Mode — compact document ── */
+            <div ref={fioDocRef} style={{ width: "100%", maxWidth: 750, margin: "0 auto" }} className="bg-white space-y-5 font-sans text-[13px]">
+
+              {/* Black header */}
+              <div className="flex items-center justify-between bg-[#111111] text-white px-6 py-4 rounded-sm">
+                <span className="text-[16px] font-bold">Butler &amp; Associates Construction</span>
+                <span className="text-[13px] font-bold text-[#C9A84C]">Crew Labor Schedule</span>
+              </div>
+
+              {/* Project / Date */}
               <div className="flex items-center justify-between border-b border-gray-300 pb-3">
                 <span className="text-[#C9A84C] text-sm">Project: {project?.name ?? "—"}</span>
                 <span className="text-sm text-gray-700">
@@ -381,17 +544,15 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
 
               {/* Scope heading */}
               <div>
-                <h3 className="text-[14px] font-bold mb-3">Scope 1 — {project?.name ?? "Labor Items"}</h3>
-
-                {/* Table */}
+                <h3 className="text-[13px] font-bold mb-3">Scope 1 — {project?.name ?? "Labor Items"}</h3>
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="bg-[#111111] text-white">
-                      <th className="py-2.5 px-3 text-left font-semibold">Scope Item</th>
-                      <th className="py-2.5 px-3 text-center font-semibold w-16">Unit</th>
-                      <th className="py-2.5 px-3 text-center font-semibold w-14">Qty</th>
-                      <th className="py-2.5 px-3 text-right font-semibold w-20">Rate</th>
-                      <th className="py-2.5 px-3 text-right font-semibold w-24">Crew Pay</th>
+                      <th className="py-2 px-3 text-left font-semibold">Scope Item</th>
+                      <th className="py-2 px-3 text-center font-semibold w-14">Unit</th>
+                      <th className="py-2 px-3 text-center font-semibold w-12">Qty</th>
+                      <th className="py-2 px-3 text-right font-semibold w-20">Rate</th>
+                      <th className="py-2 px-3 text-right font-semibold w-22">Crew Pay</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -400,30 +561,28 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
                       const rate = parseFloat(item.labor_cost_per_unit) || 0;
                       return (
                         <tr key={item.id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                          <td className="py-2.5 px-3">{item.product_name}</td>
-                          <td className="py-2.5 px-3 text-center">{item.unit}</td>
-                          <td className="py-2.5 px-3 text-center">{qty.toLocaleString()}</td>
-                          <td className="py-2.5 px-3 text-right">{rate > 0 ? formatCurrency(rate) : "—"}</td>
-                          <td className="py-2.5 px-3 text-right font-semibold">{formatCurrency(qty * rate)}</td>
+                          <td className="py-2 px-3">{item.product_name}</td>
+                          <td className="py-2 px-3 text-center">{item.unit}</td>
+                          <td className="py-2 px-3 text-center">{qty.toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right">{rate > 0 ? formatCurrency(rate) : "—"}</td>
+                          <td className="py-2 px-3 text-right font-semibold">{formatCurrency(qty * rate)}</td>
                         </tr>
                       );
                     })}
-                    {/* Subtotal row */}
                     <tr>
-                      <td colSpan={4} className="py-2.5 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-200">Subtotal</td>
-                      <td className="py-2.5 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-200">{formatCurrency(grandTotal)}</td>
+                      <td colSpan={4} className="py-2 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-200">Subtotal</td>
+                      <td className="py-2 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-200">{formatCurrency(grandTotal)}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              {/* Total payout bar */}
-              <div className="flex items-center justify-between bg-[#111111] text-white px-6 py-4 rounded-sm">
+              {/* Total bar */}
+              <div className="flex items-center justify-between bg-[#111111] text-white px-6 py-3 rounded-sm">
                 <span className="text-sm font-bold tracking-wide">TOTAL CREW PAYOUT</span>
-                <span className="text-lg font-bold text-[#C9A84C]">{formatCurrency(grandTotal)}</span>
+                <span className="text-base font-bold text-[#C9A84C]">{formatCurrency(grandTotal)}</span>
               </div>
 
-              {/* Notes */}
               {fio?.notes && (
                 <div>
                   <div className="font-bold text-sm mb-1">Notes</div>
@@ -432,7 +591,7 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
               )}
 
               {/* Signatures */}
-              <div className="grid grid-cols-2 gap-10 pt-4 border-t border-gray-300 mt-4">
+              <div className="grid grid-cols-2 gap-10 pt-4 border-t border-gray-300">
                 <div>
                   <div className="text-xs mb-8">Butler &amp; Associates Construction</div>
                   <div className="border-b border-gray-800 mb-1" />

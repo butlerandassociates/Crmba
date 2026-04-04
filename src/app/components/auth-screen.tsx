@@ -7,6 +7,7 @@ import { Building2, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { toast } from "sonner";
 import { projectId, publicAnonKey } from "utils/supabase/info";
+import { supabase } from "@/lib/supabase";
 
 export function AuthScreen() {
   const { signIn } = useAuth();
@@ -22,7 +23,9 @@ export function AuthScreen() {
     setLoading(true);
     try {
       await signIn(email, password);
-      toast.success("Welcome back!");
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: profile } = user ? await supabase.from("profiles").select("first_name").eq("id", user.id).single() : { data: null };
+      toast.success(`Welcome back${profile?.first_name ? `, ${profile.first_name}` : ""}!`);
     } catch (error: any) {
       console.error("Login error:", error);
       toast.error(error.message || "Failed to sign in");

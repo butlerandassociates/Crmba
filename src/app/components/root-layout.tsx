@@ -81,7 +81,7 @@ export function RootLayout() {
   // Show login success toast once after redirect from login
   useEffect(() => {
     if (location.state?.loginSuccess) {
-      toast.success("Signed in successfully. Welcome back!");
+      // toast handled in login-page.tsx with user's first name
       navigate(location.pathname, { replace: true, state: {} });
     }
     if (location.state?.passwordSet) {

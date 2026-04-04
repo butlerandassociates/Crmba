@@ -122,6 +122,20 @@ export const estimatesAPI = {
     }
   },
 
+  /** Get the single accepted/approved proposal for a client (source of truth) */
+  getAccepted: async (client_id: string) => {
+    const { data, error } = await supabase
+      .from("estimates")
+      .select("id, estimate_number, title, total, accepted_at")
+      .eq("client_id", client_id)
+      .eq("status", "accepted")
+      .order("accepted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
   /** Delete estimate and all related records (cascade) */
   delete: async (id: string) => {
     const { error } = await supabase.from("estimates").delete().eq("id", id);

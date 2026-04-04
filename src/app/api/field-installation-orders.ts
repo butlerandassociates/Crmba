@@ -67,6 +67,42 @@ export const fioAPI = {
     }
   },
 
+  /** Record a weekly crew payment batch */
+  recordCrewPayment: async (
+    fio_id: string,
+    week_ending_date: string,
+    entries: { fio_item_id: string; completion_pct: number; amount_paid: number }[],
+    notes?: string
+  ) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from("fio_crew_payments")
+      .insert(
+        entries.map((e) => ({
+          fio_id,
+          fio_item_id: e.fio_item_id,
+          week_ending_date,
+          completion_pct: e.completion_pct,
+          amount_paid: e.amount_paid,
+          paid_by: user?.id,
+          notes: notes || null,
+        }))
+      );
+    if (error) throw new Error(error.message);
+  },
+
+  /** Get all crew payment history for an FIO */
+  getCrewPayments: async (fio_id: string) => {
+    const { data, error } = await supabase
+      .from("fio_crew_payments")
+      .select("*, paidBy:profiles!fio_crew_payments_paid_by_fkey(first_name, last_name)")
+      .eq("fio_id", fio_id)
+      .order("week_ending_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
   /** Delete an FIO and all its items (cascade) */
   delete: async (id: string) => {
     const { error } = await supabase.from("field_installation_orders").delete().eq("id", id);
