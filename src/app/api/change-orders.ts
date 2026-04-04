@@ -19,7 +19,7 @@ export const changeOrdersAPI = {
 
   /** Create a CO with items */
   create: async (
-    co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string },
+    co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string; status?: string },
     items: { category: string; description: string; quantity: number; unit_price: number; total: number }[]
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
