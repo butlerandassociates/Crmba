@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, FileText, ChevronLeft, Loader2, ClipboardEdit } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -25,7 +26,7 @@ const STATUS_CONFIG = {
 } as const;
 
 const CATEGORIES = ["Materials", "Labor", "Equipment", "Permits", "Subcontractor", "Other"];
-const EMPTY_ITEM = { category: "Materials", description: "", quantity: 1, unit_price: 0, total: 0 };
+const EMPTY_ITEM = { id: "", category: "Materials", description: "", quantity: 1, unit_price: 0, total: 0 };
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
@@ -41,7 +42,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [timelineImpact, setTimelineImpact] = useState("");
-  const [items, setItems] = useState([{ ...EMPTY_ITEM }]);
+  const [items, setItems] = useState([{ ...EMPTY_ITEM, id: "1" }]);
 
   const loadCOs = async () => {
     if (!client?.id) return;
@@ -49,7 +50,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
     try {
       const data = await changeOrdersAPI.getByClient(client.id);
       setCos(data);
-    } catch (err: any) {
+    } catch {
       toast.error("Failed to load change orders");
     } finally {
       setLoading(false);
@@ -63,16 +64,33 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
     }
   }, [open, client?.id]);
 
+  // Validation errors
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const resetForm = () => {
     setTitle("");
     setReason("");
     setTimelineImpact("");
-    setItems([{ ...EMPTY_ITEM }]);
+    setItems([{ ...EMPTY_ITEM, id: "1" }]);
+    setErrors({});
   };
 
-  const handleCreate = async () => {
-    if (!title.trim()) { toast.error("Title is required"); return; }
-    if (!reason.trim()) { toast.error("Reason is required"); return; }
+  const handleCreate = async (sendToClient = false) => {
+    const newErrors: Record<string, string> = {};
+
+    if (!title.trim())
+      newErrors.title = "Title is required";
+    if (!reason.trim())
+      newErrors.reason = "Reason for change is required";
+    if (sendToClient && !items.some((i) => i.description.trim()))
+      newErrors.items = "At least one line item is required before sending to client";
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setErrors({});
 
     setSaving(true);
     try {
@@ -83,13 +101,18 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
           title: title.trim(),
           reason: reason.trim(),
           timeline_impact: timelineImpact || undefined,
+          status: sendToClient ? "pending_client" : "draft",
         },
         items.filter((i) => i.description.trim()).map((item, i) => ({
-          ...item,
+          category: item.category,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total: item.total,
           sort_order: i,
         }))
       );
-      toast.success("Change order created");
+      toast.success(sendToClient ? "Change order sent to client portal" : "Change order saved as draft");
       resetForm();
       setView("list");
       loadCOs();
@@ -111,34 +134,38 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
     }
   };
 
-  const addItem = () => setItems((prev) => [...prev, { ...EMPTY_ITEM }]);
-  const removeItem = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
-  const updateItem = (i: number, key: string, value: any) =>
+  const addItem = () =>
+    setItems((prev) => [...prev, { ...EMPTY_ITEM, id: Date.now().toString() }]);
+  const removeItem = (id: string) =>
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  const updateItem = (id: string, key: string, value: any) =>
     setItems((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== i) return item;
+      prev.map((item) => {
+        if (item.id !== id) return item;
         const updated = { ...item, [key]: value };
         if (key === "quantity" || key === "unit_price") {
-          updated.total = (Number(key === "quantity" ? value : updated.quantity) || 0) *
-                          (Number(key === "unit_price" ? value : updated.unit_price) || 0);
+          updated.total =
+            (Number(key === "quantity" ? value : updated.quantity) || 0) *
+            (Number(key === "unit_price" ? value : updated.unit_price) || 0);
         }
         return updated;
       })
     );
 
   const totalCostImpact = items.reduce((s, i) => s + (i.total || 0), 0);
+  const contractAmount = project?.total_value || 0;
+  const newContractAmount = contractAmount + totalCostImpact;
 
   const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
     return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
+  const canSend = title.trim() && reason.trim() && items.some((i) => i.description.trim());
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-2xl flex flex-col p-0 gap-0"
-      >
+      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
         {/* Header */}
         <SheetHeader className="px-6 py-4 border-b">
           <div className="flex items-center gap-3">
@@ -163,6 +190,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
+
           {/* ── LIST VIEW ── */}
           {view === "list" && (
             <div className="p-4 space-y-3">
@@ -204,8 +232,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
                             </div>
                             <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
                           </div>
-                          <div className={`text-sm font-bold shrink-0 ${co.cost_impact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {co.cost_impact >= 0 ? "+" : ""}{formatCurrency(co.cost_impact)}
+                          <div className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
                           </div>
                         </div>
                       </button>
@@ -218,117 +246,204 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
 
           {/* ── CREATE VIEW ── */}
           {view === "create" && (
-            <div className="p-6 space-y-5">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Title <span className="text-destructive">*</span></Label>
-                <Input
-                  placeholder="e.g. Kitchen Island Extension"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
+            <div className="p-4 space-y-4">
 
-              <div className="space-y-1.5">
-                <Label className="text-sm">Reason for Change <span className="text-destructive">*</span></Label>
-                <Textarea
-                  placeholder="Explain why this change is being requested — visible to client"
-                  rows={3}
-                  className="resize-none"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-              </div>
+              {/* Card 1: Change Order Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Change Order Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="co-title">Title *</Label>
+                    <Input
+                      id="co-title"
+                      placeholder="e.g. Kitchen Island Extension"
+                      value={title}
+                      className={errors.title ? "border-destructive" : ""}
+                      onChange={(e) => { setTitle(e.target.value); setErrors((p) => ({ ...p, title: "" })); }}
+                    />
+                    {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
+                  </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-sm">Timeline Impact</Label>
-                <Input
-                  placeholder="e.g. +5 days, No change"
-                  value={timelineImpact}
-                  onChange={(e) => setTimelineImpact(e.target.value)}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="co-reason">Reason for Change *</Label>
+                    <Textarea
+                      id="co-reason"
+                      placeholder="Explain why this change is being requested..."
+                      rows={4}
+                      className={`resize-none ${errors.reason ? "border-destructive" : ""}`}
+                      value={reason}
+                      onChange={(e) => { setReason(e.target.value); setErrors((p) => ({ ...p, reason: "" })); }}
+                    />
+                    {errors.reason
+                      ? <p className="text-xs text-destructive">{errors.reason}</p>
+                      : <p className="text-xs text-muted-foreground">This will be visible to the client on the change order</p>
+                    }
+                  </div>
 
-              {/* Line Items */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">Cost Breakdown</Label>
-                  <button onClick={addItem} className="text-xs text-primary hover:underline flex items-center gap-1">
-                    <Plus className="h-3.5 w-3.5" />
-                    Add item
-                  </button>
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="co-timeline">Timeline Impact</Label>
+                    <Input
+                      id="co-timeline"
+                      placeholder="e.g. +5 days, No change, -2 days"
+                      value={timelineImpact}
+                      onChange={(e) => setTimelineImpact(e.target.value)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
 
-                <div className="space-y-2">
-                  {items.map((item, i) => (
-                    <div key={i} className="border rounded-lg p-3 bg-muted/20 space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Category</Label>
+              {/* Card 2: Cost Breakdown */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Cost Breakdown</CardTitle>
+                    <Button variant="outline" size="sm" onClick={addItem}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Line Item
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {items.map((item, index) => (
+                    <div key={item.id} className="border rounded-lg p-4 space-y-4 bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-sm">Line Item {index + 1}</span>
+                        {items.length > 1 && (
+                          <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)}>
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Category</Label>
                           <select
-                            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                            className="w-full px-3 py-2 border rounded-md text-sm"
                             value={item.category}
-                            onChange={(e) => updateItem(i, "category", e.target.value)}
+                            onChange={(e) => updateItem(item.id, "category", e.target.value)}
                           >
                             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                           </select>
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Description</Label>
+                        <div className="space-y-2">
+                          <Label>Description</Label>
                           <Input
-                            className="h-8 text-xs"
-                            placeholder="Describe the change"
+                            placeholder="e.g. Additional granite countertop"
                             value={item.description}
-                            onChange={(e) => updateItem(i, "description", e.target.value)}
+                            onChange={(e) => updateItem(item.id, "description", e.target.value)}
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 items-end">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Qty</Label>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label>Quantity</Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            min="0"
+                            step="0.01"
                             value={item.quantity}
-                            min={0}
-                            step="0.01"
-                            onChange={(e) => updateItem(i, "quantity", parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Unit Price ($)</Label>
+                        <div className="space-y-2">
+                          <Label>Unit Price ($)</Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
-                            value={item.unit_price}
-                            min={0}
+                            min="0"
                             step="0.01"
-                            onChange={(e) => updateItem(i, "unit_price", parseFloat(e.target.value) || 0)}
+                            value={item.unit_price}
+                            onChange={(e) => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)}
                           />
                         </div>
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1 h-8 px-2 border rounded-md bg-background text-xs flex items-center font-semibold">
-                            {formatCurrency(item.total)}
+                        <div className="space-y-2">
+                          <Label>Total</Label>
+                          <div className="px-3 py-2 border rounded-md bg-white font-semibold text-sm">
+                            ${item.total.toFixed(2)}
                           </div>
-                          <button
-                            onClick={() => removeItem(i)}
-                            disabled={items.length === 1}
-                            className="text-muted-foreground hover:text-destructive h-8 flex items-center"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
                         </div>
                       </div>
                     </div>
                   ))}
-                </div>
 
-                <div className="border-t pt-3 flex justify-between items-center">
-                  <span className="text-sm font-medium text-muted-foreground">Total Cost Impact</span>
-                  <span className={`text-lg font-bold ${totalCostImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {totalCostImpact >= 0 ? "+" : ""}{formatCurrency(totalCostImpact)}
-                  </span>
-                </div>
-              </div>
+                  {/* Total Cost Impact */}
+                  <div className="border-t pt-4 mt-2">
+                    <div className="flex justify-between items-center bg-gray-100 p-4 rounded-lg">
+                      <span className="font-semibold text-lg">Total Cost Impact:</span>
+                      <span className={`text-2xl font-bold ${totalCostImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {totalCostImpact >= 0 ? "+" : ""}${totalCostImpact.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Contract Update Banner */}
+                  {contractAmount > 0 && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-900">
+                        <strong>Contract Update:</strong> Original contract amount of{" "}
+                        <strong>{formatCurrency(contractAmount)}</strong> will become{" "}
+                        <strong>{formatCurrency(newContractAmount)}</strong>{" "}
+                        if approved by client.
+                      </p>
+                    </div>
+                  )}
+                  {errors.items && <p className="text-xs text-destructive">{errors.items}</p>}
+                </CardContent>
+              </Card>
+
+              {/* Card 3: Submit Change Order */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Submit Change Order</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Choose how you want to send this change order to the client for approval:
+                  </p>
+
+                  <div className="space-y-3">
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      disabled={saving || !title.trim() || !reason.trim()}
+                      onClick={() => handleCreate(false)}
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                      Save as Draft
+                      <span className="ml-auto text-xs text-muted-foreground">Save for later without sending</span>
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      disabled={saving || !title.trim() || !reason.trim()}
+                      onClick={() => toast.info("PDF export will be available soon")}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export as PDF Proposal
+                      <span className="ml-auto text-xs text-muted-foreground">Print or email manually</span>
+                    </Button>
+
+                    <Button
+                      className="w-full justify-start bg-black hover:bg-gray-800"
+                      disabled={saving || !canSend}
+                      onClick={() => handleCreate(true)}
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                      Send to Client Portal
+                      <span className="ml-auto text-xs text-gray-300">Client receives text/email notification</span>
+                    </Button>
+                  </div>
+
+                  {!canSend && (
+                    <p className="text-xs text-destructive">* Please fill in all required fields before sending to client</p>
+                  )}
+                </CardContent>
+              </Card>
+
             </div>
           )}
 
@@ -345,9 +460,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
                       key={s}
                       onClick={() => handleStatusUpdate(selectedCo.id, s)}
                       className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
-                        active
-                          ? `${cfg.className} border-transparent`
-                          : "bg-background text-muted-foreground border-border hover:bg-accent"
+                        active ? `${cfg.className} border-transparent` : "bg-background text-muted-foreground border-border hover:bg-accent"
                       }`}
                     >
                       {cfg.label}
@@ -375,29 +488,41 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Cost Breakdown</p>
                   <div className="border rounded-lg overflow-hidden">
-                    <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
-                      <div className="col-span-4">Category</div>
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-900 text-xs font-semibold text-white">
+                      <div className="col-span-3">Category</div>
                       <div className="col-span-4">Description</div>
-                      <div className="col-span-2 text-right">Qty × Price</div>
+                      <div className="col-span-3 text-right">Qty × Price</div>
                       <div className="col-span-2 text-right">Total</div>
                     </div>
                     {(selectedCo.items || []).map((item: any, i: number) => (
                       <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2.5 border-t text-sm items-center">
-                        <div className="col-span-4 text-muted-foreground text-xs">{item.category}</div>
+                        <div className="col-span-3 text-muted-foreground text-xs">{item.category}</div>
                         <div className="col-span-4 font-medium">{item.description}</div>
-                        <div className="col-span-2 text-right text-xs text-muted-foreground">
+                        <div className="col-span-3 text-right text-xs text-muted-foreground">
                           {item.quantity} × {formatCurrency(item.unit_price)}
                         </div>
                         <div className="col-span-2 text-right font-semibold">{formatCurrency(item.total)}</div>
                       </div>
                     ))}
                     <div className="px-3 py-3 border-t bg-muted/30 flex justify-between">
-                      <span className="text-sm font-medium">Total Impact</span>
-                      <span className={`text-sm font-bold ${selectedCo.cost_impact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {selectedCo.cost_impact >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact)}
+                      <span className="text-sm font-semibold">Total Cost Impact</span>
+                      <span className={`text-sm font-bold ${(selectedCo.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}
                       </span>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Contract Update info on detail */}
+              {contractAmount > 0 && selectedCo.cost_impact != null && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-900">
+                    <strong>Contract Update:</strong> Original contract amount of{" "}
+                    <strong>{formatCurrency(contractAmount)}</strong> will become{" "}
+                    <strong>{formatCurrency(contractAmount + (selectedCo.cost_impact || 0))}</strong>{" "}
+                    if approved by client.
+                  </p>
                 </div>
               )}
 
@@ -406,16 +531,6 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
           )}
         </div>
 
-        {/* Footer */}
-        {view === "create" && (
-          <div className="px-6 py-4 border-t flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setView("list")}>Cancel</Button>
-            <Button size="sm" disabled={saving || !title.trim() || !reason.trim()} onClick={handleCreate}>
-              {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileText className="h-4 w-4 mr-1.5" />}
-              Save as Draft
-            </Button>
-          </div>
-        )}
       </SheetContent>
     </Sheet>
   );
