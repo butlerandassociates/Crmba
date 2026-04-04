@@ -274,12 +274,14 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project }: Pur
             {/* ── LIST VIEW ── */}
             {view === "list" && (
               <div className="p-4 space-y-3">
-                <div className="flex justify-end">
-                  <Button size="sm" onClick={() => { resetForm(); setView("create"); }}>
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    New PO
-                  </Button>
-                </div>
+                {!loading && pos.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => { resetForm(); setView("create"); }}>
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      New PO
+                    </Button>
+                  </div>
+                )}
 
                 {loading ? (
                   <div className="flex items-center justify-center py-12">
@@ -288,7 +290,8 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project }: Pur
                 ) : pos.length === 0 ? (
                   <div className="text-center py-16">
                     <Package className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-                    <p className="text-sm text-muted-foreground">No purchase orders yet</p>
+                    <p className="text-sm font-medium">No purchase orders yet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Create your first PO for this project</p>
                     <Button size="sm" className="mt-4" onClick={() => { resetForm(); setView("create"); }}>
                       <Plus className="h-4 w-4 mr-1.5" />
                       Create First PO
