@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabase";
 
 export function Dashboard() {
   const [weather, setWeather] = useState({ temp: 72, condition: 'Sunny' });
+  const [firstName, setFirstName] = useState("");
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [collections, setCollections] = useState<any[]>([]);
@@ -40,6 +41,11 @@ export function Dashboard() {
   useEffect(() => {
     fetchData();
     fetchWeather();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase.from("profiles").select("first_name").eq("id", user.id).single()
+        .then(({ data }) => { if (data?.first_name) setFirstName(data.first_name); });
+    });
   }, []);
 
   const fetchWeather = () => {
@@ -255,8 +261,8 @@ export function Dashboard() {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Welcome back!</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for today.</p>
+          <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-2 bg-card border rounded-lg">
           {getWeatherIcon()}
