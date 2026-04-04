@@ -20,6 +20,7 @@ export { activityLogAPI }                                from "../api/activity-l
 export { estimateTemplatesAPI }                          from "../api/estimate-templates";
 export { fioAPI }                                        from "../api/field-installation-orders";
 export { purchaseOrdersAPI }                             from "../api/purchase-orders";
+export { changeOrdersAPI }                               from "../api/change-orders";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";

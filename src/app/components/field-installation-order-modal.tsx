@@ -3,12 +3,12 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "./ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "./ui/sheet";
 import { Plus, Trash2, FileDown, Loader2, Edit, Check, X } from "lucide-react";
 import { fioAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -228,20 +228,20 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] flex flex-col p-0" style={{ width: "95vw", maxWidth: "95vw" }}>
-        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-3xl flex flex-col p-0 gap-0">
+        <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <div className="flex items-center justify-between pr-6">
             <div>
-              <DialogTitle>Field Installation Order</DialogTitle>
-              <DialogDescription asChild>
+              <SheetTitle>Field Installation Order</SheetTitle>
+              <SheetDescription asChild>
                 <div className="space-y-0.5 mt-1">
                   {project?.name && project?.clientName && (
                     <p className="text-sm text-muted-foreground">{project.name}</p>
                   )}
                   <p className="text-sm text-muted-foreground">{project?.foremanName || "No foreman assigned"}</p>
                 </div>
-              </DialogDescription>
+              </SheetDescription>
             </div>
             <div className="flex gap-2">
               {!editMode && fio && (
@@ -256,7 +256,7 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
               )}
             </div>
           </div>
-        </DialogHeader>
+        </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {loading ? (
@@ -452,7 +452,7 @@ ${fio?.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;fo
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

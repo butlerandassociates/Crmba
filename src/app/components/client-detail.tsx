@@ -31,6 +31,8 @@ import {
   History,
   Plus,
   Hammer,
+  Package,
+  ClipboardEdit,
 } from "lucide-react";
 import {
   Dialog,
@@ -64,6 +66,12 @@ import { Textarea } from "./ui/textarea";
 import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
 import { AppointmentDialog } from "./appointment-dialog";
+import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
+import { ChangeOrdersSheet } from "./change-orders-sheet";
+import { CostAttributionsSheet } from "./cost-attributions-sheet";
+import { CrewPaymentSheet } from "./crew-payment-sheet";
+import { FieldInstallationOrderModal } from "./field-installation-order-modal";
+import { Progress } from "./ui/progress";
 import { toast } from "sonner";
 
 export function ClientDetail() {
@@ -73,9 +81,6 @@ export function ClientDetail() {
   const [error, setError] = useState<string | null>(null);
   const [clientProjects, setClientProjects] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
-  const [showNewProject, setShowNewProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
@@ -129,6 +134,11 @@ export function ClientDetail() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
+  const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
+  const [changeOrdersOpen, setChangeOrdersOpen] = useState(false);
+  const [fioOpen, setFioOpen] = useState(false);
+  const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
+  const [crewPaymentOpen, setCrewPaymentOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -144,6 +154,24 @@ export function ClientDetail() {
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 6;
   
+  // Auto-move SOLD → ACTIVE when start date has passed
+  useEffect(() => {
+    if (!client || !id) return;
+    if (client.status !== "sold") return;
+    const project = clientProjects[0];
+    if (!project?.startDate) return;
+    const start = new Date(project.startDate);
+    start.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today >= start) {
+      clientsAPI.update(id, { status: "active" }).then(() => {
+        setClient((prev: any) => ({ ...prev, status: "active" }));
+        activityLogAPI.create({ client_id: id, action_type: "status_changed", description: "Automatically moved to Active — start date reached" }).then(loadActivityLog).catch(() => {});
+      }).catch(() => {});
+    }
+  }, [client?.status, clientProjects.length]);
+
   // Load photos, notes and activity log when client loads
   useEffect(() => {
     if (client && id) {
@@ -528,11 +556,22 @@ export function ClientDetail() {
             </div>
             <div className="flex items-start gap-3">
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-              <div>
+              <div className="flex-1">
                 <div className="text-sm font-medium">Address</div>
                 <div className="text-sm text-muted-foreground">
                   {[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || "—"}
                 </div>
+                {(client.address || client.city) && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([client.address, client.city, client.state, client.zip].filter(Boolean).join(", "))}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    <MapPin className="h-3 w-3" />
+                    View Map
+                  </a>
+                )}
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -877,76 +916,31 @@ export function ClientDetail() {
 
       <div className="space-y-4">
 
-        {/* ── Projects ── */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Hammer className="h-4 w-4" />
-              Projects {clientProjects.length > 0 && <Badge variant="secondary">{clientProjects.length}</Badge>}
-            </CardTitle>
-            <Button size="sm" onClick={() => { setNewProjectName(""); setShowNewProject(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            {clientProjects.length === 0 ? (
-              <div className="text-center py-10">
-                <Hammer className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                <p className="text-muted-foreground text-sm">No projects yet</p>
-                <Button className="mt-3" size="sm" onClick={() => { setNewProjectName(""); setShowNewProject(true); }}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create First Project
-                </Button>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {clientProjects.map((project) => (
-                  <div key={project.id} className="flex items-center justify-between px-4 py-3">
-                    <div>
-                      <p className="font-medium text-sm">{project.name || "—"}</p>
-                      <p className="text-xs text-muted-foreground">{project.status?.replace("_", " ")}</p>
-                    </div>
-                    <Link to={`/projects/${project.id}`}>
-                      <Button variant="outline" size="sm">View Project</Button>
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Project Info (detailed cards) ── */}
+        {/* ── Project Info ── */}
         {clientProjects.length > 0 && clientProjects.map((project) => (
           <Card key={project.id}>
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Hammer className="h-4 w-4" />
-                Project
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
                 <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
-              </CardTitle>
-              <Link to={`/projects/${project.id}`}>
-                <Button variant="outline" size="sm">View Full Project</Button>
-              </Link>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <p className="text-xs text-muted-foreground">Project Name</p>
-                  <p className="font-medium">{project.name || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Project Manager</p>
-                  <p className="font-medium">{project.projectManagerName || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Foreman</p>
-                  <p className="font-medium">{project.foremanName || "—"}</p>
-                </div>
-                <div>
                   <p className="text-xs text-muted-foreground">Contract Value</p>
-                  <p className="font-medium">{formatCurrency(project.totalValue ?? 0)}</p>
+                  <p className="font-semibold text-base">{formatCurrency(project.totalValue ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Gross Profit</p>
+                  <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">GP %</p>
+                  <p className="font-semibold text-base">{(project.profitMargin ?? 0).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Commission</p>
+                  <p className="font-semibold text-base text-blue-600">{formatCurrency(project.commission ?? 0)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Start Date</p>
@@ -957,17 +951,102 @@ export function ClientDetail() {
                   <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Gross Profit</p>
-                  <p className="font-medium text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">Project Manager</p>
+                  <p className="font-medium">{project.projectManagerName || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Margin</p>
-                  <p className="font-medium">{project.profitMargin?.toFixed(1) ?? "0.0"}%</p>
+                  <p className="text-xs text-muted-foreground">Foreman</p>
+                  <p className="font-medium">{project.foremanName || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Sales Rep</p>
+                  <p className="font-medium">{project.salesRepName || "—"}</p>
                 </div>
               </div>
+              {/* Progress bar — active jobs only */}
+              {client.status === "active" && (() => {
+                const paid = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
+                const total = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
+                const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+                return (
+                  <div className="pt-2 border-t space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground font-medium">Payment Progress</span>
+                      <span className="font-semibold">{pct}% · {formatCurrency(paid)} of {formatCurrency(total)}</span>
+                    </div>
+                    <Progress value={pct} className="h-2" />
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         ))}
+
+        {/* ── Project Actions ── */}
+        {clientProjects.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <button
+              onClick={() => setPurchaseOrdersOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                <Package className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Purchase Orders</p>
+                <p className="text-xs text-muted-foreground">Order materials</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setChangeOrdersOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                <ClipboardEdit className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Change Orders</p>
+                <p className="text-xs text-muted-foreground">Scope changes</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setFioOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0">
+                <FileText className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">FIO</p>
+                <p className="text-xs text-muted-foreground">Crew labor schedule</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setCostAttributionsOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0">
+                <TrendingUp className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Cost Attributions</p>
+                <p className="text-xs text-muted-foreground">Receipts &amp; actuals</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setCrewPaymentOpen(true)}
+              className="flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <Hammer className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Crew Payment</p>
+                <p className="text-xs text-muted-foreground">Foreman labor breakdown</p>
+              </div>
+            </button>
+          </div>
+        )}
 
         {/* ── Proposals ── */}
         <Card>
@@ -1556,50 +1635,6 @@ export function ClientDetail() {
         onAppointmentScheduled={handleAppointmentScheduled}
       />
 
-      {/* New Project Dialog */}
-      <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
-            <DialogDescription>Create a project for {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "this client"}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label>Project Name</Label>
-            <Input
-              placeholder="e.g. Backyard Patio & Concrete"
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewProject(false)} disabled={creatingProject}>Cancel</Button>
-            <Button
-              disabled={!newProjectName.trim() || creatingProject}
-              onClick={async () => {
-                setCreatingProject(true);
-                try {
-                  await projectsAPI.create({
-                    client_id: client.id,
-                    name: newProjectName.trim(),
-                    status: "active",
-                  });
-                  const all = await projectsAPI.getAll();
-                  setClientProjects(all.filter((p: any) => p.client_id === id));
-                  setShowNewProject(false);
-                  setNewProjectName("");
-                } catch (err: any) {
-                  toast.error(err.message || "Failed to create project");
-                } finally {
-                  setCreatingProject(false);
-                }
-              }}
-            >
-              {creatingProject ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-              Create Project
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Move to Sold Modal */}
       <MoveToSoldModal
@@ -1717,6 +1752,45 @@ export function ClientDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Purchase Orders Sheet */}
+      <PurchaseOrdersSheet
+        open={purchaseOrdersOpen}
+        onOpenChange={setPurchaseOrdersOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+      />
+
+      {/* Change Orders Sheet */}
+      <ChangeOrdersSheet
+        open={changeOrdersOpen}
+        onOpenChange={setChangeOrdersOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+      />
+
+      {/* FIO Modal */}
+      <FieldInstallationOrderModal
+        open={fioOpen}
+        onOpenChange={setFioOpen}
+        project={clientProjects[0] ? { ...clientProjects[0], client: { id: client.id } } : null}
+      />
+
+      {/* Cost Attributions Sheet */}
+      <CostAttributionsSheet
+        open={costAttributionsOpen}
+        onOpenChange={setCostAttributionsOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+      />
+
+      {/* Crew Payment Sheet */}
+      <CrewPaymentSheet
+        open={crewPaymentOpen}
+        onOpenChange={setCrewPaymentOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+      />
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
