@@ -12,21 +12,24 @@ import {
   ExternalLink,
   Users,
   Briefcase,
-  ListTodo,
   AlertCircle,
-  Clock,
   Loader2,
   Building2,
   Award,
   Bell
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 
 export function Pipeline() {
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Smart alerts data
+  const [clientsWithProposals, setClientsWithProposals] = useState<Set<string>>(new Set());
+  const [overduePayments, setOverduePayments] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -43,6 +46,20 @@ export function Pipeline() {
       setClients(clientsData);
       setProjects(projectsData);
       setUsers(usersData);
+
+      // Fetch alert data in parallel
+      const today = new Date().toISOString().split("T")[0];
+      const [estimatesRes, paymentsRes] = await Promise.all([
+        supabase.from("estimates").select("client_id"),
+        supabase.from("project_payments")
+          .select("*, project:projects(id, client_id, name, client:clients(first_name, last_name))")
+          .eq("is_paid", false)
+          .not("due_date", "is", null)
+          .lt("due_date", today),
+      ]);
+
+      setClientsWithProposals(new Set((estimatesRes.data ?? []).map((e: any) => e.client_id)));
+      setOverduePayments(paymentsRes.data ?? []);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -90,6 +107,55 @@ export function Pipeline() {
     return sum + salesCommission + pmCommission;
   }, 0);
 
+  // ── Smart Alerts ──
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // 1. Selling clients with no proposal sent
+  const sellingNoProposal = clients.filter(
+    (c) => c.status === "selling" && !clientsWithProposals.has(c.id)
+  );
+
+  // 2. Prospect/Selling clients with Est. Close Date passed and not updated
+  const staleForecasts = clients.filter((c) => {
+    if (!["prospect", "selling"].includes(c.status)) return false;
+    if (!c.expected_close_date) return false;
+    const closeDate = new Date(c.expected_close_date);
+    closeDate.setHours(0, 0, 0, 0);
+    return closeDate < today;
+  });
+
+  // Build unified alerts array
+  type Alert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" | "blue" };
+  const alerts: Alert[] = [
+    ...sellingNoProposal.map((c) => ({
+      id: `no-proposal-${c.id}`,
+      clientId: c.id,
+      clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+      label: "No Proposal Sent",
+      description: "Client is in Selling stage but has no proposal",
+      severity: "amber" as const,
+    })),
+    ...staleForecasts.map((c) => ({
+      id: `stale-forecast-${c.id}`,
+      clientId: c.id,
+      clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+      label: "Est. Close Date Passed",
+      description: `Expected to close by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — update date & CP%`,
+      severity: "amber" as const,
+    })),
+    ...overduePayments.map((pmt) => ({
+      id: `overdue-${pmt.id}`,
+      clientId: pmt.project?.client_id ?? "",
+      clientName: pmt.project?.client
+        ? `${pmt.project.client.first_name ?? ""} ${pmt.project.client.last_name ?? ""}`.trim()
+        : "—",
+      label: "Payment Overdue",
+      description: `${pmt.label ?? "Payment"} — ${new Date(pmt.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      severity: "red" as const,
+    })),
+  ];
+
   // Activity data
   const upcomingCollections = clients.filter(c => {
     if (!c.nextPaymentDate) return false;
@@ -99,12 +165,6 @@ export function Pipeline() {
     return daysUntil >= 0 && daysUntil <= 7;
   });
 
-  const overduePayments = clients.filter(c => {
-    if (!c.nextPaymentDate) return false;
-    const paymentDate = new Date(c.nextPaymentDate);
-    const now = new Date();
-    return paymentDate < now;
-  });
 
   if (loading) {
     return (
@@ -487,61 +547,52 @@ export function Pipeline() {
           </CardContent>
         </Card>
 
-        {/* Tasks */}
+        {/* Smart Alerts */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ListTodo className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base">Tasks</CardTitle>
+                <Bell className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Smart Alerts</CardTitle>
               </div>
-              <Badge variant="secondary">{prospectClients.length + soldClients.length}</Badge>
+              {alerts.length > 0 && (
+                <Badge className="bg-red-500 text-white">{alerts.length}</Badge>
+              )}
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {prospectClients.slice(0, 3).map((client) => (
-                <Link
-                  key={client.id}
-                  to={`/clients/${client.id}`}
-                  className="block p-3 border rounded-lg hover:bg-accent transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">Follow Up</Badge>
-                        <span className="text-sm font-medium">{client.name}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">Send proposal and schedule meeting</p>
-                    </div>
-                    <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
-                  </div>
-                </Link>
-              ))}
-
-              {soldClients.slice(0, 2).map((client) => (
-                <Link
-                  key={client.id}
-                  to={`/clients/${client.id}`}
-                  className="block p-3 border rounded-lg hover:bg-accent transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs bg-orange-50">Contract Signed</Badge>
-                        <span className="text-sm font-medium">{client.name}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">Assign PM and schedule kickoff</p>
-                    </div>
-                    <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
-                  </div>
-                </Link>
-              ))}
-
-              {prospectClients.length === 0 && soldClients.length === 0 && (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  No pending tasks
+              {alerts.length === 0 ? (
+                <div className="text-center py-6 space-y-1">
+                  <CheckCircle2 className="h-8 w-8 mx-auto text-green-500" />
+                  <p className="text-sm font-medium text-green-700">All clear!</p>
+                  <p className="text-xs text-muted-foreground">No issues detected across your pipeline</p>
                 </div>
+              ) : (
+                alerts.map((alert) => (
+                  <Link
+                    key={alert.id}
+                    to={alert.clientId ? `/clients/${alert.clientId}` : "#"}
+                    className="block p-3 border rounded-lg hover:bg-accent transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className={`h-4 w-4 mt-0.5 shrink-0 ${alert.severity === "red" ? "text-red-500" : "text-amber-500"}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            alert.severity === "red"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}>
+                            {alert.label}
+                          </span>
+                          <span className="text-sm font-medium truncate">{alert.clientName}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{alert.description}</p>
+                      </div>
+                    </div>
+                  </Link>
+                ))
               )}
             </div>
           </CardContent>

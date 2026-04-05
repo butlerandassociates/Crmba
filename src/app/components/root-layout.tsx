@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Bell, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
 import {
   LayoutDashboard,
@@ -66,6 +67,67 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, loading, isInviteFlow, signOut, refreshProfile } = useAuth();
+
+  // Bell alerts
+  type NavAlert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" };
+  const [navAlerts, setNavAlerts] = useState<NavAlert[]>([]);
+
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const [clientsRes, estimatesRes, paymentsRes] = await Promise.all([
+          supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
+          supabase.from("estimates").select("client_id"),
+          supabase.from("project_payments")
+            .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name))")
+            .eq("is_paid", false).not("due_date", "is", null).lt("due_date", today),
+        ]);
+        const clients = clientsRes.data ?? [];
+        const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
+        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+
+        const alerts: NavAlert[] = [];
+
+        clients.filter((c: any) => c.status === "selling" && !proposalClientIds.has(c.id)).forEach((c: any) => {
+          alerts.push({
+            id: `no-proposal-${c.id}`, clientId: c.id,
+            clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+            label: "No Proposal Sent", description: "In Selling stage with no proposal created",
+            severity: "amber",
+          });
+        });
+
+        clients.filter((c: any) => {
+          if (!["prospect", "selling"].includes(c.status) || !c.expected_close_date) return false;
+          const d = new Date(c.expected_close_date); d.setHours(0, 0, 0, 0);
+          return d < todayDate;
+        }).forEach((c: any) => {
+          alerts.push({
+            id: `stale-${c.id}`, clientId: c.id,
+            clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+            label: "Close Date Passed",
+            description: `Expected by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+            severity: "amber",
+          });
+        });
+
+        (paymentsRes.data ?? []).forEach((p: any) => {
+          const client = p.project?.client;
+          alerts.push({
+            id: `overdue-${p.id}`, clientId: p.project?.client_id ?? "",
+            clientName: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "—",
+            label: "Payment Overdue",
+            description: `${p.label ?? "Payment"} — due ${new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+            severity: "red",
+          });
+        });
+
+        setNavAlerts(alerts);
+      } catch { /* silent */ }
+    };
+    fetchAlerts();
+  }, []);
 
   // My Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -188,6 +250,61 @@ export function RootLayout() {
             </nav>
           </div>
           <div className="flex items-center gap-4">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="relative p-1 rounded-md hover:bg-accent transition-colors">
+                  <Bell className="h-5 w-5 text-muted-foreground" />
+                  {navAlerts.length > 0 && (
+                    <span className="absolute -top-1 -right-1 h-4 w-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+                      {navAlerts.length > 9 ? "9+" : navAlerts.length}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0" align="end">
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <span className="text-sm font-semibold">Alerts</span>
+                  {navAlerts.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{navAlerts.length} active</span>
+                  )}
+                </div>
+                <div className="max-h-[360px] overflow-y-auto">
+                  {navAlerts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                      <CheckCircle2 className="h-8 w-8 text-green-500" />
+                      <p className="text-sm font-medium text-green-700">All clear!</p>
+                      <p className="text-xs text-muted-foreground">No issues in your pipeline</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {navAlerts.map((alert) => (
+                        <Link
+                          key={alert.id}
+                          to={alert.clientId ? `/clients/${alert.clientId}` : "/pipeline"}
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-accent transition-colors"
+                        >
+                          <AlertCircle className={`h-4 w-4 mt-0.5 shrink-0 ${alert.severity === "red" ? "text-red-500" : "text-amber-500"}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${alert.severity === "red" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                                {alert.label}
+                              </span>
+                              <span className="text-xs font-medium truncate">{alert.clientName}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.description}</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="border-t px-4 py-2.5">
+                  <Link to="/pipeline" className="text-xs text-primary font-medium">
+                    View all alerts in Stats →
+                  </Link>
+                </div>
+              </PopoverContent>
+            </Popover>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2">

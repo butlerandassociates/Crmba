@@ -1,5 +1,6 @@
 import { useParams, Link } from "react-router";
 import { useState, useEffect } from "react";
+import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -161,7 +162,12 @@ export function ClientDetail() {
   const [gpHealthData, setGpHealthData] = useState<Record<string, any>>({});
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardReason, setDiscardReason] = useState("");
+  const [discardNote, setDiscardNote] = useState("");
   const [discarding, setDiscarding] = useState(false);
+  const [sellingModalOpen, setSellingModalOpen] = useState(false);
+  const [sellingProbability, setSellingProbability] = useState("");
+  const [sellingCloseDate, setSellingCloseDate] = useState("");
+  const [savingSelling, setSavingSelling] = useState(false);
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopePopoverOpen, setScopePopoverOpen] = useState(false);
   const ITEMS_PER_PAGE = 10;
@@ -322,12 +328,13 @@ export function ClientDetail() {
       await clientsAPI.update(client.id, {
         is_discarded: true,
         discarded_at: new Date().toISOString(),
-        discarded_reason: discardReason.trim() || null,
+        discarded_reason: `${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}`,
       });
-      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded${discardReason.trim() ? `: ${discardReason.trim()}` : ""}` }).catch(() => {});
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded: ${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
       toast.success("Client discarded. You can revive them anytime.");
       setDiscardOpen(false);
       setDiscardReason("");
+      setDiscardNote("");
     } catch (err: any) {
       toast.error(err.message || "Failed to discard client");
     } finally {
@@ -380,6 +387,28 @@ export function ClientDetail() {
       }));
     } catch {
       toast.error("Failed to load financial health data");
+    }
+  };
+
+  const handleMoveToSelling = async () => {
+    if (!sellingProbability || !sellingCloseDate) return;
+    setSavingSelling(true);
+    try {
+      const matchingStage = pipelineStages.find((s) => s.name.toLowerCase() === "selling");
+      await clientsAPI.update(client.id, {
+        status: "selling",
+        pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
+        closing_probability: parseFloat(sellingProbability),
+        expected_close_date: sellingCloseDate,
+      });
+      setClient({ ...client, status: "selling", closing_probability: parseFloat(sellingProbability), expected_close_date: sellingCloseDate });
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).catch(() => {});
+      toast.success("Moved to Selling");
+      setSellingModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    } finally {
+      setSavingSelling(false);
     }
   };
 
@@ -552,6 +581,18 @@ export function ClientDetail() {
               <FileSignature className="h-4 w-4 mr-2" />
               Send DocuSign
             </DropdownMenuItem>
+            {["prospect", "selling"].includes(client.status) && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setSellingProbability(client.closing_probability?.toString() ?? "");
+                  setSellingCloseDate(client.expected_close_date ?? "");
+                  setSellingModalOpen(true);
+                }}
+              >
+                <TrendingUp className="h-4 w-4 mr-2" />
+                Update Forecast
+              </DropdownMenuItem>
+            )}
             <Link to={`/clients/${client.id}/create-proposal`}>
               <DropdownMenuItem>
                 <FilePlus className="h-4 w-4 mr-2" />
@@ -573,7 +614,7 @@ export function ClientDetail() {
               Prospect
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleStatusChange('selling')}
+              onClick={() => { setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true); }}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Selling
@@ -687,119 +728,181 @@ export function ClientDetail() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
+        {/* DocuSign — compact */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground font-medium">
               <FileSignature className="h-4 w-4" />
-              DocuSign Status
+              DocuSign
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {client.docusign_status === 'completed' ? (
-              <div className="space-y-2">
-                <Badge className="bg-green-600 flex items-center gap-1 w-fit">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Contract Completed
+          <CardContent className="pt-0 flex-1 flex flex-col justify-center">
+            {client.docusign_status === "completed" ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-green-600 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> Signed
                 </Badge>
-                {client.docusign_sent_date && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Sent</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusign_sent_date)}</div>
-                  </div>
-                )}
                 {client.docusign_completed_date && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Signed</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusign_completed_date)}</div>
-                  </div>
-                )}
-                {client.docusign_envelope_id && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Envelope ID</div>
-                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusign_envelope_id}</div>
-                  </div>
+                  <span className="text-xs text-muted-foreground">{formatDate(client.docusign_completed_date)}</span>
                 )}
               </div>
-            ) : client.docusign_status === 'sent_to_client' ? (
-              <div className="space-y-2">
-                <Badge className="bg-orange-500 flex items-center gap-1 w-fit">
-                  <Clock className="h-3 w-3" />
-                  Sent to Client
+            ) : client.docusign_status === "sent_to_client" ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-orange-500 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Awaiting Signature
                 </Badge>
                 {client.docusign_sent_date && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Sent on</div>
-                    <div className="text-sm font-medium">{formatDate(client.docusign_sent_date)}</div>
-                  </div>
+                  <span className="text-xs text-muted-foreground">Sent {formatDate(client.docusign_sent_date)}</span>
                 )}
-                {client.docusign_envelope_id && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Envelope ID</div>
-                    <div className="text-xs font-mono bg-muted p-1 rounded mt-1">{client.docusign_envelope_id}</div>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground pt-2">
-                  Waiting for client signature
-                </p>
               </div>
             ) : (
-              <div className="space-y-2">
-                <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                  <XCircle className="h-3 w-3" />
-                  No Contract Sent
-                </Badge>
-                <p className="text-xs text-muted-foreground">
-                  Use the Actions menu to send a DocuSign contract
-                </p>
+              <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
+                <FileSignature className="h-8 w-8 text-muted-foreground/40" />
+                <p className="text-xs font-medium text-muted-foreground">No contract sent yet</p>
+                <button
+                  onClick={() => setDocusignDialogOpen(true)}
+                  className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
+                >
+                  Send DocuSign
+                </button>
               </div>
             )}
           </CardContent>
         </Card>
 
+        {/* Revenue & Forecast */}
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Revenue & Forecast</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              {["active", "completed"].includes(client.status) ? "Project Financials" : "Revenue & Forecast"}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <div className="text-sm font-medium">Total Revenue</div>
-              <div className="text-xl font-bold text-green-600 mt-1">
-                {formatCurrency(clientProjects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0))}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm font-medium">Projects</div>
-              <div className="text-lg font-semibold mt-1">{clientProjects.length}</div>
-            </div>
-            {client.projected_value && (
-              <div>
-                <div className="text-sm font-medium">Projected Value</div>
-                <div className="text-lg font-semibold mt-1">
-                  {formatCurrency(client.projected_value)}
-                </div>
-              </div>
-            )}
-            {client.closing_probability && (
-              <div>
-                <div className="text-sm font-medium">Closing Probability</div>
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500"
-                      style={{ width: `${client.closing_probability}%` }}
-                    />
+          <CardContent className="pt-0">
+            {["active", "completed"].includes(client.status) ? (() => {
+              const totalValue = clientProjects[0]?.totalValue ?? 0;
+              const grossProfit = clientProjects[0]?.grossProfit ?? 0;
+              const cost = totalValue - grossProfit;
+              const margin = clientProjects[0]?.profitMargin ?? 0;
+              const commission = clientProjects[0]?.commission ?? 0;
+              const donutData = totalValue > 0
+                ? [
+                    { name: "Cost", value: cost < 0 ? 0 : cost },
+                    { name: "Gross Profit", value: grossProfit < 0 ? 0 : grossProfit },
+                  ]
+                : [{ name: "No data", value: 1 }];
+              const COLORS = totalValue > 0 ? ["#e2e8f0", "#16a34a"] : ["#f1f5f9"];
+              return (
+                <div className="flex items-center gap-4">
+                  {/* Donut */}
+                  <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={donutData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={40}
+                          outerRadius={56}
+                          startAngle={90}
+                          endAngle={-270}
+                          dataKey="value"
+                          strokeWidth={0}
+                        >
+                          {donutData.map((_, i) => (
+                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v: number) => formatCurrency(v)}
+                          contentStyle={{ fontSize: 11, borderRadius: 6, border: "1px solid #e2e8f0" }}
+                          wrapperStyle={{ zIndex: 20 }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ zIndex: 1 }}>
+                      <span className="text-xs font-bold leading-none">{margin.toFixed(1)}%</span>
+                      <span className="text-[9px] text-muted-foreground leading-none mt-0.5">GP</span>
+                    </div>
                   </div>
-                  <span className="text-sm font-semibold">{client.closing_probability}%</span>
+                  {/* Stats */}
+                  <div className="flex-1 space-y-2.5 min-w-0">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Contract Value</div>
+                      <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(totalValue)}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Gross Profit</div>
+                        <div className="text-sm font-semibold text-green-600">{formatCurrency(grossProfit)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Total Cost</div>
+                        <div className="text-sm font-semibold text-slate-600">{formatCurrency(cost > 0 ? cost : 0)}</div>
+                      </div>
+                    </div>
+                    {commission > 0 && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Commission</div>
+                        <div className="text-sm font-semibold text-blue-600">{formatCurrency(commission)}</div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            {client.expected_close_date && (
-              <div>
-                <div className="text-sm font-medium">Expected Close Date</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.expected_close_date)}
-                </div>
-              </div>
+              );
+            })() : (
+              /* Pre-sale — radial gauge + forecast fields */
+              <>
+                {!client.projected_value && !client.closing_probability && !client.expected_close_date ? (
+                  <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
+                    <TrendingUp className="h-8 w-8 text-muted-foreground/40" />
+                    <p className="text-xs font-medium text-muted-foreground">No revenue data recorded</p>
+                    <p className="text-xs text-muted-foreground/60">Forecast details will appear once added</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-4">
+                    {/* Radial gauge for closing probability */}
+                    {client.closing_probability != null && (
+                      <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadialBarChart
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={36}
+                            outerRadius={56}
+                            startAngle={90}
+                            endAngle={-270}
+                            data={[
+                              { value: client.closing_probability, fill: "#3b82f6" },
+                              { value: 100 - client.closing_probability, fill: "#e2e8f0" },
+                            ]}
+                          >
+                            <RadialBar dataKey="value" cornerRadius={4} background={false} />
+                          </RadialBarChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                          <span className="text-xs font-bold leading-none">{client.closing_probability}%</span>
+                          <span className="text-[9px] text-muted-foreground leading-none mt-0.5">Close</span>
+                        </div>
+                      </div>
+                    )}
+                    {/* Forecast stats */}
+                    <div className="flex-1 space-y-2.5 min-w-0">
+                      {client.projected_value && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Projected Value</div>
+                          <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(client.projected_value)}</div>
+                        </div>
+                      )}
+                      {client.expected_close_date && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Est. Close Date</div>
+                          <div className="text-sm font-semibold text-slate-700">{formatDate(client.expected_close_date)}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -1796,8 +1899,60 @@ export function ClientDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Move to Selling Modal */}
+      <Dialog open={sellingModalOpen} onOpenChange={setSellingModalOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MoveRight className="h-5 w-5 text-primary" />
+              Move to Selling
+            </DialogTitle>
+            <DialogDescription>
+              Enter the forecast details for {client?.first_name} {client?.last_name} before moving to Selling.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="selling-prob">Closing Probability <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <Input
+                  id="selling-prob"
+                  type="number"
+                  min={1}
+                  max={100}
+                  placeholder="e.g. 75"
+                  value={sellingProbability}
+                  onChange={(e) => setSellingProbability(e.target.value)}
+                  className="pr-8"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="selling-date">Est. Close Date <span className="text-destructive">*</span></Label>
+              <Input
+                id="selling-date"
+                type="date"
+                value={sellingCloseDate}
+                onChange={(e) => setSellingCloseDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSellingModalOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleMoveToSelling}
+              disabled={savingSelling || !sellingProbability || !sellingCloseDate}
+            >
+              {savingSelling ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <MoveRight className="h-4 w-4 mr-1.5" />}
+              Move to Selling
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Discard Client Dialog */}
-      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+      <Dialog open={discardOpen} onOpenChange={(v) => { setDiscardOpen(v); if (!v) { setDiscardReason(""); setDiscardNote(""); } }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1808,20 +1963,47 @@ export function ClientDetail() {
               {client?.first_name} {client?.last_name} will be discarded but not deleted. You can revive them at any time.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 py-2">
-            <Label htmlFor="discard-reason">Reason (optional)</Label>
-            <Textarea
-              id="discard-reason"
-              placeholder="e.g. Not interested, budget too low, went with competitor..."
-              rows={3}
-              className="resize-none"
-              value={discardReason}
-              onChange={(e) => setDiscardReason(e.target.value)}
-            />
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="discard-reason">Reason <span className="text-destructive">*</span></Label>
+              <select
+                id="discard-reason"
+                className={`w-full h-9 rounded-md border bg-background px-3 text-sm ${!discardReason ? "text-muted-foreground" : ""} ${!discardReason ? "border-input" : "border-input"}`}
+                value={discardReason}
+                onChange={(e) => setDiscardReason(e.target.value)}
+              >
+                <option value="">Select a reason...</option>
+                <option>Out of price range</option>
+                <option>Out of scope</option>
+                <option>Unresponsive</option>
+                <option>Hired another contractor</option>
+                <option>Project on pause</option>
+                <option>Change mind</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="discard-note">Notes <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="discard-note"
+                placeholder="Add details (min. 5 characters)..."
+                rows={3}
+                className="resize-none"
+                value={discardNote}
+                onChange={(e) => setDiscardNote(e.target.value)}
+              />
+              {discardNote.length > 0 && discardNote.trim().length < 5 && (
+                <p className="text-xs text-destructive">Notes must be at least 5 characters</p>
+              )}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => { setDiscardOpen(false); setDiscardReason(""); }}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDiscard} disabled={discarding}>
+            <Button variant="ghost" onClick={() => { setDiscardOpen(false); setDiscardReason(""); setDiscardNote(""); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleDiscard}
+              disabled={discarding || !discardReason || discardNote.trim().length < 5}
+            >
               {discarding ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
               Discard Client
             </Button>
