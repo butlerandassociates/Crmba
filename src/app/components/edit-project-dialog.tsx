@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
@@ -39,6 +41,7 @@ export function EditProjectDialog({
   const [salesReps, setSalesReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [touched, setTouched] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -69,6 +72,7 @@ export function EditProjectDialog({
         sales_rep_id:       project.sales_rep_id ?? "",
       });
       setError("");
+      setTouched(false);
 
       clientsAPI.getAll().then(setClients).catch(console.error);
 
@@ -84,9 +88,13 @@ export function EditProjectDialog({
   const profileName = (p: any) =>
     `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
 
+  const nameErr   = !form.name.trim() ? "Project name is required." : form.name.trim().length < 2 ? "Min 2 characters." : "";
+  const clientErr = !form.client_id ? "Please select a client." : "";
+  const dateErr   = form.start_date && form.end_date && form.end_date < form.start_date ? "End date must be after start date." : "";
+
   const handleSave = async () => {
-    if (!form.name.trim()) { setError("Project name is required."); return; }
-    if (!form.client_id) { setError("Please select a client."); return; }
+    setTouched(true);
+    if (nameErr || clientErr || dateErr) return;
 
     setLoading(true);
     setError("");
@@ -114,26 +122,28 @@ export function EditProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit Project</DialogTitle>
           <DialogDescription>Update project details below.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <DialogBody className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="ep-name">Project Name *</Label>
+            <Label htmlFor="ep-name">Project Name <span className="text-destructive">*</span></Label>
             <Input
               id="ep-name"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
+              className={touched && nameErr ? "border-red-500" : ""}
             />
+            {touched && nameErr && <p className="text-xs text-red-500">{nameErr}</p>}
           </div>
 
           <div className="space-y-1.5">
-            <Label>Client *</Label>
+            <Label>Client <span className="text-destructive">*</span></Label>
             <Select value={form.client_id} onValueChange={(v) => set("client_id", v)}>
-              <SelectTrigger>
+              <SelectTrigger className={touched && clientErr ? "border-red-500" : ""}>
                 <SelectValue placeholder="Select a client" />
               </SelectTrigger>
               <SelectContent>
@@ -144,6 +154,7 @@ export function EditProjectDialog({
                 ))}
               </SelectContent>
             </Select>
+            {touched && clientErr && <p className="text-xs text-red-500">{clientErr}</p>}
           </div>
 
           <div className="space-y-1.5">
@@ -171,15 +182,18 @@ export function EditProjectDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="ep-start">Start Date</Label>
-              <Input id="ep-start" type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ep-start">Start Date</Label>
+                <Input id="ep-start" type="date" value={form.start_date} onChange={(e) => set("start_date", e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ep-end">End Date</Label>
+                <Input id="ep-end" type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} className={touched && dateErr ? "border-red-500" : ""} />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ep-end">End Date</Label>
-              <Input id="ep-end" type="date" value={form.end_date} onChange={(e) => set("end_date", e.target.value)} />
-            </div>
+            {touched && dateErr && <p className="text-xs text-red-500">{dateErr}</p>}
           </div>
 
           <div className="space-y-3">
@@ -236,16 +250,16 @@ export function EditProjectDialog({
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-        </div>
+        </DialogBody>
 
-        <div className="flex items-center justify-between border-t pt-4">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={loading}>
             {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

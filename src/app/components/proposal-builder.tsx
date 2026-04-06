@@ -97,6 +97,7 @@ export function ProposalBuilder() {
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");
+  const [saveTouched, setSaveTouched] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
@@ -225,15 +226,12 @@ export function ProposalBuilder() {
     setLineItems(lineItems.filter((item) => item.id !== id));
   };
 
+  const titleErr = !proposalTitle.trim() ? "Proposal title is required." : "";
+  const itemsErr = lineItems.length === 0 ? "Please add at least one line item." : "";
+
   const handleSaveProposal = async () => {
-    if (!proposalTitle.trim()) {
-      toast.error("Please enter a proposal title");
-      return;
-    }
-    if (lineItems.length === 0) {
-      toast.error("Please add at least one line item");
-      return;
-    }
+    setSaveTouched(true);
+    if (titleErr || itemsErr) return;
     setSaving(true);
     try {
       const subtotalVal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -365,7 +363,7 @@ export function ProposalBuilder() {
       <div className="p-6">
 
         {/* Top Row: Proposal Details + Add Items + Metrics */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-5 mb-6">
           {/* Proposal Details */}
           <Card>
             <CardHeader className="pb-3">
@@ -373,12 +371,14 @@ export function ProposalBuilder() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Title</Label>
+                <Label className="text-xs">Title <span className="text-destructive">*</span></Label>
                 <Input
                   placeholder="e.g., Backyard Patio & Outdoor Kitchen"
                   value={proposalTitle}
-                  onChange={(e) => setProposalTitle(e.target.value)}
+                  onChange={(e) => { setProposalTitle(e.target.value); }}
+                  className={saveTouched && titleErr ? "border-red-500" : ""}
                 />
+                {saveTouched && titleErr && <p className="text-xs text-red-500">{titleErr}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Description</Label>
@@ -393,10 +393,10 @@ export function ProposalBuilder() {
           </Card>
 
           {/* Add Items Section */}
-          <Card>
+          <Card className="border-primary/20">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 text-primary" />
                 Add Items to Proposal
               </CardTitle>
             </CardHeader>
@@ -479,10 +479,15 @@ export function ProposalBuilder() {
         </div>
 
         {/* Full-Width Line Items Table */}
-        <Card>
+        <Card className={saveTouched && itemsErr ? "border-red-500" : ""}>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Proposal Line Items</CardTitle>
           </CardHeader>
+          {saveTouched && itemsErr && (
+            <div className="px-6 pb-2">
+              <p className="text-xs text-red-500">{itemsErr}</p>
+            </div>
+          )}
           <CardContent className="p-0">
             {lineItems.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground text-sm">
@@ -505,43 +510,43 @@ export function ProposalBuilder() {
                     {Object.entries(groupedLineItems).map(([category, items]) => (
                       <>
                         {/* Category section header */}
-                        <tr key={`cat-${category}`} className="bg-slate-50 border-y border-slate-200">
-                          <td colSpan={6} className="px-6 py-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{category}</span>
+                        <tr key={`cat-${category}`} className="bg-slate-100/80 border-y border-slate-200">
+                          <td colSpan={6} className="px-6 py-2.5">
+                            <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{category}</span>
                           </td>
                         </tr>
                         {items.map((item) => (
-                          <tr key={item.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
-                            <td className="px-6 py-3">
-                              <div className="font-medium text-sm">{item.productName}</div>
+                          <tr key={item.id} className="border-b border-slate-100 hover:bg-primary/5 transition-colors group">
+                            <td className="px-6 py-4">
+                              <div className="font-semibold text-sm">{item.productName}</div>
                               {item.description && (
-                                <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</div>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-4 py-4 text-center">
                               <Input
                                 type="number"
                                 value={item.quantity}
                                 onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                                className="h-8 text-sm text-center w-24 mx-auto"
+                                className="h-9 text-sm text-center w-24 mx-auto"
                               />
                             </td>
-                            <td className="px-4 py-3 text-muted-foreground text-sm">{item.unit}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
+                            <td className="px-4 py-4">
                               <Input
                                 type="number"
                                 value={item.pricePerUnit}
                                 onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
-                                className="h-8 text-sm text-right w-32 ml-auto"
+                                className="h-9 text-sm text-right w-32 ml-auto"
                               />
                             </td>
-                            <td className="px-6 py-3 text-right font-semibold text-sm">{formatCurrency(item.totalPrice)}</td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-6 py-4 text-right font-bold text-sm">{formatCurrency(item.totalPrice)}</td>
+                            <td className="px-4 py-4 text-center">
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => removeLineItem(item.id)}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -699,14 +704,14 @@ export function ProposalBuilder() {
 
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={setShowWizard}>
-        <DialogContent className="max-w-6xl w-[95vw] max-h-[92vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="sticky top-0 z-10 bg-white border-b px-6 py-4 pr-12 shrink-0 rounded-t-lg">
-            <DialogTitle>{wizardType} Estimate Builder</DialogTitle>
-            <DialogDescription>
-              Follow the steps to build your {wizardType.toLowerCase()} estimate
+        <DialogContent className="max-w-[900px] w-[92vw] h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="shrink-0 bg-white border-b px-8 py-6 rounded-t-lg">
+            <DialogTitle className="text-xl font-bold">{wizardType} Estimate Wizard</DialogTitle>
+            <DialogDescription className="text-sm">
+              Answer each question below — your estimate items will be calculated automatically.
             </DialogDescription>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 px-6 py-4">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {activeTemplate ? (
             <TemplateWizard
               template={activeTemplate}

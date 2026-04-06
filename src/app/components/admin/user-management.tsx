@@ -52,12 +52,12 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resend
   const perms = user ? getUserPermissions(user) : [];
   return (
     <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent style={{ maxWidth: 480 }}>
         {user && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg shrink-0">
                   {(user.first_name?.[0] ?? "?").toUpperCase()}
                 </div>
                 <div>
@@ -71,19 +71,19 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resend
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4 py-2">
+            <div className="space-y-5 px-6 py-5">
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Contact</p>
-                <div className="space-y-1.5 text-sm">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Contact</p>
+                <div className="space-y-2 text-sm">
                   {user.email && (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Mail className="h-4 w-4" />
-                      <a href={`mailto:${user.email}`} className="hover:text-primary">{user.email}</a>
+                    <div className="flex items-center gap-2.5 text-muted-foreground">
+                      <Mail className="h-4 w-4 shrink-0" />
+                      <a href={`mailto:${user.email}`} className="hover:text-primary truncate">{user.email}</a>
                     </div>
                   )}
                   {user.phone && (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Phone className="h-4 w-4" />
+                    <div className="flex items-center gap-2.5 text-muted-foreground">
+                      <Phone className="h-4 w-4 shrink-0" />
                       <a href={`tel:${user.phone}`} className="hover:text-primary">{user.phone}</a>
                     </div>
                   )}
@@ -94,17 +94,17 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resend
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Status</p>
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Status</p>
                 <div className="flex items-center gap-2 text-sm">
                   {user.is_active
-                    ? <><CheckCircle className="h-4 w-4 text-green-500" /><span>Active</span></>
-                    : <><XCircle className="h-4 w-4 text-red-500" /><span className="text-red-500">Deactivated</span></>
+                    ? <><CheckCircle className="h-4 w-4 text-green-500" /><span className="font-medium">Active</span></>
+                    : <><XCircle className="h-4 w-4 text-red-500" /><span className="font-medium text-red-500">Deactivated</span></>
                   }
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
                   Permissions ({perms.length})
                 </p>
                 <div className="flex flex-wrap gap-1.5">
@@ -149,6 +149,7 @@ export function UserManagement() {
   const [selectedRole, setSelectedRole] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
+  const [inviteTouched, setInviteTouched] = useState(false);
   const [formData, setFormData] = useState({ firstName: "", lastName: "", email: "" });
 
   const loadUsers = () => {
@@ -183,12 +184,14 @@ export function UserManagement() {
     );
   };
 
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const inviteEmailErr = !formData.email.trim() ? "Email is required." : !isValidEmail(formData.email.trim()) ? "Enter a valid email address." : "";
+  const inviteRoleErr  = !selectedRole ? "Role is required." : "";
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.email || !selectedRole) {
-      toast.error("Email and role are required.");
-      return;
-    }
+    setInviteTouched(true);
+    if (inviteEmailErr || inviteRoleErr) return;
     setCreating(true);
     try {
       // Build permissions object
@@ -223,6 +226,7 @@ export function UserManagement() {
       setFormData({ firstName: "", lastName: "", email: "" });
       setSelectedRole("");
       setSelectedPermissions([]);
+      setInviteTouched(false);
       loadUsers();
     } catch (err: any) {
       toast.error(err.message || "Failed to send invite.");
@@ -317,7 +321,7 @@ export function UserManagement() {
           <p className="text-muted-foreground mt-1">Manage user access and permissions</p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setInviteTouched(false); } }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -361,21 +365,22 @@ export function UserManagement() {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="email">Email Address *</Label>
+                    <Label htmlFor="email">Email Address <span className="text-destructive">*</span></Label>
                     <Input
                       id="email"
                       type="email"
                       placeholder="john@company.com"
-                      required
                       value={formData.email}
                       onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
+                      className={inviteTouched && inviteEmailErr ? "border-red-500" : ""}
                     />
+                    {inviteTouched && inviteEmailErr && <p className="text-xs text-red-500">{inviteEmailErr}</p>}
                   </div>
 
                   <div className="grid gap-2">
-                    <Label>Role *</Label>
+                    <Label>Role <span className="text-destructive">*</span></Label>
                     <Select value={selectedRole} onValueChange={handleRoleChange}>
-                      <SelectTrigger>
+                      <SelectTrigger className={inviteTouched && inviteRoleErr ? "border-red-500" : ""}>
                         <SelectValue placeholder="Select a role" />
                       </SelectTrigger>
                       <SelectContent>
@@ -384,6 +389,7 @@ export function UserManagement() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {inviteTouched && inviteRoleErr && <p className="text-xs text-red-500">{inviteRoleErr}</p>}
                   </div>
 
                   <div className="grid gap-2">

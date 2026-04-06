@@ -210,7 +210,8 @@ export function ClientsList() {
     return `${datePart} · ${startTime}`;
   };
 
-  const clientProjectTotal = (client: any) => client.project_total ?? 0;
+  const clientProjectTotal = (client: any) =>
+    (client.project_total ?? 0) > 0 ? (client.project_total ?? 0) : (client.proposal_forecast ?? 0);
 
   const ClientTable = ({ list }: { list: any[] }) => (
     <Card>
@@ -371,13 +372,13 @@ export function ClientsList() {
 
       {/* Add Client Dialog */}
       <Dialog open={addDialogOpen} onOpenChange={(open) => { setAddDialogOpen(open); if (!open) { setNewClient(EMPTY_CLIENT); setFormErrors({}); } }}>
-        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>Add New Client</DialogTitle>
             <DialogDescription>Add a new lead to your pipeline.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleAddClient} className="flex flex-col min-h-0 flex-1">
-            <div className="grid gap-4 py-4 overflow-y-auto flex-1 px-1">
+          <form onSubmit={handleAddClient} className="flex flex-col flex-1 min-h-0">
+            <div className="grid gap-4 px-6 py-5 overflow-y-auto flex-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="first_name">First Name *</Label>
@@ -522,7 +523,7 @@ export function ClientsList() {
                 </div>
               </div>
             </div>
-            <DialogFooter className="pt-4 border-t">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
                 Cancel
               </Button>

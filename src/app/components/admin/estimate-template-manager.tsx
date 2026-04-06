@@ -259,6 +259,7 @@ export function EstimateTemplateManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editorTouched, setEditorTouched] = useState(false);
 
   // Editor state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -323,11 +324,12 @@ export function EstimateTemplateManager() {
     setEditorOpen(true);
   };
 
+  const editorNameErr     = !editorName.trim() ? "Template name is required." : editorName.trim().length < 2 ? "Min 2 characters." : "";
+  const editorCategoryErr = !editorCategory ? "Category is required." : "";
+
   const handleSave = async () => {
-    if (!editorName.trim() || !editorCategory) {
-      toast.error("Name and category are required");
-      return;
-    }
+    setEditorTouched(true);
+    if (editorNameErr || editorCategoryErr) return;
     setSaving(true);
     try {
       const payload = {
@@ -575,7 +577,7 @@ export function EstimateTemplateManager() {
       )}
 
       {/* ── Template Editor Dialog ── */}
-      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+      <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setEditorTouched(false); }}>
         <DialogContent className="max-w-[95vw] w-[1300px] h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>{editingId ? "Edit Template" : "New Template"}</DialogTitle>
@@ -609,18 +611,20 @@ export function EstimateTemplateManager() {
             {/* ── INFO TAB ── */}
             {activeTab === "info" && (
               <div className="space-y-4 max-w-lg">
-                <div className="space-y-2">
-                  <Label>Template Name *</Label>
+                <div className="space-y-1.5">
+                  <Label>Template Name <span className="text-destructive">*</span></Label>
                   <Input
                     placeholder="e.g., Concrete Work"
                     value={editorName}
                     onChange={(e) => setEditorName(e.target.value)}
+                    className={editorTouched && editorNameErr ? "border-red-500" : ""}
                   />
+                  {editorTouched && editorNameErr && <p className="text-xs text-red-500">{editorNameErr}</p>}
                 </div>
-                <div className="space-y-2">
-                  <Label>Category *</Label>
+                <div className="space-y-1.5">
+                  <Label>Category <span className="text-destructive">*</span></Label>
                   <Select value={editorCategory} onValueChange={setEditorCategory}>
-                    <SelectTrigger>
+                    <SelectTrigger className={editorTouched && editorCategoryErr ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
@@ -631,9 +635,10 @@ export function EstimateTemplateManager() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    When a proposal uses this category, this wizard will launch automatically.
-                  </p>
+                  {editorTouched && editorCategoryErr
+                    ? <p className="text-xs text-red-500">{editorCategoryErr}</p>
+                    : <p className="text-xs text-muted-foreground">When a proposal uses this category, this wizard will launch automatically.</p>
+                  }
                 </div>
                 <div className="space-y-2">
                   <Label>Description</Label>

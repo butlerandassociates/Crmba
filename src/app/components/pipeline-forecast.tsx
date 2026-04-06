@@ -5,6 +5,7 @@ import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -207,14 +208,14 @@ export function PipelineForecast() {
 
       {/* Client list modal */}
       <Dialog open={!!selectedStage} onOpenChange={() => setSelectedStage(null)}>
-        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-lg max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span>{selectedStage?.label} Clients</span>
               <Badge variant="secondary">{selectedStage?.list.length}</Badge>
             </DialogTitle>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 divide-y">
+          <DialogBody className="divide-y px-0 py-0">
             {selectedStage?.list.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 No clients in this stage
@@ -244,7 +245,7 @@ export function PipelineForecast() {
                 </Link>
               ))
             )}
-          </div>
+          </DialogBody>
         </DialogContent>
       </Dialog>
 

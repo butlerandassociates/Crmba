@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -48,7 +50,9 @@ export function ProposalDetail() {
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -240,37 +244,55 @@ export function ProposalDetail() {
     });
   };
 
-  const handleDownload = () => {
-    const exportElement = document.getElementById("proposal-export-content");
-    if (!exportElement) return;
-    const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Estimate #${proposal.estimate_number} - ${proposal.title}</title>
-            <style>
-              * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; color-adjust: exact !important; print-color-adjust: exact !important; }
-              body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; color: #111; background: #fff; }
-              img { max-width: 100%; }
-              table { border-collapse: collapse; }
-              @page { margin: 0; size: letter portrait; }
-              @media print {
-                body { padding: 0.4in; }
-                .page-break { page-break-before: always; }
-              }
-            </style>
-          </head>
-          <body>
-            <div id="proposal-content"></div>
-            <script>
-              window.onload = function() { window.print(); }
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.getElementById("proposal-content")!.innerHTML = exportElement.innerHTML;
-      printWindow.document.close();
+  const handleDownload = async () => {
+    const element = document.getElementById("proposal-export-content");
+    if (!element) return;
+    setDownloading(true);
+    try {
+      // Pre-load all images as base64 to avoid CORS/taint issues with html2canvas
+      const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        img.onload = () => resolve();
+        img.onerror = () => resolve(); // skip broken images, don't fail
+      })));
+
+      const canvas = await html2canvas(element as HTMLElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#F5F3EF",
+        logging: false,
+        imageTimeout: 10000,
+        removeContainer: true,
+        // Strip Tailwind/shadcn stylesheets — they use oklch which html2canvas can't parse.
+        // ProposalExport is 100% inline-styled so removing external CSS is safe.
+        onclone: (_doc, el) => {
+          const root = el.getRootNode() as Document;
+          Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
+        },
+      });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height / canvas.width) * pageW;
+      let remaining = imgH;
+      let yOffset = 0;
+      pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
+      remaining -= pageH;
+      while (remaining > 0) {
+        yOffset -= pageH;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
+        remaining -= pageH;
+      }
+      pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      toast.error("Failed to generate PDF — check console for details");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -289,20 +311,70 @@ export function ProposalDetail() {
       const proposalLink = `${window.location.origin}/p/${proposal.id}`;
       const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
       const html = `
-        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-          <div style="background:#111;padding:20px 24px;border-radius:8px 8px 0 0;">
-            <p style="color:#fff;font-weight:700;font-size:16px;margin:0;">Butler & Associates Construction</p>
-          </div>
-          <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
-            <p style="color:#374151;white-space:pre-line;">${emailMessage}</p>
-            <div style="margin:28px 0;text-align:center;">
-              <a href="${proposalLink}" style="background:#111;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">
-                View Proposal
-              </a>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width,initial-scale=1" />
+          <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+        </head>
+        <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+          <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+
+            <!-- Header -->
+            <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
+                    <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
+                  </td>
+                  <td style="vertical-align:middle;text-align:right;width:90px;">
+                    <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="Butler &amp; Associates" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" />
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color:#6b7280;font-size:13px;">This proposal is valid for 30 days. Questions? Reply to this email or call us directly.</p>
+            <!-- Gold rule -->
+            <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+
+            <!-- Body -->
+            <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+
+              <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
+                Your Proposal Is Ready
+              </p>
+              <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">
+                ${clientName}
+              </p>
+
+              <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+
+              <div style="text-align:center;margin:0 0 28px 0;">
+                <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 36px;border-radius:4px;text-decoration:none;font-family:Inter,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">
+                  View &amp; Accept Proposal
+                </a>
+              </div>
+
+              <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
+                This proposal is valid for 30 days. Questions? Reply to this email or reach us at
+                <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div style="text-align:center;padding:20px 0 0 0;">
+              <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">
+                Butler &amp; Associates Construction, Inc.
+              </p>
+              <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">
+                6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
+              </p>
+            </div>
+
           </div>
-        </div>
+        </body>
+        </html>
       `;
       const { error } = await supabase.functions.invoke("send-email", {
         body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction" },
@@ -584,80 +656,97 @@ export function ProposalDetail() {
 
       {/* Item Picker Dialog */}
       <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="p-6 pb-3">
-            <DialogTitle>Add Item</DialogTitle>
-            <DialogDescription>Select a category then choose a product</DialogDescription>
+        <DialogContent className="h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
+          <DialogHeader className="px-6 py-5 border-b shrink-0">
+            <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
+            <DialogDescription>Select a category on the left, then click a product to add it</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-1 overflow-hidden border-t">
-            {/* Categories */}
-            <div className="w-48 shrink-0 overflow-y-auto border-r p-2 space-y-1">
-              {dbCategories.map((cat: any) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setPickerCategory(cat.name)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                    pickerCategory === cat.name ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Categories sidebar */}
+            <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col">
+              <p className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Categories</p>
+              <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+                {dbCategories.map((cat: any) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setPickerCategory(cat.name)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      pickerCategory === cat.name
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Products */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {!pickerCategory && (
-                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                  Select a category
+            {/* Products panel — fills all remaining width */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              {!pickerCategory ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                  <p className="text-sm">← Select a category to browse products</p>
                 </div>
-              )}
-              {pickerCategory && (() => {
+              ) : (() => {
                 const products = dbProducts.filter((p: any) => p.category?.name === pickerCategory);
                 if (products.length === 0) return (
                   <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
                     No products in this category
                   </div>
                 );
-                return products.map((product: any) => {
-                  const cost = (product.material_cost ?? 0) + (product.labor_cost ?? 0);
-                  const price = (Number(product.price_per_unit) > 0)
-                    ? Number(product.price_per_unit)
-                    : cost * (1 + (product.markup_percentage ?? 0) / 100);
-                  const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
-                  return (
-                    <button
-                      key={product.id}
-                      onClick={() => {
-                        setEditLineItems((prev) => [...prev, {
-                          id: `new-${Date.now()}`,
-                          fromPicker: true,
-                          name: product.name,
-                          product_name: product.name,
-                          category: product.category?.name ?? pickerCategory,
-                          quantity: 1,
-                          unit: product.unit ?? "",
-                          client_price: price,
-                          price_per_unit: price,
-                          material_cost: product.material_cost ?? 0,
-                          labor_cost: product.labor_cost ?? 0,
-                          total_price: price,
-                        }]);
-                        setShowItemPicker(false);
-                        setPickerCategory("");
-                      }}
-                      className="w-full text-left p-3 rounded-lg border hover:bg-muted/50 hover:border-primary transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">{product.name}</span>
-                        <span className="text-sm font-semibold">{formatC(price)}<span className="text-xs text-muted-foreground font-normal">/{product.unit}</span></span>
+                const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+                return (
+                  <>
+                    <div className="px-6 pt-5 pb-3 shrink-0 border-b">
+                      <p className="text-base font-semibold">{pickerCategory}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{products.length} product{products.length !== 1 ? "s" : ""} — click to add</p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-6 py-5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+                      <div className="grid grid-cols-2 gap-4">
+                        {products.map((product: any) => {
+                          const cost = (product.material_cost ?? 0) + (product.labor_cost ?? 0);
+                          const price = Number(product.price_per_unit) > 0
+                            ? Number(product.price_per_unit)
+                            : cost * (1 + (product.markup_percentage ?? 0) / 100);
+                          return (
+                            <button
+                              key={product.id}
+                              onClick={() => {
+                                setEditLineItems((prev) => [...prev, {
+                                  id: `new-${Date.now()}`,
+                                  fromPicker: true,
+                                  name: product.name,
+                                  product_name: product.name,
+                                  category: product.category?.name ?? pickerCategory,
+                                  quantity: 1,
+                                  unit: product.unit ?? "",
+                                  client_price: price,
+                                  price_per_unit: price,
+                                  material_cost: product.material_cost ?? 0,
+                                  labor_cost: product.labor_cost ?? 0,
+                                  total_price: price,
+                                }]);
+                                setShowItemPicker(false);
+                                setPickerCategory("");
+                              }}
+                              className="text-left p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all group flex flex-col gap-2"
+                            >
+                              <div className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors leading-snug">{product.name}</div>
+                              {product.description && (
+                                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{product.description}</p>
+                              )}
+                              <div className="flex items-baseline gap-1 pt-1 mt-auto border-t border-border/50">
+                                <span className="text-sm font-bold text-primary">{formatC(price)}</span>
+                                <span className="text-xs text-muted-foreground">/ {product.unit || "unit"}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
-                      {product.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{product.description}</p>
-                      )}
-                    </button>
-                  );
-                });
+                    </div>
+                  </>
+                );
               })()}
             </div>
           </div>
@@ -666,7 +755,7 @@ export function ProposalDetail() {
 
       {/* Wizard Edit Dialog */}
       <Dialog open={showWizard} onOpenChange={setShowWizard}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[92vh] flex flex-col p-0 gap-0">
+        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
           <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-4 w-4" />
@@ -676,7 +765,7 @@ export function ProposalDetail() {
               Complete the wizard to replace the existing {wizardCategory} line items
             </DialogDescription>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 px-6 py-4">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {showWizard && (
               activeTemplate ? (
                 <TemplateWizard
@@ -712,9 +801,10 @@ export function ProposalDetail() {
                 variant="outline"
                 className="bg-white text-gray-900 border-white h-7 text-xs hover:bg-transparent hover:text-white hover:border-white"
                 onClick={handleDownload}
+                disabled={downloading}
               >
-                <Download className="h-3 w-3 mr-1" />
-                Download PDF
+                {downloading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Download className="h-3 w-3 mr-1" />}
+                {downloading ? "Generating…" : "Download PDF"}
               </Button>
               <button
                 onClick={() => setShowPreview(false)}
@@ -726,10 +816,9 @@ export function ProposalDetail() {
           </div>
 
           {/* Scrollable PDF viewer area */}
-          <div className="flex-1 overflow-y-auto bg-[#525659]">
-            {/* White document — centered in dark PDF viewer chrome */}
-            <div className="py-8 px-4 flex justify-center">
-              <div className="bg-white shadow-2xl w-full" style={{ maxWidth: 1050 }}>
+          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
+            <div className="py-10 flex justify-center">
+              <div className="bg-white shadow-2xl" style={{ width: 816 }}>
                 <ProposalExport proposal={proposal} client={client} />
               </div>
             </div>
@@ -739,14 +828,15 @@ export function ProposalDetail() {
 
       {/* Email Dialog */}
       <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ maxHeight: "85vh" }}>
+          <DialogHeader className="shrink-0">
             <DialogTitle>Email Proposal</DialogTitle>
             <DialogDescription>
               Send this proposal directly to {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          {/* Scrollable body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
             <div className="space-y-2">
               <Label>To</Label>
               <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
@@ -757,13 +847,18 @@ export function ProposalDetail() {
             </div>
             <div className="space-y-2">
               <Label>Message</Label>
-              <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={6} />
+              <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={8} className="resize-none" />
             </div>
             <p className="text-xs text-muted-foreground">A "View Proposal" button linking to the proposal page will be included automatically.</p>
           </div>
-          <div className="flex justify-end gap-2">
+          {/* Fixed footer */}
+          <div className="flex justify-end gap-2 px-6 py-4 border-t shrink-0">
             <Button variant="outline" onClick={() => setShowEmailDialog(false)} disabled={sendingEmail}>
               Cancel
+            </Button>
+            <Button variant="outline" onClick={() => setShowEmailPreview(true)}>
+              <Eye className="h-4 w-4 mr-2" />
+              Preview
             </Button>
             <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo}>
               {sendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
@@ -773,8 +868,72 @@ export function ProposalDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Hidden export content for download */}
-      <div className="hidden">
+      {/* Email Preview Dialog — shows exactly what client receives */}
+      <Dialog open={showEmailPreview} onOpenChange={setShowEmailPreview}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Email Preview
+            </DialogTitle>
+            <DialogDescription>
+              This is exactly what {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "the client"} will see in their inbox.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+            <iframe
+              srcDoc={(() => {
+                const proposalLink = `${window.location.origin}/p/${proposal?.id}`;
+                const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+                return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+  <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="vertical-align:middle;">
+          <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
+          <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
+        </td>
+        <td style="vertical-align:middle;text-align:right;width:90px;">
+          <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="B&amp;A" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+  <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Your Proposal Is Ready</p>
+    <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">${clientName}</p>
+    <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+    <div style="text-align:center;margin:0 0 28px 0;">
+      <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 36px;border-radius:4px;text-decoration:none;font-family:Inter,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a>
+    </div>
+    <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
+      This proposal is valid for 30 days. Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
+    </p>
+  </div>
+  <div style="text-align:center;padding:20px 0 0 0;">
+    <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+  </div>
+</div>
+</body></html>`;
+              })()}
+              className="w-full h-full border-0"
+              title="Email Preview"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Off-screen export content for download — NOT hidden so html2canvas can capture it */}
+      <div style={{ position: "absolute", left: -9999, top: 0, width: 816, pointerEvents: "none", opacity: 0 }}>
         <div id="proposal-export-content">
           <ProposalExport proposal={proposal} client={client} />
         </div>

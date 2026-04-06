@@ -55,6 +55,8 @@ export function ProductManager() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [addTouched, setAddTouched] = useState(false);
+  const [editTouched, setEditTouched] = useState(false);
 
   useEffect(() => {
     supabase.from("units").select("name").eq("is_active", true).order("sort_order")
@@ -112,11 +114,17 @@ export function ProductManager() {
     return cost * (1 + Number(p.markup_percentage) / 100);
   };
 
+  const addNameErr     = !newProduct.name.trim() ? "Product name is required." : newProduct.name.trim().length < 2 ? "Min 2 characters." : "";
+  const addCategoryErr = !newProduct.category_id ? "Category is required." : "";
+  const addUnitErr     = !newProduct.unit ? "Unit is required." : "";
+
+  const editNameErr     = !editingProduct?.name?.trim() ? "Product name is required." : editingProduct?.name?.trim().length < 2 ? "Min 2 characters." : "";
+  const editCategoryErr = !editingProduct?.category_id ? "Category is required." : "";
+  const editUnitErr     = !editingProduct?.unit ? "Unit is required." : "";
+
   const handleAddProduct = async () => {
-    if (!newProduct.name || !newProduct.category_id || !newProduct.unit) {
-      toast.error("Name, category, and unit are required");
-      return;
-    }
+    setAddTouched(true);
+    if (addNameErr || addCategoryErr || addUnitErr) return;
     try {
       setSaving(true);
       await productsAPI.save({
@@ -135,6 +143,7 @@ export function ProductManager() {
       setAllProducts(refreshed || []);
       setShowAddDialog(false);
       setNewProduct(emptyForm);
+      setAddTouched(false);
       toast.success("Product added");
     } catch (err: any) {
       toast.error(err.message || "Failed to add product");
@@ -156,6 +165,8 @@ export function ProductManager() {
   };
 
   const handleSaveEdit = async () => {
+    setEditTouched(true);
+    if (editNameErr || editCategoryErr || editUnitErr) return;
     if (!editingProduct) return;
     try {
       setSaving(true);
@@ -173,6 +184,7 @@ export function ProductManager() {
       const refreshed = await productsAPI.getAll();
       setAllProducts(refreshed || []);
       setEditingProduct(null);
+      setEditTouched(false);
       toast.success("Product updated");
     } catch (err: any) {
       toast.error(err.message || "Failed to update product");
@@ -201,7 +213,7 @@ export function ProductManager() {
             Manage all products, materials, and pricing
           </p>
         </div>
-        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) { setNewProduct(emptyForm); setAddTouched(false); } }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -209,59 +221,53 @@ export function ProductManager() {
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
-            {/* Fixed header */}
-            <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
-              <DialogHeader>
-                <DialogTitle>Add New Product</DialogTitle>
-                <DialogDescription>
-                  Add a new product, material, or service to your catalog
-                </DialogDescription>
-              </DialogHeader>
-            </div>
+            <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+              <DialogTitle>Add New Product</DialogTitle>
+              <DialogDescription>
+                Add a new product, material, or service to your catalog
+              </DialogDescription>
+            </DialogHeader>
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 thin-scroll">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Product Name *</Label>
+                <div className="space-y-1.5">
+                  <Label>Product Name <span className="text-destructive">*</span></Label>
                   <Input
                     placeholder="e.g., Concrete Mix (3000 PSI)"
                     value={newProduct.name}
-                    onChange={(e) =>
-                      setNewProduct({ ...newProduct, name: e.target.value })
-                    }
+                    onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                    className={addTouched && addNameErr ? "border-red-500" : ""}
                   />
+                  {addTouched && addNameErr && <p className="text-xs text-red-500">{addNameErr}</p>}
                 </div>
-                <div className="space-y-2">
-                  <Label>Category *</Label>
+                <div className="space-y-1.5">
+                  <Label>Category <span className="text-destructive">*</span></Label>
                   <Select
                     value={newProduct.category_id}
-                    onValueChange={(value) =>
-                      setNewProduct({ ...newProduct, category_id: value })
-                    }
+                    onValueChange={(value) => setNewProduct({ ...newProduct, category_id: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={addTouched && addCategoryErr ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </SelectItem>
+                        <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {addTouched && addCategoryErr && <p className="text-xs text-red-500">{addCategoryErr}</p>}
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Unit *</Label>
+                <div className="space-y-1.5">
+                  <Label>Unit <span className="text-destructive">*</span></Label>
                   <Select
                     value={newProduct.unit}
                     onValueChange={(value) => setNewProduct({ ...newProduct, unit: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={addTouched && addUnitErr ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select unit" />
                     </SelectTrigger>
                     <SelectContent>
@@ -270,6 +276,7 @@ export function ProductManager() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {addTouched && addUnitErr && <p className="text-xs text-red-500">{addUnitErr}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Material Cost (per unit) *</Label>
@@ -417,7 +424,7 @@ export function ProductManager() {
               </Button>
               <Button
                 onClick={handleAddProduct}
-                disabled={saving || !newProduct.name || !newProduct.category_id || !newProduct.unit}
+                disabled={saving}
               >
                 {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Add Product
@@ -622,61 +629,55 @@ export function ProductManager() {
 
       {/* Edit Product Dialog */}
       {editingProduct && (
-        <Dialog open={!!editingProduct} onOpenChange={() => setEditingProduct(null)}>
+        <Dialog open={!!editingProduct} onOpenChange={(open) => { if (!open) { setEditingProduct(null); setEditTouched(false); } }}>
           <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
-            {/* Fixed header */}
-            <div className="px-6 pt-6 pb-4 border-b flex-shrink-0">
-              <DialogHeader>
-                <DialogTitle>Edit Product</DialogTitle>
-                <DialogDescription>
-                  Update product details, pricing, and settings
-                </DialogDescription>
-              </DialogHeader>
-            </div>
+            <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+              <DialogTitle>Edit Product</DialogTitle>
+              <DialogDescription>
+                Update product details, pricing, and settings
+              </DialogDescription>
+            </DialogHeader>
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 thin-scroll">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Product Name *</Label>
+                <div className="space-y-1.5">
+                  <Label>Product Name <span className="text-destructive">*</span></Label>
                   <Input
                     placeholder="e.g., Concrete Mix (3000 PSI)"
                     value={editingProduct.name}
-                    onChange={(e) =>
-                      setEditingProduct({ ...editingProduct, name: e.target.value })
-                    }
+                    onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                    className={editTouched && editNameErr ? "border-red-500" : ""}
                   />
+                  {editTouched && editNameErr && <p className="text-xs text-red-500">{editNameErr}</p>}
                 </div>
-                <div className="space-y-2">
-                  <Label>Category *</Label>
+                <div className="space-y-1.5">
+                  <Label>Category <span className="text-destructive">*</span></Label>
                   <Select
                     value={editingProduct.category_id}
-                    onValueChange={(value) =>
-                      setEditingProduct({ ...editingProduct, category_id: value })
-                    }
+                    onValueChange={(value) => setEditingProduct({ ...editingProduct, category_id: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={editTouched && editCategoryErr ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </SelectItem>
+                        <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {editTouched && editCategoryErr && <p className="text-xs text-red-500">{editCategoryErr}</p>}
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Unit *</Label>
+                <div className="space-y-1.5">
+                  <Label>Unit <span className="text-destructive">*</span></Label>
                   <Select
                     value={editingProduct.unit}
                     onValueChange={(value) => setEditingProduct({ ...editingProduct, unit: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={editTouched && editUnitErr ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select unit" />
                     </SelectTrigger>
                     <SelectContent>
@@ -685,6 +686,7 @@ export function ProductManager() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {editTouched && editUnitErr && <p className="text-xs text-red-500">{editUnitErr}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Material Cost</Label>

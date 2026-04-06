@@ -37,6 +37,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   const [viewingPO, setViewingPO] = useState<any | null>(null);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [formTouched, setFormTouched] = useState(false);
 
   const emptyForm = () => ({
     supplier_name: "",
@@ -85,15 +86,14 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
     }
   };
 
+  const supplierErr = !form.supplier_name.trim() ? "Supplier name is required." : "";
+  const itemsErr = form.items.some((i: any) => !i.product_name.trim() || !i.unit.trim())
+    ? "All items need a product name and unit."
+    : "";
+
   const handleSave = async () => {
-    if (!form.supplier_name.trim()) {
-      toast.error("Supplier name is required");
-      return;
-    }
-    if (form.items.some((i: any) => !i.product_name || !i.unit)) {
-      toast.error("All items need a product name and unit");
-      return;
-    }
+    setFormTouched(true);
+    if (supplierErr || itemsErr) return;
     setSaving(true);
     try {
       const items = form.items.map((item: any, idx: number) => ({
@@ -126,6 +126,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
       setCreating(false);
       setEditingId(null);
       setForm(emptyForm());
+      setFormTouched(false);
       loadAll();
     } catch (err: any) {
       toast.error(err.message || "Failed to save");
@@ -283,8 +284,14 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label>Supplier Name *</Label>
-                    <Input placeholder="e.g., Home Depot, SiteOne" value={form.supplier_name} onChange={(e) => setForm({ ...form, supplier_name: e.target.value })} />
+                    <Label>Supplier Name <span className="text-destructive">*</span></Label>
+                    <Input
+                      placeholder="e.g., Home Depot, SiteOne"
+                      value={form.supplier_name}
+                      onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
+                      className={formTouched && supplierErr ? "border-red-500" : ""}
+                    />
+                    {formTouched && supplierErr && <p className="text-xs text-red-500">{supplierErr}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Delivery Date</Label>
@@ -356,6 +363,7 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
                   <Button variant="outline" size="sm" onClick={addItem}>
                     <Plus className="h-4 w-4 mr-1.5" /> Add Item
                   </Button>
+                  {formTouched && itemsErr && <p className="text-xs text-red-500">{itemsErr}</p>}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t">

@@ -9,6 +9,7 @@ import { projectId, publicAnonKey } from "utils/supabase/info";
 
 export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
   const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -16,21 +17,16 @@ export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
     confirmPassword: "",
   });
 
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const nameErr     = !formData.name.trim() ? "Name is required." : formData.name.trim().length < 2 ? "Min 2 characters." : "";
+  const emailErr    = !formData.email.trim() ? "Email is required." : !isValidEmail(formData.email.trim()) ? "Enter a valid email address." : "";
+  const passErr     = !formData.password ? "Password is required." : formData.password.length < 6 ? "Minimum 6 characters." : "";
+  const confirmErr  = !formData.confirmPassword ? "Please confirm your password." : formData.password !== formData.confirmPassword ? "Passwords don't match." : "";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    console.log("Form submitted with data:", formData);
-    
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords don't match");
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-
+    setTouched(true);
+    if (nameErr || emailErr || passErr || confirmErr) return;
     setLoading(true);
 
     try {
@@ -101,55 +97,60 @@ export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Your Name</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="name">Your Name <span className="text-destructive">*</span></Label>
                 <Input
                   id="name"
                   type="text"
                   placeholder="John Smith"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
                   disabled={loading}
+                  className={touched && nameErr ? "border-red-500" : ""}
                 />
+                {touched && nameErr && <p className="text-xs text-red-500">{nameErr}</p>}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="you@butlerconstruction.co"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
                   disabled={loading}
+                  className={touched && emailErr ? "border-red-500" : ""}
                 />
+                {touched && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="password">Password <span className="text-destructive">*</span></Label>
                 <Input
                   id="password"
                   type="password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
                   disabled={loading}
-                  minLength={6}
+                  className={touched && passErr ? "border-red-500" : ""}
                 />
+                {touched && passErr
+                  ? <p className="text-xs text-red-500">{passErr}</p>
+                  : <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
+                }
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirmPassword">Confirm Password <span className="text-destructive">*</span></Label>
                 <Input
                   id="confirmPassword"
                   type="password"
                   placeholder="••••••••"
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                  required
                   disabled={loading}
-                  minLength={6}
+                  className={touched && confirmErr ? "border-red-500" : ""}
                 />
+                {touched && confirmErr && <p className="text-xs text-red-500">{confirmErr}</p>}
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
