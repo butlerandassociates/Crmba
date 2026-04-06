@@ -12,6 +12,7 @@ import {
   Line,
 } from "recharts";
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import {
   Popover,
   PopoverContent,
@@ -99,6 +100,8 @@ export function Dashboard() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(fetchData, ["clients", "project_payments", "projects", "company_settings"], "dashboard");
 
   if (loading) {
     return (
@@ -696,9 +699,9 @@ export function Dashboard() {
                             <DollarSign className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <Link to={`/projects/${payment.project?.id}`} className="font-medium text-sm hover:text-primary truncate block">
+                            <span className="font-medium text-sm truncate block">
                               {payment.project?.name ?? '—'}
-                            </Link>
+                            </span>
                             <div className="text-xs text-muted-foreground">{clientName} · {payment.label}</div>
                           </div>
                         </div>

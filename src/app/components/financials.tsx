@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { DollarSign, TrendingUp, TrendingDown, Percent, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import {
   BarChart,
   Bar,
@@ -30,12 +31,15 @@ export function Financials() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchData = () => {
     projectsAPI.getAll()
       .then(setProjects)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchData(); }, []);
+  useRealtimeRefetch(fetchData, ["projects", "receipts", "project_payments"], "financials");
 
   if (loading) {
     return (
@@ -94,7 +98,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">All projects</p>
+            <p className="text-xs text-muted-foreground mt-1">All clients</p>
           </CardContent>
         </Card>
 
@@ -127,7 +131,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{avgProfitMargin.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground mt-1">Across all projects</p>
+            <p className="text-xs text-muted-foreground mt-1">Across all clients</p>
           </CardContent>
         </Card>
       </div>
@@ -155,11 +159,11 @@ export function Financials() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Project Profitability</CardTitle>
+            <CardTitle>Client Profitability</CardTitle>
           </CardHeader>
           <CardContent>
             {projects.length === 0 ? (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm">No projects yet</div>
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm">No clients yet</div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={projectProfitability}>
@@ -182,15 +186,15 @@ export function Financials() {
         </CardHeader>
         <CardContent>
           {projects.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No projects found</p>
+            <p className="text-sm text-muted-foreground text-center py-4">No clients found</p>
           ) : (
             <div className="space-y-4">
               {projects.map((project) => (
                 <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <Link to={`/projects/${project.id}`} className="font-semibold hover:text-primary">
-                        {project.name || "Unnamed Project"}
+                      <Link to={`/clients/${project.client?.id}`} className="font-semibold hover:text-primary">
+                        {project.clientName || project.name || "Unnamed"}
                       </Link>
                       <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
                         {(project.status ?? "").replace(/_/g, " ")}
@@ -213,17 +217,17 @@ export function Financials() {
         </CardContent>
       </Card>
 
-      {/* Project Details Table */}
+      {/* Client Financial Details Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Project Financial Details</CardTitle>
+          <CardTitle>Client Financial Details</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left p-3 font-medium">Project</th>
+                  <th className="text-left p-3 font-medium">Client</th>
                   <th className="text-left p-3 font-medium">Status</th>
                   <th className="text-right p-3 font-medium">Revenue</th>
                   <th className="text-right p-3 font-medium">Costs</th>
@@ -236,9 +240,9 @@ export function Financials() {
                 {projects.map((project) => (
                   <tr key={project.id} className="border-b hover:bg-accent">
                     <td className="p-3">
-                      <Link to={`/projects/${project.id}`} className="hover:text-primary">
-                        <div className="font-medium">{project.name || "Unnamed Project"}</div>
-                        <div className="text-sm text-muted-foreground">{project.clientName}</div>
+                      <Link to={`/clients/${project.client?.id}`} className="hover:text-primary">
+                        <div className="font-medium">{project.clientName || project.name || "Unnamed"}</div>
+                        <div className="text-sm text-muted-foreground">{project.name}</div>
                       </Link>
                     </td>
                     <td className="p-3">

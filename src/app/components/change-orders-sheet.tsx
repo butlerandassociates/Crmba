@@ -15,6 +15,7 @@ interface ChangeOrdersSheetProps {
   onOpenChange: (open: boolean) => void;
   client: any;
   project: any;
+  onSave?: () => void;
 }
 
 type View = "list" | "create" | "detail";
@@ -33,7 +34,7 @@ const EMPTY_ITEM = { id: "", category: "Materials", description: "", quantity: 1
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-export function ChangeOrdersSheet({ open, onOpenChange, client, project }: ChangeOrdersSheetProps) {
+export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave }: ChangeOrdersSheetProps) {
   const [view, setView] = useState<View>("list");
   const [cos, setCos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -131,6 +132,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project }: Chang
       resetForm();
       setView("list");
       loadCOs();
+      onSave?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to create change order");
     } finally {

@@ -14,6 +14,7 @@ interface PurchaseOrdersSheetProps {
   onOpenChange: (open: boolean) => void;
   client: any;
   project: any;
+  onSave?: () => void;
 }
 
 type View = "list" | "create" | "detail";
@@ -77,7 +78,7 @@ const emptyLine = (): MaterialLine => ({
   availableColors: [],
 });
 
-export function PurchaseOrdersSheet({ open, onOpenChange, client, project }: PurchaseOrdersSheetProps) {
+export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSave }: PurchaseOrdersSheetProps) {
   const [view, setView] = useState<View>("list");
   const [pos, setPos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -184,6 +185,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project }: Pur
       resetForm();
       setView("list");
       loadPOs();
+      onSave?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to create purchase order");
     } finally {

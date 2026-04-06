@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { 
   TrendingUp, 
@@ -66,6 +67,8 @@ export function Pipeline() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(fetchData, ["clients", "project_payments", "estimates"], "pipeline");
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {

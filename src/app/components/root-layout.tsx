@@ -1,5 +1,6 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Loader2, Bell, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
@@ -71,63 +72,77 @@ export function RootLayout() {
   // Bell alerts
   type NavAlert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" };
   const [navAlerts, setNavAlerts] = useState<NavAlert[]>([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("dismissed_alerts") ?? "[]")); } catch { return new Set(); }
+  });
 
-  useEffect(() => {
-    const fetchAlerts = async () => {
-      try {
-        const today = new Date().toISOString().split("T")[0];
-        const [clientsRes, estimatesRes, paymentsRes] = await Promise.all([
-          supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
-          supabase.from("estimates").select("client_id"),
-          supabase.from("project_payments")
-            .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name))")
-            .eq("is_paid", false).not("due_date", "is", null).lt("due_date", today),
-        ]);
-        const clients = clientsRes.data ?? [];
-        const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
-        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+  const markAsRead = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const updated = new Set(dismissedAlerts);
+    updated.add(id);
+    setDismissedAlerts(updated);
+    localStorage.setItem("dismissed_alerts", JSON.stringify([...updated]));
+  };
 
-        const alerts: NavAlert[] = [];
+  const visibleAlerts = navAlerts.filter(a => !dismissedAlerts.has(a.id));
 
-        clients.filter((c: any) => c.status === "selling" && !proposalClientIds.has(c.id)).forEach((c: any) => {
-          alerts.push({
-            id: `no-proposal-${c.id}`, clientId: c.id,
-            clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
-            label: "No Proposal Sent", description: "In Selling stage with no proposal created",
-            severity: "amber",
-          });
+  const fetchAlerts = async () => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const [clientsRes, estimatesRes, paymentsRes] = await Promise.all([
+        supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
+        supabase.from("estimates").select("client_id"),
+        supabase.from("project_payments")
+          .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name))")
+          .eq("is_paid", false).not("due_date", "is", null).lt("due_date", today),
+      ]);
+      const clients = clientsRes.data ?? [];
+      const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
+      const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+
+      const alerts: NavAlert[] = [];
+
+      clients.filter((c: any) => c.status === "selling" && !proposalClientIds.has(c.id)).forEach((c: any) => {
+        alerts.push({
+          id: `no-proposal-${c.id}`, clientId: c.id,
+          clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+          label: "No Proposal Sent", description: "In Selling stage with no proposal created",
+          severity: "amber",
         });
+      });
 
-        clients.filter((c: any) => {
-          if (!["prospect", "selling"].includes(c.status) || !c.expected_close_date) return false;
-          const d = new Date(c.expected_close_date); d.setHours(0, 0, 0, 0);
-          return d < todayDate;
-        }).forEach((c: any) => {
-          alerts.push({
-            id: `stale-${c.id}`, clientId: c.id,
-            clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
-            label: "Close Date Passed",
-            description: `Expected by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
-            severity: "amber",
-          });
+      clients.filter((c: any) => {
+        if (!["prospect", "selling"].includes(c.status) || !c.expected_close_date) return false;
+        const d = new Date(c.expected_close_date); d.setHours(0, 0, 0, 0);
+        return d < todayDate;
+      }).forEach((c: any) => {
+        alerts.push({
+          id: `stale-${c.id}`, clientId: c.id,
+          clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
+          label: "Close Date Passed",
+          description: `Expected by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+          severity: "amber",
         });
+      });
 
-        (paymentsRes.data ?? []).forEach((p: any) => {
-          const client = p.project?.client;
-          alerts.push({
-            id: `overdue-${p.id}`, clientId: p.project?.client_id ?? "",
-            clientName: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "—",
-            label: "Payment Overdue",
-            description: `${p.label ?? "Payment"} — due ${new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
-            severity: "red",
-          });
+      (paymentsRes.data ?? []).forEach((p: any) => {
+        const client = p.project?.client;
+        alerts.push({
+          id: `overdue-${p.id}`, clientId: p.project?.client_id ?? "",
+          clientName: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "—",
+          label: "Payment Overdue",
+          description: `${p.label ?? "Payment"} — due ${new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+          severity: "red",
         });
+      });
 
-        setNavAlerts(alerts);
-      } catch { /* silent */ }
-    };
-    fetchAlerts();
-  }, []);
+      setNavAlerts(alerts);
+    } catch { /* silent */ }
+  };
+
+  useEffect(() => { fetchAlerts(); }, []);
+  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates"], "nav-alerts");
 
   // My Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -254,9 +269,9 @@ export function RootLayout() {
               <PopoverTrigger asChild>
                 <button className="relative p-1 rounded-md hover:bg-accent transition-colors">
                   <Bell className="h-5 w-5 text-muted-foreground" />
-                  {navAlerts.length > 0 && (
+                  {visibleAlerts.length > 0 && (
                     <span className="absolute -top-1 -right-1 h-4 w-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
-                      {navAlerts.length > 9 ? "9+" : navAlerts.length}
+                      {visibleAlerts.length > 9 ? "9+" : visibleAlerts.length}
                     </span>
                   )}
                 </button>
@@ -264,12 +279,12 @@ export function RootLayout() {
               <PopoverContent className="w-80 p-0" align="end">
                 <div className="flex items-center justify-between px-4 py-3 border-b">
                   <span className="text-sm font-semibold">Alerts</span>
-                  {navAlerts.length > 0 && (
-                    <span className="text-xs text-muted-foreground">{navAlerts.length} active</span>
+                  {visibleAlerts.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{visibleAlerts.length} active</span>
                   )}
                 </div>
                 <div className="max-h-[360px] overflow-y-auto">
-                  {navAlerts.length === 0 ? (
+                  {visibleAlerts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
                       <CheckCircle2 className="h-8 w-8 text-green-500" />
                       <p className="text-sm font-medium text-green-700">All clear!</p>
@@ -277,7 +292,7 @@ export function RootLayout() {
                     </div>
                   ) : (
                     <div className="divide-y">
-                      {navAlerts.map((alert) => (
+                      {visibleAlerts.map((alert) => (
                         <Link
                           key={alert.id}
                           to={alert.clientId ? `/clients/${alert.clientId}` : "/pipeline"}
@@ -292,6 +307,12 @@ export function RootLayout() {
                               <span className="text-xs font-medium truncate">{alert.clientName}</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.description}</p>
+                            <button
+                              onClick={(e) => markAsRead(alert.id, e)}
+                              className="mt-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              Mark as read
+                            </button>
                           </div>
                         </Link>
                       ))}

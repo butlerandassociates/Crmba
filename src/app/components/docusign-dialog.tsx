@@ -25,6 +25,7 @@ interface DocuSignDialogProps {
   onOpenChange: (open: boolean) => void;
   client: Record<string, any>;
   project?: Record<string, any>;
+  onSent?: () => void;
 }
 
 interface DocuSignTemplate {
@@ -42,6 +43,7 @@ export function DocuSignDialog({
   onOpenChange,
   client,
   project,
+  onSent,
 }: DocuSignDialogProps) {
   const [templates, setTemplates] = useState<DocuSignTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -210,12 +212,8 @@ export function DocuSignDialog({
 
       // Store envelope ID and close dialog
       setEnvelopeId(data.envelopeId);
-      
-      // Close dialog and show success message
       onOpenChange(false);
-      
-      // Update client record with envelope status
-      // In production, you'd update the database here
+      onSent?.();
       console.log("DocuSign envelope created successfully:", data);
       
     } catch (error: any) {
