@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import {
-  Plus, Search, Edit, Users, DollarSign, Loader2, Trash2, Eye,
+  Plus, Search, Edit, Users, DollarSign, Loader2, Trash2,
 } from "lucide-react";
 import { projectsAPI } from "../utils/api";
 import { Link, useNavigate } from "react-router";
@@ -55,6 +56,7 @@ export function Projects() {
   };
 
   useEffect(() => { reload(); }, []);
+  useRealtimeRefetch(reload, ["projects", "clients"], "projects");
 
   const filteredProjects = projects.filter((p) => {
     const q = searchQuery.toLowerCase();
@@ -138,17 +140,12 @@ export function Projects() {
                 </Badge>
               </td>
               <td className="p-3">
-                <Link
-                  to={`/projects/${project.id}`}
-                  className="font-semibold text-sm hover:text-primary"
-                >
-                  {project.name}
-                </Link>
+                <span className="font-semibold text-sm">{project.name}</span>
               </td>
               <td className="p-3">
                 {project.client_id ? (
                   <Link
-                    to={`/clients/${project.client_id}`}
+                    to={`/clients?stage=${project.status ?? "active"}`}
                     className="text-sm hover:text-primary hover:underline"
                   >
                     {project.clientName || "—"}
@@ -214,10 +211,6 @@ export function Projects() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-44">
-                      <DropdownMenuItem onClick={() => navigate(`/projects/${project.id}`)}>
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Project
-                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setEditProject(project)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit Project

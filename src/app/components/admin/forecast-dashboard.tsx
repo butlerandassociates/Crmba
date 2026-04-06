@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { clientsAPI, projectsAPI } from "../../utils/api";
 import { TrendingUp, DollarSign, Target, Calendar, Loader2 } from "lucide-react";
@@ -19,12 +20,15 @@ export function ForecastDashboard() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchData = () => {
     Promise.all([clientsAPI.getAll(), projectsAPI.getAll()])
       .then(([c, p]) => { setClients(c); setProjects(p); })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchData(); }, []);
+  useRealtimeRefetch(fetchData, ["clients", "projects"], "forecast-dashboard");
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -286,6 +287,8 @@ export function EstimateTemplateManager() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(loadAll, ["estimate_templates", "products"], "estimate-templates");
 
   const openCreate = () => {
     setEditingId(null);

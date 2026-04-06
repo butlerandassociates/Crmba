@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -91,6 +92,14 @@ export function ProposalDetail() {
       }
     }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
+
+  useRealtimeRefetch(() => {
+    if (!id) return;
+    estimatesAPI.getById(id).then((est) => {
+      setProposal(est);
+      setEditLineItems(est.line_items ?? []);
+    }).catch(console.error);
+  }, ["estimates", "estimate_line_items"], "proposal-detail");
 
   const computedSubtotal = editLineItems.reduce(
     (sum, item) => sum + (Number(item.quantity) * Number(item.client_price)),
@@ -207,7 +216,7 @@ export function ProposalDetail() {
       <div className="p-4">
         <div className="text-center py-12">
           <h2 className="text-2xl font-bold">Proposal not found</h2>
-          <Link to="/clients">
+          <Link to={`/clients?stage=${client?.status ?? ""}`}>
             <Button className="mt-4">Back to Clients</Button>
           </Link>
         </div>

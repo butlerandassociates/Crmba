@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -55,6 +56,8 @@ export function Team() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(fetchTeamMembers, ["profiles"], "team");
 
   const openEdit = (member: any) => {
     setEditMember(member);

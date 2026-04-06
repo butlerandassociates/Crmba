@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -67,6 +68,12 @@ export function ProductManager() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  useRealtimeRefetch(
+    () => { Promise.all([productsAPI.getAll(), productsAPI.getCategories()]).then(([prods, cats]) => { setAllProducts(prods || []); setCategories(cats || []); }).catch(console.error); },
+    ["products", "product_categories"],
+    "product-manager"
+  );
 
   const filteredProducts = allProducts.filter((product) => {
     const catName = product.category?.name ?? "";

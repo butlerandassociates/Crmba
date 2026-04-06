@@ -46,6 +46,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
@@ -158,6 +159,7 @@ export function ClientDetail() {
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [fileCategory, setFileCategory] = useState("other");
   const [gpHealthOpen, setGpHealthOpen] = useState<Record<string, boolean>>({});
   const [gpHealthData, setGpHealthData] = useState<Record<string, any>>({});
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -342,11 +344,7 @@ export function ClientDetail() {
     }
   };
 
-  const toggleGPHealth = async (projectId: string) => {
-    const isOpen = gpHealthOpen[projectId];
-    setGpHealthOpen((prev) => ({ ...prev, [projectId]: !isOpen }));
-    if (isOpen || gpHealthData[projectId]) return; // already loaded
-
+  const loadGpHealth = async (projectId: string) => {
     try {
       const receipts = await receiptsAPI.getByProject(projectId);
       // Use accepted proposal, fall back to most recent non-declined (move-to-sold may not set "accepted")
@@ -388,6 +386,12 @@ export function ClientDetail() {
     } catch {
       toast.error("Failed to load financial health data");
     }
+  };
+
+  const toggleGPHealth = (projectId: string) => {
+    const isOpen = gpHealthOpen[projectId];
+    setGpHealthOpen((prev) => ({ ...prev, [projectId]: !isOpen }));
+    if (!isOpen) loadGpHealth(projectId);
   };
 
   const handleMoveToSelling = async () => {
@@ -481,6 +485,7 @@ export function ClientDetail() {
           <Link to="/clients">
             <Button className="mt-4">Back to Clients</Button>
           </Link>
+
         </div>
       </div>
     );
@@ -537,7 +542,7 @@ export function ClientDetail() {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link to="/clients">
+          <Link to={`/clients?stage=${client?.status ?? ""}`}>
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
@@ -650,7 +655,7 @@ export function ClientDetail() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card>
+        <Card className="min-h-[300px] flex flex-col">
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Contact Information</CardTitle>
             <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
@@ -693,28 +698,14 @@ export function ClientDetail() {
                   {[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ") || "—"}
                 </div>
                 {(client.address || client.city) && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setMapOpen((v) => !v)}
-                      className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-primary hover:underline"
-                    >
-                      <MapPin className="h-3 w-3" />
-                      {mapOpen ? "Hide Map" : "View Map"}
-                    </button>
-                    {mapOpen && (
-                      <div className="mt-2 rounded-lg overflow-hidden border shadow-sm">
-                        <iframe
-                          title="Client Location"
-                          width="100%"
-                          height="220"
-                          style={{ border: 0, display: "block" }}
-                          loading="lazy"
-                          src={`https://maps.google.com/maps?q=${encodeURIComponent([client.address, client.city, client.state, client.zip].filter(Boolean).join(", "))}&output=embed`}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMapOpen(true)}
+                    className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-primary"
+                  >
+                    <MapPin className="h-3 w-3" />
+                    View Map
+                  </button>
                 )}
               </div>
             </div>
@@ -728,8 +719,155 @@ export function ClientDetail() {
           </CardContent>
         </Card>
 
+        {/* Lead Information — moved to top row */}
+        <Card className="min-h-[300px] flex flex-col">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Lead Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-sm font-medium mb-1">Lead Source</div>
+              <Select
+                value={client.lead_source_id || client.lead_source?.id || ""}
+                onValueChange={handleLeadSourceChange}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Select lead source" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leadSources.map((ls) => (
+                    <SelectItem key={ls.id} value={ls.id}>{ls.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="text-sm font-medium">Appointment Status</div>
+              <div className="mt-1">
+                {client.appointment_met ? (
+                  <Badge className="bg-green-500 text-white text-xs">Met</Badge>
+                ) : client.appointment_scheduled && client.appointment_date ? (
+                  <div className="space-y-0.5">
+                    <Badge className="bg-blue-500 text-white text-xs">Scheduled</Badge>
+                    <div className="text-xs text-muted-foreground pt-1">
+                      {formatDate(client.appointment_date)}
+                      {client.appointment_date && ` · ${new Date(client.appointment_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+                      {client.appointment_end_date && ` – ${new Date(client.appointment_end_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Not Scheduled</span>
+                )}
+              </div>
+            </div>
+            {client.last_contact_date && (
+              <div>
+                <div className="text-sm font-medium">Last Contact</div>
+                <div className="text-sm text-muted-foreground mt-1">{formatDate(client.last_contact_date)}</div>
+              </div>
+            )}
+            {client.next_follow_up_date && (
+              <div>
+                <div className="text-sm font-medium">Next Follow-up</div>
+                <div className="text-sm text-muted-foreground mt-1">{formatDate(client.next_follow_up_date)}</div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Project Details — moved to top row */}
+        <Card className="min-h-[300px] flex flex-col">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Project Details</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Scope of Work</Label>
+              {(() => {
+                const SCOPE_OPTIONS = [
+                  { value: "concrete-driveway", label: "Concrete (Driveway, Walkway, Patio)" },
+                  { value: "outdoor-kitchen",   label: "Outdoor Kitchen" },
+                  { value: "pergola-pavilion",  label: "Pergola/Pavilion" },
+                  { value: "landscaping",       label: "Landscaping" },
+                  { value: "drainage",          label: "Drainage" },
+                  { value: "pool-deck",         label: "Pool Deck" },
+                  { value: "retaining-wall",    label: "Retaining Wall" },
+                  { value: "fire-pit",          label: "Fire Pit/Fireplace" },
+                  { value: "deck",              label: "Deck/Patio Cover" },
+                  { value: "fencing",           label: "Fencing" },
+                  { value: "lighting",          label: "Outdoor Lighting" },
+                  { value: "irrigation",        label: "Irrigation System" },
+                ];
+                const toggleScope = async (value: string) => {
+                  const next = selectedScopes.includes(value)
+                    ? selectedScopes.filter((s) => s !== value)
+                    : [...selectedScopes, value];
+                  setSelectedScopes(next);
+                  try { await clientsAPI.update(id!, { scope_of_work: next }); }
+                  catch { toast.error("Failed to save scope of work"); }
+                };
+                return (
+                  <div className="space-y-2">
+                    <Popover open={scopePopoverOpen} onOpenChange={setScopePopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent/30 transition-colors"
+                        >
+                          <span className="text-muted-foreground">
+                            {selectedScopes.length === 0 ? "Select scope of work" : "Add or remove scopes..."}
+                          </span>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-72 p-2">
+                        <div className="space-y-1 max-h-60 overflow-y-auto thin-scroll">
+                          {SCOPE_OPTIONS.map((opt) => (
+                            <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/40 cursor-pointer text-sm">
+                              <Checkbox checked={selectedScopes.includes(opt.value)} onCheckedChange={() => toggleScope(opt.value)} />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    {selectedScopes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedScopes.map((s) => {
+                          const label = SCOPE_OPTIONS.find((o) => o.value === s)?.label;
+                          return (
+                            <Badge key={s} variant="secondary" className="text-xs flex items-center gap-1 pr-1">
+                              {label}
+                              <button type="button" onClick={() => toggleScope(s)} className="ml-0.5 hover:text-destructive rounded-full">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <Checkbox id="call-811" defaultChecked={client.call_811_required} />
+              <Label htmlFor="call-811" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+                <PhoneCall className="h-4 w-4 text-muted-foreground" />
+                Call 811?
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground pl-6">Call before you dig for utility location services</p>
+          </CardContent>
+        </Card>
+
+      </div>
+
+      {/* DocuSign + Revenue row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
         {/* DocuSign — compact */}
-        <Card className="flex flex-col">
+        <Card className="flex flex-col min-h-[240px]">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground font-medium">
               <FileSignature className="h-4 w-4" />
@@ -771,11 +909,14 @@ export function ClientDetail() {
         </Card>
 
         {/* Revenue & Forecast */}
-        <Card>
-          <CardHeader className="pb-2">
+        <Card className="lg:col-span-2 flex flex-col min-h-[240px]">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-base">
               {["active", "completed"].includes(client.status) ? "Project Financials" : "Revenue & Forecast"}
             </CardTitle>
+            <Link to={`/clients/${client.id}/create-proposal`}>
+              <Button size="sm" variant="outline" className="h-8 text-xs"><FilePlus className="h-3.5 w-3.5 mr-1.5" />New Proposal</Button>
+            </Link>
           </CardHeader>
           <CardContent className="pt-0">
             {["active", "completed"].includes(client.status) ? (() => {
@@ -851,61 +992,102 @@ export function ClientDetail() {
               );
             })() : (
               /* Pre-sale — radial gauge + forecast fields */
-              <>
-                {!client.projected_value && !client.closing_probability && !client.expected_close_date ? (
-                  <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
-                    <TrendingUp className="h-8 w-8 text-muted-foreground/40" />
-                    <p className="text-xs font-medium text-muted-foreground">No revenue data recorded</p>
-                    <p className="text-xs text-muted-foreground/60">Forecast details will appear once added</p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-4">
-                    {/* Radial gauge for closing probability */}
-                    {client.closing_probability != null && (
-                      <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadialBarChart
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={36}
-                            outerRadius={56}
-                            startAngle={90}
-                            endAngle={-270}
-                            data={[
-                              { value: client.closing_probability, fill: "#3b82f6" },
-                              { value: 100 - client.closing_probability, fill: "#e2e8f0" },
-                            ]}
-                          >
-                            <RadialBar dataKey="value" cornerRadius={4} background={false} />
-                          </RadialBarChart>
-                        </ResponsiveContainer>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                          <span className="text-xs font-bold leading-none">{client.closing_probability}%</span>
-                          <span className="text-[9px] text-muted-foreground leading-none mt-0.5">Close</span>
+              (() => {
+                const latestProposal = [...clientProposals]
+                  .filter((p) => p.status !== "declined")
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+                const projectedValue = latestProposal?.total ?? client.projected_value;
+                const hasData = projectedValue || client.closing_probability || client.expected_close_date;
+                return (
+                  !hasData ? (
+                    <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
+                      <TrendingUp className="h-8 w-8 text-muted-foreground/40" />
+                      <p className="text-xs font-medium text-muted-foreground">No revenue data recorded</p>
+                      <p className="text-xs text-muted-foreground/60">Forecast details will appear once a proposal is saved</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      {client.closing_probability != null && (
+                        <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RadialBarChart
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={36}
+                              outerRadius={56}
+                              startAngle={90}
+                              endAngle={-270}
+                              data={[
+                                { value: client.closing_probability, fill: "#3b82f6" },
+                                { value: 100 - client.closing_probability, fill: "#e2e8f0" },
+                              ]}
+                            >
+                              <RadialBar dataKey="value" cornerRadius={4} background={false} />
+                            </RadialBarChart>
+                          </ResponsiveContainer>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                            <span className="text-xs font-bold leading-none">{client.closing_probability}%</span>
+                            <span className="text-[9px] text-muted-foreground leading-none mt-0.5">Close</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-2.5 min-w-0">
+                        {projectedValue != null && (
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+                              Projected Value{latestProposal ? " · from proposal" : ""}
+                            </div>
+                            <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(projectedValue)}</div>
+                          </div>
+                        )}
+                        {client.expected_close_date && (
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Est. Close Date</div>
+                            <div className="text-sm font-semibold text-slate-700">{formatDate(client.expected_close_date)}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                );
+              })()
+            )}
+
+            {/* ── Proposal (one per client) ── */}
+            {(() => {
+              const proposal = clientProposals[0] ?? null;
+              return (
+                <div className="border-t mt-4 pt-3">
+                  {proposal ? (
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/40 group">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <Link to={`/proposals/${proposal.id}`} className="text-sm font-medium hover:text-primary truncate block">
+                          {proposal.title ?? `Estimate #${proposal.estimate_number}`}
+                        </Link>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{proposal.status}</Badge>
+                          <span className="text-xs text-muted-foreground">{formatDate(proposal.created_at)}</span>
                         </div>
                       </div>
-                    )}
-                    {/* Forecast stats */}
-                    <div className="flex-1 space-y-2.5 min-w-0">
-                      {client.projected_value && (
-                        <div>
-                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Projected Value</div>
-                          <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(client.projected_value)}</div>
-                        </div>
-                      )}
-                      {client.expected_close_date && (
-                        <div>
-                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Est. Close Date</div>
-                          <div className="text-sm font-semibold text-slate-700">{formatDate(client.expected_close_date)}</div>
-                        </div>
-                      )}
+                      <div className="text-right shrink-0 flex items-center gap-2">
+                        <div className="text-sm font-semibold">{formatCurrency(proposal.total)}</div>
+                        <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setProposalToDelete(proposal)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
-            )}
+                  ) : (
+                    <div className="text-center py-3 text-xs text-muted-foreground">
+                      No proposal yet — create one to auto-populate revenue figures
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
+
       </div>
 
       {/* ── Project Info ── */}
@@ -1015,7 +1197,7 @@ export function ClientDetail() {
                       <p className="text-xs text-muted-foreground">{(project.profitMargin ?? 0).toFixed(1)}% margin</p>
                     </div>
                     <div className={`border rounded-lg p-3 ${liveGP >= budgetedGP ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
-                      <p className="text-xs text-muted-foreground">Live GP (based on receipts)</p>
+                      <p className="text-xs text-muted-foreground">Live GP (based on cost attributions)</p>
                       <p className={`font-bold text-base ${liveGP >= budgetedGP ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
                         {formatCurrency(liveGP)}
                       </p>
@@ -1064,7 +1246,7 @@ export function ClientDetail() {
                   </div>
 
                   {totalActual === 0 && (
-                    <p className="text-xs text-muted-foreground text-center pb-1">No receipts uploaded yet. Live GP will update as you add receipts via Cost Attributions.</p>
+                    <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet. Live GP will update automatically as you add entries.</p>
                   )}
                   {d.isFallbackBudget && (
                     <p className="text-xs text-muted-foreground text-center pb-1">* Material/labor split estimated at 70/30 — product cost breakdown not available in proposal line items.</p>
@@ -1123,297 +1305,120 @@ export function ClientDetail() {
         );
       })()}
 
-      {/* ── Proposals ── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            Proposals {clientProposals.length > 0 && <Badge variant="secondary">{clientProposals.length}</Badge>}
-          </CardTitle>
-          <Link to={`/clients/${client.id}/create-proposal`}>
-            <Button size="sm"><FilePlus className="h-4 w-4 mr-2" />New Proposal</Button>
-          </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          {clientProposals.length > 0 ? (
-            <div className="divide-y">
-              {clientProposals.map((proposal) => (
-                <div key={proposal.id} className="p-4 hover:bg-accent transition-colors">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1 flex-1">
-                      <Link to={`/proposals/${proposal.id}`} className="font-semibold text-sm hover:text-primary">
-                        {proposal.title ?? `Estimate #${proposal.estimate_number}`}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">{proposal.notes}</p>
-                      <div className="flex gap-2 mt-2">
-                        <Badge variant="outline">{proposal.status}</Badge>
-                        <span className="text-xs text-muted-foreground">Created {formatDate(proposal.created_at)}</span>
-                      </div>
-                      {proposal.status === "declined" && (
-                        <div className="mt-1.5 text-xs text-red-600">
-                          {proposal.declined_at && <span>Declined {formatDate(proposal.declined_at)}</span>}
-                          {proposal.decline_reason && <span className="block italic text-muted-foreground mt-0.5">"{proposal.decline_reason}"</span>}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right space-y-2">
-                      <div className="font-semibold">{formatCurrency(proposal.total)}</div>
-                      <div className="flex gap-2 justify-end">
-                        <Link to={`/proposals/${proposal.id}`}><Button variant="outline" size="sm">View Proposal</Button></Link>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setProposalToDelete(proposal)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No proposals yet</p>
-              <Link to={`/clients/${client.id}/create-proposal`}>
-                <Button className="mt-4" size="sm"><FilePlus className="h-4 w-4 mr-2" />Create First Proposal</Button>
-              </Link>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* ── Notes & Files + Activity Log ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
+
+        {/* Notes & Files */}
+        <Card className="flex flex-col">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Lead Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <div className="text-sm font-medium mb-1">Lead Source</div>
-              <Select
-                value={client.lead_source_id || client.lead_source?.id || ""}
-                onValueChange={handleLeadSourceChange}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder="Select lead source" />
-                </SelectTrigger>
-                <SelectContent>
-                  {leadSources.map((ls) => (
-                    <SelectItem key={ls.id} value={ls.id}>{ls.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <div className="text-sm font-medium">Appointment Status</div>
-              <div className="mt-1">
-                {client.appointment_met ? (
-                  <Badge className="bg-green-500 text-white text-xs">Met</Badge>
-                ) : client.appointment_scheduled && client.appointment_date ? (
-                  <div className="space-y-0.5">
-                    <Badge className="bg-blue-500 text-white text-xs">Scheduled</Badge>
-                    <div className="text-xs text-muted-foreground pt-1">
-                      {formatDate(client.appointment_date)}
-                      {client.appointment_date && ` · ${new Date(client.appointment_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
-                      {client.appointment_end_date && ` – ${new Date(client.appointment_end_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
-                    </div>
-                  </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Not Scheduled</span>
-                )}
-              </div>
-            </div>
-            {client.last_contact_date && (
-              <div>
-                <div className="text-sm font-medium">Last Contact</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.last_contact_date)}
-                </div>
-              </div>
-            )}
-            {client.next_follow_up_date && (
-              <div>
-                <div className="text-sm font-medium">Next Follow-up</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(client.next_follow_up_date)}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Project Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Scope of Work</Label>
-              {(() => {
-                const SCOPE_OPTIONS = [
-                  { value: "concrete-driveway", label: "Concrete (Driveway, Walkway, Patio)" },
-                  { value: "outdoor-kitchen",   label: "Outdoor Kitchen" },
-                  { value: "pergola-pavilion",  label: "Pergola/Pavilion" },
-                  { value: "landscaping",       label: "Landscaping" },
-                  { value: "drainage",          label: "Drainage" },
-                  { value: "pool-deck",         label: "Pool Deck" },
-                  { value: "retaining-wall",    label: "Retaining Wall" },
-                  { value: "fire-pit",          label: "Fire Pit/Fireplace" },
-                  { value: "deck",              label: "Deck/Patio Cover" },
-                  { value: "fencing",           label: "Fencing" },
-                  { value: "lighting",          label: "Outdoor Lighting" },
-                  { value: "irrigation",        label: "Irrigation System" },
-                ];
-                const toggleScope = async (value: string) => {
-                  const next = selectedScopes.includes(value)
-                    ? selectedScopes.filter((s) => s !== value)
-                    : [...selectedScopes, value];
-                  setSelectedScopes(next);
-                  try { await clientsAPI.update(id!, { scope_of_work: next }); }
-                  catch { toast.error("Failed to save scope of work"); }
-                };
-                return (
-                  <div className="space-y-2">
-                    <Popover open={scopePopoverOpen} onOpenChange={setScopePopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent/30 transition-colors"
-                        >
-                          <span className="text-muted-foreground">
-                            {selectedScopes.length === 0 ? "Select scope of work" : "Add or remove scopes..."}
-                          </span>
-                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        side="bottom"
-                        align="start"
-                        sideOffset={4}
-                        avoidCollisions={false}
-                        className="w-72 p-2"
-                      >
-                        <div className="space-y-1 max-h-60 overflow-y-auto">
-                          {SCOPE_OPTIONS.map((opt) => (
-                            <label
-                              key={opt.value}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/40 cursor-pointer text-sm"
-                            >
-                              <Checkbox
-                                checked={selectedScopes.includes(opt.value)}
-                                onCheckedChange={() => toggleScope(opt.value)}
-                              />
-                              {opt.label}
-                            </label>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    {selectedScopes.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedScopes.map((s) => {
-                          const label = SCOPE_OPTIONS.find((o) => o.value === s)?.label;
-                          return (
-                            <Badge key={s} variant="secondary" className="text-xs flex items-center gap-1 pr-1">
-                              {label}
-                              <button
-                                type="button"
-                                onClick={() => toggleScope(s)}
-                                className="ml-0.5 hover:text-destructive rounded-full"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className="flex items-center gap-3 pt-2">
-              <Checkbox 
-                id="call-811" 
-                defaultChecked={client.call_811_required}
-              />
-              <Label 
-                htmlFor="call-811" 
-                className="text-sm font-medium cursor-pointer flex items-center gap-2"
-              >
-                <PhoneCall className="h-4 w-4 text-muted-foreground" />
-                Call 811?
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground pl-6">
-              Call before you dig for utility location services
-            </p>
-          </CardContent>
-        </Card>
-
-      </div>
-
-      {/* Notes + Activity Log - side by side below Project Details */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <StickyNote className="h-4 w-4" />
-              Internal Notes
-              {noteEntries.length > 0 && (
-                <span className="ml-auto text-xs font-normal text-muted-foreground">{noteEntries.length} note{noteEntries.length !== 1 ? "s" : ""}</span>
+              Notes & Files
+              {(noteEntries.length + photos.length) > 0 && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{noteEntries.length + photos.length} items</span>
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="client-notes" className="text-sm font-medium">Add New Note</Label>
-              <Textarea
-                id="client-notes"
-                placeholder="Add notes for your internal team to review..."
-                rows={3}
-                className="resize-none"
+          <CardContent className="space-y-3">
+            {/* Compact upload row */}
+            <div className="flex gap-2 items-center">
+              <div
+                className={`flex-1 border border-dashed rounded-lg px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors ${isDraggingFile ? "border-primary bg-primary/5" : "hover:border-primary"} ${uploadingPhoto ? "opacity-60 pointer-events-none" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                onDragLeave={() => setIsDraggingFile(false)}
+                onDrop={handleFileDrop}
+                onClick={() => document.getElementById("photo-upload")?.click()}
+              >
+                <input id="photo-upload" type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" multiple className="hidden" onChange={handlePhotoUpload} />
+                {uploadingPhoto
+                  ? <><Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" /><span className="text-xs text-muted-foreground">Uploading...</span></>
+                  : <><Upload className="h-4 w-4 text-muted-foreground shrink-0" /><span className="text-xs text-muted-foreground">{isDraggingFile ? "Drop files here" : "Click or drag to upload"}</span></>
+                }
+              </div>
+              <Select value={fileCategory} onValueChange={setFileCategory}>
+                <SelectTrigger className="w-32 h-9 text-xs">
+                  <SelectValue placeholder="File type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contract">Contract</SelectItem>
+                  <SelectItem value="proposal">Proposal</SelectItem>
+                  <SelectItem value="receipt">Receipt</SelectItem>
+                  <SelectItem value="photo">Photo</SelectItem>
+                  <SelectItem value="insurance">Insurance</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Inline note input */}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Add a note for your team..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && notes.trim()) handleSaveNotes(); }}
+                className="text-sm"
               />
-              <p className="text-xs text-muted-foreground">Visible to your team only</p>
+              <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()} className="shrink-0">
+                {savingNotes ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+              </Button>
             </div>
-            <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()}>
-              {savingNotes ? "Saving..." : "Save Note"}
-            </Button>
-            {noteEntries.length > 0 ? (
-              <div className="pt-2 border-t">
-                <div className="max-h-64 overflow-y-auto pr-1 space-y-3 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-                  {noteEntries.map((note) => (
-                    <div key={note.id} className="bg-muted/50 p-3 rounded-lg space-y-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {note.profile ? `${note.profile.first_name} ${note.profile.last_name}` : "Team Member"}
-                        </span>
-                        <span>•</span>
-                        <span>
-                          {new Date(note.created_at).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </span>
+
+            {/* Notes + Files feed */}
+            {(() => {
+              const feedItems = [
+                ...noteEntries.map((n: any) => ({ ...n, _type: "note" })),
+                ...photos.map((p: any) => ({ ...p, _type: "file" })),
+              ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+              if (feedItems.length === 0) return (
+                <div className="text-center py-6 text-sm text-muted-foreground">No notes or files yet</div>
+              );
+
+              return (
+                <div className="max-h-52 overflow-y-auto thin-scroll space-y-0 pr-1">
+                  {feedItems.map((item) => {
+                    const ts = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+                    if (item._type === "note") return (
+                      <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0">
+                        <StickyNote className="h-3.5 w-3.5 shrink-0 mt-1 text-amber-500" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm whitespace-pre-wrap">{item.content}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {item.profile ? `${item.profile.first_name} ${item.profile.last_name}` : "Team"} · {ts}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                    </div>
-                  ))}
+                    );
+                    const isImage = item.mime_type?.startsWith("image/");
+                    const isPdf = item.mime_type === "application/pdf";
+                    return (
+                      <div key={`file-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group">
+                        <FileText className={`h-3.5 w-3.5 shrink-0 mt-1 ${isPdf ? "text-red-500" : isImage ? "text-blue-500" : "text-muted-foreground"}`} />
+                        <div className="flex-1 min-w-0">
+                          <button className="text-sm font-medium hover:underline truncate block w-full text-left" onClick={() => { if (isImage) setPreviewFile({ url: item.file_url, name: item.file_name }); else window.open(item.file_url, "_blank"); }}>
+                            {item.file_name}
+                          </button>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {item.file_type && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded capitalize">{item.file_type}</span>}
+                            <p className="text-xs text-muted-foreground">{ts}</p>
+                          </div>
+                        </div>
+                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ) : (
-              <div className="text-center py-4 text-sm text-muted-foreground">No notes yet</div>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        {/* Activity Log */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <History className="h-4 w-4" />
               Activity Log
@@ -1424,34 +1429,39 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent>
             {activityLog.length > 0 ? (
-              <div className="max-h-64 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-                {activityLog.map((entry) => (
-                  <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm">{entry.description}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(entry.created_at).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
+              <div className="max-h-52 overflow-y-auto thin-scroll pr-1">
+                {activityLog.map((entry) => {
+                  const type = entry.action_type ?? "";
+                  const icon = type.includes("email")      ? <Mail className="h-3.5 w-3.5 text-blue-500" />
+                             : type.includes("appointment") ? <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                             : type.includes("payment")     ? <DollarSign className="h-3.5 w-3.5 text-green-500" />
+                             : type.includes("status")      ? <MoveRight className="h-3.5 w-3.5 text-orange-500" />
+                             : type.includes("docusign")    ? <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
+                             : type.includes("note")        ? <StickyNote className="h-3.5 w-3.5 text-amber-500" />
+                             : <History className="h-3.5 w-3.5 text-muted-foreground" />;
+                  return (
+                    <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
+                      <div className="shrink-0 mt-0.5">{icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm">{entry.description}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8 space-y-2">
                 <History className="h-8 w-8 mx-auto text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No activity yet</p>
-                <p className="text-xs text-muted-foreground">Actions like emails sent, appointments scheduled, and contracts signed will appear here automatically.</p>
+                <p className="text-xs text-muted-foreground">Emails, appointments, status changes, and payments will appear here automatically.</p>
               </div>
             )}
           </CardContent>
         </Card>
+
       </div>
 
       <div className="space-y-4">
@@ -1650,117 +1660,6 @@ export function ClientDetail() {
         </Dialog>
 
 
-        {/* ── Client Files ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Client Files
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-                    isDraggingFile ? "border-primary bg-primary/5" : "hover:border-primary"
-                  } ${uploadingPhoto ? "opacity-60 pointer-events-none" : ""}`}
-                  onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
-                  onDragLeave={() => setIsDraggingFile(false)}
-                  onDrop={handleFileDrop}
-                  onClick={() => document.getElementById("photo-upload")?.click()}
-                >
-                  <input
-                    id="photo-upload"
-                    type="file"
-                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
-                    multiple
-                    className="hidden"
-                    onChange={handlePhotoUpload}
-                  />
-                  {uploadingPhoto ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <p className="text-sm text-muted-foreground">Uploading...</p>
-                    </div>
-                  ) : (
-                    <>
-                      <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-sm text-muted-foreground">
-                        {isDraggingFile ? "Drop files here" : "Click or drag files to upload"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Images, PDF, Word, Excel up to 10MB
-                      </p>
-                    </>
-                  )}
-                </div>
-                {photos.length > 0 ? (
-                  <>
-                    <div className="divide-y rounded-lg border overflow-hidden">
-                      {photos
-                        .slice((filesPage - 1) * FILES_PER_PAGE, filesPage * FILES_PER_PAGE)
-                        .map((photo: any) => {
-                          const isImage = photo.mime_type?.startsWith("image/");
-                          const isPdf = photo.mime_type === "application/pdf";
-                          return (
-                            <div key={photo.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors group">
-                              {/* File type icon */}
-                              <FileText className={`h-4 w-4 shrink-0 ${isPdf ? "text-red-500" : isImage ? "text-blue-500" : "text-muted-foreground"}`} />
-
-                              {/* Clickable file name */}
-                              <button
-                                className="flex-1 text-left text-sm font-medium truncate hover:underline"
-                                onClick={() => {
-                                  if (isImage) setPreviewFile({ url: photo.file_url, name: photo.file_name });
-                                  else window.open(photo.file_url, "_blank");
-                                }}
-                              >
-                                {photo.file_name}
-                              </button>
-
-                              {/* Date */}
-                              <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
-                                {new Date(photo.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                              </span>
-
-                              {/* Delete */}
-                              <button
-                                className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleDeletePhoto(photo.id, photo.file_url)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                    </div>
-                    {photos.length > FILES_PER_PAGE && (
-                      <div className="flex items-center justify-between pt-2 border-t">
-                        <p className="text-xs text-muted-foreground">
-                          {(filesPage - 1) * FILES_PER_PAGE + 1}–{Math.min(filesPage * FILES_PER_PAGE, photos.length)} of {photos.length} files
-                        </p>
-                        <div className="flex items-center gap-1">
-                          <Button variant="outline" size="sm" onClick={() => setFilesPage(filesPage - 1)} disabled={filesPage === 1}>
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                          <span className="text-xs text-muted-foreground px-1">Page {filesPage} of {Math.ceil(photos.length / FILES_PER_PAGE)}</span>
-                          <Button variant="outline" size="sm" onClick={() => setFilesPage(filesPage + 1)} disabled={filesPage >= Math.ceil(photos.length / FILES_PER_PAGE)}>
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center py-4 text-sm text-muted-foreground">
-                    No files uploaded yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
       </div>
 
       <EmailTemplatesDialog
@@ -1773,6 +1672,10 @@ export function ClientDetail() {
         open={docusignDialogOpen}
         onOpenChange={setDocusignDialogOpen}
         client={client}
+        onSent={() => {
+          setClient((prev: any) => ({ ...prev, docusign_status: "sent_to_client", docusign_sent_date: new Date().toISOString() }));
+          loadActivityLog();
+        }}
       />
       <AppointmentDialog
         open={appointmentDialogOpen}
@@ -1801,7 +1704,7 @@ export function ClientDetail() {
             <DialogTitle>Edit Client</DialogTitle>
             <DialogDescription>Update contact information for this client.</DialogDescription>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-3 py-2 pr-1">
+          <div className="overflow-y-auto thin-scroll flex-1 space-y-3 py-2 pr-1">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>First Name</Label>
@@ -1899,16 +1802,40 @@ export function ClientDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Move to Selling Modal */}
+      {/* Map Sheet */}
+      <Sheet open={mapOpen} onOpenChange={setMapOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col">
+          <SheetHeader className="px-6 py-4 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              {[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ")}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1">
+            <iframe
+              title="Client Location"
+              width="100%"
+              height="100%"
+              style={{ border: 0, display: "block", minHeight: "500px" }}
+              loading="lazy"
+              src={`https://maps.google.com/maps?q=${encodeURIComponent([client.address, client.city, client.state, client.zip].filter(Boolean).join(", "))}&output=embed`}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Move to Selling / Update Forecast Modal */}
       <Dialog open={sellingModalOpen} onOpenChange={setSellingModalOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MoveRight className="h-5 w-5 text-primary" />
-              Move to Selling
+              {client?.status === "selling" ? "Update Forecast" : "Move to Selling"}
             </DialogTitle>
             <DialogDescription>
-              Enter the forecast details for {client?.first_name} {client?.last_name} before moving to Selling.
+              {client?.status === "selling"
+                ? `Update the forecast details for ${client?.first_name} ${client?.last_name}.`
+                : `Enter the forecast details for ${client?.first_name} ${client?.last_name} before moving to Selling.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1936,6 +1863,9 @@ export function ClientDetail() {
                 value={sellingCloseDate}
                 onChange={(e) => setSellingCloseDate(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground leading-relaxed pt-1">
+                Closing Probability + Est. Close Date allows our team to forecast incoming sales. Please be as accurate as possible!
+              </p>
             </div>
           </div>
           <DialogFooter>
@@ -1945,7 +1875,7 @@ export function ClientDetail() {
               disabled={savingSelling || !sellingProbability || !sellingCloseDate}
             >
               {savingSelling ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <MoveRight className="h-4 w-4 mr-1.5" />}
-              Move to Selling
+              {client?.status === "selling" ? "Update" : "Move to Selling"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2017,6 +1947,7 @@ export function ClientDetail() {
         onOpenChange={setPurchaseOrdersOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        onSave={loadActivityLog}
       />
 
       {/* Change Orders Sheet */}
@@ -2025,6 +1956,7 @@ export function ClientDetail() {
         onOpenChange={setChangeOrdersOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        onSave={loadActivityLog}
       />
 
       {/* FIO Modal */}
@@ -2032,6 +1964,11 @@ export function ClientDetail() {
         open={fioOpen}
         onOpenChange={setFioOpen}
         project={clientProjects[0] ? { ...clientProjects[0], client: { id: client.id } } : null}
+        onCrewPayment={() => {
+          const projectId = clientProjects[0]?.id;
+          if (projectId) loadGpHealth(projectId);
+          loadActivityLog();
+        }}
       />
 
       {/* Cost Attributions Sheet */}
@@ -2040,6 +1977,10 @@ export function ClientDetail() {
         onOpenChange={setCostAttributionsOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        onReceiptChange={() => {
+          const projectId = clientProjects[0]?.id;
+          if (projectId) loadGpHealth(projectId);
+        }}
       />
 
 

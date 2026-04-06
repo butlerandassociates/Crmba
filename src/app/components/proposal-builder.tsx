@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -85,11 +86,14 @@ export function ProposalBuilder() {
   const [dbProducts, setDbProducts] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
 
-  useEffect(() => {
+  const loadProducts = () => {
     productsAPI.getCategories().then(setCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
     estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
-  }, []);
+  };
+
+  useEffect(() => { loadProducts(); }, []);
+  useRealtimeRefetch(loadProducts, ["products", "product_categories", "estimate_templates"], "proposal-builder");
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");
@@ -123,7 +127,7 @@ export function ProposalBuilder() {
       <div className="p-4">
         <div className="text-center py-12">
           <h2 className="text-2xl font-bold">Client not found</h2>
-          <Link to="/clients">
+          <Link to={`/clients?stage=${client?.status ?? ""}`}>
             <Button className="mt-4">Back to Clients</Button>
           </Link>
         </div>

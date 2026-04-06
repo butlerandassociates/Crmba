@@ -13,6 +13,7 @@ interface CostAttributionsSheetProps {
   onOpenChange: (open: boolean) => void;
   client: any;
   project: any;
+  onReceiptChange?: () => void;
 }
 
 const fmt = (v: number) =>
@@ -20,7 +21,7 @@ const fmt = (v: number) =>
 
 const EMPTY = { name: "", amount: "", category: "material" as "material" | "labor", note: "" };
 
-export function CostAttributionsSheet({ open, onOpenChange, client, project }: CostAttributionsSheetProps) {
+export function CostAttributionsSheet({ open, onOpenChange, client, project, onReceiptChange }: CostAttributionsSheetProps) {
   const [receipts, setReceipts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY });
@@ -63,6 +64,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project }: C
       setForm({ ...EMPTY });
       setDroppedFile(null);
       toast.success("Receipt added");
+      onReceiptChange?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to add receipt");
     } finally {
@@ -76,6 +78,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project }: C
       await receiptsAPI.delete(r.id, r.file_url);
       setReceipts((prev) => prev.filter((x) => x.id !== r.id));
       toast.success("Receipt deleted");
+      onReceiptChange?.();
     } catch {
       toast.error("Failed to delete");
     } finally {

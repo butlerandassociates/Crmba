@@ -20,11 +20,12 @@ interface FIOModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   project: any;
+  onCrewPayment?: () => void;
 }
 
 type View = "view" | "edit" | "pay_crew";
 
-export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIOModalProps) {
+export function FieldInstallationOrderModal({ open, onOpenChange, project, onCrewPayment }: FIOModalProps) {
   const [view, setView] = useState<View>("view");
   const [fio, setFio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +92,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project }: FIO
       setCompletionPct({});
       setPayNotes("");
       loadCrewPayments(fio.id);
+      onCrewPayment?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payment");
     } finally {

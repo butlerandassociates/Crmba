@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -164,6 +165,7 @@ export function UserManagement() {
     rolesAPI.getAll().then(setRoles).catch(console.error);
     permissionsAPI.getAll().then(setAllPermissions).catch(console.error);
   }, []);
+  useRealtimeRefetch(loadUsers, ["profiles"], "user-management");
 
   const handleRoleChange = async (role: string) => {
     setSelectedRole(role);

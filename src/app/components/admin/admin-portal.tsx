@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { UserManagement } from "./user-management";
 import { ForecastDashboard } from "./forecast-dashboard";
@@ -29,6 +30,7 @@ function DiscardedClients() {
   };
 
   useEffect(() => { load(); }, []);
+  useRealtimeRefetch(load, ["clients"], "admin-portal");
 
   const handleRevive = async (client: any) => {
     setReviving(client.id);
