@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
@@ -52,6 +54,7 @@ export function NewProjectDialog({
   const [salesReps, setSalesReps] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [touched, setTouched] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
 
   useEffect(() => {
@@ -59,6 +62,7 @@ export function NewProjectDialog({
       // Reset form every time dialog opens
       setForm({ ...EMPTY_FORM, client_id: preselectedClientId ?? "" });
       setError("");
+      setTouched(false);
 
       // Load clients
       clientsAPI.getAll().then(setClients).catch(console.error);
@@ -76,9 +80,13 @@ export function NewProjectDialog({
   const profileName = (p: any) =>
     `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
 
+  const nameErr   = !form.name.trim() ? "Project name is required." : form.name.trim().length < 2 ? "Min 2 characters." : "";
+  const clientErr = !form.client_id ? "Please select a client." : "";
+  const dateErr   = form.start_date && form.end_date && form.end_date < form.start_date ? "End date must be after start date." : "";
+
   const handleSubmit = async () => {
-    if (!form.name.trim()) { setError("Project name is required."); return; }
-    if (!form.client_id) { setError("Please select a client."); return; }
+    setTouched(true);
+    if (nameErr || clientErr || dateErr) return;
 
     setLoading(true);
     setError("");
@@ -118,29 +126,31 @@ export function NewProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
           <DialogDescription>Create a new project and link it to a client.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 overflow-y-auto flex-1 px-1">
+        <DialogBody className="space-y-4">
           {/* Project Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="proj-name">Project Name *</Label>
+            <Label htmlFor="proj-name">Project Name <span className="text-destructive">*</span></Label>
             <Input
               id="proj-name"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               placeholder="e.g. Kitchen Remodel – Johnson"
+              className={touched && nameErr ? "border-red-500" : ""}
             />
+            {touched && nameErr && <p className="text-xs text-red-500">{nameErr}</p>}
           </div>
 
           {/* Client */}
           <div className="space-y-1.5">
-            <Label>Client *</Label>
+            <Label>Client <span className="text-destructive">*</span></Label>
             <Select value={form.client_id} onValueChange={(v) => set("client_id", v)}>
-              <SelectTrigger>
+              <SelectTrigger className={touched && clientErr ? "border-red-500" : ""}>
                 <SelectValue placeholder="Select a client" />
               </SelectTrigger>
               <SelectContent>
@@ -151,6 +161,7 @@ export function NewProjectDialog({
                 ))}
               </SelectContent>
             </Select>
+            {touched && clientErr && <p className="text-xs text-red-500">{clientErr}</p>}
           </div>
 
           {/* Status */}
@@ -184,25 +195,29 @@ export function NewProjectDialog({
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="proj-start">Start Date</Label>
-              <Input
-                id="proj-start"
-                type="date"
-                value={form.start_date}
-                onChange={(e) => set("start_date", e.target.value)}
-              />
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="proj-start">Start Date</Label>
+                <Input
+                  id="proj-start"
+                  type="date"
+                  value={form.start_date}
+                  onChange={(e) => set("start_date", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="proj-end">End Date</Label>
+                <Input
+                  id="proj-end"
+                  type="date"
+                  value={form.end_date}
+                  onChange={(e) => set("end_date", e.target.value)}
+                  className={touched && dateErr ? "border-red-500" : ""}
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="proj-end">End Date</Label>
-              <Input
-                id="proj-end"
-                type="date"
-                value={form.end_date}
-                onChange={(e) => set("end_date", e.target.value)}
-              />
-            </div>
+            {touched && dateErr && <p className="text-xs text-red-500">{dateErr}</p>}
           </div>
 
           {/* Team */}
@@ -271,9 +286,9 @@ export function NewProjectDialog({
           {error && (
             <p className="text-sm text-red-600">{error}</p>
           )}
-        </div>
+        </DialogBody>
 
-        <div className="flex items-center justify-between border-t pt-4">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
@@ -287,7 +302,7 @@ export function NewProjectDialog({
               "Create Project"
             )}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

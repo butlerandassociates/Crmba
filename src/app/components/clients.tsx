@@ -7,6 +7,7 @@ import { Plus, Search, Mail, Phone, MapPin, Loader2 } from "lucide-react";
 import { Link } from "react-router";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -18,12 +19,16 @@ import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { clientsAPI } from "../utils/api";
 
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
+
 export function Clients() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "",
   });
@@ -46,16 +51,29 @@ export function Clients() {
     );
   });
 
+  // Computed validation errors
+  const fnErr    = !form.first_name.trim() ? "First name is required." : form.first_name.trim().length < 2 ? "Min 2 characters." : "";
+  const emailErr = form.email.trim() && !isValidEmail(form.email.trim()) ? "Enter a valid email address." : "";
+  const phoneErr = form.phone.trim() && !isValidPhone(form.phone) ? "Enter a valid phone number (min 7 digits)." : "";
+  const zipErr   = form.zip.trim() && form.zip.trim().length < 4 ? "ZIP must be at least 4 characters." : "";
+  const hasErrors = !!fnErr || !!emailErr || !!phoneErr || !!zipErr;
+
+  const resetForm = () => {
+    setForm({ first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "" });
+    setTouched(false);
+  };
+
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.first_name.trim()) { toast.error("First name is required."); return; }
+    setTouched(true);
+    if (hasErrors) return;
     setSaving(true);
     try {
       const created = await clientsAPI.create(form);
       setClients((prev) => [created, ...prev]);
       toast.success("Client added successfully!");
       setDialogOpen(false);
-      setForm({ first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "" });
+      resetForm();
     } catch (err: any) {
       toast.error(err.message || "Failed to add client.");
     } finally {
@@ -78,7 +96,7 @@ export function Clients() {
           <h1 className="text-3xl font-bold">Clients</h1>
           <p className="text-muted-foreground mt-1">Manage your client relationships</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -86,50 +104,77 @@ export function Clients() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
-            <form onSubmit={handleAddClient}>
+            <form onSubmit={handleAddClient} className="flex flex-col flex-1 min-h-0">
               <DialogHeader>
                 <DialogTitle>Add New Client</DialogTitle>
                 <DialogDescription>Enter the client details below.</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-3 py-4">
+              <DialogBody className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-1.5">
-                    <Label>First Name *</Label>
-                    <Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder="John" required />
+                  <div className="space-y-1.5">
+                    <Label>First Name <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={form.first_name}
+                      onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                      placeholder="John"
+                      className={touched && fnErr ? "border-red-500" : ""}
+                    />
+                    {touched && fnErr && <p className="text-xs text-red-500">{fnErr}</p>}
                   </div>
-                  <div className="grid gap-1.5">
+                  <div className="space-y-1.5">
                     <Label>Last Name</Label>
                     <Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="Doe" />
                   </div>
                 </div>
-                <div className="grid gap-1.5">
+                <div className="space-y-1.5">
                   <Label>Email</Label>
-                  <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="john@example.com" />
+                  <Input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="john@example.com"
+                    className={touched && emailErr ? "border-red-500" : ""}
+                  />
+                  {touched && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
                 </div>
-                <div className="grid gap-1.5">
+                <div className="space-y-1.5">
                   <Label>Phone</Label>
-                  <Input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(555) 123-4567" />
+                  <Input
+                    type="tel"
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    placeholder="(555) 123-4567"
+                    className={touched && phoneErr ? "border-red-500" : ""}
+                  />
+                  {touched && phoneErr && <p className="text-xs text-red-500">{phoneErr}</p>}
                 </div>
-                <div className="grid gap-1.5">
+                <div className="space-y-1.5">
                   <Label>Address</Label>
                   <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Main St" />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="grid gap-1.5">
+                  <div className="space-y-1.5">
                     <Label>City</Label>
                     <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Austin" />
                   </div>
-                  <div className="grid gap-1.5">
+                  <div className="space-y-1.5">
                     <Label>State</Label>
-                    <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="TX" />
+                    <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="TX" maxLength={2} />
                   </div>
-                  <div className="grid gap-1.5">
+                  <div className="space-y-1.5">
                     <Label>ZIP</Label>
-                    <Input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="78701" />
+                    <Input
+                      value={form.zip}
+                      onChange={(e) => setForm({ ...form, zip: e.target.value })}
+                      placeholder="78701"
+                      className={touched && zipErr ? "border-red-500" : ""}
+                    />
+                    {touched && zipErr && <p className="text-xs text-red-500">{zipErr}</p>}
                   </div>
                 </div>
-              </div>
+              </DialogBody>
               <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Client"}
                 </Button>

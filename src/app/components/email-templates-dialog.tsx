@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
@@ -10,7 +12,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Mail, Send, Loader2 } from "lucide-react";
+import { Mail, Send, Loader2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -86,23 +88,36 @@ export function EmailTemplatesDialog({
   };
 
   const [sending, setSending] = useState(false);
+  const [sendTouched, setSendTouched] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const buildEmailHtml = () => `
+    <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+    <body style="margin:0;padding:0;background:#fff;font-family:Arial,sans-serif;color:#111;">
+      <div style="max-width:600px;margin:0 auto;">
+        <div style="background:#111;padding:16px 24px;margin-bottom:24px;">
+          <span style="color:#fff;font-size:18px;font-weight:bold;">Butler &amp; Associates Construction</span>
+        </div>
+        <div style="padding:0 24px 32px;">
+          <p style="white-space:pre-line;font-size:14px;line-height:1.7;color:#374151;">${body}</p>
+        </div>
+        <div style="border-top:1px solid #e5e7eb;padding:16px 24px;font-size:11px;color:#9ca3af;text-align:center;">
+          Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
+        </div>
+      </div>
+    </body></html>`;
+
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const toErr      = !to.trim() ? "Recipient email is required." : !isValidEmail(to.trim()) ? "Enter a valid email address." : "";
+  const subjectErr = !subject.trim() ? "Subject is required." : "";
+  const bodyErr    = !body.trim() ? "Message is required." : "";
 
   const handleSend = async () => {
-    if (!to || !subject || !body) return;
+    setSendTouched(true);
+    if (toErr || subjectErr || bodyErr) return;
     setSending(true);
     try {
-      const html = `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#111;">
-          <div style="background:#111;padding:16px 24px;margin-bottom:24px;">
-            <span style="color:#fff;font-size:18px;font-weight:bold;">Butler &amp; Associates Construction</span>
-          </div>
-          <div style="padding:0 24px 32px;">
-            <p style="white-space:pre-line;font-size:14px;line-height:1.7;color:#374151;">${body}</p>
-          </div>
-          <div style="border-top:1px solid #e5e7eb;padding:16px 24px;font-size:11px;color:#9ca3af;text-align:center;">
-            Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
-          </div>
-        </div>`;
+      const html = buildEmailHtml();
       const { error } = await supabase.functions.invoke("send-email", {
         body: { to, subject, html, from_name: "Butler & Associates Construction" },
       });
@@ -119,6 +134,7 @@ export function EmailTemplatesDialog({
       setSubject("");
       setBody("");
       setTo(client.email);
+      setSendTouched(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");
     } finally {
@@ -127,8 +143,9 @@ export function EmailTemplatesDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -139,7 +156,7 @@ export function EmailTemplatesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <DialogBody className="space-y-4">
           {/* Template Selector */}
           <div className="space-y-2">
             <Label htmlFor="template">Email Template</Label>
@@ -164,39 +181,44 @@ export function EmailTemplatesDialog({
           </div>
 
           {/* To Field */}
-          <div className="space-y-2">
-            <Label htmlFor="to">To</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="to">To <span className="text-destructive">*</span></Label>
             <Input
               id="to"
               type="email"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="recipient@email.com"
+              className={sendTouched && toErr ? "border-red-500" : ""}
             />
+            {sendTouched && toErr && <p className="text-xs text-red-500">{toErr}</p>}
           </div>
 
           {/* Subject Field */}
-          <div className="space-y-2">
-            <Label htmlFor="subject">Subject</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="subject">Subject <span className="text-destructive">*</span></Label>
             <Input
               id="subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Email subject"
+              className={sendTouched && subjectErr ? "border-red-500" : ""}
             />
+            {sendTouched && subjectErr && <p className="text-xs text-red-500">{subjectErr}</p>}
           </div>
 
           {/* Body Field */}
-          <div className="space-y-2">
-            <Label htmlFor="body">Message</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="body">Message <span className="text-destructive">*</span></Label>
             <Textarea
               id="body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Email message..."
               rows={12}
-              className="font-['Lato',sans-serif] text-sm"
+              className={`font-['Lato',sans-serif] text-sm${sendTouched && bodyErr ? " border-red-500" : ""}`}
             />
+            {sendTouched && bodyErr && <p className="text-xs text-red-500">{bodyErr}</p>}
           </div>
 
           {/* Template Preview Info */}
@@ -210,22 +232,46 @@ export function EmailTemplatesDialog({
               </div>
             </div>
           )}
-        </div>
+        </DialogBody>
 
-        {/* Actions */}
-        <div className="flex items-center justify-between border-t pt-4">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleSend}
-            disabled={!to || !subject || !body || sending}
-          >
+          <Button variant="outline" onClick={() => setShowPreview(true)} disabled={!body.trim()}>
+            <Eye className="h-4 w-4 mr-2" />
+            Preview
+          </Button>
+          <Button onClick={handleSend} disabled={sending}>
             {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
             {sending ? "Sending..." : "Send Email"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Branded email preview dialog */}
+    <Dialog open={showPreview} onOpenChange={setShowPreview}>
+      <DialogContent style={{ width: "680px", maxWidth: "95vw" }} className="flex flex-col p-0 gap-0 h-[85vh]">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Eye className="h-4 w-4" />
+            Email Preview
+          </DialogTitle>
+          <DialogDescription>
+            This is exactly what {client.first_name ?? "the client"} will see in their inbox.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+          <iframe
+            srcDoc={buildEmailHtml()}
+            className="w-full h-full border-0"
+            title="Email Preview"
+            sandbox="allow-same-origin"
+          />
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

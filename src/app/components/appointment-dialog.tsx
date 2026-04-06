@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
@@ -171,7 +173,7 @@ export function AppointmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Schedule Appointment</DialogTitle>
           <DialogDescription>
@@ -179,7 +181,7 @@ export function AppointmentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-4">
+        <DialogBody className="space-y-5">
           {/* Google Calendar Connection */}
           <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/40">
             <div className="flex items-center gap-2">
@@ -238,8 +240,8 @@ export function AppointmentDialog({
               </SelectTrigger>
               <SelectContent>
                 {appointmentTypes.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -332,9 +334,9 @@ export function AppointmentDialog({
               <p className="text-xs text-blue-600">Google Meet link will be created automatically</p>
             </div>
           )}
-        </div>
+        </DialogBody>
 
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -354,7 +356,7 @@ export function AppointmentDialog({
               </>
             )}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

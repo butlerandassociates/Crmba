@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
@@ -246,30 +248,33 @@ export function DocuSignDialog({
         </DialogHeader>
 
         {status === "success" ? (
-          <div className="py-8 space-y-4">
-            <div className="flex flex-col items-center text-center space-y-3">
-              <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="h-8 w-8 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">Document Sent Successfully!</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {client.name} will receive an email with the document to sign.
-                </p>
-              </div>
-              {envelopeId && (
-                <div className="mt-4 p-3 bg-muted rounded-lg w-full">
-                  <div className="text-xs text-muted-foreground">Envelope ID</div>
-                  <div className="font-mono text-sm mt-1">{envelopeId}</div>
+          <>
+            <DialogBody className="py-4 space-y-4">
+              <div className="flex flex-col items-center text-center space-y-3">
+                <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-8 w-8 text-green-600" />
                 </div>
-              )}
-            </div>
-            <div className="flex justify-end pt-4 border-t">
+                <div>
+                  <h3 className="text-lg font-semibold">Document Sent Successfully!</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {client.name} will receive an email with the document to sign.
+                  </p>
+                </div>
+                {envelopeId && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg w-full">
+                    <div className="text-xs text-muted-foreground">Envelope ID</div>
+                    <div className="font-mono text-sm mt-1">{envelopeId}</div>
+                  </div>
+                )}
+              </div>
+            </DialogBody>
+            <DialogFooter>
               <Button onClick={handleClose}>Done</Button>
-            </div>
-          </div>
+            </DialogFooter>
+          </>
         ) : (
-          <div className="space-y-6 py-4">
+          <>
+          <DialogBody className="space-y-6">
             {/* Recipient Info */}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="text-sm font-semibold text-blue-900 mb-2">Recipient</div>
@@ -445,29 +450,30 @@ export function DocuSignDialog({
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex items-center justify-between border-t pt-4">
-              <Button variant="outline" onClick={handleClose} disabled={loading}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={sendEnvelope} 
-                disabled={(!selectedTemplate && !manualTemplateId) || loading}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Send for Signature
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleClose} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={sendEnvelope}
+              disabled={(!selectedTemplate && !manualTemplateId) || loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send for Signature
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+          </>
         )}
       </DialogContent>
     </Dialog>

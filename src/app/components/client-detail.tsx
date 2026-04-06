@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -92,6 +93,7 @@ export function ClientDetail() {
   const [editClientOpen, setEditClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState<any>({});
   const [savingClient, setSavingClient] = useState(false);
+  const [editClientTouched, setEditClientTouched] = useState(false);
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   
   // Fetch client from API
@@ -148,6 +150,7 @@ export function ClientDetail() {
   const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState("");
+  const [notesErr, setNotesErr] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [photos, setPhotos] = useState<any[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -234,7 +237,9 @@ export function ClientDetail() {
   };
 
   const handleSaveNotes = async () => {
-    if (!id || !notes.trim()) return;
+    if (!notes.trim()) { setNotesErr("Note cannot be empty."); return; }
+    if (!id) return;
+    setNotesErr("");
     try {
       setSavingNotes(true);
       await notesAPI.create({ client_id: id, content: notes.trim() });
@@ -1351,17 +1356,20 @@ export function ClientDetail() {
             </div>
 
             {/* Inline note input */}
-            <div className="flex gap-2">
-              <Input
-                placeholder="Add a note for your team..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && notes.trim()) handleSaveNotes(); }}
-                className="text-sm"
-              />
-              <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes || !notes.trim()} className="shrink-0">
-                {savingNotes ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
-              </Button>
+            <div className="space-y-1">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add a note for your team..."
+                  value={notes}
+                  onChange={(e) => { setNotes(e.target.value); if (e.target.value.trim()) setNotesErr(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveNotes(); }}
+                  className={`text-sm${notesErr ? " border-red-500" : ""}`}
+                />
+                <Button size="sm" onClick={handleSaveNotes} disabled={savingNotes} className="shrink-0">
+                  {savingNotes ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+                </Button>
+              </div>
+              {notesErr && <p className="text-xs text-red-500">{notesErr}</p>}
             </div>
 
             {/* Notes + Files feed */}
@@ -1698,74 +1706,94 @@ export function ClientDetail() {
       />
 
       {/* Edit Client Dialog */}
-      <Dialog open={editClientOpen} onOpenChange={setEditClientOpen}>
-        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Edit Client</DialogTitle>
-            <DialogDescription>Update contact information for this client.</DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto thin-scroll flex-1 space-y-3 py-2 pr-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>First Name</Label>
-                <Input value={clientForm.first_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, first_name: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Last Name</Label>
-                <Input value={clientForm.last_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, last_name: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Company</Label>
-              <Input value={clientForm.company ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, company: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input type="email" value={clientForm.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Phone</Label>
-              <Input type="tel" value={clientForm.phone ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, phone: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Street Address</Label>
-              <Input value={clientForm.address ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, address: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>City</Label>
-                <Input value={clientForm.city ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, city: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>State</Label>
-                <Input value={clientForm.state ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, state: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ZIP</Label>
-                <Input value={clientForm.zip ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, zip: e.target.value }))} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="pt-4 border-t">
-            <Button variant="outline" onClick={() => setEditClientOpen(false)}>Cancel</Button>
-            <Button disabled={savingClient} onClick={async () => {
-              setSavingClient(true);
-              try {
-                await clientsAPI.update(client.id, clientForm);
-                setClient({ ...client, ...clientForm });
-                setEditClientOpen(false);
-                toast.success("Client updated.");
-              } catch (err: any) {
-                toast.error(err.message || "Failed to update client.");
-              } finally {
-                setSavingClient(false);
-              }
-            }}>
-              {savingClient ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {(() => {
+        const ec = clientForm;
+        const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
+        const fnErr    = !(ec.first_name ?? "").trim() && !(ec.company ?? "").trim() ? "First name or company is required." : (ec.first_name ?? "").trim().length > 0 && (ec.first_name ?? "").trim().length < 2 ? "Min 2 characters." : "";
+        const emailErr = (ec.email ?? "").trim() && !isValidEmail((ec.email ?? "").trim()) ? "Enter a valid email address." : "";
+        const phoneErr = (ec.phone ?? "").trim() && !isValidPhone(ec.phone ?? "") ? "Enter a valid phone number (min 7 digits)." : "";
+        const zipErr   = (ec.zip ?? "").trim() && (ec.zip ?? "").trim().length < 4 ? "ZIP must be at least 4 characters." : "";
+        const hasErr = !!fnErr || !!emailErr || !!phoneErr || !!zipErr;
+        const t = editClientTouched;
+        return (
+          <Dialog open={editClientOpen} onOpenChange={(open) => { setEditClientOpen(open); if (!open) setEditClientTouched(false); }}>
+            <DialogContent className="sm:max-w-[480px]">
+              <DialogHeader>
+                <DialogTitle>Edit Client</DialogTitle>
+                <DialogDescription>Update contact information for this client.</DialogDescription>
+              </DialogHeader>
+              <DialogBody className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>First Name <span className="text-destructive">*</span></Label>
+                    <Input value={ec.first_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, first_name: e.target.value }))} className={t && fnErr ? "border-red-500" : ""} />
+                    {t && fnErr && <p className="text-xs text-red-500">{fnErr}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Last Name</Label>
+                    <Input value={ec.last_name ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, last_name: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Company</Label>
+                  <Input value={ec.company ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, company: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input type="email" value={ec.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} className={t && emailErr ? "border-red-500" : ""} />
+                  {t && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Phone</Label>
+                  <Input type="tel" value={ec.phone ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, phone: e.target.value }))} className={t && phoneErr ? "border-red-500" : ""} placeholder="(555) 123-4567" />
+                  {t && phoneErr && <p className="text-xs text-red-500">{phoneErr}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Street Address</Label>
+                  <Input value={ec.address ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, address: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>City</Label>
+                    <Input value={ec.city ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, city: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>State</Label>
+                    <Input value={ec.state ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, state: e.target.value }))} maxLength={2} placeholder="AL" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ZIP</Label>
+                    <Input value={ec.zip ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, zip: e.target.value }))} className={t && zipErr ? "border-red-500" : ""} placeholder="35801" />
+                    {t && zipErr && <p className="text-xs text-red-500">{zipErr}</p>}
+                  </div>
+                </div>
+              </DialogBody>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setEditClientOpen(false); setEditClientTouched(false); }}>Cancel</Button>
+                <Button disabled={savingClient} onClick={async () => {
+                  setEditClientTouched(true);
+                  if (hasErr) return;
+                  setSavingClient(true);
+                  try {
+                    await clientsAPI.update(client.id, clientForm);
+                    setClient({ ...client, ...clientForm });
+                    setEditClientOpen(false);
+                    setEditClientTouched(false);
+                    toast.success("Client updated.");
+                  } catch (err: any) {
+                    toast.error(err.message || "Failed to update client.");
+                  } finally {
+                    setSavingClient(false);
+                  }
+                }}>
+                  {savingClient ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Delete Proposal Confirmation */}
       <Dialog open={!!proposalToDelete} onOpenChange={(open) => !open && setProposalToDelete(null)}>

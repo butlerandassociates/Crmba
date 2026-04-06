@@ -8,6 +8,7 @@ import { usersAPI, projectsAPI } from "../utils/api";
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -35,6 +36,7 @@ export function Team() {
   // Edit modal
   const [editMember, setEditMember] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [editTouched, setEditTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // View projects modal
@@ -62,16 +64,23 @@ export function Team() {
   const openEdit = (member: any) => {
     setEditMember(member);
     setEditForm({ first_name: member.first_name ?? "", last_name: member.last_name ?? "", phone: member.phone ?? "" });
+    setEditTouched(false);
   };
+
+  const editFnErr    = !editForm.first_name.trim() ? "First name is required." : editForm.first_name.trim().length < 2 ? "Min 2 characters." : "";
+  const editPhoneErr = editForm.phone.trim() && editForm.phone.replace(/\D/g, "").length < 7 ? "Enter a valid phone number (min 7 digits)." : "";
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setEditTouched(true);
+    if (editFnErr || editPhoneErr) return;
     if (!editMember) return;
     setSaving(true);
     try {
       await usersAPI.update(editMember.id, editForm);
       toast.success("Team member updated.");
       setEditMember(null);
+      setEditTouched(false);
       fetchTeamMembers();
     } catch (err: any) {
       toast.error(err.message || "Failed to update.");
@@ -240,7 +249,7 @@ export function Team() {
       )}
 
       {/* Edit Member Modal */}
-      <Dialog open={!!editMember} onOpenChange={(open) => !open && setEditMember(null)}>
+      <Dialog open={!!editMember} onOpenChange={(open) => { if (!open) { setEditMember(null); setEditTouched(false); } }}>
         <DialogContent className="sm:max-w-[420px]">
           <form onSubmit={handleSaveEdit}>
             <DialogHeader>
@@ -250,8 +259,13 @@ export function Team() {
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
-                  <Label>First Name</Label>
-                  <Input value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })} />
+                  <Label>First Name <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={editForm.first_name}
+                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                    className={editTouched && editFnErr ? "border-red-500" : ""}
+                  />
+                  {editTouched && editFnErr && <p className="text-xs text-red-500">{editFnErr}</p>}
                 </div>
                 <div className="grid gap-2">
                   <Label>Last Name</Label>
@@ -260,7 +274,14 @@ export function Team() {
               </div>
               <div className="grid gap-2">
                 <Label>Phone</Label>
-                <Input type="tel" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="(555) 123-4567" />
+                <Input
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  placeholder="(555) 123-4567"
+                  className={editTouched && editPhoneErr ? "border-red-500" : ""}
+                />
+                {editTouched && editPhoneErr && <p className="text-xs text-red-500">{editPhoneErr}</p>}
               </div>
             </div>
             <DialogFooter>
@@ -275,14 +296,14 @@ export function Team() {
 
       {/* View Projects Modal */}
       <Dialog open={!!viewMember} onOpenChange={(open) => !open && setViewMember(null)}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>
               Projects — {viewMember ? [viewMember.first_name, viewMember.last_name].filter(Boolean).join(" ") : ""}
             </DialogTitle>
             <DialogDescription>All projects assigned to this team member.</DialogDescription>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 py-2">
+          <DialogBody>
             {loadingProjects ? (
               <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
             ) : memberProjects.length === 0 ? (
@@ -300,7 +321,7 @@ export function Team() {
                 ))}
               </div>
             )}
-          </div>
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewMember(null)}>
               <X className="h-4 w-4 mr-2" />Close

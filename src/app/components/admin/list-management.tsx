@@ -342,7 +342,7 @@ function AppointmentTypeSection({
           ) : filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">{search ? "No matches." : "No items yet."}</p>
           ) : (
-            <div className="flex-1 overflow-y-auto thin-scroll max-h-52 space-y-1 pr-1">
+            <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
               {filtered.map((item) => (
                 <div key={item.id} className="flex items-center gap-2 group px-2 py-1.5 rounded hover:bg-muted/50 transition-colors">
                   <div className="flex-1 min-w-0">

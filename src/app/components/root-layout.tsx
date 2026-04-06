@@ -41,6 +41,7 @@ import {
 } from "./ui/dropdown-menu";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -148,12 +149,14 @@ export function RootLayout() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "" });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [profileTouched, setProfileTouched] = useState(false);
 
   // Change password state
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
   // Show login success toast once after redirect from login
   useEffect(() => {
@@ -175,11 +178,23 @@ export function RootLayout() {
     });
     setNewPassword("");
     setConfirmPassword("");
+    setProfileTouched(false);
+    setPasswordTouched(false);
     setProfileOpen(true);
   };
 
+  const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
+
+  const profileFnErr    = !profileForm.first_name.trim() ? "First name is required." : profileForm.first_name.trim().length < 2 ? "Min 2 characters." : "";
+  const profilePhoneErr = profileForm.phone.trim() && !isValidPhone(profileForm.phone) ? "Enter a valid phone number (min 7 digits)." : "";
+
+  const newPassErr     = !newPassword ? "New password is required." : newPassword.length < 8 ? "Minimum 8 characters." : "";
+  const confirmPassErr = !confirmPassword ? "Please confirm your password." : newPassword !== confirmPassword ? "Passwords do not match." : "";
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    setProfileTouched(true);
+    if (profileFnErr || profilePhoneErr) return;
     if (!user?.profile?.id) return;
     setSavingProfile(true);
     try {
@@ -187,6 +202,7 @@ export function RootLayout() {
       await refreshProfile();
       toast.success("Profile updated.");
       setProfileOpen(false);
+      setProfileTouched(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to update profile.");
     } finally {
@@ -196,8 +212,8 @@ export function RootLayout() {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 8) { toast.error("Password must be at least 8 characters."); return; }
-    if (newPassword !== confirmPassword) { toast.error("Passwords do not match."); return; }
+    setPasswordTouched(true);
+    if (newPassErr || confirmPassErr) return;
     setSavingPassword(true);
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -205,6 +221,7 @@ export function RootLayout() {
       toast.success("Password changed successfully.");
       setNewPassword("");
       setConfirmPassword("");
+      setPasswordTouched(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to change password.");
     } finally {
@@ -399,7 +416,7 @@ export function RootLayout() {
 
       {/* My Profile Modal */}
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="sm:max-w-[460px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
@@ -416,7 +433,7 @@ export function RootLayout() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="overflow-y-auto flex-1 space-y-6 py-2 pr-1">
+          <DialogBody className="space-y-6">
             {/* Account info (read-only) */}
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Account</p>
@@ -428,11 +445,13 @@ export function RootLayout() {
               <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Personal Info</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
-                  <Label>First Name</Label>
+                  <Label>First Name <span className="text-destructive">*</span></Label>
                   <Input
                     value={profileForm.first_name}
                     onChange={(e) => setProfileForm({ ...profileForm, first_name: e.target.value })}
+                    className={profileTouched && profileFnErr ? "border-red-500" : ""}
                   />
+                  {profileTouched && profileFnErr && <p className="text-xs text-red-500">{profileFnErr}</p>}
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Last Name</Label>
@@ -449,7 +468,9 @@ export function RootLayout() {
                   placeholder="(555) 123-4567"
                   value={profileForm.phone}
                   onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className={profileTouched && profilePhoneErr ? "border-red-500" : ""}
                 />
+                {profileTouched && profilePhoneErr && <p className="text-xs text-red-500">{profilePhoneErr}</p>}
               </div>
               <Button type="submit" size="sm" disabled={savingProfile}>
                 {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
@@ -462,13 +483,14 @@ export function RootLayout() {
             <form onSubmit={handleChangePassword} className="space-y-3">
               <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">Change Password</p>
               <div className="grid gap-1.5">
-                <Label>New Password</Label>
+                <Label>New Password <span className="text-destructive">*</span></Label>
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
+                    className={passwordTouched && newPassErr ? "border-red-500" : ""}
                   />
                   <button
                     type="button"
@@ -478,21 +500,27 @@ export function RootLayout() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {passwordTouched && newPassErr
+                  ? <p className="text-xs text-red-500">{newPassErr}</p>
+                  : <p className="text-xs text-muted-foreground">Minimum 8 characters</p>
+                }
               </div>
               <div className="grid gap-1.5">
-                <Label>Confirm Password</Label>
+                <Label>Confirm Password <span className="text-destructive">*</span></Label>
                 <Input
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={passwordTouched && confirmPassErr ? "border-red-500" : ""}
                 />
+                {passwordTouched && confirmPassErr && <p className="text-xs text-red-500">{confirmPassErr}</p>}
               </div>
               <Button type="submit" size="sm" variant="outline" disabled={savingPassword}>
                 {savingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : "Change Password"}
               </Button>
             </form>
-          </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setProfileOpen(false)}>Close</Button>
