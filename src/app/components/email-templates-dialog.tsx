@@ -92,20 +92,63 @@ export function EmailTemplatesDialog({
   const [showPreview, setShowPreview] = useState(false);
 
   const buildEmailHtml = () => `
-    <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-    <body style="margin:0;padding:0;background:#fff;font-family:Arial,sans-serif;color:#111;">
-      <div style="max-width:600px;margin:0 auto;">
-        <div style="background:#111;padding:16px 24px;margin-bottom:24px;">
-          <span style="color:#fff;font-size:18px;font-weight:bold;">Butler &amp; Associates Construction</span>
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+    </head>
+    <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+      <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+
+        <!-- Header -->
+        <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="vertical-align:middle;">
+                <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
+                <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
+              </td>
+              <td style="vertical-align:middle;text-align:right;width:60px;">
+                <!-- White logo (larger) — uncomment to use: -->
+                <!-- <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="Butler &amp; Associates" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" /> -->
+                <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" />
+              </td>
+            </tr>
+          </table>
         </div>
-        <div style="padding:0 24px 32px;">
-          <p style="white-space:pre-line;font-size:14px;line-height:1.7;color:#374151;">${body}</p>
+        <!-- Gold rule -->
+        <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+
+        <!-- Body -->
+        <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+          <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
+            Message from Butler &amp; Associates
+          </p>
+          <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">
+            Hi ${firstName},
+          </p>
+          <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
+          <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
+            Questions? Reply to this email or reach us at
+            <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
+          </p>
         </div>
-        <div style="border-top:1px solid #e5e7eb;padding:16px 24px;font-size:11px;color:#9ca3af;text-align:center;">
-          Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
+
+        <!-- Footer -->
+        <div style="text-align:center;padding:20px 0 0 0;">
+          <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">
+            Butler &amp; Associates Construction, Inc.
+          </p>
+          <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">
+            6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
+          </p>
         </div>
+
       </div>
-    </body></html>`;
+    </body>
+    </html>`;
 
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const toErr      = !to.trim() ? "Recipient email is required." : !isValidEmail(to.trim()) ? "Enter a valid email address." : "";

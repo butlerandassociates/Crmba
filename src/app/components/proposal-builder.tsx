@@ -111,6 +111,7 @@ export function ProposalBuilder() {
   const [badOverride, setBadOverride] = useState<number | null>(null);
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Qualifying categories for Base, Aggregate & Disposal
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
@@ -499,11 +500,13 @@ export function ProposalBuilder() {
                   <thead>
                     <tr className="border-b bg-muted/40">
                       <th className="text-left px-6 py-3 font-semibold text-muted-foreground">Product</th>
+                      <th className="text-center px-4 py-3 font-semibold text-muted-foreground w-[110px]">FIO Qty</th>
                       <th className="text-center px-4 py-3 font-semibold text-muted-foreground w-[130px]">Qty</th>
                       <th className="text-left px-4 py-3 font-semibold text-muted-foreground w-[110px]">Unit</th>
                       <th className="text-right px-4 py-3 font-semibold text-muted-foreground w-[140px]">Rate ($)</th>
                       <th className="text-right px-6 py-3 font-semibold text-muted-foreground w-[130px]">Total</th>
-                      <th className="px-4 py-3 w-[60px]"></th>
+                      <th className="px-2 py-3 w-[40px]"></th>
+                      <th className="px-2 py-3 w-[40px]"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -511,48 +514,102 @@ export function ProposalBuilder() {
                       <>
                         {/* Category section header */}
                         <tr key={`cat-${category}`} className="bg-slate-100/80 border-y border-slate-200">
-                          <td colSpan={6} className="px-6 py-2.5">
+                          <td colSpan={8} className="px-6 py-2.5">
                             <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{category}</span>
                           </td>
                         </tr>
-                        {items.map((item) => (
-                          <tr key={item.id} className="border-b border-slate-100 hover:bg-primary/5 transition-colors group">
-                            <td className="px-6 py-4">
-                              <div className="font-semibold text-sm">{item.productName}</div>
-                              {item.description && (
-                                <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</div>
+                        {items.map((item) => {
+                          const isExpanded = expandedRows.has(item.id);
+                          return (
+                            <>
+                              <tr key={item.id} className="border-b border-slate-100 hover:bg-primary/5 transition-colors group">
+                                <td className="px-6 py-4">
+                                  <div className="font-semibold text-sm">{item.productName}</div>
+                                  {item.description && (
+                                    <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-4 text-center">
+                                  <Input
+                                    type="number"
+                                    placeholder="—"
+                                    onChange={(e) => updateLineItem(item.id, "fioQty" as any, parseFloat(e.target.value) || null)}
+                                    className="h-9 text-sm text-center w-20 mx-auto"
+                                  />
+                                </td>
+                                <td className="px-4 py-4 text-center">
+                                  <Input
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
+                                    className="h-9 text-sm text-center w-24 mx-auto"
+                                  />
+                                </td>
+                                <td className="px-4 py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
+                                <td className="px-4 py-4">
+                                  <Input
+                                    type="number"
+                                    value={item.pricePerUnit}
+                                    onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
+                                    className="h-9 text-sm text-right w-32 ml-auto"
+                                  />
+                                </td>
+                                <td className="px-6 py-4 text-right font-bold text-sm">{formatCurrency(item.totalPrice)}</td>
+                                <td className="px-2 py-4 text-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-muted-foreground"
+                                    onClick={() => setExpandedRows((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                                      return next;
+                                    })}
+                                  >
+                                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  </Button>
+                                </td>
+                                <td className="px-2 py-4 text-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeLineItem(item.id)}
+                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr key={`${item.id}-exp`} className="bg-muted/30 border-b border-slate-100">
+                                  <td colSpan={8} className="pr-[100px] pl-6 py-3">
+                                    <div className="flex items-center justify-end gap-8 text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew Cost/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(item.laborCost)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Material/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(item.materialCost)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(item.costPerUnit)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
+                                        <span className="font-semibold text-amber-600">{item.markupPercent}%</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
                               )}
-                            </td>
-                            <td className="px-4 py-4 text-center">
-                              <Input
-                                type="number"
-                                value={item.quantity}
-                                onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                                className="h-9 text-sm text-center w-24 mx-auto"
-                              />
-                            </td>
-                            <td className="px-4 py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
-                            <td className="px-4 py-4">
-                              <Input
-                                type="number"
-                                value={item.pricePerUnit}
-                                onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
-                                className="h-9 text-sm text-right w-32 ml-auto"
-                              />
-                            </td>
-                            <td className="px-6 py-4 text-right font-bold text-sm">{formatCurrency(item.totalPrice)}</td>
-                            <td className="px-4 py-4 text-center">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeLineItem(item.id)}
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
+                            </>
+                          );
+                        })}
                       </>
                     ))}
                   </tbody>

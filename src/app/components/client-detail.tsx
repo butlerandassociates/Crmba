@@ -1,5 +1,6 @@
-import { useParams, Link } from "react-router";
+import { useParams, Link, useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -49,7 +50,7 @@ import {
 } from "./ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI} from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import {
   DropdownMenu,
@@ -82,6 +83,7 @@ import { toast } from "sonner";
 
 export function ClientDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +97,7 @@ export function ClientDetail() {
   const [savingClient, setSavingClient] = useState(false);
   const [editClientTouched, setEditClientTouched] = useState(false);
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   
   // Fetch client from API
   useEffect(() => {
@@ -128,6 +131,22 @@ export function ClientDetail() {
     pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
     projectPaymentsAPI.getByClient(id).then(setClientPayments).catch(console.error);
   }, [id]);
+
+  useEffect(() => {
+    productsAPI.getCategories()
+      .then((cats) => setCategories(cats || []))
+      .catch(console.error);
+  }, []);
+
+  useRealtimeRefetch(
+    () => { Promise.all([productsAPI.getCategories()]).then(([cats]) => {setCategories(cats || []); }).catch(console.error); },
+    ["product_categories"],
+    "product-manager"
+  );
+
+  useEffect(() => {
+    if (searchParams.get("payments") === "open") setPaymentTrackingOpen(true);
+  }, [searchParams]);
 
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
@@ -543,6 +562,20 @@ export function ClientDetail() {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
+  const toggleScope = async (value: string) => {
+    const next = selectedScopes.includes(value)
+      ? selectedScopes.filter((s) => s !== value)
+      : [...selectedScopes, value];
+
+    setSelectedScopes(next);
+
+    try {
+      await clientsAPI.update(id!, { scope_of_work: next });
+    } catch {
+      toast.error("Failed to save scope of work");
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
@@ -786,7 +819,7 @@ export function ClientDetail() {
             <CardTitle className="text-base">Project Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
+            {/* <div className="space-y-2">
               <Label className="text-sm font-medium">Scope of Work</Label>
               {(() => {
                 const SCOPE_OPTIONS = [
@@ -854,6 +887,82 @@ export function ClientDetail() {
                   </div>
                 );
               })()}
+            </div> */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Scope of Work</Label>
+
+              <div className="space-y-2">
+                <Popover open={scopePopoverOpen} onOpenChange={setScopePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent/30 transition-colors"
+                    >
+                      <span className="text-muted-foreground">
+                        {selectedScopes.length === 0
+                          ? "Select scope of work"
+                          : "Add or remove scopes..."}
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
+                    </button>
+                  </PopoverTrigger>
+
+                  <PopoverContent
+                    side="bottom"
+                    align="start"
+                    sideOffset={4}
+                    avoidCollisions={false}
+                    className="w-72 p-2"
+                  >
+                    <div className="space-y-1 max-h-60 overflow-y-auto thin-scroll">
+                      {categories.length === 0 ? (
+                        <p className="text-sm text-muted-foreground px-2 py-1">
+                          Loading...
+                        </p>
+                      ) : (
+                        categories.map((cat: any) => (
+                          <label
+                            key={cat.id}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/40 cursor-pointer text-sm"
+                          >
+                            <Checkbox
+                              checked={selectedScopes.includes(cat.id)}
+                              onCheckedChange={() => toggleScope(cat.id)}
+                            />
+                            {cat.name}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Selected badges */}
+                {selectedScopes.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedScopes.map((s: string) => {
+                      const label = categories.find((c: any) => c.id === s)?.name;
+
+                      return (
+                        <Badge
+                          key={s}
+                          variant="secondary"
+                          className="text-xs flex items-center gap-1 pr-1"
+                        >
+                          {label || s}
+                          <button
+                            type="button"
+                            onClick={() => toggleScope(s)}
+                            className="ml-0.5 hover:text-destructive rounded-full"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <Checkbox id="call-811" defaultChecked={client.call_811_required} />
@@ -1058,18 +1167,24 @@ export function ClientDetail() {
               })()
             )}
 
-            {/* ── Proposal (one per client) ── */}
-            {(() => {
-              const proposal = clientProposals[0] ?? null;
-              return (
-                <div className="border-t mt-4 pt-3">
-                  {proposal ? (
-                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/40 group">
+            {/* ── Proposals (multiple) ── */}
+            <div className="border-t mt-4 pt-3">
+              <div className="space-y-1.5 max-h-[180px] overflow-y-auto thin-scroll pr-1">
+              {clientProposals.length === 0 ? (
+                <div className="text-center py-3 text-xs text-muted-foreground">
+                  No proposal yet — create one to auto-populate revenue figures
+                </div>
+              ) : (
+                clientProposals
+                  .slice()
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .map((proposal) => (
+                    <Link key={proposal.id} to={`/proposals/${proposal.id}`} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/40 hover:bg-accent/70 transition-colors group">
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <div className="flex-1 min-w-0">
-                        <Link to={`/proposals/${proposal.id}`} className="text-sm font-medium hover:text-primary truncate block">
+                        <span className="text-sm font-medium truncate block">
                           {proposal.title ?? `Estimate #${proposal.estimate_number}`}
-                        </Link>
+                        </span>
                         <div className="flex items-center gap-2 mt-0.5">
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{proposal.status}</Badge>
                           <span className="text-xs text-muted-foreground">{formatDate(proposal.created_at)}</span>
@@ -1077,19 +1192,15 @@ export function ClientDetail() {
                       </div>
                       <div className="text-right shrink-0 flex items-center gap-2">
                         <div className="text-sm font-semibold">{formatCurrency(proposal.total)}</div>
-                        <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setProposalToDelete(proposal)}>
+                        <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.preventDefault(); setProposalToDelete(proposal); }}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3 text-xs text-muted-foreground">
-                      No proposal yet — create one to auto-populate revenue figures
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+                    </Link>
+                  ))
+              )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -1489,7 +1600,7 @@ export function ClientDetail() {
               const totalPaid   = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
               const pct = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
               return (
-                <div className="space-y-4">
+                <div className="space-y-4 px-6 py-4">
                   {/* Progress bar */}
                   <div className="bg-muted/40 rounded-lg p-4 space-y-2">
                     <div className="flex items-center justify-between text-sm font-medium">
@@ -1575,7 +1686,7 @@ export function ClientDetail() {
               <DialogTitle>Add Payment Milestone</DialogTitle>
               <DialogDescription>Add a progress payment from the signed contract.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 py-2">
+            <div className="space-y-3 px-6 py-4">
               <div className="space-y-1.5"><Label>Label</Label><Input placeholder="e.g. Deposit, Progress Payment, Final" value={newPayment.label} onChange={(e) => setNewPayment((p) => ({ ...p, label: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment((p) => ({ ...p, due_date: e.target.value }))} /></div>
@@ -1609,7 +1720,7 @@ export function ClientDetail() {
               <DialogTitle>Mark as Paid</DialogTitle>
               <DialogDescription>{markPaidOpen?.label} — {formatCurrency(markPaidOpen?.amount ?? 0)}</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 py-2">
+            <div className="space-y-3 px-6 py-4">
               <div className="space-y-1.5"><Label>Payment Method</Label><Input placeholder="e.g. Check #1042, ACH #8829, Cash" value={paidForm.payment_method} onChange={(e) => setPaidForm((p) => ({ ...p, payment_method: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Notes (optional)</Label><Input placeholder="Any additional notes" value={paidForm.notes} onChange={(e) => setPaidForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             </div>
@@ -1641,7 +1752,7 @@ export function ClientDetail() {
               <DialogTitle>Edit Milestone</DialogTitle>
               <DialogDescription>Update this payment milestone.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 py-2">
+            <div className="space-y-3 px-6 py-4">
               <div className="space-y-1.5"><Label>Label</Label><Input value={editPayment?.label ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, label: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" value={editPayment?.amount ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, amount: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={editPayment?.due_date ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, due_date: e.target.value }))} /></div>
@@ -1866,7 +1977,7 @@ export function ClientDetail() {
                 : `Enter the forecast details for ${client?.first_name} ${client?.last_name} before moving to Selling.`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 px-6 py-4">
             <div className="space-y-1.5">
               <Label htmlFor="selling-prob">Closing Probability <span className="text-destructive">*</span></Label>
               <div className="relative">
@@ -1921,7 +2032,7 @@ export function ClientDetail() {
               {client?.first_name} {client?.last_name} will be discarded but not deleted. You can revive them at any time.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 px-6 py-4">
             <div className="space-y-1.5">
               <Label htmlFor="discard-reason">Reason <span className="text-destructive">*</span></Label>
               <select
