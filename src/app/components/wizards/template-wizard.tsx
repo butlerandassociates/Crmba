@@ -108,7 +108,11 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
         });
       })
       .map((rule: any) => {
-        const qty = safeEval(rule.formula, vars);
+        const deliveryOverride = parseFloat(formData.deliveryLoadsOverride as string) || 0;
+        let qty = safeEval(rule.formula, vars);
+        if (deliveryOverride > 0 && rule.product_name === 'Wall Delivery' && qty > 0) {
+          qty = deliveryOverride;
+        }
         const product = dbProducts.find(
           (p: any) => p.name?.trim().toLowerCase() === rule.product_name?.trim().toLowerCase()
         );
@@ -134,13 +138,17 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
   const calculateAndComplete = () => {
     const items: any[] = [];
     const vars = buildVars();
+    const deliveryOverride = parseFloat(formData.deliveryLoadsOverride as string) || 0;
 
     calcRules.forEach((rule: any) => {
       if (rule.conditional_field_id && rule.conditional_value) {
         if (String(formData[rule.conditional_field_id]) !== rule.conditional_value) return;
       }
 
-      const qty = safeEval(rule.formula, vars);
+      let qty = safeEval(rule.formula, vars);
+      if (deliveryOverride > 0 && rule.product_name === 'Wall Delivery' && qty > 0) {
+        qty = deliveryOverride;
+      }
       if (qty <= 0) return;
 
       const product = dbProducts.find(
@@ -200,12 +208,14 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
                 {(field.options ?? []).map((opt: string) => (
                   <div
                     key={opt}
+                    tabIndex={0}
                     className={`flex items-center gap-3 border-2 rounded-xl p-4 cursor-pointer transition-all duration-150 ${
                       formData[field.id] === opt
                         ? "border-primary bg-primary/5 shadow-sm"
                         : "border-border hover:border-primary/40 hover:bg-accent/30"
                     }`}
                     onClick={() => handleFieldChange(field.id, opt)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleFieldChange(field.id, opt); } }}
                   >
                     <RadioGroupItem value={opt} id={`${field.id}-${opt}`} />
                     <Label htmlFor={`${field.id}-${opt}`} className="cursor-pointer font-medium flex-1 pointer-events-none text-sm">

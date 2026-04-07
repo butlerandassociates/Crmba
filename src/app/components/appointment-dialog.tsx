@@ -77,7 +77,7 @@ export function AppointmentDialog({
     try {
       setScheduling(true);
 
-      const typeLabel = appointmentTypes.find((t) => t.value === appointmentType)?.label ?? appointmentType;
+      const typeLabel = appointmentTypes.find((t) => t.id === appointmentType)?.name ?? appointmentType;
 
       const [sh, sm] = startTime.split(":").map(Number);
       const [eh, em] = endTime.split(":").map(Number);
@@ -133,6 +133,24 @@ export function AppointmentDialog({
         appointment_date:      startDT.toISOString(),
         appointment_end_date:  endDT.toISOString(),
       });
+
+      // Send branded confirmation email via SendGrid
+      if (client?.email) {
+        const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
+        const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
+        supabase.functions.invoke("send-appointment-email", {
+          body: {
+            appointment_type_id: appointmentType,
+            client_id:      client.id,
+            client_name:    clientName,
+            client_email:   client.email,
+            client_address: clientAddress || null,
+            date:           dateLabel,
+            time:           timeLabel,
+            meet_link:      createdEvent.hangoutLink ?? null,
+          },
+        }).catch((err: any) => console.error("Email send failed:", err));
+      }
 
       const meetLink = createdEvent.hangoutLink;
       toast.success(
