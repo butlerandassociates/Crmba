@@ -127,13 +127,17 @@ export function ProductManager() {
     if (addNameErr || addCategoryErr || addUnitErr) return;
     try {
       setSaving(true);
+      const newMaterial = parseFloat(newProduct.materialCost) || 0;
+      const newLabor    = parseFloat(newProduct.laborCost) || 0;
+      const newMarkup   = parseFloat(newProduct.markupPercent) || 0;
       await productsAPI.save({
         name: newProduct.name,
         category_id: newProduct.category_id,
         unit: newProduct.unit,
-        material_cost: parseFloat(newProduct.materialCost) || 0,
-        labor_cost: parseFloat(newProduct.laborCost) || 0,
-        markup_percentage: parseFloat(newProduct.markupPercent) || 0,
+        material_cost: newMaterial,
+        labor_cost: newLabor,
+        markup_percentage: newMarkup,
+        price_per_unit: (newMaterial + newLabor) * (1 + newMarkup / 100),
         sales_tax_rate: newProduct.salesTaxApplicable ? 9 : null,
         description: newProduct.description || null,
         is_active: true,
@@ -170,14 +174,18 @@ export function ProductManager() {
     if (!editingProduct) return;
     try {
       setSaving(true);
+      const editMaterial = parseFloat(editingProduct.materialCost) || 0;
+      const editLabor    = parseFloat(editingProduct.laborCost) || 0;
+      const editMarkup   = parseFloat(editingProduct.markupPercent) || 0;
       await productsAPI.save({
         id: editingProduct.id,
         name: editingProduct.name,
         category_id: editingProduct.category_id,
         unit: editingProduct.unit,
-        material_cost: parseFloat(editingProduct.materialCost) || 0,
-        labor_cost: parseFloat(editingProduct.laborCost) || 0,
-        markup_percentage: parseFloat(editingProduct.markupPercent) || 0,
+        material_cost: editMaterial,
+        labor_cost: editLabor,
+        markup_percentage: editMarkup,
+        price_per_unit: (editMaterial + editLabor) * (1 + editMarkup / 100),
         sales_tax_rate: editingProduct.salesTaxApplicable ? 9 : null,
         description: editingProduct.description || null,
       });

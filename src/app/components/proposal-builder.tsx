@@ -35,6 +35,7 @@ interface LineItem {
   productName: string;
   description?: string;
   quantity: number;
+  fioQty?: number | null;
   unit: string;
   materialCost: number;
   laborCost: number;
@@ -164,9 +165,7 @@ export function ProposalBuilder() {
       const laborCost = product.labor_cost ?? 0;
       const markup = product.markup_percentage ?? 0;
       const costPerUnit = materialCost + laborCost;
-      const pricePerUnit = product.price_per_unit
-        ? product.price_per_unit
-        : costPerUnit * (1 + markup / 100);
+      const pricePerUnit = costPerUnit * (1 + markup / 100);
 
       addLineItem({
         category: selectedCategory,
@@ -190,6 +189,7 @@ export function ProposalBuilder() {
     const newItem: LineItem = {
       ...item,
       id: `item-${Date.now()}-${Math.random()}`,
+      fioQty: item.fioQty ?? item.quantity,
       totalPrice: item.quantity * item.pricePerUnit,
     };
     setLineItems([...lineItems, newItem]);
@@ -199,6 +199,7 @@ export function ProposalBuilder() {
     const newItems = items.map((item) => ({
       ...item,
       id: `item-${Date.now()}-${Math.random()}`,
+      fioQty: item.fioQty ?? item.quantity,
       totalPrice: item.quantity * item.pricePerUnit,
     }));
     setLineItems([...lineItems, ...newItems]);
@@ -532,7 +533,7 @@ export function ProposalBuilder() {
                                 <td className="px-4 py-4 text-center">
                                   <Input
                                     type="number"
-                                    placeholder="—"
+                                    value={item.fioQty ?? item.quantity ?? ""}
                                     onChange={(e) => updateLineItem(item.id, "fioQty" as any, parseFloat(e.target.value) || null)}
                                     className="h-9 text-sm text-center w-20 mx-auto"
                                   />
@@ -752,6 +753,23 @@ export function ProposalBuilder() {
                 <div className="flex justify-between text-lg">
                   <span className="font-bold">Total</span>
                   <span className="font-bold text-green-600">{formatCurrency(total)}</span>
+                </div>
+
+                {/* Internal GP summary — not visible to client */}
+                <div className="mt-3 pt-3 border-t border-dashed border-slate-200 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Internal — Not Client Facing</p>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Pre-Markup Cost</span>
+                    <span className="font-semibold">{formatCurrency(totalCost)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Projected GP $</span>
+                    <span className="font-semibold text-green-700">{formatCurrency(grossProfit)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Projected GP %</span>
+                    <span className="font-semibold text-green-700">{profitMargin.toFixed(1)}%</span>
+                  </div>
                 </div>
               </div>
             </div>

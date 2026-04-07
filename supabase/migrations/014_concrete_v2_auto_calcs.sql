@@ -1,8 +1,8 @@
 -- ============================================================
 -- Migration 014: Concrete v2 Wizard — Auto-calculate rebar & gravel
 -- Jonathan confirmed (April 2026):
---   - Rebar: 1 stick per 20 SF at 2-ft grid → Math.ceil(squareFootage / 20)
---   - 57-Stone scoops: 2" depth (not 4") → Math.ceil(squareFootage / 160)
+--   - Rebar: 1 stick per 20 SF at 4-ft grid → Math.ceil(squareFootage / 20)
+--   - 57-Stone scoops: 1 scoop = 1 ton = 100 SF → Math.ceil(squareFootage / 100)
 -- Both fields removed from wizard steps (no manual entry needed)
 -- ============================================================
 
@@ -22,7 +22,7 @@ SET
         WHEN rule->>'formula' = 'rebarSticks'
           THEN jsonb_set(rule, '{formula}', '"Math.ceil(squareFootage / 20)"')
         WHEN rule->>'formula' = 'scoopCount'
-          THEN jsonb_set(rule, '{formula}', '"Math.ceil(squareFootage / 160)"')
+          THEN jsonb_set(rule, '{formula}', '"Math.ceil(squareFootage / 100)"')
         ELSE rule
       END
     )

@@ -790,9 +790,7 @@ export function ProposalDetail() {
                       <div className="grid grid-cols-2 gap-4">
                         {products.map((product: any) => {
                           const cost = (product.material_cost ?? 0) + (product.labor_cost ?? 0);
-                          const price = Number(product.price_per_unit) > 0
-                            ? Number(product.price_per_unit)
-                            : cost * (1 + (product.markup_percentage ?? 0) / 100);
+                          const price = cost * (1 + (product.markup_percentage ?? 0) / 100);
                           return (
                             <button
                               key={product.id}
@@ -995,8 +993,7 @@ export function ProposalDetail() {
   </div>
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
   <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
-    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Your Proposal Is Ready</p>
-    <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">${clientName}</p>
+    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 20px 0;">Your Proposal Is Ready</p>
     <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
     <div style="text-align:center;margin:0 0 28px 0;">
       <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 36px;border-radius:4px;text-decoration:none;font-family:Inter,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a>
