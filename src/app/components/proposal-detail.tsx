@@ -355,11 +355,8 @@ export function ProposalDetail() {
             <!-- Body -->
             <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
 
-              <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
+              <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 20px 0;">
                 Your Proposal Is Ready
-              </p>
-              <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">
-                ${clientName}
               </p>
 
               <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
