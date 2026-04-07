@@ -23,6 +23,21 @@ import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 
 export function Pipeline() {
+  useEffect(() => {
+    if (loading) return;
+    const target = sessionStorage.getItem("pipeline_scroll");
+    if (target === "tasks") {
+      sessionStorage.removeItem("pipeline_scroll");
+      const el = document.getElementById(target) as HTMLElement;
+      const scroller = document.querySelector("main");
+      if (el && scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        scroller.scrollTo({ top: scroller.scrollTop + elRect.top - scrollerRect.top - 16, behavior: "smooth" });
+      }
+    }
+  }, [loading]);
+
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -457,7 +472,7 @@ export function Pipeline() {
       </div>
 
       {/* Company Stats, Commissions, Tasks, Activity - 2x2 Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div id="tasks" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Company Stats */}
         <Card>
           <CardHeader className="pb-3">

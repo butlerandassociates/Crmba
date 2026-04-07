@@ -60,7 +60,7 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
   const discountAmount = proposal?.discount_amount ?? 0;
   const taxAmount      = proposal?.tax_amount ?? 0;
   const taxLabel       = proposal?.tax_label ?? "Tax";
-  const total          = proposal?.total ?? subtotal + taxAmount - discountAmount;
+  const total          = subtotal + taxAmount - discountAmount;
 
   // Shared page header — black bar with logo + estimate number
   const PageHeader = () => (
@@ -87,10 +87,10 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
   );
 
   return (
-    <div style={{ fontFamily: B.inter, color: B.black, background: B.bg, maxWidth: 816, margin: "0 auto", fontSize: 13 }}>
+    <div style={{ fontFamily: B.inter, color: B.black, background: B.bg, width: "100%", fontSize: 13 }}>
 
       {/* ══ PAGE 1 ══ */}
-      <div style={{ paddingBottom: 48 }}>
+      <div style={{ paddingBottom: 48, minHeight: "29.7cm", boxSizing: "border-box" as const }}>
         <PageHeader />
 
         <div style={{ padding: "36px 48px" }}>
@@ -165,7 +165,7 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
                 Scope of Work
               </p>
               <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
-                Amount
+                Qty
               </p>
             </div>
 
@@ -188,10 +188,9 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
                       </p>
                     </div>
                   )}
-                  {/* Items */}
+                  {/* Items — client sees name + qty only, no unit, no individual price */}
                   {group.items.map((item, iIdx) => {
                     const isAlt = rowIndex++ % 2 === 1;
-                    const isLast = gIdx === groupedItems.length - 1 && iIdx === group.items.length - 1;
                     return (
                       <div
                         key={iIdx}
@@ -201,54 +200,74 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
                           alignItems: "center",
                           padding: group.category ? "12px 24px 12px 32px" : "14px 24px",
                           background: isAlt ? B.rowAlt : "#fff",
-                          borderBottom: !isLast ? `1px solid ${B.bg}` : "none",
+                          borderBottom: `1px solid ${B.bg}`,
                         }}
                       >
                         <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.name}</p>
-                        <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 500, color: B.black, margin: 0, whiteSpace: "nowrap" as const }}>
-                          {formatCurrency(item.lineTotal)}
+                        <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, whiteSpace: "nowrap" as const }}>
+                          {item.qty}
                         </p>
                       </div>
                     );
                   })}
+                  {/* Category total row */}
+                  {group.category && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 24px", background: "#F0EDE6", borderTop: `1px solid ${B.border}` }}>
+                      <p style={{ fontFamily: B.inter, fontSize: 11, fontWeight: 600, color: B.text, margin: 0, letterSpacing: "0.04em" }}>
+                        {group.category} Total
+                      </p>
+                      <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0 }}>
+                        {formatCurrency(group.items.reduce((s, i) => s + i.lineTotal, 0))}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ));
             })()}
 
-            {/* Discount / Tax rows (if applicable) */}
-            {(discountAmount > 0 || taxAmount > 0) && (
-              <div style={{ borderTop: `1px solid ${B.border}` }}>
-                {discountAmount > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>
-                      Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}
-                    </p>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>− {formatCurrency(discountAmount)}</p>
-                  </div>
-                )}
-                {taxAmount > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: B.rowAlt }}>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(taxAmount)}</p>
-                  </div>
-                )}
+            {/* Subtotal / Discount / Tax / Total block */}
+            <div style={{ borderTop: `2px solid ${B.border}` }}>
+              {/* Subtotal */}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Subtotal</p>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(subtotal)}</p>
               </div>
-            )}
-
-            {/* Total Investment */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: B.bg, borderTop: `2px solid ${B.border}` }}>
-              <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>Total Investment</p>
-              <p style={{ fontFamily: B.cg, fontSize: 26, fontWeight: 400, color: B.gold, margin: 0 }}>
-                {formatCurrency(total)}
-              </p>
+              {/* Discount */}
+              {discountAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: B.rowAlt }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>
+                    Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}
+                  </p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>− {formatCurrency(discountAmount)}</p>
+                </div>
+              )}
+              {/* Tax */}
+              {taxAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(taxAmount)}</p>
+                </div>
+              )}
+              {/* Total Investment */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
+                <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>
+                  Total Investment{taxAmount > 0 ? " + Tax" : ""}
+                </p>
+                <p style={{ fontFamily: B.cg, fontSize: 26, fontWeight: 400, color: B.gold, margin: 0 }}>
+                  {formatCurrency(total)}
+                </p>
+              </div>
             </div>
           </div>
 
         </div>
       </div>
 
+      {/* Page gap — visible in preview, invisible in print/PDF */}
+      <div style={{ height: 16, background: "#525659" }} className="screen-only" />
+
       {/* ══ PAGE 2 ══ Reviews + Signature */}
-      <div style={{ pageBreakBefore: "always" as const }}>
+      <div style={{ pageBreakBefore: "always" as const, minHeight: "29.7cm", boxSizing: "border-box" as const }}>
         <PageHeader />
 
         <div style={{ padding: "36px 48px", minHeight: "9in", display: "flex", flexDirection: "column" as const }}>
@@ -257,25 +276,30 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
             What Our Clients Say
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 40 }}>
+          {/* Horizontal review cards — wide & short, stacked vertically */}
+          <div style={{ display: "flex", flexDirection: "column" as const, gap: 12, marginBottom: 40 }}>
             {[
               {
                 name: "Dan Ordonez",
-                text: "The crew and Jonathan, the general manager, did an amazing job! The patio is now much easier to reach, enhancing the backyard's appearance. Their prices are extremely competitive and the transparency of the quote were the main reason why I chose them for this project. Jonathan was flexible with all the changes and adjustments we had during the project. Communication throughout this process was excellent as well. Highly recommend.",
+                text: "The crew and Jonathan, the general manager, did an amazing job! Their prices are extremely competitive and the transparency of the quote were the main reason why I chose them. Jonathan was flexible with all the changes and adjustments we had. Communication throughout was excellent. Highly recommend.",
               },
               {
                 name: 'Drew "Smith" Mills',
-                text: "Jonathan and his team at Butler & Associates Construction are some of the most professional and friendly people I've had the pleasure of working with in this industry. Words can't describe how amazing this team is and how precisely they executed our project. They were thoughtful in their design and layout, making sure everything matched exactly what we were looking for.",
+                text: "Jonathan and his team are some of the most professional and friendly people I've had the pleasure of working with in this industry. They were thoughtful in their design and layout, making sure everything matched exactly what we were looking for.",
               },
               {
                 name: "B Robey",
-                text: "After years of water issues, I had a specific vision for my backyard and reached out to Butler & Associates for a free estimate. Jonathan was incredibly responsive; he returned my call immediately and performed a thorough walkthrough, listening to my ideas while providing expert recommendations. The follow-up was impressive — within a day, we were reviewing the invoice and tweaking the design. Highly recommend.",
+                text: "Jonathan was incredibly responsive — returned my call immediately and performed a thorough walkthrough, listening to my ideas while providing expert recommendations. Within a day, we were reviewing the invoice and tweaking the design. Highly recommend.",
               },
             ].map((r) => (
-              <div key={r.name} style={{ background: "#fff", border: `1px solid ${B.border}`, borderRadius: 6, padding: "16px 18px" }}>
-                <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 13, color: B.black, margin: "0 0 3px 0" }}>{r.name}</p>
-                <p style={{ color: B.gold, fontSize: 15, margin: "0 0 8px 0", lineHeight: 1 }}>★★★★★</p>
-                <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.65, color: B.text, margin: 0, opacity: 0.85 }}>{r.text}</p>
+              <div key={r.name} style={{ background: "#fff", border: `1px solid ${B.border}`, borderRadius: 8, padding: "14px 20px", display: "flex", alignItems: "flex-start", gap: 20 }}>
+                {/* Left — name + stars */}
+                <div style={{ minWidth: 130, flexShrink: 0, borderRight: `1px solid ${B.border}`, paddingRight: 20 }}>
+                  <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 12, color: B.black, margin: "0 0 4px 0" }}>{r.name}</p>
+                  <p style={{ color: B.gold, fontSize: 12, margin: 0, lineHeight: 1 }}>★★★★★</p>
+                </div>
+                {/* Right — review text */}
+                <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.85, flex: 1 }}>{r.text}</p>
               </div>
             ))}
           </div>

@@ -58,8 +58,10 @@ export function ClientsList() {
     addressDebounce.current = setTimeout(async () => {
       try {
         setAddressLoading(true);
+        // Bias toward Alabama (their market) by appending state to query
+        // Alabama results surface first; out-of-state still works if needed
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=us&limit=5&q=${encodeURIComponent(value)}`,
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=us&limit=6&q=${encodeURIComponent(value + ", Alabama")}`,
           { headers: { "Accept-Language": "en" } }
         );
         const data = await res.json();
@@ -76,7 +78,7 @@ export function ClientsList() {
     setNewClient((p) => ({
       ...p,
       address: street || place.display_name.split(",")[0],
-      city: a.city || a.town || a.village || a.county || "",
+      city: a.city || a.town || a.village || a.municipality || a.suburb || "",
       state: a.state || "",
       zip: a.postcode || "",
     }));

@@ -119,6 +119,11 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ── Hide page-gap dividers when printing / generating PDF ── */
+@media print {
+  .screen-only { display: none !important; }
+}
+
 /* ── Thin scrollbar utility ── */
 .thin-scroll {
   scrollbar-width: thin;

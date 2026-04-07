@@ -22,6 +22,8 @@ import {
   XCircle,
   CheckCircle2,
   Wand2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
@@ -64,6 +66,9 @@ export function ProposalDetail() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
+
+  // Expanded line item rows (internal cost details)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Item picker
   const [showItemPicker, setShowItemPicker] = useState(false);
@@ -109,7 +114,7 @@ export function ProposalDetail() {
     (sum, item) => sum + (Number(item.quantity) * Number(item.client_price)),
     0
   );
-  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0);
+  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0) + (proposal?.bad_amount ?? 0);
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
@@ -144,7 +149,7 @@ export function ProposalDetail() {
       unit: item.unit,
       material_cost: item.materialCost ?? 0,
       labor_cost: item.laborCost ?? 0,
-      markup_percentage: item.markupPercent ?? 0,
+      markup_percent: item.markupPercent ?? 0,
       client_price: item.pricePerUnit ?? 0,
       total_price: (item.quantity ?? 0) * (item.pricePerUnit ?? 0),
       sort_order: i,
@@ -187,7 +192,13 @@ export function ProposalDetail() {
                 unit: item.unit ?? "",
                 quantity: item.quantity,
                 client_price: Number(item.client_price),
+                price_per_unit: Number(item.client_price),
                 total_price: Number(item.quantity) * Number(item.client_price),
+                material_cost: item.material_cost ?? 0,
+                labor_cost: item.labor_cost ?? 0,
+                cost_per_unit: item.cost_per_unit ?? 0,
+                markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
+                fio_qty: item.fio_qty ?? null,
               }).eq("id", item.id)
         )
       );
@@ -270,10 +281,11 @@ export function ProposalDetail() {
         onclone: (_doc, el) => {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
+          Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
         },
       });
       const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
       const imgH = (canvas.height / canvas.width) * pageW;
@@ -281,7 +293,7 @@ export function ProposalDetail() {
       let yOffset = 0;
       pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
       remaining -= pageH;
-      while (remaining > 0) {
+      while (remaining > 2) {
         yOffset -= pageH;
         pdf.addPage();
         pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
@@ -329,8 +341,10 @@ export function ProposalDetail() {
                     <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
                     <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
                   </td>
-                  <td style="vertical-align:middle;text-align:right;width:90px;">
-                    <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="Butler &amp; Associates" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" />
+                  <td style="vertical-align:middle;text-align:right;width:60px;">
+                    <!-- White logo (larger) — uncomment to use: -->
+                    <!-- <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="Butler &amp; Associates" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" /> -->
+                    <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" />
                   </td>
                 </tr>
               </table>
@@ -587,45 +601,109 @@ export function ProposalDetail() {
                       <thead className="border-b bg-muted/20">
                         <tr>
                           <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Item</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Qty</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">FIO Qty</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">Qty</th>
                           <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Unit</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Price/Unit</th>
+                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Rate</th>
                           <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Total</th>
-                          <th className="p-3 w-10"></th>
+                          <th className="p-3 w-8"></th>
+                          <th className="p-3 w-8"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {groupItems.map((item: any) => {
                           const idx = item._idx;
+                          const rowKey = item.id ?? String(idx);
+                          const isExpanded = expandedRows.has(rowKey);
+                          const laborCost = Number(item.labor_cost ?? 0);
+                          const materialCost = Number(item.material_cost ?? 0);
+                          const markupPct = Number(item.markup_percent ?? 0);
                           return (
-                            <tr key={item.id} className="hover:bg-accent/50">
-                              <td className="p-3">
-                                <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
-                                {item.description && (
-                                  <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
-                                )}
-                              </td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  value={item.quantity}
-                                  onChange={(e) => updateQty(idx, Number(e.target.value))}
-                                  className="w-20"
-                                />
-                              </td>
-                              <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
-                              <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
-                              <td className="p-3">
-                                <span className="font-semibold text-sm">{formatCurrency(Number(item.quantity) * Number(item.client_price))}</span>
-                              </td>
-                              <td className="p-3">
-                                <Button variant="ghost" size="sm" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </td>
-                            </tr>
+                            <>
+                              <tr key={rowKey} className="hover:bg-accent/50">
+                                <td className="p-3">
+                                  <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
+                                  {item.description && (
+                                    <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step="any"
+                                    value={item.fio_qty ?? ""}
+                                    placeholder="—"
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? null : Number(e.target.value);
+                                      setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li));
+                                    }}
+                                    className="w-20"
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step="any"
+                                    value={item.quantity}
+                                    onChange={(e) => updateQty(idx, Number(e.target.value))}
+                                    className="w-20"
+                                  />
+                                </td>
+                                <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
+                                <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
+                                <td className="p-3">
+                                  <span className="font-semibold text-sm">{formatCurrency(Number(item.quantity) * Number(item.client_price))}</span>
+                                </td>
+                                <td className="p-3">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={() => setExpandedRows((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+                                      return next;
+                                    })}
+                                  >
+                                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                  </Button>
+                                </td>
+                                <td className="p-3">
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr key={`${rowKey}-expanded`} className="bg-muted/30">
+                                  <td colSpan={8} className="pr-[200px] pl-6 py-3">
+                                    <div className="flex items-center justify-end gap-8 text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew Cost/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(laborCost)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Material/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(materialCost)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost/Unit</span>
+                                        <span className="font-semibold">{formatCurrency(laborCost + materialCost)}</span>
+                                      </div>
+                                      <div className="h-3 w-px bg-border" />
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
+                                        <span className="font-semibold text-amber-600">{markupPct}%</span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
                           );
                         })}
                       </tbody>
@@ -642,6 +720,12 @@ export function ProposalDetail() {
               <span className="text-muted-foreground">Subtotal</span>
               <span className="font-semibold">{formatCurrency(computedSubtotal)}</span>
             </div>
+            {(proposal?.bad_amount ?? 0) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Base, Aggregate & Disposal</span>
+                <span className="font-semibold">{formatCurrency(proposal.bad_amount)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{proposal.tax_label ?? "Tax"}</span>
               <span className="font-semibold">{formatCurrency(proposal.tax_amount ?? 0)}</span>
@@ -725,6 +809,8 @@ export function ProposalDetail() {
                                   price_per_unit: price,
                                   material_cost: product.material_cost ?? 0,
                                   labor_cost: product.labor_cost ?? 0,
+                                  markup_percent: product.markup_percentage ?? 0,
+                                  cost_per_unit: (product.material_cost ?? 0) + (product.labor_cost ?? 0),
                                   total_price: price,
                                 }]);
                                 setShowItemPicker(false);
@@ -789,7 +875,7 @@ export function ProposalDetail() {
 
       {/* Preview Dialog — full-width PDF viewer */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-[99vw] w-[99vw] h-[99vh] p-0 overflow-hidden flex flex-col gap-0 [&>button:last-child]:hidden">
+        <DialogContent className="h-[95vh] p-0 overflow-hidden flex flex-col gap-0 [&>button:last-child]:hidden" style={{ width: 900, maxWidth: "95vw" }}>
           {/* Sticky toolbar — stays visible while document scrolls */}
           <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-[#3c3c3c] text-white shrink-0">
             <span className="text-sm font-medium opacity-80">
@@ -817,8 +903,8 @@ export function ProposalDetail() {
 
           {/* Scrollable PDF viewer area */}
           <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
-            <div className="py-10 flex justify-center">
-              <div className="bg-white shadow-2xl" style={{ width: 816 }}>
+            <div className="py-8 flex justify-center">
+              <div className="bg-white shadow-2xl" style={{ width: 794 }}>
                 <ProposalExport proposal={proposal} client={client} />
               </div>
             </div>
@@ -899,8 +985,10 @@ export function ProposalDetail() {
           <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
           <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
         </td>
-        <td style="vertical-align:middle;text-align:right;width:90px;">
-          <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="B&amp;A" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/>
+        <td style="vertical-align:middle;text-align:right;width:60px;">
+          <!-- White logo (larger) — uncomment to use: -->
+          <!-- <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="B&amp;A" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/> -->
+          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/>
         </td>
       </tr>
     </table>
@@ -933,7 +1021,7 @@ export function ProposalDetail() {
       </Dialog>
 
       {/* Off-screen export content for download — NOT hidden so html2canvas can capture it */}
-      <div style={{ position: "absolute", left: -9999, top: 0, width: 816, pointerEvents: "none", opacity: 0 }}>
+      <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>
         <div id="proposal-export-content">
           <ProposalExport proposal={proposal} client={client} />
         </div>

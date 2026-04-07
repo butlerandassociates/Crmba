@@ -70,20 +70,40 @@ export function RootLayout() {
   const navigate = useNavigate();
   const { user, loading, isInviteFlow, signOut, refreshProfile } = useAuth();
 
-  // Bell alerts
+  // Bell alerts — per-user dismissed state stored in Supabase
   type NavAlert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" };
   const [navAlerts, setNavAlerts] = useState<NavAlert[]>([]);
-  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("dismissed_alerts") ?? "[]")); } catch { return new Set(); }
-  });
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
+
+  // Load dismissed alerts for current user
+  useEffect(() => {
+    if (!user?.profile?.id) return;
+    supabase
+      .from("user_dismissed_alerts")
+      .select("alert_id")
+      .eq("user_id", user.profile.id)
+      .then(({ data }) => {
+        if (data) setDismissedAlerts(new Set(data.map((r: any) => r.alert_id)));
+      });
+  }, [user?.profile?.id]);
 
   const markAsRead = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const updated = new Set(dismissedAlerts);
-    updated.add(id);
-    setDismissedAlerts(updated);
-    localStorage.setItem("dismissed_alerts", JSON.stringify([...updated]));
+    if (!user?.profile?.id) return;
+    setDismissedAlerts((prev) => new Set([...prev, id]));
+    supabase.from("user_dismissed_alerts").insert({ user_id: user.profile.id, alert_id: id }).then(() => {});
+  };
+
+  const clearAllAlerts = (targetUserId?: string) => {
+    // Admin override — pass targetUserId to clear specific user, omit to clear all
+    const query = supabase.from("user_dismissed_alerts").delete();
+    if (targetUserId) {
+      query.eq("user_id", targetUserId).then(() => {});
+    } else {
+      query.neq("user_id", "00000000-0000-0000-0000-000000000000").then(() => {});
+    }
+    if (!targetUserId || targetUserId === user?.profile?.id) setDismissedAlerts(new Set());
   };
 
   const visibleAlerts = navAlerts.filter(a => !dismissedAlerts.has(a.id));
@@ -139,6 +159,29 @@ export function RootLayout() {
       });
 
       setNavAlerts(alerts);
+
+      // Prune dismissed rows whose underlying issue is now resolved
+      // If an alert_id no longer exists in current active alerts, the dismiss record is stale — delete it
+      // This ensures if the same condition returns later, it shows up again as a fresh alert
+      if (user?.profile?.id && alerts.length >= 0) {
+        const activeAlertIds = alerts.map((a) => a.id);
+        supabase
+          .from("user_dismissed_alerts")
+          .select("alert_id")
+          .eq("user_id", user.profile.id)
+          .then(({ data }) => {
+            const stale = (data ?? []).map((r: any) => r.alert_id).filter((id: string) => !activeAlertIds.includes(id));
+            if (stale.length > 0) {
+              supabase.from("user_dismissed_alerts").delete().eq("user_id", user.profile.id).in("alert_id", stale).then(() => {
+                setDismissedAlerts((prev) => {
+                  const updated = new Set(prev);
+                  stale.forEach((id: string) => updated.delete(id));
+                  return updated;
+                });
+              });
+            }
+          });
+      }
     } catch { /* silent */ }
   };
 
@@ -337,7 +380,11 @@ export function RootLayout() {
                   )}
                 </div>
                 <div className="border-t px-4 py-2.5">
-                  <Link to="/pipeline" className="text-xs text-primary font-medium">
+                  <Link
+                    to="/pipeline"
+                    className="text-xs text-primary font-medium"
+                    onClick={() => sessionStorage.setItem("pipeline_scroll", "tasks")}
+                  >
                     View all alerts in Stats →
                   </Link>
                 </div>

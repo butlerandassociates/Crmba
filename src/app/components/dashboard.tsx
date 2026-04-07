@@ -86,7 +86,7 @@ export function Dashboard() {
       // Fetch all unpaid payments with due dates
       const { data: paymentsData } = await supabase
         .from("project_payments")
-        .select(`*, project:projects(id, name, client:clients(first_name, last_name))`)
+        .select(`*, project:projects(id, name, client:clients(id, first_name, last_name))`)
         .eq("is_paid", false)
         .not("due_date", "is", null)
         .order("due_date", { ascending: true });
@@ -688,8 +688,9 @@ export function Dashboard() {
                     const clientName = payment.project?.client
                       ? `${payment.project.client.first_name ?? ''} ${payment.project.client.last_name ?? ''}`.trim()
                       : '—';
-                    return (
-                      <div key={payment.id} className="py-3 flex items-center justify-between gap-4">
+                    const to = payment.project?.client?.id ? `/clients/${payment.project.client.id}?payments=open` : null;
+                    const inner = (
+                      <>
                         <div className="flex items-start gap-3 flex-1 min-w-0">
                           {collectionsTab === 'overdue' ? (
                             <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
@@ -699,10 +700,8 @@ export function Dashboard() {
                             <DollarSign className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <span className="font-medium text-sm truncate block">
-                              {payment.project?.name ?? '—'}
-                            </span>
-                            <div className="text-xs text-muted-foreground">{clientName} · {payment.label}</div>
+                            <span className="font-medium text-sm truncate block">{clientName}</span>
+                            <div className="text-xs text-muted-foreground">{payment.project?.name ?? '—'} · {payment.label}</div>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
@@ -711,7 +710,14 @@ export function Dashboard() {
                             {formatDate(payment.due_date)}
                           </div>
                         </div>
-                      </div>
+                      </>
+                    );
+                    return to ? (
+                      <Link key={payment.id} to={to} className="py-3 flex items-center justify-between gap-4 hover:bg-accent/40 rounded-md px-2 -mx-2 transition-colors block">
+                        {inner}
+                      </Link>
+                    ) : (
+                      <div key={payment.id} className="py-3 flex items-center justify-between gap-4">{inner}</div>
                     );
                   })}
                 </div>
