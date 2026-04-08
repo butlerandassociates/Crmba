@@ -1,5 +1,6 @@
 import { useParams, Link, useSearchParams } from "react-router";
 import { supabase } from "@/lib/supabase";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
@@ -173,6 +174,8 @@ export function ClientDetail() {
   const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "" });
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
+  const [refreshingDocusign, setRefreshingDocusign] = useState(false);
+  const [openingContractorSigning, setOpeningContractorSigning] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
   const [changeOrdersOpen, setChangeOrdersOpen] = useState(false);
@@ -243,6 +246,72 @@ export function ClientDetail() {
       setNoteEntries(data || []);
     } catch (error) {
       console.error("Failed to load notes:", error);
+    }
+  };
+
+  const refreshDocusignStatus = async () => {
+    if (!client?.docusign_envelope_id) return;
+    setRefreshingDocusign(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/status/${client.docusign_envelope_id}`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const dsStatus = data.status; // DocuSign envelope status: completed, sent, declined, voided
+
+      let clientStatus = client.docusign_status;
+      let completedDate = client.docusign_completed_date;
+
+      if (dsStatus === "completed") {
+        clientStatus = "completed";
+        completedDate = data.completedDateTime || new Date().toISOString();
+      } else if (dsStatus === "declined") {
+        clientStatus = "declined";
+      } else if (dsStatus === "voided") {
+        clientStatus = "voided";
+      }
+
+      if (clientStatus !== client.docusign_status) {
+        await supabase.from("clients").update({
+          docusign_status: clientStatus,
+          docusign_completed_date: completedDate ?? null,
+        }).eq("id", client.id);
+        setClient((prev: any) => ({ ...prev, docusign_status: clientStatus, docusign_completed_date: completedDate }));
+      }
+    } catch (e) {
+      console.error("Failed to refresh DocuSign status:", e);
+    } finally {
+      setRefreshingDocusign(false);
+    }
+  };
+
+  const openContractorSigning = async () => {
+    if (!client?.docusign_envelope_id) return;
+    setOpeningContractorSigning(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/get-contractor-signing-url`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({
+            envelopeId: client.docusign_envelope_id,
+            returnUrl: `${window.location.origin}/clients/${client.id}?docusign=contractor-signed`,
+          }),
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.details || err.error || "Failed to get signing URL");
+      }
+      const data = await response.json();
+      window.open(data.signingUrl, "_blank");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to open signing");
+    } finally {
+      setOpeningContractorSigning(false);
     }
   };
 
@@ -1010,13 +1079,39 @@ export function ClientDetail() {
                 )}
               </div>
             ) : client.docusign_status === "sent_to_client" ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge className="bg-orange-500 flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> Awaiting Signature
-                </Badge>
-                {client.docusign_sent_date && (
-                  <span className="text-xs text-muted-foreground">Sent {formatDate(client.docusign_sent_date)}</span>
-                )}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-orange-500 flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> Awaiting Signature
+                  </Badge>
+                  {client.docusign_sent_date && (
+                    <span className="text-xs text-muted-foreground">Sent {formatDate(client.docusign_sent_date)}</span>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={openContractorSigning}
+                    disabled={openingContractorSigning}
+                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
+                  >
+                    {openingContractorSigning ? (
+                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
+                    ) : (
+                      <><FileSignature className="h-3 w-3" /> Open Signing</>
+                    )}
+                  </button>
+                  <button
+                    onClick={refreshDocusignStatus}
+                    disabled={refreshingDocusign}
+                    className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
+                  >
+                    {refreshingDocusign ? (
+                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Checking...</>
+                    ) : (
+                      <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Refresh Status</>
+                    )}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
@@ -1802,8 +1897,14 @@ export function ClientDetail() {
         open={docusignDialogOpen}
         onOpenChange={setDocusignDialogOpen}
         client={client}
-        onSent={() => {
-          setClient((prev: any) => ({ ...prev, docusign_status: "sent_to_client", docusign_sent_date: new Date().toISOString() }));
+        onSent={async (envelopeId: string) => {
+          const sentDate = new Date().toISOString();
+          await supabase.from("clients").update({
+            docusign_status: "sent_to_client",
+            docusign_sent_date: sentDate,
+            docusign_envelope_id: envelopeId,
+          }).eq("id", client.id);
+          setClient((prev: any) => ({ ...prev, docusign_status: "sent_to_client", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
           loadActivityLog();
         }}
       />

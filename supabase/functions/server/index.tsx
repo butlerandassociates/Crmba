@@ -851,6 +851,8 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       body.templateId,
       body.clientEmail,
       body.clientName,
+      body.contractorEmail || "info@butlerconstruction.co",
+      body.contractorName || "Jonathan Butler",
       body.emailSubject || "Please sign this document",
       body.emailBlurb || "",
       body.returnUrl,
@@ -869,6 +871,90 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       { error: "Failed to create embedded envelope", details: error.message },
       500
     );
+  }
+});
+
+/**
+ * DocuSign Connect webhook — receives events when envelope is signed/declined/voided
+ * Set this URL in DocuSign Admin → Connect → Add Configuration
+ */
+app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
+  try {
+    const body = await c.req.json();
+
+    // DocuSign Connect JSON payload structure
+    const event = body.event;
+    const envelopeId = body.data?.envelopeId || body.envelopeId;
+    const envelopeStatus = body.data?.envelopeSummary?.status || body.status;
+
+    console.log(`DocuSign webhook: event=${event}, envelopeId=${envelopeId}, status=${envelopeStatus}`);
+
+    if (!envelopeId) {
+      return c.json({ received: true });
+    }
+
+    // Map DocuSign envelope status → CRM client status
+    let clientStatus: string | null = null;
+    let completedDate: string | null = null;
+
+    if (envelopeStatus === "completed" || event === "envelope-completed") {
+      clientStatus = "completed";
+      completedDate = new Date().toISOString();
+    } else if (envelopeStatus === "declined" || event === "envelope-declined") {
+      clientStatus = "declined";
+    } else if (envelopeStatus === "voided" || event === "envelope-voided") {
+      clientStatus = "voided";
+    }
+
+    if (clientStatus) {
+      const updateData: Record<string, string> = { docusign_status: clientStatus };
+      if (completedDate) updateData.docusign_completed_date = completedDate;
+
+      const { error } = await supabase
+        .from("clients")
+        .update(updateData)
+        .eq("docusign_envelope_id", envelopeId);
+
+      if (error) {
+        console.error("Failed to update client DocuSign status:", error);
+      } else {
+        console.log(`Client updated to ${clientStatus} for envelope ${envelopeId}`);
+      }
+    }
+
+    // Always return 200 — DocuSign retries on non-2xx
+    return c.json({ received: true });
+  } catch (error: any) {
+    console.error("DocuSign webhook error:", error);
+    return c.json({ received: true });
+  }
+});
+
+/**
+ * Get embedded signing URL for contractor (first signer)
+ */
+app.post("/make-server-9d56a30d/docusign/get-contractor-signing-url", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { envelopeId, contractorEmail, contractorName, returnUrl } = body;
+
+    if (!envelopeId || !returnUrl) {
+      return c.json({ error: "Missing required fields: envelopeId, returnUrl" }, 400);
+    }
+
+    const config = docusign.getDocuSignConfig();
+    const signingUrl = await docusign.getContractorSigningUrl(
+      config,
+      envelopeId,
+      contractorEmail || "info@butlerconstruction.co",
+      contractorName || "Jonathan Butler",
+      returnUrl
+    );
+
+    return c.json({ signingUrl });
+  } catch (error: any) {
+    console.error("Error getting contractor signing URL:", error);
+    return c.json({ error: "Failed to get signing URL", details: error.message }, 500);
   }
 });
 

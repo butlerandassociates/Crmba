@@ -1,49 +1,51 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { FileText, DollarSign, CheckCircle, XCircle, ExternalLink } from "lucide-react";
-import { useState } from "react";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "./ui/dialog";
-import { toast } from "sonner";
+import { FileText, DollarSign, CheckCircle, XCircle, ExternalLink, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+// import { Input } from "./ui/input";
+// import { Label } from "./ui/label";
+// import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+// import { toast } from "sonner";
+import { projectId, publicAnonKey } from "utils/supabase/info";
+import { useNavigate } from "react-router";
 
 export function Integrations() {
+  const navigate = useNavigate();
   const [docusignConnected, setDocusignConnected] = useState(false);
-  const [quickbooksConnected, setQuickbooksConnected] = useState(false);
-  const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
-  const [quickbooksDialogOpen, setQuickbooksDialogOpen] = useState(false);
+  const [docusignChecking, setDocusignChecking] = useState(true);
+  const [quickbooksConnected] = useState(false);
+  // QuickBooks — uncomment when building QB integration
+  // const [quickbooksDialogOpen, setQuickbooksDialogOpen] = useState(false);
+  // const handleQuickbooksConnect = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   setQuickbooksConnected(true);
+  //   setQuickbooksDialogOpen(false);
+  //   toast.success("QuickBooks connected successfully!");
+  // };
+  // const handleQuickbooksDisconnect = () => {
+  //   setQuickbooksConnected(false);
+  //   toast.info("QuickBooks disconnected");
+  // };
 
-  const handleDocusignConnect = (e: React.FormEvent) => {
-    e.preventDefault();
-    setDocusignConnected(true);
-    setDocusignDialogOpen(false);
-    toast.success("DocuSign connected successfully!");
-  };
+  useEffect(() => {
+    checkDocusignConnection();
+  }, []);
 
-  const handleQuickbooksConnect = (e: React.FormEvent) => {
-    e.preventDefault();
-    setQuickbooksConnected(true);
-    setQuickbooksDialogOpen(false);
-    toast.success("QuickBooks connected successfully!");
-  };
-
-  const handleDocusignDisconnect = () => {
-    setDocusignConnected(false);
-    toast.info("DocuSign disconnected");
-  };
-
-  const handleQuickbooksDisconnect = () => {
-    setQuickbooksConnected(false);
-    toast.info("QuickBooks disconnected");
+  const checkDocusignConnection = async () => {
+    setDocusignChecking(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/test-connection`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      );
+      const data = await response.json();
+      setDocusignConnected(data.success === true);
+    } catch {
+      setDocusignConnected(false);
+    } finally {
+      setDocusignChecking(false);
+    }
   };
 
   return (
@@ -67,7 +69,12 @@ export function Integrations() {
                   <CardDescription>Digital signature management</CardDescription>
                 </div>
               </div>
-              {docusignConnected ? (
+              {docusignChecking ? (
+                <Badge variant="secondary">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Checking...
+                </Badge>
+              ) : docusignConnected ? (
                 <Badge className="bg-green-500">
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Connected
@@ -100,66 +107,29 @@ export function Integrations() {
               <div className="space-y-3">
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div className="text-sm font-medium text-green-900">Integration Active</div>
-                  <div className="text-xs text-green-700 mt-1">
-                    Last synced: Just now
-                  </div>
+                  <div className="text-xs text-green-700 mt-1">Token is valid and connected</div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Open DocuSign
+                  <Button variant="outline" className="flex-1" asChild>
+                    <a href="https://app.docusign.com" target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Open DocuSign
+                    </a>
                   </Button>
-                  <Button
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={handleDocusignDisconnect}
-                  >
-                    Disconnect
+                  <Button variant="outline" className="flex-1" onClick={() => navigate("/settings")}>
+                    Manage
                   </Button>
                 </div>
               </div>
             ) : (
-              <Dialog open={docusignDialogOpen} onOpenChange={setDocusignDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="w-full">Connect DocuSign</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <form onSubmit={handleDocusignConnect}>
-                    <DialogHeader>
-                      <DialogTitle>Connect DocuSign</DialogTitle>
-                      <DialogDescription>
-                        Enter your DocuSign API credentials to enable integration.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="docusign-key">API Integration Key</Label>
-                        <Input id="docusign-key" placeholder="Enter your integration key" required />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="docusign-secret">API Secret</Label>
-                        <Input
-                          id="docusign-secret"
-                          type="password"
-                          placeholder="Enter your API secret"
-                          required
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="docusign-account">Account ID</Label>
-                        <Input id="docusign-account" placeholder="Enter your account ID" required />
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        You can find these credentials in your DocuSign Admin console under
-                        Integrations → Apps and Keys.
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button type="submit">Connect</Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
+              <div className="space-y-3">
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                  Configure your DocuSign credentials in Settings to enable digital signatures.
+                </div>
+                <Button className="w-full" onClick={() => navigate("/settings")}>
+                  Configure DocuSign
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -206,24 +176,19 @@ export function Integrations() {
               </ul>
             </div>
 
+            {/* QuickBooks dialog — restore when building QB integration
             {quickbooksConnected ? (
               <div className="space-y-3">
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div className="text-sm font-medium text-green-900">Integration Active</div>
-                  <div className="text-xs text-green-700 mt-1">
-                    Last synced: 2 minutes ago
-                  </div>
+                  <div className="text-xs text-green-700 mt-1">Last synced: 2 minutes ago</div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1">
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Open QuickBooks
                   </Button>
-                  <Button
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={handleQuickbooksDisconnect}
-                  >
+                  <Button variant="destructive" className="flex-1" onClick={handleQuickbooksDisconnect}>
                     Disconnect
                   </Button>
                 </div>
@@ -237,9 +202,7 @@ export function Integrations() {
                   <form onSubmit={handleQuickbooksConnect}>
                     <DialogHeader>
                       <DialogTitle>Connect QuickBooks</DialogTitle>
-                      <DialogDescription>
-                        Enter your QuickBooks API credentials to enable integration.
-                      </DialogDescription>
+                      <DialogDescription>Enter your QuickBooks API credentials to enable integration.</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid gap-2">
@@ -248,20 +211,14 @@ export function Integrations() {
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="qb-client-secret">Client Secret</Label>
-                        <Input
-                          id="qb-client-secret"
-                          type="password"
-                          placeholder="Enter your client secret"
-                          required
-                        />
+                        <Input id="qb-client-secret" type="password" placeholder="Enter your client secret" required />
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="qb-company-id">Company ID</Label>
                         <Input id="qb-company-id" placeholder="Enter your company ID" required />
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        You can find these credentials in your QuickBooks Developer Portal under
-                        Apps → Keys & credentials.
+                        Found in QuickBooks Developer Portal → Apps → Keys & credentials.
                       </div>
                     </div>
                     <DialogFooter>
@@ -271,6 +228,10 @@ export function Integrations() {
                 </DialogContent>
               </Dialog>
             )}
+            */}
+            <div className="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
+              QuickBooks integration coming soon.
+            </div>
           </CardContent>
         </Card>
       </div>

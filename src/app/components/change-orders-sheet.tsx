@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download, FileText, GitMerge, Check } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download, FileText, GitMerge, Check, CreditCard } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -8,7 +8,11 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { changeOrdersAPI } from "../api/change-orders";
 import { estimatesAPI } from "../api/estimates";
+import { projectPaymentsAPI } from "../api/project-payments";
+import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 interface ChangeOrdersSheetProps {
   open: boolean;
@@ -18,7 +22,7 @@ interface ChangeOrdersSheetProps {
   onSave?: () => void;
 }
 
-type View = "list" | "create" | "detail";
+type View = "list" | "create" | "detail" | "payment";
 
 const STATUS_CONFIG = {
   draft:          { label: "Draft",          className: "bg-gray-100 text-gray-700" },
@@ -42,12 +46,25 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const [saving, setSaving] = useState(false);
   const [acceptedProposal, setAcceptedProposal] = useState<any>(null);
   const [merging, setMerging] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [mergedTotal, setMergedTotal] = useState<number | null>(null);
+
+  // Payment schedule update state
+  const [milestones, setMilestones] = useState<any[]>([]);
+  const [savingPayments, setSavingPayments] = useState(false);
 
   // Form state
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [timelineImpact, setTimelineImpact] = useState("");
   const [items, setItems] = useState([{ ...EMPTY_ITEM, id: "1" }]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Unsaved changes tracking
+  const isDirty = title.trim() !== "" || reason.trim() !== "" || items.some((i) => i.description.trim() !== "");
+
+  // Export ref
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const loadCOs = async () => {
     if (!client?.id) return;
@@ -68,7 +85,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       const proposal = await estimatesAPI.getAccepted(client.id);
       setAcceptedProposal(proposal);
     } catch {
-      // non-fatal — banner just won't show
+      // non-fatal
     }
   };
 
@@ -80,8 +97,15 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     }
   }, [open, client?.id]);
 
-  // Validation errors
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Unsaved changes — warn on browser close/refresh
+  useEffect(() => {
+    if (view !== "create" || !isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [view, isDirty]);
 
   const resetForm = () => {
     setTitle("");
@@ -91,23 +115,32 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     setErrors({});
   };
 
+  // Intercept back navigation when form is dirty
+  const handleBack = () => {
+    if (view === "create" && isDirty) {
+      if (!window.confirm("You have unsaved changes. Leave without saving?")) return;
+    }
+    setView("list");
+    setSelectedCo(null);
+  };
+
+  // Intercept sheet close when form is dirty
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && view === "create" && isDirty) {
+      if (!window.confirm("You have unsaved changes. Leave without saving?")) return;
+    }
+    onOpenChange(nextOpen);
+  };
+
   const handleCreate = async (sendToClient = false) => {
     const newErrors: Record<string, string> = {};
-
-    if (!title.trim())
-      newErrors.title = "Title is required";
-    if (!reason.trim())
-      newErrors.reason = "Reason for change is required";
+    if (!title.trim()) newErrors.title = "Title is required";
+    if (!reason.trim()) newErrors.reason = "Reason for change is required";
     if (sendToClient && !items.some((i) => i.description.trim()))
       newErrors.items = "At least one line item is required before sending to client";
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
     setErrors({});
-
     setSaving(true);
     try {
       await changeOrdersAPI.create(
@@ -156,11 +189,19 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     setMerging(true);
     try {
       const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
+      setMergedTotal(newEstimateTotal);
       toast.success(`Merged into proposal. New contract total: ${formatCurrency(newEstimateTotal)}`);
       const merged = { ...selectedCo, status: "merged" };
       setCos((prev) => prev.map((c) => c.id === selectedCo.id ? merged : c));
       setSelectedCo(merged);
       loadAcceptedProposal();
+
+      // Load payment milestones and go to payment update view
+      if (project?.id) {
+        const payments = await projectPaymentsAPI.getByProject(project.id);
+        setMilestones((payments || []).map((p: any) => ({ ...p, newAmount: p.amount })));
+        setView("payment");
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to merge change order");
     } finally {
@@ -168,10 +209,74 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     }
   };
 
-  const addItem = () =>
-    setItems((prev) => [...prev, { ...EMPTY_ITEM, id: Date.now().toString() }]);
-  const removeItem = (id: string) =>
-    setItems((prev) => prev.filter((item) => item.id !== id));
+  const handleSavePayments = async () => {
+    setSavingPayments(true);
+    try {
+      await Promise.all(
+        milestones.map((m) =>
+          projectPaymentsAPI.update(m.id, { amount: Number(m.newAmount) || m.amount })
+        )
+      );
+      toast.success("Payment schedule updated");
+      setView("detail");
+      onSave?.();
+    } catch {
+      toast.error("Failed to update payment schedule");
+    } finally {
+      setSavingPayments(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const element = exportRef.current;
+    if (!element || !selectedCo) return;
+    setDownloading(true);
+    try {
+      const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      })));
+
+      const canvas = await html2canvas(element as HTMLElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        imageTimeout: 10000,
+        removeContainer: true,
+        onclone: (_doc, el) => {
+          const root = el.getRootNode() as Document;
+          root.querySelectorAll?.("link[rel='stylesheet'], style").forEach((s) => s.remove());
+        },
+      });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height / canvas.width) * pageW;
+      let remaining = imgH;
+      let yOffset = 0;
+      pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
+      remaining -= pageH;
+      while (remaining > 2) {
+        yOffset -= pageH;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
+        remaining -= pageH;
+      }
+      pdf.save(`ChangeOrder-${selectedCo.title?.replace(/\s+/g, "-") ?? "CO"}.pdf`);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      toast.error("Failed to generate PDF");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const addItem = () => setItems((prev) => [...prev, { ...EMPTY_ITEM, id: Date.now().toString() }]);
+  const removeItem = (id: string) => setItems((prev) => prev.filter((item) => item.id !== id));
   const updateItem = (id: string, key: string, value: any) =>
     setItems((prev) =>
       prev.map((item) => {
@@ -189,6 +294,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const totalCostImpact = items.reduce((s, i) => s + (i.total || 0), 0);
   const contractAmount = project?.total_value || 0;
   const newContractAmount = contractAmount + totalCostImpact;
+  const milestonesTotal = milestones.reduce((s, m) => s + (Number(m.newAmount) || 0), 0);
 
   const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
@@ -198,433 +304,498 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const canSend = title.trim() && reason.trim() && items.some((i) => i.description.trim());
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
-        {/* Header */}
-        <SheetHeader className="px-6 py-4 border-b">
-          <div className="flex items-center gap-3">
-            {view !== "list" && (
-              <button
-                onClick={() => { setView("list"); setSelectedCo(null); }}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-            )}
-            <div>
-              <SheetTitle className="text-base">
-                {view === "list" ? "Change Orders" : view === "create" ? "New Change Order" : selectedCo?.title}
-              </SheetTitle>
-              <SheetDescription className="text-xs mt-0.5">
-                {client?.first_name} {client?.last_name}
-              </SheetDescription>
+    <>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
+          {/* Header */}
+          <SheetHeader className="px-6 py-4 border-b">
+            <div className="flex items-center gap-3">
+              {view !== "list" && (
+                <button
+                  onClick={handleBack}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              )}
+              <div>
+                <SheetTitle className="text-base">
+                  {view === "list" ? "Change Orders"
+                    : view === "create" ? "New Change Order"
+                    : view === "payment" ? "Update Payment Schedule"
+                    : selectedCo?.title}
+                </SheetTitle>
+                <SheetDescription className="text-xs mt-0.5">
+                  {client?.first_name} {client?.last_name}
+                </SheetDescription>
+              </div>
             </div>
-          </div>
-        </SheetHeader>
+          </SheetHeader>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto">
 
-          {/* ── LIST VIEW ── */}
-          {view === "list" && (
-            <div className="p-4 space-y-3">
-              {acceptedProposal && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
-                  <FileText className="h-4 w-4 text-amber-600 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-amber-800">Source of Truth — Approved Proposal</p>
-                    <p className="text-xs text-amber-700 truncate">
-                      #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {!loading && cos.length > 0 && (
-                <div className="flex justify-end">
-                  <Button size="sm" onClick={() => { resetForm(); setView("create"); }}>
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    New Change Order
-                  </Button>
-                </div>
-              )}
-
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : cos.length === 0 ? (
-                <div className="text-center py-16">
-                  <ClipboardEdit className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-                  <p className="text-sm font-medium">No change orders yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">Create your first change order for this project</p>
-                  <Button size="sm" className="mt-4" onClick={() => { resetForm(); setView("create"); }}>
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Create First Change Order
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {cos.map((co) => {
-                    const cfg = STATUS_CONFIG[co.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.draft;
-                    return (
-                      <button
-                        key={co.id}
-                        className="w-full text-left border rounded-lg p-4 hover:bg-accent/40 transition-colors"
-                        onClick={() => { setSelectedCo(co); setView("detail"); }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-semibold text-sm truncate">{co.title}</span>
-                              <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.className}`}>{cfg.label}</span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
-                          </div>
-                          <div className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── CREATE VIEW ── */}
-          {view === "create" && (
-            <div className="p-4 space-y-4">
-
-              {acceptedProposal && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
-                  <FileText className="h-4 w-4 text-amber-600 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-amber-800">Amending Approved Proposal</p>
-                    <p className="text-xs text-amber-700 truncate">
-                      #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Card 1: Change Order Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Change Order Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="co-title">Title *</Label>
-                    <Input
-                      id="co-title"
-                      placeholder="e.g. Kitchen Island Extension"
-                      value={title}
-                      className={errors.title ? "border-destructive" : ""}
-                      onChange={(e) => { setTitle(e.target.value); setErrors((p) => ({ ...p, title: "" })); }}
-                    />
-                    {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="co-reason">Reason for Change *</Label>
-                    <Textarea
-                      id="co-reason"
-                      placeholder="Explain why this change is being requested..."
-                      rows={4}
-                      className={`resize-none ${errors.reason ? "border-destructive" : ""}`}
-                      value={reason}
-                      onChange={(e) => { setReason(e.target.value); setErrors((p) => ({ ...p, reason: "" })); }}
-                    />
-                    {errors.reason
-                      ? <p className="text-xs text-destructive">{errors.reason}</p>
-                      : <p className="text-xs text-muted-foreground">This will be visible to the client on the change order</p>
-                    }
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="co-timeline">Timeline Impact</Label>
-                    <Input
-                      id="co-timeline"
-                      placeholder="e.g. +5 days, No change, -2 days"
-                      value={timelineImpact}
-                      onChange={(e) => setTimelineImpact(e.target.value)}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Card 2: Cost Breakdown */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Cost Breakdown</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addItem}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Line Item
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {items.map((item, index) => (
-                    <div key={item.id} className="border rounded-lg p-4 space-y-4 bg-gray-50">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-sm">Line Item {index + 1}</span>
-                        {items.length > 1 && (
-                          <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)}>
-                            <Trash2 className="h-4 w-4 text-red-600" />
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Category</Label>
-                          <select
-                            className="w-full px-3 py-2 border rounded-md text-sm"
-                            value={item.category}
-                            onChange={(e) => updateItem(item.id, "category", e.target.value)}
-                          >
-                            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Description</Label>
-                          <Input
-                            placeholder="e.g. Additional granite countertop"
-                            value={item.description}
-                            onChange={(e) => updateItem(item.id, "description", e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label>Quantity</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.quantity}
-                            onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Unit Price ($)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.unit_price}
-                            onChange={(e) => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Total</Label>
-                          <div className="px-3 py-2 border rounded-md bg-white font-semibold text-sm">
-                            ${item.total.toFixed(2)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Total Cost Impact */}
-                  <div className="border-t pt-4 mt-2">
-                    <div className="flex justify-between items-center bg-gray-100 p-4 rounded-lg">
-                      <span className="font-semibold text-lg">Total Cost Impact:</span>
-                      <span className={`text-2xl font-bold ${totalCostImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {totalCostImpact >= 0 ? "+" : ""}${totalCostImpact.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Contract Update Banner */}
-                  {contractAmount > 0 && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm text-blue-900">
-                        <strong>Contract Update:</strong> Original contract amount of{" "}
-                        <strong>{formatCurrency(contractAmount)}</strong> will become{" "}
-                        <strong>{formatCurrency(newContractAmount)}</strong>{" "}
-                        if approved by client.
+            {/* ── LIST VIEW ── */}
+            {view === "list" && (
+              <div className="p-4 space-y-3">
+                {acceptedProposal && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                    <FileText className="h-4 w-4 text-amber-600 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-amber-800">Source of Truth — Approved Proposal</p>
+                      <p className="text-xs text-amber-700 truncate">
+                        #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
                       </p>
                     </div>
-                  )}
-                  {errors.items && <p className="text-xs text-destructive">{errors.items}</p>}
-                </CardContent>
-              </Card>
-
-              {/* Card 3: Submit Change Order */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Submit Change Order</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Choose how you want to send this change order to the client for approval:
-                  </p>
-
-                  <div className="space-y-3">
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      disabled={saving || !title.trim() || !reason.trim()}
-                      onClick={() => handleCreate(false)}
-                    >
-                      {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                      Save as Draft
-                      <span className="ml-auto text-xs text-muted-foreground">Save for later without sending</span>
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      disabled={saving || !title.trim() || !reason.trim()}
-                      onClick={() => toast.info("PDF export will be available soon")}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export as PDF Proposal
-                      <span className="ml-auto text-xs text-muted-foreground">Print or email manually</span>
-                    </Button>
-
-                    <Button
-                      className="w-full justify-start bg-black hover:bg-gray-800"
-                      disabled={saving || !canSend}
-                      onClick={() => handleCreate(true)}
-                    >
-                      {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-                      Send to Client Portal
-                      <span className="ml-auto text-xs text-gray-300">Client receives text/email notification</span>
+                  </div>
+                )}
+                {!loading && cos.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => { resetForm(); setView("create"); }}>
+                      <Plus className="h-4 w-4 mr-1.5" /> New Change Order
                     </Button>
                   </div>
-
-                  {!canSend && (
-                    <p className="text-xs text-destructive">* Please fill in all required fields before sending to client</p>
-                  )}
-                </CardContent>
-              </Card>
-
-            </div>
-          )}
-
-          {/* ── DETAIL VIEW ── */}
-          {view === "detail" && selectedCo && (
-            <div className="p-6 space-y-5">
-              {/* Status buttons — merged is set via the Merge button, not manually */}
-              <div className="flex flex-wrap gap-2">
-                {(["draft", "pending_client", "approved", "rejected"] as const).filter(() => selectedCo.status !== "merged").map((s) => {
-                  const cfg = STATUS_CONFIG[s];
-                  const active = selectedCo.status === s;
-                  return (
-                    <button
-                      key={s}
-                      onClick={() => handleStatusUpdate(selectedCo.id, s)}
-                      className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
-                        active ? `${cfg.className} border-transparent` : "bg-background text-muted-foreground border-border hover:bg-accent"
-                      }`}
-                    >
-                      {cfg.label}
-                    </button>
-                  );
-                })}
+                )}
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : cos.length === 0 ? (
+                  <div className="text-center py-16">
+                    <ClipboardEdit className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium">No change orders yet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Create your first change order for this project</p>
+                    <Button size="sm" className="mt-4" onClick={() => { resetForm(); setView("create"); }}>
+                      <Plus className="h-4 w-4 mr-1.5" /> Create First Change Order
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {cos.map((co) => {
+                      const cfg = STATUS_CONFIG[co.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.draft;
+                      return (
+                        <button
+                          key={co.id}
+                          className="w-full text-left border rounded-lg p-4 hover:bg-accent/40 transition-colors"
+                          onClick={() => { setSelectedCo(co); setView("detail"); }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-sm truncate">{co.title}</span>
+                                <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.className}`}>{cfg.label}</span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
+                            </div>
+                            <div className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+            )}
 
-              {/* Reason */}
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Reason</p>
-                <p className="text-sm">{selectedCo.reason || "—"}</p>
-              </div>
-
-              {/* Timeline */}
-              {selectedCo.timeline_impact && (
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Timeline Impact</p>
-                  <p className="text-sm">{selectedCo.timeline_impact}</p>
-                </div>
-              )}
-
-              {/* Line items */}
-              {(selectedCo.items || []).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Cost Breakdown</p>
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-900 text-xs font-semibold text-white">
-                      <div className="col-span-3">Category</div>
-                      <div className="col-span-4">Description</div>
-                      <div className="col-span-3 text-right">Qty × Price</div>
-                      <div className="col-span-2 text-right">Total</div>
+            {/* ── CREATE VIEW ── */}
+            {view === "create" && (
+              <div className="p-4 space-y-4">
+                {acceptedProposal && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                    <FileText className="h-4 w-4 text-amber-600 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-amber-800">Amending Approved Proposal</p>
+                      <p className="text-xs text-amber-700 truncate">
+                        #{acceptedProposal.estimate_number}{acceptedProposal.title ? ` · ${acceptedProposal.title}` : ""} · {formatCurrency(acceptedProposal.total)}
+                      </p>
                     </div>
-                    {(selectedCo.items || []).map((item: any, i: number) => (
-                      <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2.5 border-t text-sm items-center">
-                        <div className="col-span-3 text-muted-foreground text-xs">{item.category}</div>
-                        <div className="col-span-4 font-medium">{item.description}</div>
-                        <div className="col-span-3 text-right text-xs text-muted-foreground">
-                          {item.quantity} × {formatCurrency(item.unit_price)}
+                  </div>
+                )}
+
+                <Card>
+                  <CardHeader><CardTitle>Change Order Details</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="co-title">Title *</Label>
+                      <Input
+                        id="co-title"
+                        placeholder="e.g. Kitchen Island Extension"
+                        value={title}
+                        className={errors.title ? "border-destructive" : ""}
+                        onChange={(e) => { setTitle(e.target.value); setErrors((p) => ({ ...p, title: "" })); }}
+                      />
+                      {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="co-reason">Reason for Change *</Label>
+                      <Textarea
+                        id="co-reason"
+                        placeholder="Explain why this change is being requested..."
+                        rows={4}
+                        className={`resize-none ${errors.reason ? "border-destructive" : ""}`}
+                        value={reason}
+                        onChange={(e) => { setReason(e.target.value); setErrors((p) => ({ ...p, reason: "" })); }}
+                      />
+                      {errors.reason
+                        ? <p className="text-xs text-destructive">{errors.reason}</p>
+                        : <p className="text-xs text-muted-foreground">This will be visible to the client on the change order</p>
+                      }
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="co-timeline">Timeline Impact</Label>
+                      <Input
+                        id="co-timeline"
+                        placeholder="e.g. +5 days, No change, -2 days"
+                        value={timelineImpact}
+                        onChange={(e) => setTimelineImpact(e.target.value)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>Cost Breakdown</CardTitle>
+                      <Button variant="outline" size="sm" onClick={addItem}>
+                        <Plus className="h-4 w-4 mr-2" /> Add Line Item
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {items.map((item, index) => (
+                      <div key={item.id} className="border rounded-lg p-4 space-y-4 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm">Line Item {index + 1}</span>
+                          {items.length > 1 && (
+                            <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)}>
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          )}
                         </div>
-                        <div className="col-span-2 text-right font-semibold">{formatCurrency(item.total)}</div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Category</Label>
+                            <select
+                              className="w-full px-3 py-2 border rounded-md text-sm"
+                              value={item.category}
+                              onChange={(e) => updateItem(item.id, "category", e.target.value)}
+                            >
+                              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Input
+                              placeholder="e.g. Additional granite countertop"
+                              value={item.description}
+                              onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label>Quantity</Label>
+                            <Input type="number" min="0" step="0.01" value={item.quantity}
+                              onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Unit Price ($)</Label>
+                            <Input type="number" min="0" step="0.01" value={item.unit_price}
+                              onChange={(e) => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Total</Label>
+                            <div className="px-3 py-2 border rounded-md bg-white font-semibold text-sm">${item.total.toFixed(2)}</div>
+                          </div>
+                        </div>
                       </div>
                     ))}
-                    <div className="px-3 py-3 border-t bg-muted/30 flex justify-between">
-                      <span className="text-sm font-semibold">Total Cost Impact</span>
-                      <span className={`text-sm font-bold ${(selectedCo.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}
-                      </span>
+
+                    <div className="border-t pt-4 mt-2">
+                      <div className="flex justify-between items-center bg-gray-100 p-4 rounded-lg">
+                        <span className="font-semibold text-lg">Total Cost Impact:</span>
+                        <span className={`text-2xl font-bold ${totalCostImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {totalCostImpact >= 0 ? "+" : ""}${totalCostImpact.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {contractAmount > 0 && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <p className="text-sm text-blue-900">
+                          <strong>Contract Update:</strong> Original {formatCurrency(contractAmount)} → <strong>{formatCurrency(newContractAmount)}</strong> if approved.
+                        </p>
+                      </div>
+                    )}
+                    {errors.items && <p className="text-xs text-destructive">{errors.items}</p>}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>Submit Change Order</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">Choose how to handle this change order:</p>
+                    <div className="space-y-3">
+                      <Button variant="outline" className="w-full justify-start"
+                        disabled={saving || !title.trim() || !reason.trim()}
+                        onClick={() => handleCreate(false)}>
+                        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                        Save as Draft
+                        <span className="ml-auto text-xs text-muted-foreground">Save for later without sending</span>
+                      </Button>
+
+                      <Button variant="outline" className="w-full justify-start"
+                        disabled={saving || !title.trim() || !reason.trim()}
+                        onClick={() => handleCreate(false).then(() => { /* PDF after save handled in detail view */ })}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Save Draft (Export PDF from detail)
+                        <span className="ml-auto text-xs text-muted-foreground">Save first, then export from detail</span>
+                      </Button>
+
+                      <Button className="w-full justify-start bg-black hover:bg-gray-800"
+                        disabled={saving || !canSend}
+                        onClick={() => handleCreate(true)}>
+                        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                        Send to Client Portal
+                        <span className="ml-auto text-xs text-gray-300">Client receives notification</span>
+                      </Button>
+                    </div>
+                    {!canSend && (
+                      <p className="text-xs text-destructive">* Fill in all required fields before sending to client</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* ── DETAIL VIEW ── */}
+            {view === "detail" && selectedCo && (
+              <div className="p-6 space-y-5">
+                {/* Status buttons */}
+                <div className="flex flex-wrap gap-2">
+                  {(["draft", "pending_client", "approved", "rejected"] as const)
+                    .filter(() => selectedCo.status !== "merged")
+                    .map((s) => {
+                      const cfg = STATUS_CONFIG[s];
+                      const active = selectedCo.status === s;
+                      return (
+                        <button key={s}
+                          onClick={() => handleStatusUpdate(selectedCo.id, s)}
+                          className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
+                            active ? `${cfg.className} border-transparent` : "bg-background text-muted-foreground border-border hover:bg-accent"
+                          }`}>
+                          {cfg.label}
+                        </button>
+                      );
+                    })}
+                </div>
+
+                {/* Export PDF button */}
+                <Button variant="outline" size="sm" className="w-full" onClick={handleExportPDF} disabled={downloading}>
+                  {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                  Export as PDF (Branded)
+                </Button>
+
+                {/* Reason */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Reason</p>
+                  <p className="text-sm">{selectedCo.reason || "—"}</p>
+                </div>
+
+                {/* Timeline */}
+                {selectedCo.timeline_impact && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Timeline Impact</p>
+                    <p className="text-sm">{selectedCo.timeline_impact}</p>
+                  </div>
+                )}
+
+                {/* Line items */}
+                {(selectedCo.items || []).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Cost Breakdown</p>
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-900 text-xs font-semibold text-white">
+                        <div className="col-span-3">Category</div>
+                        <div className="col-span-4">Description</div>
+                        <div className="col-span-3 text-right">Qty × Price</div>
+                        <div className="col-span-2 text-right">Total</div>
+                      </div>
+                      {(selectedCo.items || []).map((item: any, i: number) => (
+                        <div key={i} className="grid grid-cols-12 gap-2 px-3 py-2.5 border-t text-sm items-center">
+                          <div className="col-span-3 text-muted-foreground text-xs">{item.category}</div>
+                          <div className="col-span-4 font-medium">{item.description}</div>
+                          <div className="col-span-3 text-right text-xs text-muted-foreground">{item.quantity} × {formatCurrency(item.unit_price)}</div>
+                          <div className="col-span-2 text-right font-semibold">{formatCurrency(item.total)}</div>
+                        </div>
+                      ))}
+                      <div className="px-3 py-3 border-t bg-muted/30 flex justify-between">
+                        <span className="text-sm font-semibold">Total Cost Impact</span>
+                        <span className={`text-sm font-bold ${(selectedCo.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Contract Update info on detail */}
-              {contractAmount > 0 && selectedCo.cost_impact != null && selectedCo.status !== "merged" && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm text-blue-900">
-                    <strong>Contract Update:</strong> Original contract amount of{" "}
-                    <strong>{formatCurrency(contractAmount)}</strong> will become{" "}
-                    <strong>{formatCurrency(contractAmount + (selectedCo.cost_impact || 0))}</strong>{" "}
-                    if approved by client.
-                  </p>
-                </div>
-              )}
-
-              {/* Merge into Proposal — only shown when approved and not yet merged */}
-              {selectedCo.status === "approved" && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-                  <div>
-                    <p className="text-sm font-semibold text-green-800">Ready to Merge</p>
-                    <p className="text-xs text-green-700 mt-0.5">
-                      This will add the line items to the approved proposal and update the contract total by{" "}
-                      <strong>{(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}</strong>.
+                {/* Contract update */}
+                {contractAmount > 0 && selectedCo.cost_impact != null && selectedCo.status !== "merged" && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-900">
+                      <strong>Contract Update:</strong> {formatCurrency(contractAmount)} → <strong>{formatCurrency(contractAmount + (selectedCo.cost_impact || 0))}</strong> if approved.
                     </p>
                   </div>
-                  <Button
-                    className="w-full bg-green-700 hover:bg-green-800 text-white"
-                    onClick={handleMerge}
-                    disabled={merging}
-                  >
-                    {merging
-                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      : <GitMerge className="h-4 w-4 mr-2" />}
-                    Merge into Proposal
-                  </Button>
-                </div>
-              )}
+                )}
 
-              {/* Merged confirmation */}
-              {selectedCo.status === "merged" && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
-                  <Check className="h-4 w-4 text-purple-600 shrink-0" />
-                  <p className="text-sm text-purple-800">
-                    This change order has been merged into the approved proposal. The contract total has been updated.
+                {/* Merge button */}
+                {selectedCo.status === "approved" && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">Ready to Merge</p>
+                      <p className="text-xs text-green-700 mt-0.5">
+                        Adds line items to the approved proposal and updates the contract total by{" "}
+                        <strong>{(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}</strong>.
+                        You'll then update the payment schedule.
+                      </p>
+                    </div>
+                    <Button className="w-full bg-green-700 hover:bg-green-800 text-white" onClick={handleMerge} disabled={merging}>
+                      {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <GitMerge className="h-4 w-4 mr-2" />}
+                      Approve & Merge into Proposal
+                    </Button>
+                  </div>
+                )}
+
+                {/* Merged confirmation */}
+                {selectedCo.status === "merged" && (
+                  <div className="space-y-3">
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
+                      <Check className="h-4 w-4 text-purple-600 shrink-0" />
+                      <p className="text-sm text-purple-800">
+                        Merged into the approved proposal. Contract total updated.
+                        {mergedTotal && <strong> New total: {formatCurrency(mergedTotal)}</strong>}
+                      </p>
+                    </div>
+                    {project?.id && (
+                      <Button variant="outline" className="w-full" onClick={async () => {
+                        const payments = await projectPaymentsAPI.getByProject(project.id);
+                        setMilestones((payments || []).map((p: any) => ({ ...p, newAmount: p.amount })));
+                        setView("payment");
+                      }}>
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Update Payment Schedule
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">Created {formatDate(selectedCo.created_at)}</p>
+              </div>
+            )}
+
+            {/* ── PAYMENT SCHEDULE VIEW ── */}
+            {view === "payment" && (
+              <div className="p-6 space-y-5">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-green-800">Change Order Merged Successfully</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Update the payment schedule below to reflect the new contract total.
+                    {mergedTotal && <> New contract total: <strong>{formatCurrency(mergedTotal)}</strong></>}
                   </p>
                 </div>
-              )}
 
-              <p className="text-xs text-muted-foreground">Created {formatDate(selectedCo.created_at)}</p>
-            </div>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">Payment Milestones</p>
+                  {milestones.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No payment milestones found for this project.</p>
+                  ) : (
+                    milestones.map((m, i) => (
+                      <div key={m.id} className="border rounded-lg p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-sm">{m.label}</span>
+                          {m.is_paid && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Paid</span>}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1">
+                            <Label className="text-xs text-muted-foreground">Current Amount</Label>
+                            <div className="text-sm font-medium mt-0.5">{formatCurrency(m.amount)}</div>
+                          </div>
+                          <div className="flex-1">
+                            <Label className="text-xs" htmlFor={`milestone-${i}`}>New Amount</Label>
+                            <Input
+                              id={`milestone-${i}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="mt-0.5"
+                              value={m.newAmount}
+                              disabled={m.is_paid}
+                              onChange={(e) =>
+                                setMilestones((prev) =>
+                                  prev.map((p, pi) => pi === i ? { ...p, newAmount: e.target.value } : p)
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Totals summary */}
+                {milestones.length > 0 && (
+                  <div className="border rounded-lg p-4 space-y-2 bg-muted/30">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Milestones Total</span>
+                      <span className="font-semibold">{formatCurrency(milestonesTotal)}</span>
+                    </div>
+                    {mergedTotal != null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">New Contract Total</span>
+                        <span className="font-semibold">{formatCurrency(mergedTotal)}</span>
+                      </div>
+                    )}
+                    {mergedTotal != null && Math.abs(milestonesTotal - mergedTotal) > 1 && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-1">
+                        ⚠ Milestones total ({formatCurrency(milestonesTotal)}) doesn't match contract total ({formatCurrency(mergedTotal)}). Adjust amounts to balance.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button variant="outline" className="flex-1" onClick={() => setView("detail")}>
+                    Skip for Now
+                  </Button>
+                  <Button className="flex-1" onClick={handleSavePayments} disabled={savingPayments}>
+                    {savingPayments ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+                    Save Payment Schedule
+                  </Button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Off-screen export for PDF generation */}
+      <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>
+        <div ref={exportRef}>
+          {selectedCo && (
+            <ChangeOrderExport
+              co={selectedCo}
+              client={client}
+              originalTotal={contractAmount || undefined}
+              newTotal={contractAmount && selectedCo.cost_impact ? contractAmount + selectedCo.cost_impact : undefined}
+            />
           )}
         </div>
-
-      </SheetContent>
-    </Sheet>
+      </div>
+    </>
   );
 }
