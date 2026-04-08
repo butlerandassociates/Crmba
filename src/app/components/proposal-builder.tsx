@@ -102,6 +102,15 @@ export function ProposalBuilder() {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+
+  // Warn before leaving with unsaved line items
+  useEffect(() => {
+    const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "";
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [lineItems, proposalTitle]);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardType, setWizardType] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);

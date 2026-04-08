@@ -27,7 +27,7 @@ interface DocuSignDialogProps {
   onOpenChange: (open: boolean) => void;
   client: Record<string, any>;
   project?: Record<string, any>;
-  onSent?: () => void;
+  onSent?: (envelopeId: string) => void;
 }
 
 interface DocuSignTemplate {
@@ -174,9 +174,9 @@ export function DocuSignDialog({
         emailSubject: project 
           ? `Contract for ${project.name} - Butler & Associates Construction`
           : `Contract - Butler & Associates Construction`,
-        emailBlurb: `Hi ${client.name.split(" ")[0]}, please review and sign the attached contract.`,
+        emailBlurb: `Hi ${fullName.split(" ")[0]}, please review and sign the attached contract.`,
         clientEmail: client.email,
-        clientName: client.name,
+        clientName: fullName,
         returnUrl: `${window.location.origin}/clients/${client.id}?docusign=complete`,
         tabs: {
           textTabs,
@@ -215,7 +215,7 @@ export function DocuSignDialog({
       // Store envelope ID and close dialog
       setEnvelopeId(data.envelopeId);
       onOpenChange(false);
-      onSent?.();
+      onSent?.(data.envelopeId);
       console.log("DocuSign envelope created successfully:", data);
       
     } catch (error: any) {
@@ -281,7 +281,7 @@ export function DocuSignDialog({
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700">Name:</span>
-                  <span className="text-sm font-medium text-blue-900">{client.name}</span>
+                  <span className="text-sm font-medium text-blue-900">{fullName}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700">Email:</span>
