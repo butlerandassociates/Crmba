@@ -240,7 +240,8 @@ const appointmentTypesAPI = {
     if (error) throw new Error(error.message);
   },
 };
-const unitsAPI = tableAPI("units");
+const unitsAPI        = tableAPI("units");
+const scopeOfWorkAPI  = tableAPI("scope_of_work");
 
 function AppointmentTypeSection({
   items, loading, onAdd, onUpdate, onDelete,
@@ -1095,6 +1096,7 @@ export function ListManagement() {
   const [leadSources,       setLeadSources]        = useState<ListItem[]>([]);
   const [appointmentTypes,  setAppointmentTypes]   = useState<AppointmentType[]>([]);
   const [units,             setUnits]              = useState<ListItem[]>([]);
+  const [scopeOfWork,       setScopeOfWork]        = useState<ListItem[]>([]);
   const [zipRates,          setZipRates]           = useState<ZipTaxRate[]>([]);
   const [roles,             setRoles]              = useState<Role[]>([]);
   const [permissions,       setPermissions]        = useState<Permission[]>([]);
@@ -1103,6 +1105,7 @@ export function ListManagement() {
   const [loadingLS,    setLoadingLS]    = useState(true);
   const [loadingApts,  setLoadingApts]  = useState(true);
   const [loadingUnits, setLoadingUnits] = useState(true);
+  const [loadingSOW,   setLoadingSOW]   = useState(true);
   const [loadingZips,  setLoadingZips]  = useState(true);
   const [loadingRoles, setLoadingRoles] = useState(true);
   const [loadingPerms, setLoadingPerms] = useState(true);
@@ -1120,6 +1123,8 @@ export function ListManagement() {
       .then(setAppointmentTypes).catch(console.error).finally(() => setLoadingApts(false));
     unitsAPI.getAll()
       .then(setUnits).catch(console.error).finally(() => setLoadingUnits(false));
+    scopeOfWorkAPI.getAll()
+      .then(setScopeOfWork).catch(console.error).finally(() => setLoadingSOW(false));
     rolesAPI.getAll()
       .then((d) => setRoles(d as Role[])).catch(console.error).finally(() => setLoadingRoles(false));
     permissionsAPI.getAll()
@@ -1131,10 +1136,11 @@ export function ListManagement() {
       productsAPI.getCategories().then(setCategories).catch(console.error);
       leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);
       unitsAPI.getAll().then(setUnits).catch(console.error);
+      scopeOfWorkAPI.getAll().then(setScopeOfWork).catch(console.error);
       rolesAPI.getAll().then((d) => setRoles(d as Role[])).catch(console.error);
       permissionsAPI.getAll().then((d) => setPermissions(d as Permission[])).catch(console.error);
     },
-    ["product_categories", "lead_sources", "units", "roles", "permissions"],
+    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions"],
     "list-management"
   );
 
@@ -1230,6 +1236,25 @@ export function ListManagement() {
           onDelete={async (id) => {
             await unitsAPI.delete(id);
             setUnits((prev) => prev.filter((u) => u.id !== id));
+          }}
+        />
+
+        <ListSection
+          title="Scope of Work"
+          description="Project scope types shown on client profiles and used across the system."
+          items={scopeOfWork}
+          loading={loadingSOW}
+          onAdd={async (name) => {
+            const created = await scopeOfWorkAPI.create(name, scopeOfWork.length);
+            setScopeOfWork((prev) => [...prev, created]);
+          }}
+          onEdit={async (id, name) => {
+            const updated = await scopeOfWorkAPI.update(id, name);
+            setScopeOfWork((prev) => prev.map((s) => s.id === id ? updated : s));
+          }}
+          onDelete={async (id) => {
+            await scopeOfWorkAPI.delete(id);
+            setScopeOfWork((prev) => prev.filter((s) => s.id !== id));
           }}
         />
 

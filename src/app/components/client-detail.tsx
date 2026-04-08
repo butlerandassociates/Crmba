@@ -98,6 +98,7 @@ export function ClientDetail() {
   const [editClientTouched, setEditClientTouched] = useState(false);
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [scopeOptions, setScopeOptions] = useState<any[]>([]);
   
   // Fetch client from API
   useEffect(() => {
@@ -136,11 +137,18 @@ export function ClientDetail() {
     productsAPI.getCategories()
       .then((cats) => setCategories(cats || []))
       .catch(console.error);
+    supabase.from("scope_of_work").select("id, name").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setScopeOptions(data ?? []))
+      .catch(console.error);
   }, []);
 
   useRealtimeRefetch(
-    () => { Promise.all([productsAPI.getCategories()]).then(([cats]) => {setCategories(cats || []); }).catch(console.error); },
-    ["product_categories"],
+    () => {
+      Promise.all([productsAPI.getCategories()]).then(([cats]) => { setCategories(cats || []); }).catch(console.error);
+      supabase.from("scope_of_work").select("id, name").eq("is_active", true).order("sort_order")
+        .then(({ data }) => setScopeOptions(data ?? [])).catch(console.error);
+    },
+    ["product_categories", "scope_of_work"],
     "product-manager"
   );
 
@@ -915,21 +923,21 @@ export function ClientDetail() {
                     className="w-72 p-2"
                   >
                     <div className="space-y-1 max-h-60 overflow-y-auto thin-scroll">
-                      {categories.length === 0 ? (
+                      {scopeOptions.length === 0 ? (
                         <p className="text-sm text-muted-foreground px-2 py-1">
                           Loading...
                         </p>
                       ) : (
-                        categories.map((cat: any) => (
+                        scopeOptions.map((opt: any) => (
                           <label
-                            key={cat.id}
+                            key={opt.id}
                             className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/40 cursor-pointer text-sm"
                           >
                             <Checkbox
-                              checked={selectedScopes.includes(cat.id)}
-                              onCheckedChange={() => toggleScope(cat.id)}
+                              checked={selectedScopes.includes(opt.id)}
+                              onCheckedChange={() => toggleScope(opt.id)}
                             />
-                            {cat.name}
+                            {opt.name}
                           </label>
                         ))
                       )}
@@ -941,7 +949,7 @@ export function ClientDetail() {
                 {selectedScopes.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {selectedScopes.map((s: string) => {
-                      const label = categories.find((c: any) => c.id === s)?.name;
+                      const label = scopeOptions.find((o: any) => o.id === s)?.name;
 
                       return (
                         <Badge
