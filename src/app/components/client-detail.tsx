@@ -923,7 +923,7 @@ export function ClientDetail() {
                     align="start"
                     sideOffset={4}
                     avoidCollisions={false}
-                    className="w-72 p-2"
+                    className="w-[var(--radix-popover-trigger-width)] p-2"
                   >
                     <div className="space-y-1 max-h-60 overflow-y-auto thin-scroll">
                       {scopeOptions.length === 0 ? (
