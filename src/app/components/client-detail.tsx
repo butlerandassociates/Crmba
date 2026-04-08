@@ -1,4 +1,5 @@
 import { useParams, Link, useSearchParams } from "react-router";
+import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
@@ -133,20 +134,22 @@ export function ClientDetail() {
     projectPaymentsAPI.getByClient(id).then(setClientPayments).catch(console.error);
   }, [id]);
 
+  const loadScopeOptions = async () => {
+    const { data } = await supabase.from("scope_of_work").select("id, name").eq("is_active", true).order("sort_order");
+    setScopeOptions(data ?? []);
+  };
+
   useEffect(() => {
     productsAPI.getCategories()
       .then((cats) => setCategories(cats || []))
       .catch(console.error);
-    supabase.from("scope_of_work").select("id, name").eq("is_active", true).order("sort_order")
-      .then(({ data }) => setScopeOptions(data ?? []))
-      .catch(console.error);
+    loadScopeOptions().catch(console.error);
   }, []);
 
   useRealtimeRefetch(
     () => {
       Promise.all([productsAPI.getCategories()]).then(([cats]) => { setCategories(cats || []); }).catch(console.error);
-      supabase.from("scope_of_work").select("id, name").eq("is_active", true).order("sort_order")
-        .then(({ data }) => setScopeOptions(data ?? [])).catch(console.error);
+      loadScopeOptions().catch(console.error);
     },
     ["product_categories", "scope_of_work"],
     "product-manager"
