@@ -55,10 +55,10 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
     <div style={{ fontFamily: B.inter, color: B.black, background: B.bg, width: "100%", fontSize: 13 }}>
 
       {/* ══ PAGE 1 ══ */}
-      <div style={{ paddingBottom: 48, minHeight: "29.7cm", boxSizing: "border-box" as const }}>
+      <div style={{ minHeight: "29.7cm", boxSizing: "border-box" as const, display: "flex", flexDirection: "column" as const }}>
         <PageHeader />
 
-        <div style={{ padding: "36px 48px" }}>
+        <div style={{ padding: "36px 48px", flex: 1, display: "flex", flexDirection: "column" as const }}>
 
           {/* Client info + CO# */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 }}>
@@ -183,51 +183,40 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
             </div>
           </div>
 
-        </div>
-      </div>
-
-      {/* Page gap */}
-      <div style={{ height: 16, background: "#525659" }} className="screen-only" />
-
-      {/* ══ PAGE 2 ══ Reviews + Signature */}
-      <div style={{ pageBreakBefore: "always" as const, minHeight: "29.7cm", boxSizing: "border-box" as const }}>
-        <PageHeader />
-
-        <div style={{ padding: "36px 48px", minHeight: "9in", display: "flex", flexDirection: "column" as const }}>
-
-          <div style={{ flex: 1 }} />
-
-          {/* Signature block */}
-          <div style={{ borderTop: `1px solid ${B.border}`, paddingTop: 28 }}>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 16px 0" }}>
-              Authorization
-            </p>
-            <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 20px 0" }}>
-              By signing below, you authorize Butler & Associates Construction, Inc. to proceed with the changes outlined in this change order under the agreed terms.
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
-              <div>
-                <div style={{ borderBottom: `1px solid ${B.black}`, height: 36, marginBottom: 6 }} />
-                <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Client Signature</p>
+          {/* Signature block — pinned to bottom */}
+          <div style={{ marginTop: "auto", paddingTop: 40 }}>
+            <div style={{ borderTop: `1px solid ${B.border}`, paddingTop: 28 }}>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 16px 0" }}>
+                Authorization
+              </p>
+              <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 20px 0" }}>
+                By signing below, you authorize Butler & Associates Construction, Inc. to proceed with the changes outlined in this change order under the agreed terms.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
+                <div>
+                  <div style={{ borderBottom: `1px solid ${B.black}`, height: 36, marginBottom: 6 }} />
+                  <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Client Signature</p>
+                </div>
+                <div>
+                  <div style={{ borderBottom: `1px solid ${B.black}`, height: 36, marginBottom: 6 }} />
+                  <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Date</p>
+                </div>
               </div>
-              <div>
-                <div style={{ borderBottom: `1px solid ${B.black}`, height: 36, marginBottom: 6 }} />
-                <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Date</p>
-              </div>
+            </div>
+
+            <div style={{ marginTop: 32, textAlign: "center" as const }}>
+              <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.6, margin: "0 0 4px 0" }}>
+                Questions? &nbsp;
+                <a href="mailto:jonathan@butlerconstruction.co" style={{ color: B.gold, textDecoration: "none" }}>jonathan@butlerconstruction.co</a>
+                &nbsp; · &nbsp;
+                <a href="tel:2566174691" style={{ color: B.gold, textDecoration: "none" }}>(256) 617-4691</a>
+              </p>
+              <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: B.gold, margin: "6px 0 0 0" }}>
+                Butler & Associates Construction, Inc.
+              </p>
             </div>
           </div>
 
-          <div style={{ marginTop: 32, textAlign: "center" as const }}>
-            <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.6, margin: "0 0 4px 0" }}>
-              Questions? &nbsp;
-              <a href="mailto:jonathan@butlerconstruction.co" style={{ color: B.gold, textDecoration: "none" }}>jonathan@butlerconstruction.co</a>
-              &nbsp; · &nbsp;
-              <a href="tel:2566174691" style={{ color: B.gold, textDecoration: "none" }}>(256) 617-4691</a>
-            </p>
-            <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: B.gold, margin: "6px 0 0 0" }}>
-              Butler & Associates Construction, Inc.
-            </p>
-          </div>
         </div>
       </div>
 

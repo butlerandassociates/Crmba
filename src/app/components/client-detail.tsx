@@ -160,6 +160,13 @@ export function ClientDetail() {
     if (searchParams.get("payments") === "open") setPaymentTrackingOpen(true);
   }, [searchParams]);
 
+  // When DocuSign sender view redirects back after clicking Send, refresh status
+  useEffect(() => {
+    if (searchParams.get("docusign") === "sent" && client?.docusign_envelope_id) {
+      refreshDocusignStatus();
+    }
+  }, [searchParams, client?.docusign_envelope_id]);
+
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
@@ -267,6 +274,8 @@ export function ClientDetail() {
       if (dsStatus === "completed") {
         clientStatus = "completed";
         completedDate = data.completedDateTime || new Date().toISOString();
+      } else if (dsStatus === "sent") {
+        clientStatus = "sent_to_client";
       } else if (dsStatus === "declined") {
         clientStatus = "declined";
       } else if (dsStatus === "voided") {
@@ -287,29 +296,29 @@ export function ClientDetail() {
     }
   };
 
-  const openContractorSigning = async () => {
+  const openSenderView = async () => {
     if (!client?.docusign_envelope_id) return;
     setOpeningContractorSigning(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/get-contractor-signing-url`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/get-sender-view`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
           body: JSON.stringify({
             envelopeId: client.docusign_envelope_id,
-            returnUrl: `${window.location.origin}/clients/${client.id}?docusign=contractor-signed`,
+            returnUrl: `${window.location.origin}/clients/${client.id}?docusign=sent`,
           }),
         }
       );
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.details || err.error || "Failed to get signing URL");
+        throw new Error(err.details || err.error || "Failed to open document");
       }
       const data = await response.json();
-      window.open(data.signingUrl, "_blank");
+      window.open(data.senderViewUrl, "_blank");
     } catch (e: any) {
-      toast.error(e.message || "Failed to open signing");
+      toast.error(e.message || "Failed to open document");
     } finally {
       setOpeningContractorSigning(false);
     }
@@ -1078,6 +1087,28 @@ export function ClientDetail() {
                   <span className="text-xs text-muted-foreground">{formatDate(client.docusign_completed_date)}</span>
                 )}
               </div>
+            ) : client.docusign_status === "preparing" ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-blue-500 flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> Review Pending
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">Click Send in DocuSign tab to continue</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={openSenderView}
+                    disabled={openingContractorSigning}
+                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
+                  >
+                    {openingContractorSigning ? (
+                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
+                    ) : (
+                      <><FileSignature className="h-3 w-3" /> Back to Review</>
+                    )}
+                  </button>
+                </div>
+              </div>
             ) : client.docusign_status === "sent_to_client" ? (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1089,17 +1120,6 @@ export function ClientDetail() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={openContractorSigning}
-                    disabled={openingContractorSigning}
-                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
-                  >
-                    {openingContractorSigning ? (
-                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
-                    ) : (
-                      <><FileSignature className="h-3 w-3" /> Open Signing</>
-                    )}
-                  </button>
                   <button
                     onClick={refreshDocusignStatus}
                     disabled={refreshingDocusign}
@@ -1621,7 +1641,7 @@ export function ClientDetail() {
                       <div key={`file-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group">
                         <FileText className={`h-3.5 w-3.5 shrink-0 mt-1 ${isPdf ? "text-red-500" : isImage ? "text-blue-500" : "text-muted-foreground"}`} />
                         <div className="flex-1 min-w-0">
-                          <button className="text-sm font-medium hover:underline truncate block w-full text-left" onClick={() => { if (isImage) setPreviewFile({ url: item.file_url, name: item.file_name }); else window.open(item.file_url, "_blank"); }}>
+                          <button className="text-sm font-medium hover:opacity-75 truncate block w-full text-left" onClick={() => { if (isImage) setPreviewFile({ url: item.file_url, name: item.file_name }); else window.open(item.file_url, "_blank"); }}>
                             {item.file_name}
                           </button>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -1900,11 +1920,11 @@ export function ClientDetail() {
         onSent={async (envelopeId: string) => {
           const sentDate = new Date().toISOString();
           await supabase.from("clients").update({
-            docusign_status: "sent_to_client",
+            docusign_status: "preparing",
             docusign_sent_date: sentDate,
             docusign_envelope_id: envelopeId,
           }).eq("id", client.id);
-          setClient((prev: any) => ({ ...prev, docusign_status: "sent_to_client", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
+          setClient((prev: any) => ({ ...prev, docusign_status: "preparing", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
           loadActivityLog();
         }}
       />

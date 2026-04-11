@@ -24,6 +24,10 @@ import { DataMigration } from "./components/admin/data-migration";
 import { ListManagement } from "./components/admin/list-management";
 import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
+import { DocuSignLoadingPreview } from "./components/docusign-loading-preview";
+import { Payroll } from "./components/payroll";
+import { PayrollPMDetail } from "./components/payroll-pm-detail";
+import { PayrollCrewDetail } from "./components/payroll-crew-detail";
 
 // Simple 404 component
 function NotFound() {
@@ -59,6 +63,9 @@ export const router = createBrowserRouter([
       { path: "admin/data-migration", Component: DataMigration },
       { path: "admin/list-management", Component: ListManagement },
       { path: "pipeline", Component: PipelineForecast },
+      { path: "payroll", Component: Payroll },
+      { path: "payroll/pm/:id", Component: PayrollPMDetail },
+      { path: "payroll/crew/:id", Component: PayrollCrewDetail },
       { path: "*", Component: NotFound },
     ],
   },
@@ -84,5 +91,9 @@ export const router = createBrowserRouter([
   {
     path: "/set-password",
     Component: SetPasswordPage,
+  },
+  {
+    path: "/docusign-loading-preview",
+    Component: DocuSignLoadingPreview,
   },
 ]);

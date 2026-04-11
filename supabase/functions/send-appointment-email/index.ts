@@ -18,7 +18,7 @@ function replaceVars(template: string, vars: Record<string, string>): string {
   );
 }
 
-function buildHtml(body: string, clientName: string, intakeFormUrl: string, includeIntakeForm: boolean): string {
+function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boolean): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -51,9 +51,6 @@ function buildHtml(body: string, clientName: string, intakeFormUrl: string, incl
     <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
       <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
         Message from Butler &amp; Associates
-      </p>
-      <p style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#0A0A0A;margin:0 0 20px 0;line-height:1.2;">
-        Hi ${clientName},
       </p>
       <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
 
@@ -151,7 +148,7 @@ serve(async (req) => {
       apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates",
       vars
     );
-    const html = buildHtml(bodyText, vars.client_name, INTAKE_FORM_URL, isFirstAppointment);
+    const html = buildHtml(bodyText, INTAKE_FORM_URL, isFirstAppointment);
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",

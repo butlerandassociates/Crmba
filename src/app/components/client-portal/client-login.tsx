@@ -72,7 +72,7 @@ export function ClientLogin({ onLogin }: ClientLoginProps) {
               </div>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <button type="button" className="text-primary hover:underline">
+              <button type="button" className="text-primary hover:opacity-75">
                 Forgot password?
               </button>
             </div>

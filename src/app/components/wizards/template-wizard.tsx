@@ -168,6 +168,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
         pricePerUnit: product
           ? ((product.material_cost ?? 0) + (product.labor_cost ?? 0)) * (1 + (product.markup_percentage ?? 0) / 100)
           : 0,
+        product_service_id: product?.id ?? null,
       });
     });
 

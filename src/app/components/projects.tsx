@@ -146,7 +146,7 @@ export function Projects() {
                 {project.client_id ? (
                   <Link
                     to={`/clients?stage=${project.status ?? "active"}`}
-                    className="text-sm hover:text-primary hover:underline"
+                    className="text-sm hover:text-primary hover:opacity-75"
                   >
                     {project.clientName || "—"}
                   </Link>

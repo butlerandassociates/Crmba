@@ -19,8 +19,10 @@ export { projectPaymentsAPI }                            from "../api/project-pa
 export { activityLogAPI }                                from "../api/activity-log";
 export { estimateTemplatesAPI }                          from "../api/estimate-templates";
 export { fioAPI }                                        from "../api/field-installation-orders";
+export { commissionPaymentsAPI }                         from "../api/commission-payments";
 export { purchaseOrdersAPI }                             from "../api/purchase-orders";
 export { changeOrdersAPI }                               from "../api/change-orders";
+export { notificationsAPI }                              from "../api/notifications";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";

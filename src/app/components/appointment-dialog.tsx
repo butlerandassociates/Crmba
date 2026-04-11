@@ -135,9 +135,9 @@ export function AppointmentDialog({
       });
 
       // Send branded confirmation email via SendGrid
+      const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
+      const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
       if (client?.email) {
-        const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
-        const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
         supabase.functions.invoke("send-appointment-email", {
           body: {
             appointment_type_id: appointmentType,
@@ -150,6 +150,18 @@ export function AppointmentDialog({
             meet_link:      createdEvent.hangoutLink ?? null,
           },
         }).catch((err: any) => console.error("Email send failed:", err));
+      }
+
+      // Send SMS confirmation via Twilio
+      if (client?.phone) {
+        supabase.functions.invoke("send-appointment-sms", {
+          body: {
+            client_phone:      client.phone,
+            client_first_name: client.first_name ?? "",
+            date:              dateLabel,
+            time:              timeLabel,
+          },
+        }).catch((err: any) => console.error("SMS send failed:", err));
       }
 
       const meetLink = createdEvent.hangoutLink;

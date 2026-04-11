@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Building2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { toast } from "sonner";
 import { projectId, publicAnonKey } from "utils/supabase/info";
@@ -23,8 +23,8 @@ export function AuthScreen() {
     setLoading(true);
     try {
       await signIn(email, password);
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: profile } = user ? await supabase.from("profiles").select("first_name").eq("id", user.id).single() : { data: null };
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: profile } = session?.user ? await supabase.from("profiles").select("first_name").eq("id", session.user.id).single() : { data: null };
       toast.success(`Welcome back${profile?.first_name ? `, ${profile.first_name}` : ""}!`);
     } catch (error: any) {
       console.error("Login error:", error);
@@ -72,9 +72,11 @@ export function AuthScreen() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-xl mb-4">
-              <Building2 className="h-8 w-8 text-primary-foreground" />
-            </div>
+            <img
+              src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-blacktext-logo-cropped.png"
+              alt="Butler & Associates Construction"
+              className="h-9 w-auto mx-auto mb-4 object-contain mix-blend-multiply"
+            />
             <h1 className="text-3xl font-bold">Butler & Associates Construction</h1>
             <p className="text-muted-foreground mt-2">Create Your Admin Account</p>
           </div>
@@ -170,9 +172,11 @@ export function AuthScreen() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-xl mb-4">
-            <Building2 className="h-8 w-8 text-primary-foreground" />
-          </div>
+          <img
+            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-blacktext-logo-cropped.png"
+            alt="Butler & Associates Construction"
+            className="h-9 w-auto mx-auto mb-4 object-contain mix-blend-multiply"
+          />
           <h1 className="text-3xl font-bold">Butler & Associates Construction</h1>
           <p className="text-muted-foreground mt-2">Premier Design + Build Experts</p>
         </div>
@@ -236,9 +240,6 @@ export function AuthScreen() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          Secure authentication powered by Supabase
-        </p>
       </div>
     </div>
   );

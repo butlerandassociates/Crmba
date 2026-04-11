@@ -92,7 +92,7 @@ export function Dashboard() {
         .order("due_date", { ascending: true });
       setCollections(paymentsData || []);
       // Fetch revenue goal from company_settings
-      const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").single();
+      const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").limit(1).maybeSingle();
       if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);

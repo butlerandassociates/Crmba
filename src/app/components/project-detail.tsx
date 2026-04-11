@@ -24,7 +24,7 @@ import {
   Loader2,
   Eye,
 } from "lucide-react";
-import { projectsAPI, receiptsAPI, projectPaymentsAPI } from "../utils/api";
+import { projectsAPI, receiptsAPI, projectPaymentsAPI, commissionPaymentsAPI } from "../utils/api";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
 import {
@@ -203,15 +203,32 @@ export function ProjectDetail() {
     try {
       const updated = await projectPaymentsAPI.update(payment.id, updates);
       setProjectPayments(prev => prev.map(p => p.id === payment.id ? updated : p));
+
+      // Auto-create/delete commission installment if project has a PM and commission set
+      const pmId = project?.project_manager_id;
+      const grossProfit = project?.gross_profit ?? 0;
+      const commissionRate = project?.commission ?? 0; // stored as % e.g. 3
+      if (pmId && grossProfit > 0 && commissionRate > 0) {
+        const totalCommission = grossProfit * (commissionRate / 100);
+        const totalPayments = projectPayments.length || 1;
+        const installmentAmount = totalCommission / totalPayments;
+        if (checked) {
+          await commissionPaymentsAPI.createFromProgressPayment(project.id, payment.id, pmId, installmentAmount);
+        } else {
+          await commissionPaymentsAPI.deleteByProgressPayment(payment.id);
+        }
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to update payment');
     }
   };
 
   const handleSavePaymentEdit = async (paymentId: string) => {
+    if (!editPaymentForm.label.trim()) { toast.error('Label is required'); return; }
+    if (!editPaymentForm.amount || parseFloat(editPaymentForm.amount) <= 0) { toast.error('Amount must be greater than 0'); return; }
     try {
       const updated = await projectPaymentsAPI.update(paymentId, {
-        label: editPaymentForm.label,
+        label: editPaymentForm.label.trim(),
         percentage: parseFloat(editPaymentForm.percentage),
         amount: parseFloat(editPaymentForm.amount),
         notes: editPaymentForm.notes,
@@ -636,7 +653,7 @@ export function ProjectDetail() {
                   <div className="text-xs text-muted-foreground">Name</div>
                   <Link
                     to={`/clients/${client.id}`}
-                    className="font-medium text-sm text-primary hover:underline"
+                    className="font-medium text-sm text-primary hover:opacity-75"
                   >
                     {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "—"}
                   </Link>
@@ -649,14 +666,14 @@ export function ProjectDetail() {
                   <div className="text-xs text-muted-foreground">Email</div>
                   <a
                     href={`mailto:${client.email}`}
-                    className="text-xs text-primary hover:underline"
+                    className="text-xs text-primary hover:opacity-75"
                   >
                     {client.email}
                   </a>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Phone</div>
-                  <a href={`tel:${client.phone}`} className="text-xs text-primary hover:underline">
+                  <a href={`tel:${client.phone}`} className="text-xs text-primary hover:opacity-75">
                     {client.phone}
                   </a>
                 </div>
