@@ -640,7 +640,7 @@ export function Pipeline() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="block text-xs text-red-700 hover:underline"
+                        className="block text-xs text-red-700 hover:opacity-75"
                       >
                         • {client.name} - {formatCurrency(client.balanceDue || 0)}
                       </Link>
@@ -663,7 +663,7 @@ export function Pipeline() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="block text-xs text-blue-700 hover:underline"
+                        className="block text-xs text-blue-700 hover:opacity-75"
                       >
                         • {client.name} - {formatCurrency(client.balanceDue || 0)} 
                         {client.nextPaymentDate && ` - ${new Date(client.nextPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}

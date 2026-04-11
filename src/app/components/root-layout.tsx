@@ -1,7 +1,8 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Loader2, Bell, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck } from "lucide-react";
+import { notificationsAPI } from "../utils/api";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
 import {
@@ -23,6 +24,7 @@ import {
   UserRoundCheck,
   UserRoundPlus,
   UserCheck,
+  Banknote,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -74,6 +76,18 @@ export function RootLayout() {
   type NavAlert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" };
   const [navAlerts, setNavAlerts] = useState<NavAlert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
+
+  // In-app notifications (crew pay submitted, etc.)
+  const [crewNotifications, setCrewNotifications] = useState<any[]>([]);
+
+  const fetchNotifications = async () => {
+    try {
+      const data = await notificationsAPI.getUnread();
+      setCrewNotifications(data);
+    } catch { /* silent */ }
+  };
+
+  useEffect(() => { fetchNotifications(); }, [user?.profile?.id]);
 
   // Load dismissed alerts for current user
   useEffect(() => {
@@ -187,6 +201,7 @@ export function RootLayout() {
 
   useEffect(() => { fetchAlerts(); }, []);
   useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates"], "nav-alerts");
+  useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
 
   // My Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -329,29 +344,55 @@ export function RootLayout() {
               <PopoverTrigger asChild>
                 <button className="relative p-1 rounded-md hover:bg-accent transition-colors">
                   <Bell className="h-5 w-5 text-muted-foreground" />
-                  {visibleAlerts.length > 0 && (
+                  {(visibleAlerts.length + crewNotifications.length) > 0 && (
                     <span className="absolute -top-1 -right-1 h-4 w-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
-                      {visibleAlerts.length > 9 ? "9+" : visibleAlerts.length}
+                      {(visibleAlerts.length + crewNotifications.length) > 9 ? "9+" : visibleAlerts.length + crewNotifications.length}
                     </span>
                   )}
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-80 p-0" align="end">
                 <div className="flex items-center justify-between px-4 py-3 border-b">
-                  <span className="text-sm font-semibold">Alerts</span>
-                  {visibleAlerts.length > 0 && (
-                    <span className="text-xs text-muted-foreground">{visibleAlerts.length} active</span>
+                  <span className="text-sm font-semibold">Notifications</span>
+                  {(visibleAlerts.length + crewNotifications.length) > 0 && (
+                    <span className="text-xs text-muted-foreground">{visibleAlerts.length + crewNotifications.length} unread</span>
                   )}
                 </div>
-                <div className="max-h-[360px] overflow-y-auto">
-                  {visibleAlerts.length === 0 ? (
+                <div className="max-h-[400px] overflow-y-auto">
+                  {visibleAlerts.length === 0 && crewNotifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
                       <CheckCircle2 className="h-8 w-8 text-green-500" />
                       <p className="text-sm font-medium text-green-700">All clear!</p>
-                      <p className="text-xs text-muted-foreground">No issues in your pipeline</p>
+                      <p className="text-xs text-muted-foreground">No pending actions</p>
                     </div>
                   ) : (
                     <div className="divide-y">
+                      {/* Crew payment notifications */}
+                      {crewNotifications.map((n) => (
+                        <Link
+                          key={n.id}
+                          to={n.link ?? "/payroll"}
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-accent transition-colors"
+                          onClick={async () => {
+                            await notificationsAPI.markRead(n.id);
+                            setCrewNotifications((prev) => prev.filter((x) => x.id !== n.id));
+                          }}
+                        >
+                          <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                {n.title}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+                        </Link>
+                      ))}
+                      {/* Pipeline alerts */}
                       {visibleAlerts.map((alert) => (
                         <Link
                           key={alert.id}
@@ -371,7 +412,7 @@ export function RootLayout() {
                               onClick={(e) => markAsRead(alert.id, e)}
                               className="mt-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                             >
-                              Mark as read
+                              Dismiss
                             </button>
                           </div>
                         </Link>
@@ -435,6 +476,12 @@ export function RootLayout() {
                       <Link to="/team" className="cursor-pointer flex items-center">
                         <UsersRound className="mr-2 h-4 w-4" />
                         Team
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/payroll" className="cursor-pointer flex items-center">
+                        <Banknote className="mr-2 h-4 w-4" />
+                        Payroll
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>

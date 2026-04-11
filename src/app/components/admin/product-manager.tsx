@@ -57,10 +57,21 @@ export function ProductManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [addTouched, setAddTouched] = useState(false);
   const [editTouched, setEditTouched] = useState(false);
+  const [globalMarkup, setGlobalMarkup] = useState<string>("50");
+  const [globalMarkupSaving, setGlobalMarkupSaving] = useState(false);
+  const [companySettingsId, setCompanySettingsId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("units").select("name").eq("is_active", true).order("sort_order")
       .then(({ data }) => setUnits((data ?? []).map((u: any) => u.name)));
+
+    supabase.from("company_settings").select("id, global_markup_percent").limit(1).maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setCompanySettingsId(data.id);
+          setGlobalMarkup(String(data.global_markup_percent ?? "50"));
+        }
+      });
 
     Promise.all([productsAPI.getAll(), productsAPI.getCategories()])
       .then(([prods, cats]) => {
@@ -211,6 +222,43 @@ export function ProductManager() {
     }
   };
 
+  const handleSaveGlobalMarkup = async () => {
+    const markup = parseFloat(globalMarkup);
+    if (isNaN(markup) || markup < 0 || markup > 999) {
+      toast.error("Enter a valid markup percentage (0–999)");
+      return;
+    }
+    if (!companySettingsId) return;
+    try {
+      setGlobalMarkupSaving(true);
+      // Update company settings
+      const { error: settingsErr } = await supabase
+        .from("company_settings")
+        .update({ global_markup_percent: markup })
+        .eq("id", companySettingsId);
+      if (settingsErr) throw settingsErr;
+
+      // Apply to all products
+      const updates = allProducts.map((p) => {
+        const cost = Number(p.material_cost) + Number(p.labor_cost);
+        return supabase.from("products_services").update({
+          markup_percentage: markup,
+          price_per_unit: cost * (1 + markup / 100),
+        }).eq("id", p.id);
+      });
+      await Promise.all(updates);
+
+      // Refresh products
+      const refreshed = await productsAPI.getAll();
+      setAllProducts(refreshed || []);
+      toast.success(`Global markup set to ${markup}% and applied to all products`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save global markup");
+    } finally {
+      setGlobalMarkupSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -221,7 +269,39 @@ export function ProductManager() {
             Manage all products, materials, and pricing
           </p>
         </div>
+      </div>
+
+      {/* Global Markup */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Global Markup</CardTitle>
+          <p className="text-sm text-muted-foreground">Sets the markup percentage applied to all products. Saving will update every product in the catalog.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 max-w-xs">
+            <div className="relative flex-1">
+              <Input
+                type="number"
+                min="0"
+                max="999"
+                value={globalMarkup}
+                onChange={(e) => setGlobalMarkup(e.target.value)}
+                className="pr-8"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+            </div>
+            <Button onClick={handleSaveGlobalMarkup} disabled={globalMarkupSaving}>
+              {globalMarkupSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Apply to All
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center justify-between">
+        <div />
         <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) { setNewProduct(emptyForm); setAddTouched(false); } }}>
+
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />

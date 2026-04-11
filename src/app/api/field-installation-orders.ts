@@ -21,7 +21,7 @@ export const fioAPI = {
 
   /** Create a new FIO with items */
   create: async (
-    fio: { project_id: string; foreman_id?: string; notes?: string },
+    fio: { project_id: string; foreman_id?: string; notes?: string; work_date?: string },
     items: { product_name: string; unit: string; quantity: number; labor_cost_per_unit: number; notes?: string; sort_order?: number }[]
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -42,7 +42,7 @@ export const fioAPI = {
   },
 
   /** Update FIO status or notes */
-  update: async (id: string, updates: { status?: string; foreman_id?: string; notes?: string }) => {
+  update: async (id: string, updates: { status?: string; foreman_id?: string; notes?: string; work_date?: string | null; approved_by?: string; approved_date?: string; paid_date?: string }) => {
     const { data, error } = await supabase
       .from("field_installation_orders")
       .update({ ...updates, updated_at: new Date().toISOString() })

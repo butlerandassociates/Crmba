@@ -54,7 +54,7 @@ export function DocuSignDialog({
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
-  const [manualTemplateId, setManualTemplateId] = useState("2237778a-4e23-432b-9d5f-8d62074bfd89");
+  const [manualTemplateId, setManualTemplateId] = useState("04bbe153-e82b-46df-a17e-3edcdaabe071");
   const [useManualTemplate, setUseManualTemplate] = useState(false);
 
   // Auto-map CRM fields to DocuSign template fields
@@ -68,6 +68,9 @@ export function DocuSignDialog({
     client_phone: client.phone ?? "",
     client_company: client.company ?? "",
     client_address: client.address ?? "",
+    client_city: client.city ?? "",
+    client_state: client.state ?? "",
+    client_zip: client.zip ?? "",
     
     // Project fields (if available)
     ...(project && {
@@ -90,12 +93,26 @@ export function DocuSignDialog({
     
     // Company fields
     company_name: "Butler & Associates Construction, Inc.",
-    company_phone: "(555) 123-4567",
-    company_email: "info@butlerassociates.com",
-    
+    company_phone: "(256) 617-4691",
+    company_email: "jonathan@butlerconstruction.co",
+
     // Date fields
     current_date: new Date().toLocaleDateString("en-US"),
     today_date: new Date().toLocaleDateString("en-US"),
+
+    // Aliases matching common DocuSign template field names
+    "Full Name": fullName,
+    "Client Name": fullName,
+    "Owner Name": fullName,
+    "Email": client.email ?? "",
+    "Client Email": client.email ?? "",
+    "Phone": client.phone ?? "",
+    "Client Phone": client.phone ?? "",
+    "Address": client.address ?? "",
+    "Project Address": project?.clientAddress ?? client.address ?? "",
+    "Date Signed": new Date().toLocaleDateString("en-US"),
+    "Agreement Date": new Date().toLocaleDateString("en-US"),
+    "Contract Date": new Date().toLocaleDateString("en-US"),
   };
 
   // Load templates on mount
@@ -162,6 +179,25 @@ export function DocuSignDialog({
     setStatus("sending");
     setErrorMessage("");
 
+    // Open window immediately on user click — avoids popup blocker
+    const docusignWindow = window.open('', '_blank');
+    if (docusignWindow) {
+      docusignWindow.document.write(`
+        <html>
+        <head><style>@keyframes spin { to { transform: rotate(360deg); } }</style></head>
+        <body style="font-family:Inter,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;background:#F5F3EF">
+          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-blacktext-logo-cropped.png" alt="Butler & Associates Construction" style="height:40px;width:auto;object-fit:contain;margin-bottom:24px;mix-blend-mode:multiply"/>
+          <div style="width:32px;height:32px;border:3px solid #E8E4DC;border-top:3px solid #BB984D;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px"></div>
+          <p style="color:#3A3A38;font-size:15px;margin:0;opacity:0.7">Loading DocuSign, please wait...</p>
+        </body></html>
+      `);
+    } else {
+      setErrorMessage("Popups are blocked. Please allow popups for this site and try again.");
+      setStatus("error");
+      setLoading(false);
+      return;
+    }
+
     try {
       // Build template tabs from field mapping
       const textTabs = Object.entries(fieldMapping).map(([tabLabel, value]) => ({
@@ -171,13 +207,13 @@ export function DocuSignDialog({
 
       const requestBody = {
         templateId: templateToUse,
-        emailSubject: project 
+        emailSubject: project
           ? `Contract for ${project.name} - Butler & Associates Construction`
           : `Contract - Butler & Associates Construction`,
-        emailBlurb: `Hi ${fullName.split(" ")[0]}, please review and sign the attached contract.`,
+        emailBlurb: `Hi ${fullName.split(" ")[0] || "there"}, please review and sign the attached contract.`,
         clientEmail: client.email,
-        clientName: fullName,
-        returnUrl: `${window.location.origin}/clients/${client.id}?docusign=complete`,
+        clientName: fullName || client.email || "Client",
+        returnUrl: `${window.location.origin}/clients/${client.id}?docusign=sent`,
         tabs: {
           textTabs,
         },
@@ -199,17 +235,15 @@ export function DocuSignDialog({
 
       if (!response.ok) {
         const error = await response.json();
+        if (docusignWindow) docusignWindow.close();
         throw new Error(error.details || error.error || "Failed to create envelope");
       }
 
       const data = await response.json();
-      
-      // Open DocuSign in new tab
-      console.log("Opening DocuSign signing ceremony:", data.signingUrl);
-      const docusignWindow = window.open(data.signingUrl, '_blank');
-      
-      if (!docusignWindow) {
-        throw new Error("Popup blocked! Please allow popups for this site.");
+
+      // Navigate the already-open window to DocuSign URL
+      if (docusignWindow) {
+        docusignWindow.location.href = data.signingUrl;
       }
 
       // Store envelope ID and close dialog

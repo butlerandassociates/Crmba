@@ -182,6 +182,32 @@ export const changeOrdersAPI = {
     return { updatedCo, newEstimateTotal: newTotal };
   },
 
+  /** Update a draft CO — replaces items */
+  update: async (
+    id: string,
+    co: { title: string; reason?: string; timeline_impact?: string },
+    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[]
+  ) => {
+    const costImpact = items.reduce((s, i) => s + i.total, 0);
+    const { data, error } = await supabase
+      .from("change_orders")
+      .update({ ...co, cost_impact: costImpact, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+
+    // Replace all items
+    await supabase.from("change_order_items").delete().eq("co_id", id);
+    if (items.length > 0) {
+      const { error: itemsError } = await supabase
+        .from("change_order_items")
+        .insert(items.map((item, i) => ({ ...item, co_id: id, sort_order: i })));
+      if (itemsError) throw new Error(itemsError.message);
+    }
+    return data;
+  },
+
   /** Delete a CO */
   delete: async (id: string) => {
     const { error } = await supabase.from("change_orders").delete().eq("id", id);

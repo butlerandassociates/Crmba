@@ -851,8 +851,6 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       body.templateId,
       body.clientEmail,
       body.clientName,
-      body.contractorEmail || "info@butlerconstruction.co",
-      body.contractorName || "Jonathan Butler",
       body.emailSubject || "Please sign this document",
       body.emailBlurb || "",
       body.returnUrl,
@@ -927,6 +925,28 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
   } catch (error: any) {
     console.error("DocuSign webhook error:", error);
     return c.json({ received: true });
+  }
+});
+
+/**
+ * Get sender view URL to re-open envelope for review/sending
+ */
+app.post("/make-server-9d56a30d/docusign/get-sender-view", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { envelopeId, returnUrl } = body;
+
+    if (!envelopeId || !returnUrl) {
+      return c.json({ error: "Missing required fields: envelopeId, returnUrl" }, 400);
+    }
+
+    const config = docusign.getDocuSignConfig();
+    const senderViewUrl = await docusign.getSenderViewUrl(config, envelopeId, returnUrl);
+
+    return c.json({ senderViewUrl });
+  } catch (error: any) {
+    console.error("Error getting sender view URL:", error);
+    return c.json({ error: "Failed to get sender view", details: error.message }, 500);
   }
 });
 

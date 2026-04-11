@@ -188,7 +188,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
                     </div>
                     {r.note && <p className="text-xs text-muted-foreground mt-0.5">{r.note}</p>}
                     {r.file_url && (
-                      <a href={r.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 mt-0.5 hover:underline">
+                      <a href={r.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 mt-0.5 hover:opacity-75">
                         <FileText className="h-3 w-3" />{r.file_name || "Receipt"}
                       </a>
                     )}

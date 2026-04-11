@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download, FileText, GitMerge, Check, CreditCard } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, Loader2, ClipboardEdit, Save, Send, Download, FileText, GitMerge, Check, CreditCard, Edit, AlertTriangle } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -22,7 +22,7 @@ interface ChangeOrdersSheetProps {
   onSave?: () => void;
 }
 
-type View = "list" | "create" | "detail" | "payment";
+type View = "list" | "create" | "edit" | "detail" | "payment";
 
 const STATUS_CONFIG = {
   draft:          { label: "Draft",          className: "bg-gray-100 text-gray-700" },
@@ -48,6 +48,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const [merging, setMerging] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [mergedTotal, setMergedTotal] = useState<number | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Payment schedule update state
   const [milestones, setMilestones] = useState<any[]>([]);
@@ -62,6 +64,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
 
   // Unsaved changes tracking
   const isDirty = title.trim() !== "" || reason.trim() !== "" || items.some((i) => i.description.trim() !== "");
+  const isEditOrCreate = view === "create" || view === "edit";
 
   // Export ref
   const exportRef = useRef<HTMLDivElement>(null);
@@ -99,7 +102,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
 
   // Unsaved changes — warn on browser close/refresh
   useEffect(() => {
-    if (view !== "create" || !isDirty) return;
+    if (!isEditOrCreate || !isDirty) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
     };
@@ -117,19 +120,93 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
 
   // Intercept back navigation when form is dirty
   const handleBack = () => {
-    if (view === "create" && isDirty) {
+    if (isEditOrCreate && isDirty) {
       if (!window.confirm("You have unsaved changes. Leave without saving?")) return;
     }
-    setView("list");
-    setSelectedCo(null);
+    if (view === "edit") { setView("detail"); }
+    else { setView("list"); setSelectedCo(null); }
   };
 
   // Intercept sheet close when form is dirty
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && view === "create" && isDirty) {
+    if (!nextOpen && isEditOrCreate && isDirty) {
       if (!window.confirm("You have unsaved changes. Leave without saving?")) return;
     }
     onOpenChange(nextOpen);
+  };
+
+  // Open edit view pre-populated with selected CO data
+  const handleOpenEdit = () => {
+    if (!selectedCo) return;
+    setTitle(selectedCo.title || "");
+    setReason(selectedCo.reason || "");
+    setTimelineImpact(selectedCo.timeline_impact || "");
+    setItems(
+      (selectedCo.items || []).length > 0
+        ? selectedCo.items.map((i: any, idx: number) => ({
+            id: String(idx + 1),
+            category: i.category || "Materials",
+            description: i.description || "",
+            quantity: i.quantity || 1,
+            unit_price: i.unit_price || 0,
+            total: i.total || 0,
+          }))
+        : [{ ...EMPTY_ITEM, id: "1" }]
+    );
+    setErrors({});
+    setView("edit");
+  };
+
+  // Save edits to a draft CO
+  const handleUpdate = async () => {
+    const newErrors: Record<string, string> = {};
+    if (!title.trim()) newErrors.title = "Title is required";
+    if (!reason.trim()) newErrors.reason = "Reason for change is required";
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+    setErrors({});
+    setSaving(true);
+    try {
+      const updated = await changeOrdersAPI.update(
+        selectedCo.id,
+        { title: title.trim(), reason: reason.trim(), timeline_impact: timelineImpact || undefined },
+        items.filter((i) => i.description.trim()).map((item, i) => ({
+          category: item.category,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total: item.total,
+          sort_order: i,
+        }))
+      );
+      // Reload items from DB so detail view is fresh
+      const fresh = await changeOrdersAPI.getByClient(client.id);
+      const freshCo = fresh.find((c) => c.id === selectedCo.id) || { ...selectedCo, ...updated };
+      setSelectedCo(freshCo);
+      setCos(fresh);
+      toast.success("Change order updated");
+      setView("detail");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update change order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete a CO with confirmation
+  const handleDelete = async (coId: string) => {
+    setDeleting(true);
+    try {
+      await changeOrdersAPI.delete(coId);
+      setCos((prev) => prev.filter((c) => c.id !== coId));
+      setDeleteConfirm(null);
+      if (selectedCo?.id === coId) { setSelectedCo(null); setView("list"); }
+      toast.success("Change order deleted");
+      onSave?.();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleCreate = async (sendToClient = false) => {
@@ -322,6 +399,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                 <SheetTitle className="text-base">
                   {view === "list" ? "Change Orders"
                     : view === "create" ? "New Change Order"
+                    : view === "edit" ? "Edit Change Order"
                     : view === "payment" ? "Update Payment Schedule"
                     : selectedCo?.title}
                 </SheetTitle>
@@ -374,24 +452,36 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                     {cos.map((co) => {
                       const cfg = STATUS_CONFIG[co.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.draft;
                       return (
-                        <button
-                          key={co.id}
-                          className="w-full text-left border rounded-lg p-4 hover:bg-accent/40 transition-colors"
-                          onClick={() => { setSelectedCo(co); setView("detail"); }}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-semibold text-sm truncate">{co.title}</span>
-                                <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.className}`}>{cfg.label}</span>
+                        <div key={co.id} className="border rounded-lg hover:bg-accent/30 transition-colors">
+                          <div
+                            className="p-4 cursor-pointer"
+                            onClick={() => { setSelectedCo(co); setView("detail"); }}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-semibold text-sm truncate">{co.title}</span>
+                                  <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.className}`}>{cfg.label}</span>
+                                </div>
+                                <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
                               </div>
-                              <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
-                            </div>
-                            <div className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                              {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                  {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
+                                </span>
+                                {co.status !== "merged" && (
+                                  <button
+                                    className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
+                                    title="Delete change order"
+                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: co.id, title: co.title }); }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -593,11 +683,28 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                     })}
                 </div>
 
-                {/* Export PDF button */}
-                <Button variant="outline" size="sm" className="w-full" onClick={handleExportPDF} disabled={downloading}>
-                  {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                  Export as PDF (Branded)
-                </Button>
+                {/* Edit / Delete / Export actions */}
+                <div className="flex gap-2">
+                  {selectedCo.status === "draft" && (
+                    <Button variant="outline" size="sm" className="flex-1" onClick={handleOpenEdit}>
+                      <Edit className="h-4 w-4 mr-1.5" /> Edit
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" className="flex-1" onClick={handleExportPDF} disabled={downloading}>
+                    {downloading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+                    Export PDF
+                  </Button>
+                  {selectedCo.status !== "merged" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:bg-red-50 border-destructive/30"
+                      onClick={() => setDeleteConfirm({ id: selectedCo.id, title: selectedCo.title })}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
 
                 {/* Reason */}
                 <div>
@@ -696,6 +803,127 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
               </div>
             )}
 
+            {/* ── EDIT VIEW (draft only) ── */}
+            {view === "edit" && selectedCo && (
+              <div className="p-4 space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 flex items-center gap-2">
+                  <Edit className="h-4 w-4 text-blue-600 shrink-0" />
+                  <p className="text-xs text-blue-800">Editing a draft change order — locked once approved or merged.</p>
+                </div>
+
+                <Card>
+                  <CardHeader><CardTitle>Change Order Details</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-title">Title *</Label>
+                      <Input
+                        id="edit-title"
+                        value={title}
+                        className={errors.title ? "border-destructive" : ""}
+                        onChange={(e) => { setTitle(e.target.value); setErrors((p) => ({ ...p, title: "" })); }}
+                      />
+                      {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-reason">Reason for Change *</Label>
+                      <Textarea
+                        id="edit-reason"
+                        rows={4}
+                        className={`resize-none ${errors.reason ? "border-destructive" : ""}`}
+                        value={reason}
+                        onChange={(e) => { setReason(e.target.value); setErrors((p) => ({ ...p, reason: "" })); }}
+                      />
+                      {errors.reason && <p className="text-xs text-destructive">{errors.reason}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-timeline">Timeline Impact</Label>
+                      <Input
+                        id="edit-timeline"
+                        placeholder="e.g. +5 days, No change"
+                        value={timelineImpact}
+                        onChange={(e) => setTimelineImpact(e.target.value)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>Cost Breakdown</CardTitle>
+                      <Button variant="outline" size="sm" onClick={addItem}>
+                        <Plus className="h-4 w-4 mr-2" /> Add Line Item
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {items.map((item, index) => (
+                      <div key={item.id} className="border rounded-lg p-4 space-y-4 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm">Line Item {index + 1}</span>
+                          {items.length > 1 && (
+                            <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)}>
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Category</Label>
+                            <select
+                              className="w-full px-3 py-2 border rounded-md text-sm"
+                              value={item.category}
+                              onChange={(e) => updateItem(item.id, "category", e.target.value)}
+                            >
+                              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Input
+                              value={item.description}
+                              onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label>Quantity</Label>
+                            <Input type="number" min="0" step="0.01" value={item.quantity}
+                              onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Unit Price ($)</Label>
+                            <Input type="number" min="0" step="0.01" value={item.unit_price}
+                              onChange={(e) => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Total</Label>
+                            <div className="px-3 py-2 border rounded-md bg-white font-semibold text-sm">${item.total.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center bg-gray-100 p-4 rounded-lg">
+                        <span className="font-semibold">Total Cost Impact:</span>
+                        <span className={`text-xl font-bold ${totalCostImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {totalCostImpact >= 0 ? "+" : ""}${totalCostImpact.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <Button variant="outline" className="flex-1" onClick={() => setView("detail")}>Cancel</Button>
+                      <Button className="flex-1" disabled={saving} onClick={handleUpdate}>
+                        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                        Save Changes
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
             {/* ── PAYMENT SCHEDULE VIEW ── */}
             {view === "payment" && (
               <div className="p-6 space-y-5">
@@ -782,6 +1010,38 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* ── DELETE CONFIRMATION DIALOG ── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-red-100 shrink-0">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Delete Change Order?</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  "<span className="font-medium text-foreground">{deleteConfirm.title}</span>" will be permanently removed. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" disabled={deleting} onClick={() => setDeleteConfirm(null)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                disabled={deleting}
+                onClick={() => handleDelete(deleteConfirm.id)}
+              >
+                {deleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Off-screen export for PDF generation */}
       <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>

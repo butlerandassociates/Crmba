@@ -83,10 +83,18 @@ export function ProposalDetail() {
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
   const COMPLEX_CATEGORIES = ["Concrete"];
 
+  const [reviews, setReviews] = useState<any[]>([]);
+
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
     estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
+    supabase
+      .from("proposal_reviews")
+      .select("reviewer_name, rating, review_text")
+      .eq("is_active", true)
+      .order("sort_order")
+      .then(({ data }) => setReviews(data ?? []));
   }, []);
 
   useEffect(() => {
@@ -900,7 +908,7 @@ export function ProposalDetail() {
           <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
             <div className="py-8 flex justify-center">
               <div className="bg-white shadow-2xl" style={{ width: 794 }}>
-                <ProposalExport proposal={proposal} client={client} />
+                <ProposalExport proposal={proposal} client={client} reviews={reviews} />
               </div>
             </div>
           </div>
@@ -1017,7 +1025,7 @@ export function ProposalDetail() {
       {/* Off-screen export content for download — NOT hidden so html2canvas can capture it */}
       <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>
         <div id="proposal-export-content">
-          <ProposalExport proposal={proposal} client={client} />
+          <ProposalExport proposal={proposal} client={client} reviews={reviews} />
         </div>
       </div>
     </div>

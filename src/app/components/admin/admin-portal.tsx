@@ -70,7 +70,7 @@ function DiscardedClients() {
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 to={`/clients/${client.id}`}
-                className="font-semibold text-sm hover:underline"
+                className="font-semibold text-sm hover:opacity-75"
               >
                 {client.first_name} {client.last_name}
               </Link>

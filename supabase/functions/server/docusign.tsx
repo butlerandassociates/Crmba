@@ -321,8 +321,6 @@ export async function createEmbeddedEnvelope(
   templateId: string,
   clientEmail: string,
   clientName: string,
-  contractorEmail: string,
-  contractorName: string,
   emailSubject: string,
   emailBlurb: string,
   returnUrl: string,
@@ -331,25 +329,17 @@ export async function createEmbeddedEnvelope(
   const accessToken = await getAccessToken(config);
 
   // Step 1: Create envelope as draft
-  // Contractor signs first (routing order 1, embedded in CRM)
-  // Client signs second (routing order 2, via email)
+  // Jonathan (Sender) fills payment schedule fields in the sender view
+  // Client receives email to sign (routing order 1 — only recipient)
   const envelopeDefinition = {
     templateId,
     templateRoles: [
       {
-        email: contractorEmail,
-        name: contractorName,
-        roleName: "Contractor",
-        recipientId: "1",
-        clientUserId: "contractor-embedded-1",
-        routingOrder: "1",
-      },
-      {
         email: clientEmail,
         name: clientName,
         roleName: "Client",
-        recipientId: "2",
-        routingOrder: "2",
+        recipientId: "1",
+        routingOrder: "1",
         tabs,
       },
     ],
@@ -402,6 +392,34 @@ export async function createEmbeddedEnvelope(
     envelopeId,
     signingUrl: senderViewData.url,
   };
+}
+
+export async function getSenderViewUrl(
+  config: DocuSignConfig,
+  envelopeId: string,
+  returnUrl: string
+): Promise<string> {
+  const accessToken = await getAccessToken(config);
+
+  const response = await fetch(
+    `${config.basePath}/restapi/v2.1/accounts/${config.accountId}/envelopes/${envelopeId}/views/sender`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ returnUrl }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to get sender view: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.url;
 }
 
 export async function getContractorSigningUrl(

@@ -1,6 +1,7 @@
 interface ProposalExportProps {
   proposal: any;
   client: any;
+  reviews?: { reviewer_name: string; rating: number; review_text: string }[];
 }
 
 // Butler & Associates brand tokens
@@ -19,7 +20,7 @@ const B = {
   // logoDark:  "https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/0254c327-02ce-4d04-a883-0d6f2e3b9e15/butler+%26+associates+construction%2C+inc-5+copy.png",
 };
 
-export function ProposalExport({ proposal, client }: ProposalExportProps) {
+export function ProposalExport({ proposal, client, reviews = [] }: ProposalExportProps) {
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(value || 0);
 
@@ -160,12 +161,15 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
           {/* Scope of Work table */}
           <div style={{ background: "#fff", borderRadius: 6, overflow: "hidden", border: `1px solid ${B.border}` }}>
             {/* Table header */}
-            <div style={{ background: B.black, padding: "12px 24px", display: "flex", justifyContent: "space-between" }}>
-              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
+            <div style={{ background: B.black, padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, flex: 1 }}>
                 Scope of Work
               </p>
-              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, width: 100, textAlign: "center" as const }}>
                 Qty
+              </p>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, width: 90, textAlign: "right" as const }}>
+                Total
               </p>
             </div>
 
@@ -177,52 +181,84 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
             )}
 
             {(() => {
+              // Client-meaningful units only — anything else shows no qty on primary line
+              const MEANINGFUL_UNITS = ["sf", "sq ft", "lf", "cy"];
+              const unitPriority = (unit: string) => {
+                const u = (unit ?? "").toLowerCase();
+                if (u === "sf" || u === "sq ft") return 0;
+                if (u === "lf") return 1;
+                if (u === "cy") return 2;
+                return 99;
+              };
+              const getPrimaryQtyLabel = (items: { name: string; qty: number; unit: string; lineTotal: number }[]) => {
+                const meaningful = items.filter(i => MEANINGFUL_UNITS.includes((i.unit ?? "").toLowerCase()));
+                if (meaningful.length === 0) return null;
+                const best = [...meaningful].sort((a, b) => unitPriority(a.unit) - unitPriority(b.unit))[0];
+                return `${best.qty} ${best.unit}`;
+              };
+
               let rowIndex = 0;
-              return groupedItems.map((group, gIdx) => (
-                <div key={gIdx}>
-                  {/* Category header (if categorized) */}
-                  {group.category && (
-                    <div style={{ padding: "8px 24px", background: "#F0EDE6", borderTop: gIdx > 0 ? `1px solid ${B.border}` : "none" }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.text, margin: 0, opacity: 0.7 }}>
-                        {group.category}
-                      </p>
-                    </div>
-                  )}
-                  {/* Items — client sees name + qty only, no unit, no individual price */}
-                  {group.items.map((item, iIdx) => {
-                    const isAlt = rowIndex++ % 2 === 1;
-                    return (
-                      <div
-                        key={iIdx}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: group.category ? "12px 24px 12px 32px" : "14px 24px",
-                          background: isAlt ? B.rowAlt : "#fff",
-                          borderBottom: `1px solid ${B.bg}`,
-                        }}
-                      >
-                        <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.name}</p>
-                        <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, whiteSpace: "nowrap" as const }}>
-                          {item.qty}
+              return groupedItems.map((group, gIdx) => {
+                const rowBg = gIdx % 2 === 0 ? "#fff" : B.rowAlt;
+                const borderTop = gIdx > 0 ? `1px solid ${B.border}` : "none";
+
+                if (group.category) {
+                  const categoryTotal = group.items.reduce((s, i) => s + i.lineTotal, 0);
+                  const qtyLabel = getPrimaryQtyLabel(group.items);
+                  return (
+                    <div key={gIdx}>
+                      {/* Primary line — category name + qty/unit + category total */}
+                      <div style={{ display: "flex", alignItems: "center", padding: "14px 24px", background: rowBg, borderTop }}>
+                        <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, flex: 1 }}>
+                          {group.category}
+                        </p>
+                        <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, width: 100, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
+                          {qtyLabel ?? ""}
+                        </p>
+                        <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const }}>
+                          {formatCurrency(categoryTotal)}
                         </p>
                       </div>
-                    );
-                  })}
-                  {/* Category total row */}
-                  {group.category && (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 24px", background: "#F0EDE6", borderTop: `1px solid ${B.border}` }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 11, fontWeight: 600, color: B.text, margin: 0, letterSpacing: "0.04em" }}>
-                        {group.category} Total
-                      </p>
-                      <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0 }}>
-                        {formatCurrency(group.items.reduce((s, i) => s + i.lineTotal, 0))}
-                      </p>
+                      {/* Sub-items — name only, indented */}
+                      {group.items.map((item, iIdx) => (
+                        <div key={iIdx} style={{
+                          display: "flex", alignItems: "center",
+                          padding: "5px 24px 5px 36px",
+                          background: rowBg,
+                          borderTop: `1px solid ${B.bg}`,
+                        }}>
+                          <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.6 }}>
+                            · {item.name}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </div>
-              ));
+                  );
+                }
+
+                // Uncategorized — name + qty + unit, no price
+                return (
+                  <div key={gIdx}>
+                    {group.items.map((item, iIdx) => {
+                      const isAlt = rowIndex++ % 2 === 1;
+                      return (
+                        <div key={iIdx} style={{
+                          display: "flex", alignItems: "center",
+                          padding: "14px 24px",
+                          background: isAlt ? B.rowAlt : "#fff",
+                          borderBottom: `1px solid ${B.bg}`,
+                        }}>
+                          <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0, flex: 1 }}>{item.name}</p>
+                          <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, width: 100, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
+                            {item.qty}{item.unit ? " " + item.unit : ""}
+                          </p>
+                          <div style={{ width: 90 }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              });
             })()}
 
             {/* Subtotal / Discount / Tax / Total block */}
@@ -276,33 +312,22 @@ export function ProposalExport({ proposal, client }: ProposalExportProps) {
             What Our Clients Say
           </p>
 
-          {/* Horizontal review cards — wide & short, stacked vertically */}
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 12, marginBottom: 40 }}>
-            {[
-              {
-                name: "Dan Ordonez",
-                text: "The crew and Jonathan, the general manager, did an amazing job! Their prices are extremely competitive and the transparency of the quote were the main reason why I chose them. Jonathan was flexible with all the changes and adjustments we had. Communication throughout was excellent. Highly recommend.",
-              },
-              {
-                name: 'Drew "Smith" Mills',
-                text: "Jonathan and his team are some of the most professional and friendly people I've had the pleasure of working with in this industry. They were thoughtful in their design and layout, making sure everything matched exactly what we were looking for.",
-              },
-              {
-                name: "B Robey",
-                text: "Jonathan was incredibly responsive — returned my call immediately and performed a thorough walkthrough, listening to my ideas while providing expert recommendations. Within a day, we were reviewing the invoice and tweaking the design. Highly recommend.",
-              },
-            ].map((r) => (
-              <div key={r.name} style={{ background: "#fff", border: `1px solid ${B.border}`, borderRadius: 8, padding: "14px 20px", display: "flex", alignItems: "flex-start", gap: 20 }}>
-                {/* Left — name + stars */}
-                <div style={{ minWidth: 130, flexShrink: 0, borderRight: `1px solid ${B.border}`, paddingRight: 20 }}>
-                  <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 12, color: B.black, margin: "0 0 4px 0" }}>{r.name}</p>
-                  <p style={{ color: B.gold, fontSize: 12, margin: 0, lineHeight: 1 }}>★★★★★</p>
+          {/* Horizontal review cards — live from DB via Admin → Proposal Reviews */}
+          {reviews.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 12, marginBottom: 40 }}>
+              {reviews.map((r) => (
+                <div key={r.reviewer_name} style={{ background: "#fff", border: `1px solid ${B.border}`, borderRadius: 8, padding: "14px 20px", display: "flex", alignItems: "flex-start", gap: 20 }}>
+                  {/* Left — name + stars */}
+                  <div style={{ minWidth: 130, flexShrink: 0, borderRight: `1px solid ${B.border}`, paddingRight: 20 }}>
+                    <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 12, color: B.black, margin: "0 0 4px 0" }}>{r.reviewer_name}</p>
+                    <p style={{ color: B.gold, fontSize: 12, margin: 0, lineHeight: 1 }}>{"★".repeat(r.rating)}</p>
+                  </div>
+                  {/* Right — review text */}
+                  <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.85, flex: 1 }}>{r.review_text}</p>
                 </div>
-                {/* Right — review text */}
-                <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.85, flex: 1 }}>{r.text}</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           <div style={{ flex: 1 }} />
 

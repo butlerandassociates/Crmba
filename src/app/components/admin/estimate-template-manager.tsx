@@ -217,7 +217,7 @@ function FormulaBuilder({
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Formula</p>
           {tokens.length > 0 && (
-            <button type="button" onClick={clearAll} className="text-xs text-destructive hover:underline">Clear all</button>
+            <button type="button" onClick={clearAll} className="text-xs text-destructive hover:opacity-75">Clear all</button>
           )}
         </div>
         <div className="min-h-[44px] flex flex-wrap gap-1.5 p-2 bg-white border rounded-md">

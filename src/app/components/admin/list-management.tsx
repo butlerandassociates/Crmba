@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../ui/sheet";
-import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -242,6 +242,249 @@ const appointmentTypesAPI = {
 };
 const unitsAPI        = tableAPI("units");
 const scopeOfWorkAPI  = tableAPI("scope_of_work");
+
+interface ProposalReview {
+  id: string;
+  reviewer_name: string;
+  rating: number;
+  review_text: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+const proposalReviewsAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from("proposal_reviews")
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .order("sort_order");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as ProposalReview[];
+  },
+  create: async (fields: Omit<ProposalReview, "id">) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("proposal_reviews")
+      .insert({ ...fields, created_by: user?.id, updated_by: user?.id })
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as ProposalReview;
+  },
+  update: async (id: string, fields: Partial<Omit<ProposalReview, "id">>) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("proposal_reviews")
+      .update({ ...fields, updated_by: user?.id })
+      .eq("id", id)
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as ProposalReview;
+  },
+  delete: async (id: string) => {
+    const { error } = await supabase.from("proposal_reviews").update({ is_active: false }).eq("id", id);
+    if (error) throw new Error(error.message);
+  },
+};
+
+function ProposalReviewsSection({
+  items, loading, onAdd, onUpdate, onDelete,
+}: {
+  items: ProposalReview[];
+  loading: boolean;
+  onAdd: (fields: Omit<ProposalReview, "id">) => Promise<void>;
+  onUpdate: (id: string, fields: Partial<Omit<ProposalReview, "id">>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [sheet, setSheet]           = useState<null | "new" | ProposalReview>(null);
+  const [name, setName]             = useState("");
+  const [rating, setRating]         = useState(5);
+  const [text, setText]             = useState("");
+  const [isActive, setIsActive]     = useState(true);
+  const [touched, setTouched]       = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const nameErr = name.trim().length === 0 ? "Reviewer name is required." : "";
+  const textErr = text.trim().length === 0 ? "Review text is required."
+    : text.trim().length < 10 ? "Review must be at least 10 characters." : "";
+  const hasErrors = !!nameErr || !!textErr;
+
+  const openNew = () => {
+    setName(""); setRating(5); setText(""); setIsActive(true); setTouched(false);
+    setSheet("new");
+  };
+
+  const openEdit = (item: ProposalReview) => {
+    setName(item.reviewer_name); setRating(item.rating);
+    setText(item.review_text); setIsActive(item.is_active); setTouched(false);
+    setSheet(item);
+  };
+
+  const closeSheet = () => { setSheet(null); setTouched(false); };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (hasErrors) return;
+    setSaving(true);
+    try {
+      const fields = {
+        reviewer_name: name.trim(),
+        rating,
+        review_text: text.trim(),
+        is_active: isActive,
+        sort_order: sheet === "new" ? items.length : (sheet as ProposalReview).sort_order,
+      };
+      if (sheet === "new") {
+        await onAdd(fields);
+        toast.success(`Review by "${name.trim()}" added.`);
+      } else {
+        await onUpdate((sheet as ProposalReview).id, fields);
+        toast.success("Review updated.");
+      }
+      closeSheet();
+    } catch (err: any) { toast.error(err.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string, n: string) => {
+    setDeletingId(id);
+    try { await onDelete(id); toast.success(`Review by "${n}" removed.`); }
+    catch (err: any) { toast.error(err.message || "Failed to delete."); }
+    finally { setDeletingId(null); }
+  };
+
+  const isEditing = sheet && sheet !== "new";
+  const activeItems = items.filter((i) => i.is_active);
+
+  return (
+    <>
+      <Card className="md:col-span-2 flex flex-col min-h-[340px]">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Proposal Reviews</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Reviews shown on proposal PDFs — {activeItems.length} active.
+              </p>
+            </div>
+            <Button size="sm" className="h-8 shrink-0" onClick={openNew}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Review
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-1 space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No reviews yet.</p>
+          ) : (
+            <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
+              {items.map((item) => (
+                <div key={item.id} className="flex items-start gap-2 group px-2 py-2 rounded hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{item.reviewer_name}</p>
+                      <span className="text-xs text-amber-500 shrink-0">{"★".repeat(item.rating)}</span>
+                      {!item.is_active && (
+                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">Hidden</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{item.review_text}</p>
+                  </div>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openEdit(item)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(item.id, item.reviewer_name)} disabled={deletingId === item.id}>
+                    {deletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={!!sheet} onOpenChange={(open: boolean) => { if (!open) closeSheet(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col gap-0 p-0">
+          <SheetHeader className="px-6 py-4 border-b shrink-0">
+            <SheetTitle>{isEditing ? "Edit Review" : "Add Review"}</SheetTitle>
+            <SheetDescription>
+              {isEditing ? "Update the review details below." : "Add a client review to show on proposal PDFs."}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto thin-scroll px-6 py-5 space-y-5">
+            {/* Reviewer Name */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Reviewer Name <span className="text-destructive">*</span></label>
+              <Input
+                placeholder="e.g. John Smith"
+                value={name}
+                onChange={(e) => { setName(e.target.value); if (touched) setTouched(false); }}
+                maxLength={120}
+                className={touched && nameErr ? "border-destructive focus-visible:ring-destructive" : ""}
+                autoFocus
+              />
+              {touched && nameErr && <p className="text-xs text-destructive">{nameErr}</p>}
+            </div>
+
+            {/* Star Rating */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Rating <span className="text-destructive">*</span></label>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button key={star} type="button" onClick={() => setRating(star)} className="focus:outline-none">
+                    <Star
+                      className={`h-6 w-6 transition-colors ${star <= rating ? "text-amber-400 fill-amber-400" : "text-muted-foreground"}`}
+                    />
+                  </button>
+                ))}
+                <span className="text-sm text-muted-foreground ml-2">{rating} / 5</span>
+              </div>
+            </div>
+
+            {/* Review Text */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Review Text <span className="text-destructive">*</span></label>
+              <Textarea
+                placeholder="What the client said..."
+                value={text}
+                onChange={(e) => { setText(e.target.value); if (touched) setTouched(false); }}
+                rows={5}
+                className={`resize-none ${touched && textErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {touched && textErr
+                ? <p className="text-xs text-destructive">{textErr}</p>
+                : <p className="text-xs text-muted-foreground">{text.length} characters</p>}
+            </div>
+
+            {/* Active toggle */}
+            <div className="flex items-center gap-3">
+              <Checkbox id="review-active" checked={isActive} onCheckedChange={(v) => setIsActive(!!v)} />
+              <label htmlFor="review-active" className="text-sm font-medium cursor-pointer">
+                Show on proposals
+              </label>
+              <p className="text-xs text-muted-foreground">Uncheck to hide without deleting</p>
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t shrink-0 flex justify-end gap-2">
+            <Button variant="outline" onClick={closeSheet} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {isEditing ? "Save Changes" : "Add Review"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
 
 function AppointmentTypeSection({
   items, loading, onAdd, onUpdate, onDelete,
@@ -1100,15 +1343,17 @@ export function ListManagement() {
   const [zipRates,          setZipRates]           = useState<ZipTaxRate[]>([]);
   const [roles,             setRoles]              = useState<Role[]>([]);
   const [permissions,       setPermissions]        = useState<Permission[]>([]);
+  const [reviews,           setReviews]            = useState<ProposalReview[]>([]);
 
-  const [loadingCats,  setLoadingCats]  = useState(true);
-  const [loadingLS,    setLoadingLS]    = useState(true);
-  const [loadingApts,  setLoadingApts]  = useState(true);
-  const [loadingUnits, setLoadingUnits] = useState(true);
-  const [loadingSOW,   setLoadingSOW]   = useState(true);
-  const [loadingZips,  setLoadingZips]  = useState(true);
-  const [loadingRoles, setLoadingRoles] = useState(true);
-  const [loadingPerms, setLoadingPerms] = useState(true);
+  const [loadingCats,    setLoadingCats]    = useState(true);
+  const [loadingLS,      setLoadingLS]      = useState(true);
+  const [loadingApts,    setLoadingApts]    = useState(true);
+  const [loadingUnits,   setLoadingUnits]   = useState(true);
+  const [loadingSOW,     setLoadingSOW]     = useState(true);
+  const [loadingZips,    setLoadingZips]    = useState(true);
+  const [loadingRoles,   setLoadingRoles]   = useState(true);
+  const [loadingPerms,   setLoadingPerms]   = useState(true);
+  const [loadingReviews, setLoadingReviews] = useState(true);
 
 
   useEffect(() => {
@@ -1129,6 +1374,8 @@ export function ListManagement() {
       .then((d) => setRoles(d as Role[])).catch(console.error).finally(() => setLoadingRoles(false));
     permissionsAPI.getAll()
       .then((d) => setPermissions(d as Permission[])).catch(console.error).finally(() => setLoadingPerms(false));
+    proposalReviewsAPI.getAll()
+      .then(setReviews).catch(console.error).finally(() => setLoadingReviews(false));
   }, []);
 
   useRealtimeRefetch(
@@ -1140,7 +1387,7 @@ export function ListManagement() {
       rolesAPI.getAll().then((d) => setRoles(d as Role[])).catch(console.error);
       permissionsAPI.getAll().then((d) => setPermissions(d as Permission[])).catch(console.error);
     },
-    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions"],
+    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions", "proposal_reviews"],
     "list-management"
   );
 
@@ -1255,6 +1502,23 @@ export function ListManagement() {
           onDelete={async (id) => {
             await scopeOfWorkAPI.delete(id);
             setScopeOfWork((prev) => prev.filter((s) => s.id !== id));
+          }}
+        />
+
+        <ProposalReviewsSection
+          items={reviews}
+          loading={loadingReviews}
+          onAdd={async (fields) => {
+            const created = await proposalReviewsAPI.create(fields);
+            setReviews((prev) => [...prev, created]);
+          }}
+          onUpdate={async (id, fields) => {
+            const updated = await proposalReviewsAPI.update(id, fields);
+            setReviews((prev) => prev.map((r) => r.id === id ? updated : r));
+          }}
+          onDelete={async (id) => {
+            await proposalReviewsAPI.delete(id);
+            setReviews((prev) => prev.filter((r) => r.id !== id));
           }}
         />
 
