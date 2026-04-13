@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
@@ -501,8 +501,10 @@ export function ProposalBuilder() {
           )}
           <CardContent className="p-0">
             {lineItems.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground text-sm">
-                No items added yet — select a category above to get started
+              <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                <FileText className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No items added yet</p>
+                <p className="text-xs mt-1">Select a category above to add products to this proposal.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">

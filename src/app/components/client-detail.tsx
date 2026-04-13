@@ -40,6 +40,17 @@ import {
   Package,
   ClipboardEdit,
   Archive,
+  Video,
+  ExternalLink,
+  CalendarCheck,
+  CreditCard,
+  ArrowRightLeft,
+  Minus,
+  ShoppingCart,
+  Receipt,
+  HardHat,
+  FolderOpen,
+  FileDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -184,6 +195,7 @@ export function ClientDetail() {
   const [refreshingDocusign, setRefreshingDocusign] = useState(false);
   const [openingContractorSigning, setOpeningContractorSigning] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
+  const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
   const [changeOrdersOpen, setChangeOrdersOpen] = useState(false);
   const [fioOpen, setFioOpen] = useState(false);
@@ -350,9 +362,11 @@ export function ClientDetail() {
     setNotesErr("");
     try {
       setSavingNotes(true);
-      await notesAPI.create({ client_id: id, content: notes.trim() });
+      const noteContent = notes.trim();
+      await notesAPI.create({ client_id: id, content: noteContent });
       setNotes("");
       await loadNotes();
+      activityLogAPI.create({ client_id: id, action_type: "note_added", description: `Note added: "${noteContent.slice(0, 80)}${noteContent.length > 80 ? "…" : ""}"` }).then(loadActivityLog).catch(() => {});
       toast.success("Note saved");
     } catch (error: any) {
       console.error("Failed to save note:", error);
@@ -371,16 +385,17 @@ export function ClientDetail() {
       try {
         setUploadingPhoto(true);
         await photosAPI.upload(id, file);
+        activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
         toast.success(`Uploaded ${file.name}`);
       } catch (error: any) {
         console.error("Failed to upload photo:", error);
         toast.error(`Failed to upload ${file.name}`);
       }
     }
-    
+
     setUploadingPhoto(false);
     loadPhotos();
-    
+
     // Reset input
     e.target.value = "";
   };
@@ -394,6 +409,7 @@ export function ClientDetail() {
       try {
         setUploadingPhoto(true);
         await photosAPI.upload(id, file);
+        activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
         toast.success(`Uploaded ${file.name}`);
       } catch (error: any) {
         toast.error(`Failed to upload ${file.name}`);
@@ -405,7 +421,9 @@ export function ClientDetail() {
 
   const handleDeletePhoto = async (fileId: string, fileUrl: string) => {
     try {
+      const fileName = fileUrl.split("/").pop() ?? "file";
       await photosAPI.delete(fileId, fileUrl);
+      activityLogAPI.create({ client_id: id!, action_type: "file_deleted", description: `File deleted: "${fileName}"` }).then(loadActivityLog).catch(() => {});
       toast.success("File deleted");
       loadPhotos();
     } catch (error: any) {
@@ -535,6 +553,7 @@ export function ClientDetail() {
       await clientsAPI.update(client.id, { lead_source_id: leadSourceId });
       const selected = leadSources.find((ls) => ls.id === leadSourceId);
       setClient({ ...client, lead_source: selected, lead_source_id: leadSourceId });
+      activityLogAPI.create({ client_id: client.id, action_type: "lead_source_changed", description: `Lead source changed to "${selected?.name ?? "unknown"}"` }).then(loadActivityLog).catch(() => {});
       toast.success("Lead source updated");
     } catch (err: any) {
       toast.error(err.message || "Failed to update lead source");
@@ -568,12 +587,28 @@ export function ClientDetail() {
     }
   };
 
+  const handleMarkIndividualAsMet = async (apptId: string) => {
+    try {
+      await appointmentsAPI.markAsMet(apptId);
+      setClientAppointments((prev) =>
+        prev.map((a) => a.id === apptId ? { ...a, is_met: true, met_at: new Date().toISOString() } : a)
+      );
+      activityLogAPI.create({ client_id: client!.id, action_type: "appointment_met", description: "Appointment marked as met" }).then(loadActivityLog).catch(() => {});
+      toast.success("Appointment marked as met!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark appointment as met");
+    }
+  };
+
   const handleAppointmentScheduled = async () => {
-    // Reload client data to get updated appointments
     if (!id) return;
     try {
-      const data = await clientsAPI.getById(id);
+      const [data, appts] = await Promise.all([
+        clientsAPI.getById(id),
+        appointmentsAPI.getByClient(id),
+      ]);
       setClient(data);
+      setClientAppointments(appts);
     } catch (err: any) {
       console.error("Failed to reload client:", err);
     }
@@ -652,7 +687,8 @@ export function ClientDetail() {
   };
 
   const toggleScope = async (value: string) => {
-    const next = selectedScopes.includes(value)
+    const removing = selectedScopes.includes(value);
+    const next = removing
       ? selectedScopes.filter((s) => s !== value)
       : [...selectedScopes, value];
 
@@ -660,6 +696,8 @@ export function ClientDetail() {
 
     try {
       await clientsAPI.update(id!, { scope_of_work: next });
+      const scopeLabel = scopeOptions.find((o) => o.id === value)?.name ?? value;
+      activityLogAPI.create({ client_id: id!, action_type: removing ? "scope_removed" : "scope_added", description: `Scope ${removing ? "removed" : "added"}: "${scopeLabel}"` }).then(loadActivityLog).catch(() => {});
     } catch {
       toast.error("Failed to save scope of work");
     }
@@ -869,7 +907,18 @@ export function ClientDetail() {
               </Select>
             </div>
             <div>
-              <div className="text-sm font-medium">Appointment Status</div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Appointment Status</div>
+                {clientAppointments.length > 0 && (
+                  <button
+                    onClick={() => setAppointmentHistoryOpen(true)}
+                    className="text-xs text-primary font-medium hover:opacity-70 transition-opacity flex items-center gap-1"
+                  >
+                    History ({clientAppointments.length})
+                    <ChevronRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
               <div className="mt-1">
                 {client.appointment_met ? (
                   <Badge className="bg-green-500 text-white text-xs">Met</Badge>
@@ -886,6 +935,14 @@ export function ClientDetail() {
                   <span className="text-sm text-muted-foreground">Not Scheduled</span>
                 )}
               </div>
+              {clientAppointments.length === 0 && (
+                <button
+                  onClick={() => setAppointmentDialogOpen(true)}
+                  className="mt-1.5 text-xs text-primary font-medium hover:opacity-70 transition-opacity"
+                >
+                  + Schedule first appointment
+                </button>
+              )}
             </div>
             {client.last_contact_date && (
               <div>
@@ -926,12 +983,16 @@ export function ClientDetail() {
                   { value: "irrigation",        label: "Irrigation System" },
                 ];
                 const toggleScope = async (value: string) => {
-                  const next = selectedScopes.includes(value)
+                  const removing = selectedScopes.includes(value);
+                  const next = removing
                     ? selectedScopes.filter((s) => s !== value)
                     : [...selectedScopes, value];
                   setSelectedScopes(next);
-                  try { await clientsAPI.update(id!, { scope_of_work: next }); }
-                  catch { toast.error("Failed to save scope of work"); }
+                  try {
+                    await clientsAPI.update(id!, { scope_of_work: next });
+                    const scopeLabel = SCOPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+                    activityLogAPI.create({ client_id: id!, action_type: removing ? "scope_removed" : "scope_added", description: `Scope ${removing ? "removed" : "added"}: "${scopeLabel}"` }).then(loadActivityLog).catch(() => {});
+                  } catch { toast.error("Failed to save scope of work"); }
                 };
                 return (
                   <div className="space-y-2">
@@ -1297,8 +1358,10 @@ export function ClientDetail() {
             <div className="border-t mt-4 pt-3">
               <div className="space-y-1.5 max-h-[180px] overflow-y-auto thin-scroll pr-1">
               {clientProposals.length === 0 ? (
-                <div className="text-center py-3 text-xs text-muted-foreground">
-                  No proposal yet — create one to auto-populate revenue figures
+                <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
+                  <FileText className="h-6 w-6 mb-1.5 opacity-20" />
+                  <p className="text-xs font-medium">No proposal yet</p>
+                  <p className="text-xs mt-0.5">Create one to auto-populate revenue figures.</p>
                 </div>
               ) : (
                 clientProposals
@@ -1488,7 +1551,7 @@ export function ClientDetail() {
                   </div>
 
                   {totalActual === 0 && (
-                    <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet. Live GP will update automatically as you add entries.</p>
+                    <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet — live GP updates automatically as you add receipts.</p>
                   )}
                   {d.isFallbackBudget && (
                     <p className="text-xs text-muted-foreground text-center pb-1">* Material/labor split estimated at 70/30 — product cost breakdown not available in proposal line items.</p>
@@ -1617,7 +1680,11 @@ export function ClientDetail() {
               ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
               if (feedItems.length === 0) return (
-                <div className="text-center py-6 text-sm text-muted-foreground">No notes or files yet</div>
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <StickyNote className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No notes or files yet</p>
+                  <p className="text-xs mt-1">Add a note or upload a file to keep track of client details.</p>
+                </div>
               );
 
               return (
@@ -1677,13 +1744,44 @@ export function ClientDetail() {
               <div className="max-h-52 overflow-y-auto thin-scroll pr-1">
                 {activityLog.map((entry) => {
                   const type = entry.action_type ?? "";
-                  const icon = type.includes("email")      ? <Mail className="h-3.5 w-3.5 text-blue-500" />
-                             : type.includes("appointment") ? <Calendar className="h-3.5 w-3.5 text-purple-500" />
-                             : type.includes("payment")     ? <DollarSign className="h-3.5 w-3.5 text-green-500" />
-                             : type.includes("status")      ? <MoveRight className="h-3.5 w-3.5 text-orange-500" />
-                             : type.includes("docusign")    ? <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
-                             : type.includes("note")        ? <StickyNote className="h-3.5 w-3.5 text-amber-500" />
-                             : <History className="h-3.5 w-3.5 text-muted-foreground" />;
+                  const icon =
+                    type === "appointment_scheduled"     ? <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                    : type === "appointment_met"         ? <CalendarCheck className="h-3.5 w-3.5 text-green-500" />
+                    : type === "email_sent"              ? <Mail className="h-3.5 w-3.5 text-blue-500" />
+                    : type === "docusign_sent"           ? <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
+                    : type === "docusign_completed"      ? <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
+                    : type === "docusign_declined"       ? <XCircle className="h-3.5 w-3.5 text-red-500" />
+                    : type === "note_added"              ? <StickyNote className="h-3.5 w-3.5 text-amber-500" />
+                    : type === "note_deleted"            ? <StickyNote className="h-3.5 w-3.5 text-red-400" />
+                    : type === "file_uploaded"           ? <Upload className="h-3.5 w-3.5 text-cyan-500" />
+                    : type === "file_deleted"            ? <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                    : type === "payment_received"        ? <DollarSign className="h-3.5 w-3.5 text-green-500" />
+                    : type === "payment_milestone_added" ? <CreditCard className="h-3.5 w-3.5 text-green-400" />
+                    : type === "status_changed"          ? <MoveRight className="h-3.5 w-3.5 text-orange-500" />
+                    : type === "pipeline_changed"        ? <ArrowRightLeft className="h-3.5 w-3.5 text-orange-400" />
+                    : type === "scope_added"             ? <Plus className="h-3.5 w-3.5 text-teal-500" />
+                    : type === "scope_removed"           ? <Minus className="h-3.5 w-3.5 text-red-400" />
+                    : type === "lead_source_changed"     ? <MapPin className="h-3.5 w-3.5 text-pink-500" />
+                    : type === "client_updated"          ? <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                    : type === "forecast_updated"        ? <TrendingUp className="h-3.5 w-3.5 text-blue-400" />
+                    : type === "po_created"              ? <ShoppingCart className="h-3.5 w-3.5 text-violet-500" />
+                    : type === "po_status_updated"       ? <Package className="h-3.5 w-3.5 text-violet-400" />
+                    : type === "co_created"              ? <ClipboardEdit className="h-3.5 w-3.5 text-orange-500" />
+                    : type === "co_updated"              ? <ClipboardEdit className="h-3.5 w-3.5 text-yellow-500" />
+                    : type === "co_deleted"              ? <ClipboardEdit className="h-3.5 w-3.5 text-red-400" />
+                    : type === "co_merged"               ? <ClipboardEdit className="h-3.5 w-3.5 text-green-500" />
+                    : type === "receipt_added"           ? <Receipt className="h-3.5 w-3.5 text-emerald-500" />
+                    : type === "receipt_deleted"         ? <Receipt className="h-3.5 w-3.5 text-red-400" />
+                    : type === "fio_created"             ? <HardHat className="h-3.5 w-3.5 text-stone-500" />
+                    : type === "project_created"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
+                    : type === "proposal_created"        ? <FileText className="h-3.5 w-3.5 text-blue-400" />
+                    : type === "proposal_accepted"       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                    : type === "proposal_rejected"       ? <XCircle className="h-3.5 w-3.5 text-red-400" />
+                    : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
+                    : type === "fio_updated"             ? <HardHat className="h-3.5 w-3.5 text-yellow-500" />
+                    : type === "crew_payment_submitted"  ? <DollarSign className="h-3.5 w-3.5 text-amber-500" />
+                    : type.includes("pdf_exported")      ? <FileDown className="h-3.5 w-3.5 text-slate-400" />
+                    : <History className="h-3.5 w-3.5 text-muted-foreground" />;
                   return (
                     <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
                       <div className="shrink-0 mt-0.5">{icon}</div>
@@ -1742,7 +1840,11 @@ export function ClientDetail() {
 
                   {/* Milestones */}
                   {clientPayments.length === 0 ? (
-                    <div className="text-center py-8 text-sm text-muted-foreground">No milestones added yet.</div>
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Calendar className="h-9 w-9 mb-2 opacity-20" />
+                      <p className="text-sm font-medium">No milestones added yet</p>
+                      <p className="text-xs mt-1">Add payment milestones to track project progress.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {clientPayments.map((payment) => {
@@ -1925,7 +2027,7 @@ export function ClientDetail() {
             docusign_envelope_id: envelopeId,
           }).eq("id", client.id);
           setClient((prev: any) => ({ ...prev, docusign_status: "preparing", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
-          loadActivityLog();
+          activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent for signature — envelope: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
         }}
       />
       <AppointmentDialog
@@ -1934,6 +2036,130 @@ export function ClientDetail() {
         client={client}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
+
+      {/* ── Appointment History Sheet ── */}
+      <Sheet open={appointmentHistoryOpen} onOpenChange={setAppointmentHistoryOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+          <SheetHeader className="px-6 py-4 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <CalendarCheck className="h-4 w-4" />
+              Appointment History
+              <span className="ml-1 text-sm font-normal text-muted-foreground">
+                ({clientAppointments.length})
+              </span>
+            </SheetTitle>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            {clientAppointments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                <Calendar className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No appointments yet</p>
+                <p className="text-xs mt-1">Schedule one from the Actions menu.</p>
+              </div>
+            ) : (
+              clientAppointments.map((appt) => {
+                const isPast = appt.appointment_date
+                  ? new Date(appt.appointment_date) < new Date()
+                  : false;
+                const dateLabel = appt.appointment_date
+                  ? new Date(appt.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+                  : "—";
+                const timeRange = [appt.appointment_time, appt.end_time].filter(Boolean).join(" – ");
+
+                return (
+                  <div key={appt.id} className="border rounded-lg p-4 space-y-3">
+                    {/* Header row */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{appt.title || "Appointment"}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {dateLabel}{timeRange ? ` · ${timeRange}` : ""}
+                        </p>
+                        {appt.assigned_to_profile && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Assigned to {appt.assigned_to_profile.first_name} {appt.assigned_to_profile.last_name}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        {appt.is_met ? (
+                          <Badge className="bg-green-500 text-white text-[10px] px-2">Met</Badge>
+                        ) : isPast ? (
+                          <Badge className="bg-amber-500 text-white text-[10px] px-2">Pending Update</Badge>
+                        ) : (
+                          <Badge className="bg-blue-500 text-white text-[10px] px-2">Scheduled</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    {appt.notes && (
+                      <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 italic">
+                        {appt.notes}
+                      </p>
+                    )}
+
+                    {/* Met timestamp */}
+                    {appt.is_met && appt.met_at && (
+                      <p className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Marked as met {new Date(appt.met_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    )}
+
+                    {/* Action row */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {appt.google_meet_link && (
+                        <a
+                          href={appt.google_meet_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline"
+                        >
+                          <Video className="h-3 w-3" />
+                          Join Google Meet
+                        </a>
+                      )}
+                      {appt.google_event_html_link && (
+                        <a
+                          href={appt.google_event_html_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border px-2.5 py-1 rounded-md transition-colors no-underline"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          View in Calendar
+                        </a>
+                      )}
+                      {!appt.is_met && isPast && (
+                        <button
+                          onClick={() => handleMarkIndividualAsMet(appt.id)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          Mark as Met
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t">
+            <button
+              onClick={() => { setAppointmentHistoryOpen(false); setAppointmentDialogOpen(true); }}
+              className="w-full flex items-center justify-center gap-2 text-sm font-medium border rounded-lg py-2.5 hover:bg-accent transition-colors"
+            >
+              <Calendar className="h-4 w-4" />
+              Schedule New Appointment
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
 
       {/* Move to Sold Modal */}
@@ -2023,6 +2249,7 @@ export function ClientDetail() {
                     setClient({ ...client, ...clientForm });
                     setEditClientOpen(false);
                     setEditClientTouched(false);
+                    activityLogAPI.create({ client_id: client.id, action_type: "client_updated", description: `Client info updated` }).then(loadActivityLog).catch(() => {});
                     toast.success("Client updated.");
                   } catch (err: any) {
                     toast.error(err.message || "Failed to update client.");

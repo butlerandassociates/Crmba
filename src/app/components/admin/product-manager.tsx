@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { Plus, Edit, Trash2, Search, Loader2 } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Loader2, Package } from "lucide-react";
 // OLD: imported from mock data — replaced with DB
 // import { products } from "../../data/estimate-templates";
 import { productsAPI } from "../../utils/api";
@@ -658,8 +658,10 @@ export function ProductManager() {
           )}
 
           {!loading && filteredProducts.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No products found</p>
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <Package className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No products found</p>
+              <p className="text-xs mt-1">Try adjusting your search, or add a new product above.</p>
             </div>
           )}
         </CardContent>

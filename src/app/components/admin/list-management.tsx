@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../ui/sheet";
-import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -135,7 +135,11 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">{search ? "No matches." : "No items yet."}</p>
+          <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+            <List className="h-7 w-7 mb-2 opacity-20" />
+            <p className="text-sm font-medium">{search ? "No matches found" : "No items yet"}</p>
+            <p className="text-xs mt-0.5">{search ? "Try a different search term." : "Add your first item above."}</p>
+          </div>
         ) : (
           <div className="flex-1 overflow-y-auto thin-scroll space-y-0.5 max-h-52 pr-1">
             {filtered.map((item) => (
@@ -380,7 +384,11 @@ function ProposalReviewsSection({
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : items.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No reviews yet.</p>
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <MessageSquare className="h-7 w-7 mb-2 opacity-20" />
+              <p className="text-sm font-medium">No reviews yet</p>
+              <p className="text-xs mt-0.5">Reviews will appear here once added.</p>
+            </div>
           ) : (
             <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
               {items.map((item) => (
@@ -584,7 +592,11 @@ function AppointmentTypeSection({
           {loading ? (
             <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">{search ? "No matches." : "No items yet."}</p>
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <List className="h-7 w-7 mb-2 opacity-20" />
+              <p className="text-sm font-medium">{search ? "No matches found" : "No items yet"}</p>
+              <p className="text-xs mt-0.5">{search ? "Try a different search term." : "Add your first item above."}</p>
+            </div>
           ) : (
             <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
               {filtered.map((item) => (
@@ -816,7 +828,11 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
         {loading ? (
           <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">No zip codes added yet.</p>
+          <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+            <MapPin className="h-7 w-7 mb-2 opacity-20" />
+            <p className="text-sm font-medium">{search ? "No matches found" : "No zip codes added yet"}</p>
+            <p className="text-xs mt-0.5">{search ? "Try a different search term." : "Add a zip code to define your service area."}</p>
+          </div>
         ) : (
           <div className="max-h-52 overflow-y-auto thin-scroll space-y-1 pr-1">
             {filtered.map((item) => (
@@ -1175,7 +1191,11 @@ function RolePermissionsCard({
                 </div>
               ))}
               {filteredRoles.length === 0 && (
-                <p className="text-xs text-muted-foreground py-2 px-2">{roleSearch ? "No matches." : "No roles yet."}</p>
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                  <ShieldAlert className="h-7 w-7 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">{roleSearch ? "No matches" : "No roles yet"}</p>
+                  <p className="text-xs mt-0.5">{roleSearch ? "Try a different search." : "Create your first role above."}</p>
+                </div>
               )}
             </div>
           )}
@@ -1324,7 +1344,11 @@ function RolePermissionsCard({
                 );
               })}
               {filteredPerms.length === 0 && (
-                <p className="text-xs text-muted-foreground py-2">{permSearch ? "No matches." : "No permissions yet."}</p>
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                  <Lock className="h-7 w-7 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">{permSearch ? "No matches" : "No permissions yet"}</p>
+                  <p className="text-xs mt-0.5">{permSearch ? "Try a different search." : "Permissions will appear once roles are configured."}</p>
+                </div>
               )}
             </div>
           )}

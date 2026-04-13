@@ -5,7 +5,7 @@ import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
-import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar } from "lucide-react";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users } from "lucide-react";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import {
   Dialog,
@@ -318,8 +318,10 @@ export function ClientsList() {
           </table>
         </div>
         {filterClients(list).length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No clients found</p>
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+            <Users className="h-10 w-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">No clients found</p>
+            <p className="text-xs mt-1">Try adjusting your search or filters.</p>
           </div>
         )}
       </CardContent>

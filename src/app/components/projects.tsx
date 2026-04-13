@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import {
   Plus, Search, Edit, Users, DollarSign, Loader2, Trash2,
+  FolderOpen, TrendingUp, Handshake, Hammer, CheckCircle2, ClipboardList,
 } from "lucide-react";
 import { projectsAPI } from "../utils/api";
 import { Link, useNavigate } from "react-router";
@@ -244,9 +245,11 @@ export function Projects() {
     </div>
   );
 
-  const EmptyState = ({ label }: { label: string }) => (
-    <div className="text-center py-12">
-      <p className="text-muted-foreground">{label}</p>
+  const EmptyState = ({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) => (
+    <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+      <Icon className="h-10 w-10 mb-3 opacity-20" />
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-xs mt-1">{description}</p>
     </div>
   );
 
@@ -342,17 +345,17 @@ export function Projects() {
           </TabsList>
 
           {[
-            { value: "all",       data: filteredProjects,          empty: "No projects found" },
-            { value: "prospect",  data: filterByStatus("prospect"), empty: "No prospect projects" },
-            { value: "selling",   data: filterByStatus("selling"),  empty: "No selling projects" },
-            { value: "sold",      data: filterByStatus("sold"),     empty: "No sold projects" },
-            { value: "active",    data: filterByStatus("active"),   empty: "No active projects" },
-            { value: "completed", data: filterByStatus("completed"),empty: "No completed projects" },
-          ].map(({ value, data, empty }) => (
+            { value: "all",       data: filteredProjects,           icon: FolderOpen,    title: "No projects yet",              description: "Create your first project to get started." },
+            { value: "prospect",  data: filterByStatus("prospect"),  icon: ClipboardList, title: "No prospect projects",         description: "Clients in the prospect stage will appear here." },
+            { value: "selling",   data: filterByStatus("selling"),   icon: TrendingUp,    title: "No projects in selling",       description: "Projects actively being quoted will show here." },
+            { value: "sold",      data: filterByStatus("sold"),      icon: Handshake,     title: "No sold projects",             description: "Projects moved to sold will appear here." },
+            { value: "active",    data: filterByStatus("active"),    icon: Hammer,        title: "No active projects",           description: "Projects currently under construction will show here." },
+            { value: "completed", data: filterByStatus("completed"), icon: CheckCircle2,  title: "No completed projects yet",    description: "Finished projects will be listed here." },
+          ].map(({ value, data, icon, title, description }) => (
             <TabsContent key={value} value={value} className="mt-4">
               <Card>
                 <CardContent className="p-0">
-                  {data.length > 0 ? <ProjectTable projects={data} /> : <EmptyState label={empty} />}
+                  {data.length > 0 ? <ProjectTable projects={data} /> : <EmptyState icon={icon} title={title} description={description} />}
                 </CardContent>
               </Card>
             </TabsContent>

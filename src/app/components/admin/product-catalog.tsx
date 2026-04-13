@@ -5,7 +5,7 @@ import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { Plus, Edit, Eye, EyeOff } from "lucide-react";
+import { Plus, Edit, Eye, EyeOff, Package } from "lucide-react";
 import { productsAPI } from "../../utils/api";
 import {
   Dialog,
@@ -206,7 +206,11 @@ export function ProductCatalog() {
 
       <div className="space-y-4">
         {products.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-8">No products yet. Add your first product above.</p>
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+            <Package className="h-10 w-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">No products yet</p>
+            <p className="text-xs mt-1">Add your first product using the form above.</p>
+          </div>
         )}
         {products.map((product) => {
           const mat = Number(product.material_cost ?? 0);

@@ -32,7 +32,7 @@ const mapProject = (p: any) => ({
 
 const FULL_SELECT = `
   *,
-  client:clients(id, first_name, last_name, company),
+  client:clients(id, first_name, last_name, company, is_discarded),
   project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name),
   foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone),
   sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name)
@@ -46,7 +46,9 @@ export const projectsAPI = {
       .select(FULL_SELECT)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (data ?? []).map(mapProject);
+    return (data ?? [])
+      .filter((p) => !p.client?.is_discarded)
+      .map(mapProject);
   },
 
   /** Single project with full client contact details */

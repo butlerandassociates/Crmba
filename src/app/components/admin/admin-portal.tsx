@@ -56,9 +56,10 @@ function DiscardedClients() {
   );
 
   if (clients.length === 0) return (
-    <div className="text-center py-16">
-      <Archive className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-      <p className="text-sm font-medium text-muted-foreground">No discarded clients</p>
+    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+      <Archive className="h-10 w-10 mb-3 opacity-20" />
+      <p className="text-sm font-medium">No discarded clients</p>
+      <p className="text-xs mt-1">Clients you discard from the pipeline will appear here.</p>
     </div>
   );
 

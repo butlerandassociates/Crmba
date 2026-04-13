@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Badge } from "./ui/badge";
 import { receiptsAPI } from "../api/receipts";
+import { activityLogAPI } from "../api/activity-log";
 import { toast } from "sonner";
 
 interface CostAttributionsSheetProps {
@@ -63,6 +64,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
       setReceipts((prev) => [saved, ...prev]);
       setForm({ ...EMPTY });
       setDroppedFile(null);
+      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_added", description: `Receipt added: "${form.name}" — ${fmt(parseFloat(form.amount))} (${form.category})` }).catch(() => {});
       toast.success("Receipt added");
       onReceiptChange?.();
     } catch (err: any) {
@@ -77,6 +79,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
     try {
       await receiptsAPI.delete(r.id, r.file_url);
       setReceipts((prev) => prev.filter((x) => x.id !== r.id));
+      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_deleted", description: `Receipt deleted: "${r.name}" — ${fmt(r.amount)} (${r.category})` }).catch(() => {});
       toast.success("Receipt deleted");
       onReceiptChange?.();
     } catch {
@@ -175,7 +178,11 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
             {loading ? (
               <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
             ) : receipts.length === 0 ? (
-              <div className="text-center py-12 text-sm text-muted-foreground">No receipts yet</div>
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Receipt className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No receipts yet</p>
+                <p className="text-xs mt-1">Upload receipts to track material and labor costs.</p>
+              </div>
             ) : (
               receipts.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 border rounded-lg p-3 hover:bg-accent/30">

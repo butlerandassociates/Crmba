@@ -198,7 +198,7 @@ export function PipelineForecast() {
             <CardContent className="pt-3 pb-3">
               <p className="text-xs text-muted-foreground">
                 {list.length === 0
-                  ? "No clients in this stage"
+                  ? "No clients here yet"
                   : `${list.length} client${list.length !== 1 ? "s" : ""} — click to view`}
               </p>
             </CardContent>
@@ -217,9 +217,11 @@ export function PipelineForecast() {
           </DialogHeader>
           <DialogBody className="divide-y px-0 py-0">
             {selectedStage?.list.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No clients in this stage
-              </p>
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <Users className="h-8 w-8 mb-2 opacity-20" />
+                <p className="text-sm font-medium">No clients in this stage</p>
+                <p className="text-xs mt-1">Move clients here from the pipeline to track them.</p>
+              </div>
             ) : (
               selectedStage?.list.map((client) => (
                 <Link
@@ -261,13 +263,13 @@ export function PipelineForecast() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
+              <Link to="/financials" className="flex items-center justify-between p-3 bg-accent/50 rounded-lg hover:bg-accent transition-colors no-underline">
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">Total Revenue</span>
                 </div>
                 <span className="font-semibold">{formatCurrency(totalRevenue)}</span>
-              </div>
+              </Link>
 
               <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
                 <div className="flex items-center gap-2">
@@ -299,9 +301,14 @@ export function PipelineForecast() {
         {/* Generating Commissions */}
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base">Generating Commissions</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Generating Commissions</CardTitle>
+              </div>
+              <Link to="/payroll" className="text-xs text-primary hover:opacity-80 font-medium no-underline">
+                View All →
+              </Link>
             </div>
           </CardHeader>
           <CardContent>
@@ -336,8 +343,10 @@ export function PipelineForecast() {
                   );
                 })}
                 {salesReps.length === 0 && (
-                  <div className="text-center py-4 text-sm text-muted-foreground">
-                    No sales reps yet
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    <Award className="h-8 w-8 mb-2 opacity-20" />
+                    <p className="text-sm font-medium">No sales reps yet</p>
+                    <p className="text-xs mt-1">Assign sales reps to clients to track commissions.</p>
                   </div>
                 )}
               </div>
@@ -397,8 +406,10 @@ export function PipelineForecast() {
               ))}
 
               {prospectClients.length === 0 && soldClients.length === 0 && (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  No pending tasks
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <ListTodo className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No pending tasks</p>
+                  <p className="text-xs mt-1">Tasks appear when clients are in prospect or sold stages.</p>
                 </div>
               )}
             </div>
@@ -494,7 +505,11 @@ export function PipelineForecast() {
               )}
 
               {clients.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-4">No recent activity</p>
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Activity className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No recent activity</p>
+                  <p className="text-xs mt-1">Client updates will appear here as they progress.</p>
+                </div>
               )}
 
             </div>

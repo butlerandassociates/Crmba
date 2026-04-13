@@ -219,6 +219,12 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
 
       await activityLogAPI.create({
         client_id: client.id,
+        action_type: "project_created",
+        description: `Project created${financials.total_value ? ` — value: ${fmt(financials.total_value)}` : ""}`,
+      }).catch(() => {});
+
+      await activityLogAPI.create({
+        client_id: client.id,
         action_type: "status_changed",
         description: `Client moved to Sold — proposal converted to project${financials.total_value ? ` (${fmt(financials.total_value)})` : ""}`,
       }).catch(() => {});

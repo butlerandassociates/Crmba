@@ -438,8 +438,10 @@ export function UserManagement() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : users.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          No team members yet. Invite someone to get started.
+        <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+          <Shield className="h-10 w-10 mb-3 opacity-20" />
+          <p className="text-sm font-medium">No team members yet</p>
+          <p className="text-xs mt-1">Use the Invite User button above to add your first team member.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

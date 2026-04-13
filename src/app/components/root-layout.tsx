@@ -125,12 +125,17 @@ export function RootLayout() {
   const fetchAlerts = async () => {
     try {
       const today = new Date().toISOString().split("T")[0];
-      const [clientsRes, estimatesRes, paymentsRes] = await Promise.all([
+      const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const [clientsRes, estimatesRes, paymentsRes, apptRes] = await Promise.all([
         supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
-          .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name))")
+          .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name, is_discarded))")
           .eq("is_paid", false).not("due_date", "is", null).lt("due_date", today),
+        supabase.from("appointments")
+          .select("id, title, appointment_date, is_met, client:clients!appointments_client_id_fkey(id, first_name, last_name, status, is_discarded)")
+          .eq("is_met", false)
+          .lte("appointment_date", cutoff24h),
       ]);
       const clients = clientsRes.data ?? [];
       const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
@@ -161,7 +166,7 @@ export function RootLayout() {
         });
       });
 
-      (paymentsRes.data ?? []).forEach((p: any) => {
+      (paymentsRes.data ?? []).filter((p: any) => !p.project?.client?.is_discarded).forEach((p: any) => {
         const client = p.project?.client;
         alerts.push({
           id: `overdue-${p.id}`, clientId: p.project?.client_id ?? "",
@@ -171,6 +176,23 @@ export function RootLayout() {
           severity: "red",
         });
       });
+
+      // Appointment not followed up — past 24h, client still in prospect
+      (apptRes.data ?? [])
+        .filter((a: any) => a.client && !a.client.is_discarded && a.client.status === "prospect")
+        .forEach((a: any) => {
+          const c = a.client;
+          const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
+          const apptDate = new Date(a.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          alerts.push({
+            id: `appt-followup-${a.id}`,
+            clientId: c.id,
+            clientName,
+            label: "Update Lead Status",
+            description: `Appointment on ${apptDate} — still in Prospect. Move to Selling or update forecast.`,
+            severity: "amber",
+          });
+        });
 
       setNavAlerts(alerts);
 
@@ -200,7 +222,7 @@ export function RootLayout() {
   };
 
   useEffect(() => { fetchAlerts(); }, []);
-  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates"], "nav-alerts");
+  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments"], "nav-alerts");
   useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
 
   // My Profile modal state
@@ -423,7 +445,7 @@ export function RootLayout() {
                 <div className="border-t px-4 py-2.5">
                   <Link
                     to="/pipeline"
-                    className="text-xs text-primary font-medium"
+                    className="text-xs text-primary font-medium no-underline"
                     onClick={() => sessionStorage.setItem("pipeline_scroll", "tasks")}
                   >
                     View all alerts in Stats →

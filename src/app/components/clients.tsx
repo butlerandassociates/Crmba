@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
-import { Plus, Search, Mail, Phone, MapPin, Loader2 } from "lucide-react";
+import { Plus, Search, Mail, Phone, MapPin, Loader2, Users } from "lucide-react";
 import { Link } from "react-router";
 import {
   Dialog,
@@ -255,9 +255,13 @@ export function Clients() {
           </div>
 
           {filteredClients.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">
-                {searchQuery ? "No clients found matching your search." : "No clients yet. Add your first client above."}
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <Users className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">
+                {searchQuery ? "No clients match your search" : "No clients yet"}
+              </p>
+              <p className="text-xs mt-1">
+                {searchQuery ? "Try a different name, email, or phone number." : "Add your first client to get started."}
               </p>
             </div>
           )}

@@ -24,8 +24,10 @@ import {
   Wand2,
   ChevronDown,
   ChevronUp,
+  Package,
+  FolderOpen,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard";
 import { supabase } from "@/lib/supabase";
@@ -308,6 +310,7 @@ export function ProposalDetail() {
         remaining -= pageH;
       }
       pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
+      activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
     } catch (err) {
       console.error("PDF generation error:", err);
       toast.error("Failed to generate PDF — check console for details");
@@ -402,6 +405,7 @@ export function ProposalDetail() {
       await estimatesAPI.updateStatus(proposal.id, "sent");
       setProposal({ ...proposal, status: "sent", sent_at: new Date().toISOString() });
       setShowEmailDialog(false);
+      activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_sent", description: `Proposal sent to client: "${proposal.title}" — ${emailTo}` }).catch(() => {});
       toast.success("Proposal sent to " + clientName);
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");
@@ -780,8 +784,10 @@ export function ProposalDetail() {
               ) : (() => {
                 const products = dbProducts.filter((p: any) => p.category?.name === pickerCategory);
                 if (products.length === 0) return (
-                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                    No products in this category
+                  <div className="flex flex-col items-center justify-center h-full py-12 text-muted-foreground">
+                    <Package className="h-8 w-8 mb-2 opacity-20" />
+                    <p className="text-sm font-medium">No products in this category</p>
+                    <p className="text-xs mt-1">Add products in the Admin Portal to use them here.</p>
                   </div>
                 );
                 const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
