@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2 } from "lucide-react";
-import { Badge } from "./ui/badge";
 import { Link } from "react-router";
 import {
   XAxis,
@@ -86,11 +85,11 @@ export function Dashboard() {
       // Fetch all unpaid payments with due dates
       const { data: paymentsData } = await supabase
         .from("project_payments")
-        .select(`*, project:projects(id, name, client:clients(id, first_name, last_name))`)
+        .select(`*, project:projects(id, name, client:clients(id, first_name, last_name, is_discarded))`)
         .eq("is_paid", false)
         .not("due_date", "is", null)
         .order("due_date", { ascending: true });
-      setCollections(paymentsData || []);
+      setCollections((paymentsData || []).filter((p: any) => !p.project?.client?.is_discarded));
       // Fetch revenue goal from company_settings
       const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").limit(1).maybeSingle();
       if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
@@ -302,16 +301,18 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Across all projects</p>
-          </CardContent>
-        </Card>
+        <Link to="/financials" className="block no-underline">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
+              <p className="text-xs text-muted-foreground mt-1">Tap to view breakdown</p>
+            </CardContent>
+          </Card>
+        </Link>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -406,8 +407,10 @@ export function Dashboard() {
                     </div>
                     );
                   }) : (
-                    <div className="text-xs text-muted-foreground text-center py-2">
-                      No lead sources yet
+                    <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                      <Cloud className="h-7 w-7 mb-1.5 opacity-20" />
+                      <p className="text-xs font-medium">No lead sources yet</p>
+                      <p className="text-xs mt-0.5">Set a lead source when adding clients.</p>
                     </div>
                   )}
                 </div>

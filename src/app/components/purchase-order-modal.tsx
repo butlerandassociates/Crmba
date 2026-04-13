@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, ShoppingCart } from "lucide-react";
-import { purchaseOrdersAPI } from "../utils/api";
+import { purchaseOrdersAPI, activityLogAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -254,6 +254,7 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
     win.document.write(html);
     win.document.close();
     win.onload = () => { win.print(); };
+    activityLogAPI.create({ client_id: project.client?.id, action_type: "po_pdf_exported", description: `Purchase order PDF exported — supplier: ${po.supplier_name}` }).catch(() => {});
   };
 
   const formatDate = (d: string) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
@@ -470,9 +471,10 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
             ) : (
               /* ── PO List ── */
               purchaseOrders.length === 0 ? (
-                <div className="text-center py-12">
-                  <ShoppingCart className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-muted-foreground text-sm">No purchase orders yet</p>
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <ShoppingCart className="h-10 w-10 mb-3 opacity-20" />
+                  <p className="text-sm font-medium">No purchase orders yet</p>
+                  <p className="text-xs mt-1">Track materials and vendor orders for this project.</p>
                   <Button size="sm" className="mt-3" onClick={() => { setCreating(true); setEditingId(null); setForm(emptyForm()); }}>
                     <Plus className="h-4 w-4 mr-1.5" /> Create First PO
                   </Button>

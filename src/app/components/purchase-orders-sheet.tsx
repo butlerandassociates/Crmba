@@ -7,6 +7,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { purchaseOrdersAPI } from "../api/purchase-orders";
+import { activityLogAPI } from "../api/activity-log";
 import { toast } from "sonner";
 
 interface PurchaseOrdersSheetProps {
@@ -181,6 +182,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
           sort_order: i,
         }))
       );
+      activityLogAPI.create({ client_id: client?.id, action_type: "po_created", description: `Purchase order ${sendAfter ? "sent" : "saved as draft"} — supplier: ${supplierName.trim()}` }).catch(() => {});
       toast.success(sendAfter ? "Purchase order sent" : "Purchase order saved as draft");
       resetForm();
       setView("list");
@@ -208,7 +210,9 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
       await purchaseOrdersAPI.update(poId, { status });
       setPos((prev) => prev.map((p) => p.id === poId ? { ...p, status } : p));
       if (selectedPo?.id === poId) setSelectedPo((prev: any) => ({ ...prev, status }));
-      toast.success(`Status updated to ${STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}`);
+      const statusLabel = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label ?? status;
+      activityLogAPI.create({ client_id: client?.id, action_type: "po_status_updated", description: `Purchase order status updated to "${statusLabel}"` }).catch(() => {});
+      toast.success(`Status updated to ${statusLabel}`);
     } catch {
       toast.error("Failed to update status");
     }
@@ -616,7 +620,11 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                       </div>
                     ))}
                     {(selectedPo.items || []).length === 0 && (
-                      <div className="px-3 py-4 text-center text-sm text-muted-foreground">No items</div>
+                      <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                        <Package className="h-7 w-7 mb-1.5 opacity-20" />
+                        <p className="text-sm font-medium">No line items</p>
+                        <p className="text-xs mt-0.5">Edit this PO to add products or materials.</p>
+                      </div>
                     )}
                   </div>
                 </div>

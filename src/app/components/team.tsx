@@ -3,7 +3,7 @@ import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Plus, Mail, Phone, FolderKanban, Loader2, X } from "lucide-react";
+import { Plus, Mail, Phone, FolderKanban, Loader2, X, Users } from "lucide-react";
 import { usersAPI, projectsAPI } from "../utils/api";
 import {
   Dialog,
@@ -154,13 +154,13 @@ export function Team() {
                 Team members are added via the Admin Portal. They'll receive an email invite to set their password and log in.
               </DialogDescription>
             </DialogHeader>
-            <div className="py-2 text-sm text-muted-foreground">
+            <div className="px-6 py-4 text-sm text-muted-foreground">
               Go to <strong>Admin Portal → Users → Invite User</strong> to add a new team member.
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button asChild>
-                <a href="/admin">Go to Admin Portal</a>
+                <a href="/admin" className="no-underline">Go to Admin Portal</a>
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -191,7 +191,11 @@ export function Team() {
                   <span className="ml-2 text-sm font-normal text-muted-foreground">({members.length})</span>
                 </h2>
                 {members.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No {config.label.toLowerCase()}s added yet.</p>
+                  <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                    <Users className="h-8 w-8 mb-2 opacity-20" />
+                    <p className="text-sm font-medium">No {config.label.toLowerCase()}s yet</p>
+                    <p className="text-xs mt-1">Invite team members from the Admin Portal.</p>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {members.map((member) => (
@@ -210,7 +214,7 @@ export function Team() {
                             {member.email && (
                               <div className="flex items-center gap-2 text-muted-foreground">
                                 <Mail className="h-4 w-4" />
-                                <a href={`mailto:${member.email}`} className="hover:text-primary truncate">
+                                <a href={`mailto:${member.email}`} className="hover:text-primary truncate no-underline">
                                   {member.email}
                                 </a>
                               </div>
@@ -218,7 +222,7 @@ export function Team() {
                             {member.phone && (
                               <div className="flex items-center gap-2 text-muted-foreground">
                                 <Phone className="h-4 w-4" />
-                                <a href={`tel:${member.phone}`} className="hover:text-primary">
+                                <a href={`tel:${member.phone}`} className="hover:text-primary no-underline">
                                   {member.phone}
                                 </a>
                               </div>
@@ -256,7 +260,7 @@ export function Team() {
               <DialogTitle>Edit Team Member</DialogTitle>
               <DialogDescription>Update contact details for this team member.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-4 px-6 py-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
                   <Label>First Name <span className="text-destructive">*</span></Label>
@@ -307,7 +311,11 @@ export function Team() {
             {loadingProjects ? (
               <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
             ) : memberProjects.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No projects assigned.</p>
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <FolderKanban className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No projects assigned</p>
+                <p className="text-xs mt-1">This team member hasn't been assigned to any projects yet.</p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {memberProjects.map((p) => (

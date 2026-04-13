@@ -488,9 +488,10 @@ export function EstimateTemplateManager() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : filteredTemplates.length === 0 ? (
-        <div className="text-center py-12">
-          <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">No templates found</p>
+        <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+          <FileText className="h-10 w-10 mb-3 opacity-20" />
+          <p className="text-sm font-medium">No templates found</p>
+          <p className="text-xs mt-1">Create a new template to get started with estimates.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">

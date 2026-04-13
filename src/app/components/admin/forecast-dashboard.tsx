@@ -193,7 +193,11 @@ export function ForecastDashboard() {
         </CardHeader>
         <CardContent className="p-0">
           {stageData.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No clients in pipeline yet.</p>
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No clients in pipeline yet</p>
+              <p className="text-xs mt-1">Add clients to start tracking pipeline stages.</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">

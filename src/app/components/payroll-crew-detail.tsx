@@ -8,7 +8,7 @@ import { useParams, Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { ArrowLeft, Loader2, CheckCircle2, Clock, Wrench } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, Clock, Wrench, ClipboardList } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fioAPI } from "../utils/api";
 import { toast } from "sonner";
@@ -117,7 +117,7 @@ export function PayrollCrewDetail() {
   if (!foreman) {
     return (
       <div className="p-6">
-        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-4">
+        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-4 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
         <p className="text-center text-muted-foreground py-12">Foreman not found.</p>
@@ -144,7 +144,7 @@ export function PayrollCrewDetail() {
 
       {/* Back + Header */}
       <div>
-        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3">
+        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
         <div className="flex items-center gap-3 flex-wrap">
@@ -218,8 +218,10 @@ export function PayrollCrewDetail() {
       {/* FIO List */}
       {filteredFIOs.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground text-sm">
-            No {filter !== "all" ? filter : ""} FIOs found.
+          <CardContent className="py-14 flex flex-col items-center justify-center text-muted-foreground">
+            <ClipboardList className="h-10 w-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">No {filter !== "all" ? filter : ""} FIOs found</p>
+            <p className="text-xs mt-1">Field installation orders will appear here once created.</p>
           </CardContent>
         </Card>
       ) : (
@@ -252,7 +254,7 @@ export function PayrollCrewDetail() {
                       {fio.project?.id && (
                         <Link
                           to={`/projects/${fio.project.id}`}
-                          className="text-xs text-primary hover:opacity-80"
+                          className="text-xs text-primary hover:opacity-80 no-underline"
                         >
                           View Project →
                         </Link>

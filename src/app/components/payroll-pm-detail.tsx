@@ -94,7 +94,7 @@ export function PayrollPMDetail() {
   if (!pm) {
     return (
       <div className="p-6">
-        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-4">
+        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-4 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
         <p className="text-center text-muted-foreground py-12">Profile not found.</p>
@@ -123,7 +123,7 @@ export function PayrollPMDetail() {
 
       {/* Back + Header */}
       <div>
-        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3">
+        <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
         <div className="flex items-center gap-3">
@@ -178,8 +178,10 @@ export function PayrollPMDetail() {
       {/* Commission Installments by Project */}
       {installments.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground text-sm">
-            No commission installments yet. They are auto-created when a client progress payment is marked paid.
+          <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+            <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">No commission installments yet</p>
+            <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
           </CardContent>
         </Card>
       ) : (
@@ -205,7 +207,7 @@ export function PayrollPMDetail() {
                   {proj?.id && (
                     <Link
                       to={`/projects/${proj.id}`}
-                      className="text-xs text-primary hover:opacity-80"
+                      className="text-xs text-primary hover:opacity-80 no-underline"
                     >
                       View Project →
                     </Link>

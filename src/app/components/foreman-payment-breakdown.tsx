@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
-import { FileDown, Loader2 } from "lucide-react";
-import { fioAPI } from "../utils/api";
+import { FileDown, Loader2, HardHat } from "lucide-react";
+import { fioAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
 
 interface ForemanPaymentBreakdownProps {
@@ -105,6 +105,7 @@ export function ForemanPaymentBreakdown({ project }: ForemanPaymentBreakdownProp
     win.document.write(html);
     win.document.close();
     win.onload = () => { win.print(); };
+    activityLogAPI.create({ client_id: project.client?.id, action_type: "crew_pdf_exported", description: `Crew labor schedule PDF exported — project: ${project.name ?? ""}` }).catch(() => {});
   };
 
   if (loading) {
@@ -117,9 +118,10 @@ export function ForemanPaymentBreakdown({ project }: ForemanPaymentBreakdownProp
 
   if (!fio || items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <p className="text-muted-foreground text-sm">No Field Installation Order found for this project.</p>
-        <p className="text-xs text-muted-foreground mt-1">Create an FIO first by clicking the foreman's name above.</p>
+      <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+        <HardHat className="h-10 w-10 mb-3 opacity-20" />
+        <p className="text-sm font-medium">No Field Installation Order found</p>
+        <p className="text-xs mt-1">Create an FIO first by clicking the foreman's name above.</p>
       </div>
     );
   }

@@ -1,5 +1,5 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
-import { Users } from "lucide-react";
+import { Users, FolderOpen } from "lucide-react";
 import { ForemanPaymentBreakdown } from "./foreman-payment-breakdown";
 
 interface CrewPaymentSheetProps {
@@ -27,8 +27,10 @@ export function CrewPaymentSheet({ open, onOpenChange, client, project }: CrewPa
           {project?.id ? (
             <ForemanPaymentBreakdown project={project} />
           ) : (
-            <div className="text-center py-12 text-sm text-muted-foreground">
-              No project linked to this client yet.
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <FolderOpen className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No project linked yet</p>
+              <p className="text-xs mt-1">A project must be created for this client first.</p>
             </div>
           )}
         </div>

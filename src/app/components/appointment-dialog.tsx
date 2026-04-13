@@ -25,7 +25,7 @@ import { toast } from "sonner";
 import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video } from "lucide-react";
 import { format } from "date-fns";
 import { useGoogleCalendar } from "../hooks/use-google-calendar";
-import { clientsAPI, appointmentsAPI, usersAPI } from "../utils/api";
+import { clientsAPI, appointmentsAPI, usersAPI, activityLogAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 
 interface AppointmentDialogProps {
@@ -126,6 +126,13 @@ export function AppointmentDialog({
         google_event_html_link:   createdEvent.htmlLink ?? null,
         email_notification_sent:  !!client?.email,
       });
+
+      // Log appointment scheduled
+      activityLogAPI.create({
+        client_id: client.id,
+        action_type: "appointment_scheduled",
+        description: `${typeLabel} scheduled for ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}${assignedUser ? ` — assigned to ${assignedUser.first_name} ${assignedUser.last_name}` : ""}`,
+      }).catch(() => {});
 
       // Update client record
       await clientsAPI.update(client.id, {

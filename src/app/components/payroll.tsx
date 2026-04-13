@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
-import { Loader2, DollarSign, TrendingUp, Users, Search, ChevronRight, Clock } from "lucide-react";
+import { Loader2, DollarSign, TrendingUp, Users, Search, ChevronRight, Clock, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 
@@ -11,8 +11,9 @@ const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
 
 export function Payroll() {
-  const [activeTab, setActiveTab] = useState<"commissions" | "crews">("commissions");
+  const [activeTab, setActiveTab] = useState<"commissions" | "crews" | "history">("commissions");
   const [search, setSearch] = useState("");
+  const [historyData, setHistoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // PM commissions: grouped by profile
@@ -24,10 +25,78 @@ export function Payroll() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      await Promise.all([fetchPMCommissions(), fetchCrewByForeman()]);
+      await Promise.all([fetchPMCommissions(), fetchCrewByForeman(), fetchHistory()]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchHistory = async () => {
+    // Processed commissions
+    const { data: commissions } = await supabase
+      .from("commission_payments")
+      .select(`
+        id, amount, status, processed_date, created_at,
+        project:projects(id, name, client:clients(first_name, last_name, is_discarded)),
+        profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name)
+      `)
+      .eq("status", "processed")
+      .order("processed_date", { ascending: false })
+      .limit(100);
+
+    // Paid crew FIOs
+    const { data: crewPayments } = await supabase
+      .from("fio_crew_payments")
+      .select(`
+        id, amount_paid, paid_at, notes,
+        fio:field_installation_orders(
+          id,
+          project:projects(id, name, client:clients(first_name, last_name, is_discarded)),
+          foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name)
+        )
+      `)
+      .order("paid_at", { ascending: false })
+      .limit(100);
+
+    const commissionEntries = (commissions ?? [])
+      .filter((c: any) => !c.project?.client?.is_discarded)
+      .map((c: any) => ({
+        id: `cp-${c.id}`,
+        type: "commission" as const,
+        date: c.processed_date ?? c.created_at,
+        amount: parseFloat(c.amount) || 0,
+        projectName: c.project?.name ?? "—",
+        clientName: c.project?.client
+          ? `${c.project.client.first_name ?? ""} ${c.project.client.last_name ?? ""}`.trim()
+          : "—",
+        personName: c.profile
+          ? `${c.profile.first_name ?? ""} ${c.profile.last_name ?? ""}`.trim()
+          : "—",
+        link: `/payroll/pm/${c.profile?.id}`,
+      }));
+
+    const crewEntries = (crewPayments ?? [])
+      .filter((p: any) => !p.fio?.project?.client?.is_discarded)
+      .map((p: any) => ({
+        id: `crew-${p.id}`,
+        type: "crew" as const,
+        date: p.paid_at,
+        amount: parseFloat(p.amount_paid) || 0,
+        projectName: p.fio?.project?.name ?? "—",
+        clientName: p.fio?.project?.client
+          ? `${p.fio.project.client.first_name ?? ""} ${p.fio.project.client.last_name ?? ""}`.trim()
+          : "—",
+        personName: p.fio?.foreman
+          ? `${p.fio.foreman.first_name ?? ""} ${p.fio.foreman.last_name ?? ""}`.trim()
+          : "—",
+        link: p.fio?.foreman?.id ? `/payroll/crew/${p.fio.foreman.id}` : null,
+        notes: p.notes,
+      }));
+
+    const combined = [...commissionEntries, ...crewEntries]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    setHistoryData(combined);
   };
 
   const fetchPMCommissions = async () => {
@@ -36,7 +105,7 @@ export function Payroll() {
       .from("commission_payments")
       .select(`
         id, amount, status, created_at,
-        project:projects(id, name, gross_profit, commission, client:clients(first_name, last_name)),
+        project:projects(id, name, gross_profit, commission, client:clients(first_name, last_name, is_discarded)),
         profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate),
         progress_payment:project_payments!commission_payments_progress_payment_id_fkey(id, label, amount, percentage)
       `)
@@ -45,7 +114,7 @@ export function Payroll() {
 
     // Group by profile
     const byPM: Record<string, any> = {};
-    (data ?? []).forEach((cp: any) => {
+    (data ?? []).filter((cp: any) => !cp.project?.client?.is_discarded).forEach((cp: any) => {
       const pmId = cp.profile?.id;
       if (!pmId) return;
       if (!byPM[pmId]) {
@@ -83,7 +152,7 @@ export function Payroll() {
       .from("field_installation_orders")
       .select(`
         id, status, work_date, created_at,
-        project:projects(id, name, client:clients(first_name, last_name)),
+        project:projects(id, name, client:clients(first_name, last_name, is_discarded)),
         foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name, phone),
         items:field_installation_order_items(id, quantity, labor_cost_per_unit),
         payments:fio_crew_payments(amount_paid)
@@ -93,7 +162,7 @@ export function Payroll() {
 
     // Group by foreman
     const byForeman: Record<string, any> = {};
-    (data ?? []).forEach((fio: any) => {
+    (data ?? []).filter((fio: any) => !fio.project?.client?.is_discarded).forEach((fio: any) => {
       const fId = fio.foreman?.id ?? "unassigned";
       if (!byForeman[fId]) {
         byForeman[fId] = {
@@ -136,6 +205,15 @@ export function Payroll() {
   const filteredForemen = foremanData.filter((f) => {
     if (!f.foreman) return "unassigned".includes(search.toLowerCase());
     return `${f.foreman.first_name} ${f.foreman.last_name}`.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const filteredHistory = historyData.filter((e) => {
+    const q = search.toLowerCase();
+    return (
+      (e.personName  || "").toLowerCase().includes(q) ||
+      (e.clientName  || "").toLowerCase().includes(q) ||
+      (e.projectName || "").toLowerCase().includes(q)
+    );
   });
 
   if (loading) {
@@ -209,6 +287,7 @@ export function Payroll() {
           {[
             { key: "commissions", label: "PM Commissions" },
             { key: "crews", label: "Crew Payments" },
+            { key: "history", label: "Payroll History" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -229,7 +308,11 @@ export function Payroll() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder={activeTab === "commissions" ? "Search PMs…" : "Search foreman…"}
+          placeholder={
+            activeTab === "commissions" ? "Search PMs…"
+            : activeTab === "crews" ? "Search foreman…"
+            : "Search name, client, or project…"
+          }
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -241,10 +324,14 @@ export function Payroll() {
         <div className="space-y-3">
           {filteredPMs.length === 0 && (
             <Card>
-              <CardContent className="py-12 text-center text-muted-foreground text-sm">
-                {pmData.length === 0
-                  ? "No project managers found. Assign the Project Manager role in Team settings."
-                  : "No results match your search."}
+              <CardContent className="py-14 flex flex-col items-center justify-center text-muted-foreground">
+                <Users className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">
+                  {pmData.length === 0 ? "No project managers found" : "No results match your search"}
+                </p>
+                <p className="text-xs mt-1">
+                  {pmData.length === 0 ? "Assign the Project Manager role in Team settings." : "Try a different search term."}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -285,7 +372,7 @@ export function Payroll() {
                     </div>
                     <Link
                       to={`/payroll/pm/${pm.id}`}
-                      className="flex items-center gap-1 text-sm text-primary hover:opacity-80 shrink-0 font-medium"
+                      className="flex items-center gap-1 text-sm text-primary hover:opacity-80 shrink-0 font-medium no-underline"
                     >
                       View Details <ChevronRight className="h-4 w-4" />
                     </Link>
@@ -297,15 +384,87 @@ export function Payroll() {
         </div>
       )}
 
+      {/* ── PAYROLL HISTORY TAB ── */}
+      {activeTab === "history" && (
+        <div className="space-y-3">
+          {historyData.length === 0 ? (
+            <Card>
+              <CardContent className="py-14 text-center">
+                <History className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
+                <p className="text-sm text-muted-foreground font-medium">No payroll history yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Processed commissions and paid crew payments will appear here.</p>
+              </CardContent>
+            </Card>
+          ) : filteredHistory.length === 0 ? (
+            <Card>
+              <CardContent className="py-14 text-center">
+                <Search className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
+                <p className="text-sm text-muted-foreground font-medium">No results match your search</p>
+                <p className="text-xs text-muted-foreground mt-1">Try searching by name, client, or project.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4 px-0">
+                <div className="divide-y">
+                  {filteredHistory.map((entry) => {
+                    const inner = (
+                      <div className="flex items-center justify-between gap-4 px-5 py-3 hover:bg-accent/40 transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                            entry.type === "commission"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-blue-100 text-blue-700"
+                          }`}>
+                            {entry.type === "commission" ? "PM" : "CR"}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{entry.personName}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {entry.type === "commission" ? "Commission" : "Crew Pay"} · {entry.clientName} · {entry.projectName}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-green-600">{fmt(entry.amount)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {entry.date
+                              ? new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                    return entry.link ? (
+                      <Link key={entry.id} to={entry.link} className="block no-underline">{inner}</Link>
+                    ) : (
+                      <div key={entry.id}>{inner}</div>
+                    );
+                  })}
+                </div>
+                <div className="px-5 pt-3 border-t mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{filteredHistory.length} payment{filteredHistory.length !== 1 ? "s" : ""}{search ? ` of ${historyData.length}` : ""}</span>
+                  <span>Total paid: <strong>{fmt(filteredHistory.reduce((s, e) => s + e.amount, 0))}</strong></span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* ── CREW PAYMENTS TAB ── */}
       {activeTab === "crews" && (
         <div className="space-y-3">
           {filteredForemen.length === 0 && (
             <Card>
-              <CardContent className="py-12 text-center text-muted-foreground text-sm">
-                {foremanData.length === 0
-                  ? "No Field Installation Orders found. Create an FIO from a project detail page."
-                  : "No results match your search."}
+              <CardContent className="py-14 flex flex-col items-center justify-center text-muted-foreground">
+                <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">
+                  {foremanData.length === 0 ? "No Field Installation Orders found" : "No results match your search"}
+                </p>
+                <p className="text-xs mt-1">
+                  {foremanData.length === 0 ? "Create an FIO from a project detail page." : "Try a different search term."}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -361,7 +520,7 @@ export function Payroll() {
                     {f.foreman && (
                       <Link
                         to={`/payroll/crew/${f.foreman.id}`}
-                        className="flex items-center gap-1 text-sm text-primary hover:opacity-80 shrink-0 font-medium"
+                        className="flex items-center gap-1 text-sm text-primary hover:opacity-80 shrink-0 font-medium no-underline"
                       >
                         View Details <ChevronRight className="h-4 w-4" />
                       </Link>

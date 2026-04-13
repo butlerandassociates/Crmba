@@ -10,7 +10,7 @@ import {
   SheetDescription,
 } from "./ui/sheet";
 import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft } from "lucide-react";
-import { fioAPI, notificationsAPI } from "../utils/api";
+import { fioAPI, notificationsAPI, activityLogAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
@@ -104,6 +104,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         metadata: { fio_id: fio.id, project_id: project?.id, week_ending_date: weekEndingDate },
       });
 
+      activityLogAPI.create({ client_id: project.client?.id, action_type: "crew_payment_submitted", description: `Crew payment submitted — ${foremanName} on ${projectName}, week ending ${weekEndingDate}` }).catch(() => {});
       toast.success("Payment recorded — submitted to admin for review");
       setCompletionPct({});
       setPayNotes("");
@@ -189,12 +190,14 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       if (fio) {
         await fioAPI.update(fio.id, { work_date: editWorkDate || null });
         await fioAPI.updateItems(fio.id, items);
+        activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `Field Installation Order updated — project: ${project.name ?? ""}` }).catch(() => {});
         toast.success("Field Installation Order updated");
       } else {
         await fioAPI.create(
           { project_id: project.id, foreman_id: project.foreman?.id || undefined, work_date: editWorkDate || undefined },
           items
         );
+        activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_created", description: `Field Installation Order created — project: ${project.name ?? ""}` }).catch(() => {});
         toast.success("Field Installation Order created");
       }
       setView("view");
@@ -365,6 +368,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
       const projectName = project?.name?.replace(/[^a-z0-9]/gi, "_") ?? "FIO";
       pdf.save(`FIO_${projectName}.pdf`);
+      activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_pdf_exported", description: `FIO PDF exported — project: ${project.name ?? ""}` }).catch(() => {});
     } catch (err) {
       console.error(err);
       toast.error("Failed to export PDF");

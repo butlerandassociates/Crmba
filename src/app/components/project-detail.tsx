@@ -1065,8 +1065,10 @@ export function ProjectDetail() {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-sm text-muted-foreground border rounded-md">
-                No receipts added yet. Add your first receipt above.
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground border rounded-md">
+                <Receipt className="h-9 w-9 mb-2 opacity-20" />
+                <p className="text-sm font-medium">No receipts yet</p>
+                <p className="text-xs mt-1">Upload receipts above to track actual costs.</p>
               </div>
             )}
           </div>

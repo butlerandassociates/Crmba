@@ -23,6 +23,15 @@ import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 
 export function Pipeline() {
+  const [clients, setClients] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Smart alerts data
+  const [clientsWithProposals, setClientsWithProposals] = useState<Set<string>>(new Set());
+  const [overduePayments, setOverduePayments] = useState<any[]>([]);
+
   useEffect(() => {
     if (loading) return;
     const target = sessionStorage.getItem("pipeline_scroll");
@@ -37,15 +46,6 @@ export function Pipeline() {
       }
     }
   }, [loading]);
-
-  const [clients, setClients] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Smart alerts data
-  const [clientsWithProposals, setClientsWithProposals] = useState<Set<string>>(new Set());
-  const [overduePayments, setOverduePayments] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -68,14 +68,14 @@ export function Pipeline() {
       const [estimatesRes, paymentsRes] = await Promise.all([
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
-          .select("*, project:projects(id, client_id, name, client:clients(first_name, last_name))")
+          .select("*, project:projects(id, client_id, name, client:clients(first_name, last_name, is_discarded))")
           .eq("is_paid", false)
           .not("due_date", "is", null)
           .lt("due_date", today),
       ]);
 
       setClientsWithProposals(new Set((estimatesRes.data ?? []).map((e: any) => e.client_id)));
-      setOverduePayments(paymentsRes.data ?? []);
+      setOverduePayments((paymentsRes.data ?? []).filter((p: any) => !p.project?.client?.is_discarded));
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -315,8 +315,10 @@ export function Pipeline() {
                   </Link>
                 ))
               ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No clients in this stage</p>
+                  <p className="text-xs mt-1">Move clients here from the pipeline.</p>
                 </div>
               )}
             </div>
@@ -368,8 +370,10 @@ export function Pipeline() {
                   </Link>
                 ))
               ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No clients in this stage</p>
+                  <p className="text-xs mt-1">Move clients here from the pipeline.</p>
                 </div>
               )}
             </div>
@@ -415,8 +419,10 @@ export function Pipeline() {
                   </Link>
                 ))
               ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No clients in this stage</p>
+                  <p className="text-xs mt-1">Move clients here from the pipeline.</p>
                 </div>
               )}
             </div>
@@ -462,8 +468,10 @@ export function Pipeline() {
                   </Link>
                 ))
               ) : (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  No clients in this stage
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm font-medium">No clients in this stage</p>
+                  <p className="text-xs mt-1">Move clients here from the pipeline.</p>
                 </div>
               )}
             </div>
@@ -483,13 +491,13 @@ export function Pipeline() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
+              <Link to="/financials" className="flex items-center justify-between p-3 bg-accent/50 rounded-lg hover:bg-accent transition-colors no-underline">
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">Total Revenue</span>
                 </div>
                 <span className="font-semibold">{formatCurrency(totalRevenue)}</span>
-              </div>
+              </Link>
 
               <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
                 <div className="flex items-center gap-2">
@@ -521,9 +529,14 @@ export function Pipeline() {
         {/* Generating Commissions */}
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base">Generating Commissions</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Generating Commissions</CardTitle>
+              </div>
+              <Link to="/payroll" className="text-xs text-primary hover:opacity-80 font-medium no-underline">
+                View All →
+              </Link>
             </div>
           </CardHeader>
           <CardContent>
@@ -556,8 +569,10 @@ export function Pipeline() {
                   );
                 })}
                 {salesReps.length === 0 && (
-                  <div className="text-center py-4 text-sm text-muted-foreground">
-                    No sales reps yet
+                  <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                    <Award className="h-7 w-7 mb-2 opacity-20" />
+                    <p className="text-xs font-medium">No sales reps yet</p>
+                    <p className="text-xs mt-0.5">Assign sales reps to clients to track commissions.</p>
                   </div>
                 )}
               </div>
@@ -671,7 +686,11 @@ export function Pipeline() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">No upcoming collections</p>
+                  <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
+                    <DollarSign className="h-6 w-6 mb-1 opacity-20" />
+                    <p className="text-xs font-medium">No upcoming collections</p>
+                    <p className="text-xs mt-0.5">Payment milestones will appear here.</p>
+                  </div>
                 )}
               </div>
 
@@ -688,7 +707,11 @@ export function Pipeline() {
                   </div>
                 ))}
                 {soldClients.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No recent activity</p>
+                  <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
+                    <Activity className="h-6 w-6 mb-1.5 opacity-20" />
+                    <p className="text-xs font-medium">No recent activity</p>
+                    <p className="text-xs mt-0.5">Signed contracts will appear here.</p>
+                  </div>
                 )}
               </div>
             </div>

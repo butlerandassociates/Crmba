@@ -7,6 +7,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { changeOrdersAPI } from "../api/change-orders";
+import { activityLogAPI } from "../api/activity-log";
 import { estimatesAPI } from "../api/estimates";
 import { projectPaymentsAPI } from "../api/project-payments";
 import { ChangeOrderExport } from "./change-order-export";
@@ -183,6 +184,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       const freshCo = fresh.find((c) => c.id === selectedCo.id) || { ...selectedCo, ...updated };
       setSelectedCo(freshCo);
       setCos(fresh);
+      activityLogAPI.create({ client_id: client.id, action_type: "co_updated", description: `Change order updated: "${title.trim()}"` }).catch(() => {});
       toast.success("Change order updated");
       setView("detail");
     } catch (err: any) {
@@ -200,6 +202,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       setCos((prev) => prev.filter((c) => c.id !== coId));
       setDeleteConfirm(null);
       if (selectedCo?.id === coId) { setSelectedCo(null); setView("list"); }
+      activityLogAPI.create({ client_id: client.id, action_type: "co_deleted", description: `Change order deleted: "${selectedCo?.title ?? "CO"}"` }).catch(() => {});
       toast.success("Change order deleted");
       onSave?.();
     } catch (err: any) {
@@ -238,6 +241,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
           sort_order: i,
         }))
       );
+      activityLogAPI.create({ client_id: client.id, action_type: "co_created", description: `Change order "${title.trim()}" ${sendToClient ? "sent to client portal" : "saved as draft"}` }).catch(() => {});
       toast.success(sendToClient ? "Change order sent to client portal" : "Change order saved as draft");
       resetForm();
       setView("list");
@@ -267,6 +271,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     try {
       const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
       setMergedTotal(newEstimateTotal);
+      activityLogAPI.create({ client_id: client.id, action_type: "co_merged", description: `Change order "${selectedCo.title}" merged — new contract total: ${formatCurrency(newEstimateTotal)}` }).catch(() => {});
       toast.success(`Merged into proposal. New contract total: ${formatCurrency(newEstimateTotal)}`);
       const merged = { ...selectedCo, status: "merged" };
       setCos((prev) => prev.map((c) => c.id === selectedCo.id ? merged : c));
@@ -294,6 +299,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
           projectPaymentsAPI.update(m.id, { amount: Number(m.newAmount) || m.amount })
         )
       );
+      activityLogAPI.create({ client_id: client.id, action_type: "payment_milestone_added", description: `Payment schedule updated after change order merge` }).catch(() => {});
       toast.success("Payment schedule updated");
       setView("detail");
       onSave?.();
@@ -344,6 +350,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
         remaining -= pageH;
       }
       pdf.save(`ChangeOrder-${selectedCo.title?.replace(/\s+/g, "-") ?? "CO"}.pdf`);
+      activityLogAPI.create({ client_id: client.id, action_type: "co_pdf_exported", description: `Change order PDF exported: "${selectedCo.title}"` }).catch(() => {});
     } catch (err) {
       console.error("PDF generation error:", err);
       toast.error("Failed to generate PDF");
@@ -439,10 +446,10 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
                 ) : cos.length === 0 ? (
-                  <div className="text-center py-16">
-                    <ClipboardEdit className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                    <ClipboardEdit className="h-10 w-10 mb-3 opacity-20" />
                     <p className="text-sm font-medium">No change orders yet</p>
-                    <p className="text-xs text-muted-foreground mt-1">Create your first change order for this project</p>
+                    <p className="text-xs mt-1">Create your first change order for this project.</p>
                     <Button size="sm" className="mt-4" onClick={() => { resetForm(); setView("create"); }}>
                       <Plus className="h-4 w-4 mr-1.5" /> Create First Change Order
                     </Button>
@@ -938,7 +945,11 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                 <div className="space-y-3">
                   <p className="text-sm font-semibold">Payment Milestones</p>
                   {milestones.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No payment milestones found for this project.</p>
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                      <CreditCard className="h-8 w-8 mb-2 opacity-20" />
+                      <p className="text-sm font-medium">No payment milestones</p>
+                      <p className="text-xs mt-1">Milestones are created when a project is moved to sold.</p>
+                    </div>
                   ) : (
                     milestones.map((m, i) => (
                       <div key={m.id} className="border rounded-lg p-4 space-y-2">

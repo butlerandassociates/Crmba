@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { DollarSign, TrendingUp, TrendingDown, Percent, Loader2 } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Percent, Loader2, BarChart2, Award } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import {
@@ -163,7 +163,11 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             {projects.length === 0 ? (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm">No clients yet</div>
+              <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground">
+                <BarChart2 className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No profitability data yet</p>
+                <p className="text-xs mt-1">Data will appear once clients are moved to sold.</p>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={projectProfitability}>
@@ -186,7 +190,11 @@ export function Financials() {
         </CardHeader>
         <CardContent>
           {projects.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No clients found</p>
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <Award className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No commissions yet</p>
+              <p className="text-xs mt-1">Commission data is generated when clients are moved to sold.</p>
+            </div>
           ) : (
             <div className="space-y-4">
               {projects.map((project) => (
@@ -223,42 +231,48 @@ export function Financials() {
           <CardTitle>Client Financial Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left p-3 font-medium">Client</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-right p-3 font-medium">Revenue</th>
-                  <th className="text-right p-3 font-medium">Costs</th>
-                  <th className="text-right p-3 font-medium">Profit</th>
-                  <th className="text-right p-3 font-medium">Margin</th>
-                  <th className="text-right p-3 font-medium">Commission</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((project) => (
-                  <tr key={project.id} className="border-b hover:bg-accent">
-                    <td className="p-3">
-                      <Link to={`/clients/${project.client?.id}`} className="hover:text-primary">
-                        <div className="font-medium">{project.clientName || project.name || "Unnamed"}</div>
-                        <div className="text-sm text-muted-foreground">{project.name}</div>
-                      </Link>
-                    </td>
-                    <td className="p-3">
-                      <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
-                        {(project.status ?? "").replace(/_/g, " ")}
-                      </Badge>
-                    </td>
-                    <td className="text-right p-3 font-medium">{formatCurrency(project.totalValue  || 0)}</td>
-                    <td className="text-right p-3">               {formatCurrency(project.totalCosts  || 0)}</td>
-                    <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
-                    <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
-                    <td className="text-right p-3">{formatCurrency(project.commission  || 0)}</td>
+          {projects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <DollarSign className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No client financial data yet</p>
+              <p className="text-xs mt-1">Financial details will appear here once clients are moved to sold.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-medium">Client</th>
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-right p-3 font-medium">Revenue</th>
+                    <th className="text-right p-3 font-medium">Costs</th>
+                    <th className="text-right p-3 font-medium">Profit</th>
+                    <th className="text-right p-3 font-medium">Margin</th>
+                    <th className="text-right p-3 font-medium">Commission</th>
                   </tr>
-                ))}
-              </tbody>
-              {projects.length > 0 && (
+                </thead>
+                <tbody>
+                  {projects.map((project) => (
+                    <tr key={project.id} className="border-b hover:bg-accent">
+                      <td className="p-3">
+                        <Link to={`/clients/${project.client?.id}`} className="hover:text-primary">
+                          <div className="font-medium">{project.clientName || project.name || "Unnamed"}</div>
+                          <div className="text-sm text-muted-foreground">{project.name}</div>
+                        </Link>
+                      </td>
+                      <td className="p-3">
+                        <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
+                          {(project.status ?? "").replace(/_/g, " ")}
+                        </Badge>
+                      </td>
+                      <td className="text-right p-3 font-medium">{formatCurrency(project.totalValue  || 0)}</td>
+                      <td className="text-right p-3">               {formatCurrency(project.totalCosts  || 0)}</td>
+                      <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
+                      <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
+                      <td className="text-right p-3">{formatCurrency(project.commission  || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
                 <tfoot className="border-t-2">
                   <tr className="font-bold">
                     <td className="p-3" colSpan={2}>Totals</td>
@@ -269,9 +283,9 @@ export function Financials() {
                     <td className="text-right p-3">{formatCurrency(totalCommissions)}</td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
-          </div>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

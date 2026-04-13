@@ -8,6 +8,7 @@ import {
   DollarSign,
   Clock,
   Loader2,
+  FolderOpen,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -114,7 +115,11 @@ export function ClientDashboard() {
 
           <TabsContent value="projects" className="mt-4 space-y-4">
             {projects.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">No projects found.</p>
+              <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                <FolderOpen className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No projects yet</p>
+                <p className="text-xs mt-1">Your projects will appear here once work has begun.</p>
+              </div>
             )}
             {projects.map((project) => (
               <Card key={project.id}>
