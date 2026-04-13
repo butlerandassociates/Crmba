@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Loader2 } from "lucide-react";
-import { projectsAPI, clientsAPI, usersAPI } from "../utils/api";
+import { projectsAPI, clientsAPI, usersAPI, activityLogAPI } from "../utils/api";
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -99,6 +99,8 @@ export function EditProjectDialog({
     setLoading(true);
     setError("");
     try {
+      const newValue = form.total_value ? parseFloat(form.total_value) : 0;
+      const oldValue = project.total_value ?? 0;
       await projectsAPI.update(project.id, {
         name:               form.name.trim(),
         client_id:          form.client_id,
@@ -106,11 +108,16 @@ export function EditProjectDialog({
         description:        form.description.trim() || null,
         start_date:         form.start_date || null,
         end_date:           form.end_date || null,
-        total_value:        form.total_value ? parseFloat(form.total_value) : 0,
+        total_value:        newValue,
         project_manager_id: (form.project_manager_id && form.project_manager_id !== "none") ? form.project_manager_id : null,
         foreman_id:         (form.foreman_id && form.foreman_id !== "none") ? form.foreman_id : null,
         sales_rep_id:       (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null,
       });
+      if (newValue !== oldValue) {
+        activityLogAPI.create({ client_id: form.client_id, action_type: "project_value_updated", description: `Project value updated: $${oldValue.toLocaleString()} → $${newValue.toLocaleString()} — "${form.name.trim()}"` }).catch(() => {});
+      } else {
+        activityLogAPI.create({ client_id: form.client_id, action_type: "project_updated", description: `Project details updated: "${form.name.trim()}"` }).catch(() => {});
+      }
       onOpenChange(false);
       onSaved();
     } catch (err: any) {

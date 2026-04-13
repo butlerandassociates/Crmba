@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package } from "lucide-react";
-import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI } from "../utils/api";
+import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
 import { toast } from "sonner";
@@ -253,13 +253,8 @@ export function ProposalBuilder() {
       const taxableVal = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
       const taxAmountVal = taxableVal * (taxRate / 100);
 
-      // BAD calc for save
-      const badQualifyingVal = lineItems
-        .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
-        .reduce((sum, item) => sum + item.totalPrice, 0);
-      const badPriceVal = badQualifyingVal * 0.015 * 1.5;
-
-      const totalVal = subtotalVal + (badPriceVal > 0 ? badPriceVal : 0) + taxAmountVal;
+      // Use badPrice from component scope — respects manual override if set
+      const totalVal = subtotalVal + (hasBad ? badPrice : 0) + taxAmountVal;
 
       const estimate = {
         client_id: clientId,
@@ -273,7 +268,7 @@ export function ProposalBuilder() {
         total_cost: totalCostVal,
         gross_profit: grossProfitVal,
         profit_margin: profitMarginVal,
-        bad_amount: badPriceVal > 0 ? badPriceVal : null,
+        bad_amount: hasBad && badPrice > 0 ? badPrice : null,
         wizard_inputs: Object.keys(wizardInputs).length > 0 ? wizardInputs : undefined,
       };
 
@@ -294,6 +289,7 @@ export function ProposalBuilder() {
       }));
 
       const saved = await estimatesAPI.create(estimate, items, []);
+      activityLogAPI.create({ client_id: clientId, action_type: "proposal_created", description: `Proposal created: "${proposalTitle.trim()}" — total: $${totalVal.toLocaleString()}` }).catch(() => {});
       toast.success("Proposal saved!");
       navigate(`/proposals/${saved.id}`);
     } catch (err: any) {

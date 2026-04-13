@@ -61,7 +61,7 @@ export const filesAPI = {
 
 /** Alias used by client-detail page for photo uploads */
 export const photosAPI = {
-  upload: (clientId: string, file: File) => filesAPI.upload(clientId, file),
+  upload: (clientId: string, file: File, file_type = "other") => filesAPI.upload(clientId, file, file_type),
   getAll: (clientId: string)            => filesAPI.getByClient(clientId),
   delete: (id: string, url: string)     => filesAPI.delete(id, url),
 };

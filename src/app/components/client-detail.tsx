@@ -40,6 +40,7 @@ import {
   Package,
   ClipboardEdit,
   Archive,
+  AlertCircle,
   Video,
   ExternalLink,
   CalendarCheck,
@@ -65,6 +66,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI} from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
+import { MoveToActiveModal } from "./move-to-active-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -105,6 +107,9 @@ export function ClientDetail() {
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
+  const [activeModalOpen, setActiveModalOpen] = useState(false);
+  const [sellingGateOpen, setSellingGateOpen] = useState(false);
+  const [completedGateOpen, setCompletedGateOpen] = useState(false);
   const [editClientOpen, setEditClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState<any>({});
   const [savingClient, setSavingClient] = useState(false);
@@ -384,7 +389,7 @@ export function ClientDetail() {
     for (const file of files) {
       try {
         setUploadingPhoto(true);
-        await photosAPI.upload(id, file);
+        await photosAPI.upload(id, file, fileCategory);
         activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
         toast.success(`Uploaded ${file.name}`);
       } catch (error: any) {
@@ -408,7 +413,7 @@ export function ClientDetail() {
     for (const file of files) {
       try {
         setUploadingPhoto(true);
-        await photosAPI.upload(id, file);
+        await photosAPI.upload(id, file, fileCategory);
         activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
         toast.success(`Uploaded ${file.name}`);
       } catch (error: any) {
@@ -419,9 +424,8 @@ export function ClientDetail() {
     loadPhotos();
   };
 
-  const handleDeletePhoto = async (fileId: string, fileUrl: string) => {
+  const handleDeletePhoto = async (fileId: string, fileUrl: string, fileName: string) => {
     try {
-      const fileName = fileUrl.split("/").pop() ?? "file";
       await photosAPI.delete(fileId, fileUrl);
       activityLogAPI.create({ client_id: id!, action_type: "file_deleted", description: `File deleted: "${fileName}"` }).then(loadActivityLog).catch(() => {});
       toast.success("File deleted");
@@ -463,7 +467,8 @@ export function ClientDetail() {
         discarded_at: new Date().toISOString(),
         discarded_reason: `${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}`,
       });
-      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded: ${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
+      const discardedOnLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded on ${discardedOnLabel}: ${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
       toast.success("Client discarded. You can revive them anytime.");
       setDiscardOpen(false);
       setDiscardReason("");
@@ -537,7 +542,8 @@ export function ClientDetail() {
         expected_close_date: sellingCloseDate,
       });
       setClient({ ...client, status: "selling", closing_probability: parseFloat(sellingProbability), expected_close_date: sellingCloseDate });
-      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).catch(() => {});
+      const alreadySelling = client.status === "selling";
+      activityLogAPI.create({ client_id: client.id, action_type: alreadySelling ? "forecast_updated" : "status_changed", description: alreadySelling ? `Forecast updated — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` : `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).catch(() => {});
       toast.success("Moved to Selling");
       setSellingModalOpen(false);
     } catch (err: any) {
@@ -784,7 +790,10 @@ export function ClientDetail() {
               Prospect
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => { setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true); }}
+              onClick={() => {
+                if (clientAppointments.length === 0) { setSellingGateOpen(true); return; }
+                setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true);
+              }}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Selling
@@ -796,13 +805,17 @@ export function ClientDetail() {
               Sold
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleStatusChange('active')}
+              onClick={() => setActiveModalOpen(true)}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Active
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleStatusChange('completed')}
+              onClick={() => {
+                const unpaid = clientPayments.filter((p: any) => !p.is_paid);
+                if (unpaid.length > 0) { setCompletedGateOpen(true); return; }
+                handleStatusChange('completed');
+              }}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Completed
@@ -907,42 +920,84 @@ export function ClientDetail() {
               </Select>
             </div>
             <div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Appointment Status</div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-medium">Appointment</div>
                 {clientAppointments.length > 0 && (
                   <button
-                    onClick={() => setAppointmentHistoryOpen(true)}
-                    className="text-xs text-primary font-medium hover:opacity-70 transition-opacity flex items-center gap-1"
+                    onClick={() => setAppointmentDialogOpen(true)}
+                    className="px-2 py-0.5 bg-black text-white text-[11px] font-medium rounded hover:bg-black/80 transition-colors"
                   >
-                    History ({clientAppointments.length})
-                    <ChevronRight className="h-3 w-3" />
+                    + Schedule
                   </button>
                 )}
               </div>
-              <div className="mt-1">
-                {client.appointment_met ? (
-                  <Badge className="bg-green-500 text-white text-xs">Met</Badge>
-                ) : client.appointment_scheduled && client.appointment_date ? (
-                  <div className="space-y-0.5">
-                    <Badge className="bg-blue-500 text-white text-xs">Scheduled</Badge>
-                    <div className="text-xs text-muted-foreground pt-1">
-                      {formatDate(client.appointment_date)}
-                      {client.appointment_date && ` · ${new Date(client.appointment_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
-                      {client.appointment_end_date && ` – ${new Date(client.appointment_end_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+              {clientAppointments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-5 gap-2 text-center rounded-lg border border-dashed">
+                  <Calendar className="h-7 w-7 text-muted-foreground/40" />
+                  <p className="text-xs text-muted-foreground">No appointment scheduled</p>
+                  <button
+                    onClick={() => setAppointmentDialogOpen(true)}
+                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
+                  >
+                    Schedule Appointment
+                  </button>
+                </div>
+              ) : (() => {
+                const latest = clientAppointments[0];
+                const dateLabel = latest.appointment_date
+                  ? new Date(latest.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+                  : "—";
+                const timeRange = [latest.appointment_time, latest.end_time].filter(Boolean).join(" – ");
+                const isPast = latest.appointment_date ? new Date(latest.appointment_date) < new Date() : false;
+                return (
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-semibold">{latest.title || "Appointment"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {dateLabel}{timeRange ? ` · ${timeRange}` : ""}
+                      </p>
+                    </div>
+                    {latest.is_met ? (
+                      <Badge className="bg-green-500 text-white text-[10px] px-2">Met</Badge>
+                    ) : isPast ? (
+                      <Badge className="bg-amber-500 text-white text-[10px] px-2">Pending Update</Badge>
+                    ) : (
+                      <Badge className="bg-blue-500 text-white text-[10px] px-2">Scheduled</Badge>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {latest.google_meet_link && (
+                        <a
+                          href={latest.google_meet_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline"
+                        >
+                          <Video className="h-3 w-3" />
+                          Join Google Meet
+                        </a>
+                      )}
+                      {!latest.is_met && (
+                        <button
+                          onClick={() => handleMarkIndividualAsMet(latest.id)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          Mark as Met
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setAppointmentHistoryOpen(true)}
+                        className="text-xs text-primary font-medium hover:opacity-70 transition-opacity flex items-center gap-1"
+                      >
+                        History ({clientAppointments.length})
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
                     </div>
                   </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Not Scheduled</span>
-                )}
-              </div>
-              {clientAppointments.length === 0 && (
-                <button
-                  onClick={() => setAppointmentDialogOpen(true)}
-                  className="mt-1.5 text-xs text-primary font-medium hover:opacity-70 transition-opacity"
-                >
-                  + Schedule first appointment
-                </button>
-              )}
+                );
+              })()}
             </div>
             {client.last_contact_date && (
               <div>
@@ -1140,7 +1195,8 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent className="pt-0 flex-1 flex flex-col justify-center">
             {client.docusign_status === "completed" ? (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
+                <CheckCircle2 className="h-8 w-8 text-green-500" />
                 <Badge className="bg-green-600 flex items-center gap-1">
                   <CheckCircle2 className="h-3 w-3" /> Signed
                 </Badge>
@@ -1149,50 +1205,44 @@ export function ClientDetail() {
                 )}
               </div>
             ) : client.docusign_status === "preparing" ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge className="bg-blue-500 flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> Review Pending
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">Click Send in DocuSign tab to continue</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={openSenderView}
-                    disabled={openingContractorSigning}
-                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
-                  >
-                    {openingContractorSigning ? (
-                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
-                    ) : (
-                      <><FileSignature className="h-3 w-3" /> Back to Review</>
-                    )}
-                  </button>
-                </div>
+              <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
+                <FileSignature className="h-8 w-8 text-blue-400" />
+                <Badge className="bg-blue-500 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Review Pending
+                </Badge>
+                <span className="text-xs text-muted-foreground">Click Send in DocuSign tab to continue</span>
+                <button
+                  onClick={openSenderView}
+                  disabled={openingContractorSigning}
+                  className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {openingContractorSigning ? (
+                    <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
+                  ) : (
+                    <><FileSignature className="h-3 w-3" /> Back to Review</>
+                  )}
+                </button>
               </div>
             ) : client.docusign_status === "sent_to_client" ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge className="bg-orange-500 flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> Awaiting Signature
-                  </Badge>
-                  {client.docusign_sent_date && (
-                    <span className="text-xs text-muted-foreground">Sent {formatDate(client.docusign_sent_date)}</span>
+              <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
+                <Clock className="h-8 w-8 text-orange-400" />
+                <Badge className="bg-orange-500 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Awaiting Signature
+                </Badge>
+                {client.docusign_sent_date && (
+                  <span className="text-xs text-muted-foreground">Sent {formatDate(client.docusign_sent_date)}</span>
+                )}
+                <button
+                  onClick={refreshDocusignStatus}
+                  disabled={refreshingDocusign}
+                  className="mt-1 px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {refreshingDocusign ? (
+                    <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Checking...</>
+                  ) : (
+                    <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Refresh Status</>
                   )}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={refreshDocusignStatus}
-                    disabled={refreshingDocusign}
-                    className="px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-1.5 w-fit"
-                  >
-                    {refreshingDocusign ? (
-                      <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Checking...</>
-                    ) : (
-                      <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Refresh Status</>
-                    )}
-                  </button>
-                </div>
+                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
@@ -1716,7 +1766,7 @@ export function ClientDetail() {
                             <p className="text-xs text-muted-foreground">{ts}</p>
                           </div>
                         </div>
-                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url)}>
+                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url, item.file_name ?? item.file_url.split("/").pop() ?? "file")}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -1777,7 +1827,10 @@ export function ClientDetail() {
                     : type === "proposal_created"        ? <FileText className="h-3.5 w-3.5 text-blue-400" />
                     : type === "proposal_accepted"       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                     : type === "proposal_rejected"       ? <XCircle className="h-3.5 w-3.5 text-red-400" />
+                    : type === "proposal_deleted"        ? <Trash2 className="h-3.5 w-3.5 text-red-500" />
                     : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
+                    : type === "project_value_updated"   ? <TrendingUp className="h-3.5 w-3.5 text-green-600" />
+                    : type === "project_updated"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
                     : type === "fio_updated"             ? <HardHat className="h-3.5 w-3.5 text-yellow-500" />
                     : type === "crew_payment_submitted"  ? <DollarSign className="h-3.5 w-3.5 text-amber-500" />
                     : type.includes("pdf_exported")      ? <FileDown className="h-3.5 w-3.5 text-slate-400" />
@@ -1995,6 +2048,7 @@ export function ClientDetail() {
                   const updated = await projectPaymentsAPI.update(editPayment.id, { label: editPayment.label, amount: parseFloat(editPayment.amount) || 0, due_date: editPayment.due_date || undefined, notes: editPayment.notes || undefined });
                   setClientPayments((prev) => prev.map((p) => p.id === editPayment.id ? { ...p, ...updated } : p));
                   setEditPaymentOpen(false);
+                  activityLogAPI.create({ client_id: id!, action_type: "payment_milestone_added", description: `Payment milestone updated: "${editPayment.label}" — $${(parseFloat(editPayment.amount) || 0).toLocaleString()}` }).then(loadActivityLog).catch(() => {});
                   toast.success("Milestone updated");
                 } catch (err: any) {
                   toast.error(err.message || "Failed to update");
@@ -2027,7 +2081,9 @@ export function ClientDetail() {
             docusign_envelope_id: envelopeId,
           }).eq("id", client.id);
           setClient((prev: any) => ({ ...prev, docusign_status: "preparing", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
-          activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent for signature — envelope: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+          const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
+          activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent to ${clientLabel}${client.email ? ` (${client.email})` : ""} on ${sentDateLabel} — envelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
         }}
       />
       <AppointmentDialog
@@ -2162,6 +2218,65 @@ export function ClientDetail() {
       </Sheet>
 
 
+      {/* Selling Gate — no appointment warning */}
+      <Dialog open={sellingGateOpen} onOpenChange={setSellingGateOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>No Appointment Scheduled</DialogTitle>
+            <DialogDescription>
+              This client has no appointment on record. It's recommended to schedule a meeting before moving to Selling.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800">Moving to Selling without an appointment means no meeting has been recorded for this client.</p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setSellingGateOpen(false); setAppointmentDialogOpen(true); }}>
+              <Calendar className="h-3.5 w-3.5 mr-1.5" />
+              Schedule Appointment
+            </Button>
+            <Button size="sm" onClick={() => { setSellingGateOpen(false); setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true); }}>
+              Move Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Completed Gate — unpaid milestones warning */}
+      <Dialog open={completedGateOpen} onOpenChange={setCompletedGateOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unpaid Milestones</DialogTitle>
+            <DialogDescription>
+              The following payment milestones have not been marked as paid.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">Mark all payments as paid before completing this job, or proceed if payments were collected outside the system.</p>
+            </div>
+            <div className="space-y-1.5">
+              {clientPayments.filter((p: any) => !p.is_paid).map((p: any) => (
+                <div key={p.id} className="flex items-center justify-between text-sm border rounded px-3 py-2">
+                  <span className="font-medium">{p.label}</span>
+                  <span className="text-muted-foreground">${Number(p.amount).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCompletedGateOpen(false)}>
+              Go Back
+            </Button>
+            <Button size="sm" onClick={() => { setCompletedGateOpen(false); handleStatusChange('completed'); }}>
+              Mark as Completed Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Move to Sold Modal */}
       <MoveToSoldModal
         open={soldModalOpen}
@@ -2170,6 +2285,18 @@ export function ClientDetail() {
         project={clientProjects[0] ?? null}
         onSuccess={() => {
           setClient({ ...client, status: "sold" });
+          loadActivityLog();
+        }}
+      />
+
+      {/* Move to Active Modal */}
+      <MoveToActiveModal
+        open={activeModalOpen}
+        onOpenChange={setActiveModalOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+        onSuccess={() => {
+          setClient({ ...client, status: "active" });
           loadActivityLog();
         }}
       />
@@ -2286,6 +2413,7 @@ export function ClientDetail() {
                 setDeletingProposal(true);
                 try {
                   await estimatesAPI.delete(proposalToDelete.id);
+                  activityLogAPI.create({ client_id: id!, action_type: "proposal_deleted", description: `Proposal deleted: "${proposalToDelete.title}"` }).then(loadActivityLog).catch(() => {});
                   setClientProposals((prev) => prev.filter((p) => p.id !== proposalToDelete.id));
                   setProposalToDelete(null);
                 } finally {

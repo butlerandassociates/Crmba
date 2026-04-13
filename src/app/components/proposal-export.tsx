@@ -59,9 +59,11 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
 
   const subtotal       = proposal?.subtotal ?? groupedItems.flatMap((g) => g.items).reduce((s, i) => s + i.lineTotal, 0);
   const discountAmount = proposal?.discount_amount ?? 0;
+  const badAmount      = proposal?.bad_amount ?? 0;
+  const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
   const taxAmount      = proposal?.tax_amount ?? 0;
   const taxLabel       = proposal?.tax_label ?? "Tax";
-  const total          = subtotal + taxAmount - discountAmount;
+  const total          = subtotal + badAmount + taxAmount - discountAmount;
 
   // Shared page header — black bar with logo + estimate number
   const PageHeader = () => (
@@ -275,6 +277,13 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
                     Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}
                   </p>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>− {formatCurrency(discountAmount)}</p>
+                </div>
+              )}
+              {/* Base, Aggregate & Disposal */}
+              {badAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: B.rowAlt }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{badLabel}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(badAmount)}</p>
                 </div>
               )}
               {/* Tax */}

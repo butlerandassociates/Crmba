@@ -216,8 +216,6 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       const pageW = pdf.internal.pageSize.getWidth();
       const margin = 14;
       const contentW = pageW - margin * 2;
-      const gold = "#C9A84C";
-      const black = "#111111";
       let y = margin;
 
       // ── Header bar ──
@@ -442,6 +440,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                     try {
                       await fioAPI.update(fio.id, { status: "paid", paid_date: new Date().toISOString().split("T")[0] });
                       setFio({ ...fio, status: "paid" });
+                      activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO marked as paid — project: ${project.name ?? ""}` }).catch(() => {});
                       toast.success("FIO marked as paid");
                     } catch (err: any) {
                       toast.error(err.message || "Failed to update status");
