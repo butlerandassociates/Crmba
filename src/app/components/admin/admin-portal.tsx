@@ -10,6 +10,7 @@ import { Badge } from "../ui/badge";
 import { Link } from "react-router";
 import { FileText, List, Archive, Loader2, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { activityLogAPI } from "../../utils/api";
 import { toast } from "sonner";
 
 function DiscardedClients() {
@@ -40,6 +41,8 @@ function DiscardedClients() {
         .update({ is_discarded: false, discarded_at: null, discarded_reason: null })
         .eq("id", client.id);
       if (error) throw error;
+      const revivedOnLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client revived on ${revivedOnLabel} — back in pipeline` }).catch(() => {});
       toast.success(`${client.first_name} ${client.last_name} revived and back in pipeline.`);
       setClients((prev) => prev.filter((c) => c.id !== client.id));
     } catch (err: any) {

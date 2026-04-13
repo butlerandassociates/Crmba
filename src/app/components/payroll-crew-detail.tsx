@@ -10,7 +10,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ArrowLeft, Loader2, CheckCircle2, Clock, Wrench, ClipboardList } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { fioAPI } from "../utils/api";
+import { fioAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
@@ -51,7 +51,7 @@ export function PayrollCrewDetail() {
         .from("field_installation_orders")
         .select(`
           id, status, work_date, notes, created_at, approved_date, paid_date,
-          project:projects(id, name, client:clients(first_name, last_name)),
+          project:projects(id, name, client:clients(id, first_name, last_name)),
           items:field_installation_order_items(id, product_name, unit, quantity, labor_cost_per_unit, notes),
           payments:fio_crew_payments(id, amount_paid, week_ending_date, completion_pct, notes)
         `)
@@ -81,7 +81,9 @@ export function PayrollCrewDetail() {
         approved_by: user?.id,
         approved_date: new Date().toISOString().split("T")[0],
       });
+      const fio = fios.find(f => f.id === fioId);
       setFios(prev => prev.map(f => f.id === fioId ? { ...f, status: "approved" } : f));
+      activityLogAPI.create({ client_id: fio?.project?.client?.id, action_type: "fio_updated", description: `FIO approved — project: ${fio?.project?.name ?? ""}, foreman: ${foreman ? `${foreman.first_name} ${foreman.last_name}` : ""}` }).catch(() => {});
       toast.success("FIO approved");
     } catch (err: any) {
       toast.error(err.message || "Failed to approve");
@@ -97,7 +99,9 @@ export function PayrollCrewDetail() {
         status: "paid",
         paid_date: new Date().toISOString().split("T")[0],
       });
+      const fio = fios.find(f => f.id === fioId);
       setFios(prev => prev.map(f => f.id === fioId ? { ...f, status: "paid" } : f));
+      activityLogAPI.create({ client_id: fio?.project?.client?.id, action_type: "fio_updated", description: `Foreman paid — project: ${fio?.project?.name ?? ""}, foreman: ${foreman ? `${foreman.first_name} ${foreman.last_name}` : ""}, date: ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` }).catch(() => {});
       toast.success("FIO marked as paid");
     } catch (err: any) {
       toast.error(err.message || "Failed to update");

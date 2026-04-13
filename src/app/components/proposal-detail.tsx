@@ -169,10 +169,22 @@ export function ProposalDetail() {
       .insert(newRows)
       .select();
     // Update local state — remove old, add new
-    setEditLineItems((prev) => [
-      ...prev.filter((li) => li.category !== wizardCategory),
-      ...(inserted ?? newRows.map((r, i) => ({ ...r, id: `new-${Date.now()}-${i}` }))),
-    ]);
+    const freshItems = inserted ?? newRows.map((r, i) => ({ ...r, id: `new-${Date.now()}-${i}` }));
+    const updatedItems = [
+      ...editLineItems.filter((li) => li.category !== wizardCategory),
+      ...freshItems,
+    ];
+    setEditLineItems(updatedItems);
+
+    // Immediately sync subtotal + total back to DB so PDF always matches UI
+    const newSubtotal = updatedItems.reduce(
+      (sum, item) => sum + (Number(item.quantity) * Number(item.client_price ?? item.pricePerUnit ?? 0)),
+      0
+    );
+    const newTotal = newSubtotal + (proposal.tax_amount ?? 0) + (proposal.bad_amount ?? 0);
+    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
+
     // Save wizard inputs so we can pre-fill next time
     if (formData) {
       const updatedInputs = { ...(proposal.wizard_inputs ?? {}), [wizardCategory]: formData };
@@ -220,6 +232,7 @@ export function ProposalDetail() {
         total: computedTotal,
         line_items: editLineItems,
       }));
+      activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       toast.success("Proposal saved.");
     } catch (err: any) {
       toast.error(err.message || "Failed to save.");
@@ -548,6 +561,7 @@ export function ProposalDetail() {
                 declined_at: null,
                 decline_reason: null,
               }).eq("id", proposal.id);
+              activityLogAPI.create({ client_id: proposal.client_id, action_type: "status_changed", description: `Proposal reset to Sent: "${proposal.title}" — previous decline reversed` }).catch(() => {});
               setProposal({ ...proposal, status: "sent", declined_at: null, decline_reason: null });
             }}
           >
