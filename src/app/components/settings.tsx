@@ -47,15 +47,6 @@ interface TestResult {
 }
 
 export function Settings() {
-  // DocuSign Settings - Initialize from environment
-  const [docusignConfig, setDocusignConfig] = useState({
-    integrationKey: "f421625b-db8d-421b-9426-bcda6106cd37",
-    secretKey: "851451dd-4ada-4b1b-87b4-0cd9346ba7fc",
-    accountId: "a032d772-e4c6-4a9d-8bbc-dfe2ede347f8e",
-    userId: "f027980a-cd1c-4d5b-8dd8-5339008976f3b",
-    environment: "production",
-  });
-
   // QuickBooks Settings
   const [quickbooksConfig, setQuickbooksConfig] = useState({
     clientId: "",
@@ -69,28 +60,6 @@ export function Settings() {
   const [showSecrets, setShowSecrets] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-
-  const handleDocuSignSave = async () => {
-    setSaving(true);
-    setSaveStatus("idle");
-
-    try {
-      // In production, these would be saved to Supabase secrets
-      // For now, we'll simulate the save
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Store in localStorage for demo purposes
-      localStorage.setItem("docusign_config", JSON.stringify(docusignConfig));
-
-      setSaveStatus("success");
-      setTimeout(() => setSaveStatus("idle"), 3000);
-    } catch (error) {
-      console.error("Error saving DocuSign config:", error);
-      setSaveStatus("error");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleQuickBooksSave = async () => {
     setSaving(true);
@@ -144,35 +113,6 @@ export function Settings() {
     }
   };
 
-  const handleConnectDocuSign = () => {
-    // Build the DocuSign OAuth URL directly in the frontend
-    const integrationKey = docusignConfig.integrationKey;
-    const environment = docusignConfig.environment === "demo" ? "demo" : "account";
-    const baseUrl = `https://account-d.docusign.com`; // Always use demo for now
-    
-    const redirectUri = `${window.location.origin}/docusign-callback`;
-    
-    const authUrl = new URL(`${baseUrl}/oauth/auth`);
-    authUrl.searchParams.append("response_type", "code");
-    authUrl.searchParams.append("scope", "signature impersonation");
-    authUrl.searchParams.append("client_id", integrationKey);
-    authUrl.searchParams.append("redirect_uri", redirectUri);
-    
-    console.log("Opening DocuSign OAuth URL:", authUrl.toString());
-    
-    // Open OAuth flow in a popup window
-    const width = 600;
-    const height = 700;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    
-    window.open(
-      authUrl.toString(),
-      "DocuSign OAuth",
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
-    );
-  };
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
@@ -213,118 +153,39 @@ export function Settings() {
                     Configure your DocuSign integration to send documents for e-signature
                   </CardDescription>
                 </div>
-                <Badge variant="outline" className="ml-4">
-                  {docusignConfig.environment === "demo" ? "Sandbox" : "Production"}
-                </Badge>
+                <Badge variant="outline" className="ml-4">Production</Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Environment Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="ds-environment">Environment</Label>
-                <Select
-                  value={docusignConfig.environment}
-                  onValueChange={(value) =>
-                    setDocusignConfig({ ...docusignConfig, environment: value })
-                  }
-                >
-                  <SelectTrigger id="ds-environment">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="demo">Sandbox (Testing)</SelectItem>
-                    <SelectItem value="production">Production (Live)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Start with Sandbox for testing, then switch to Production when ready
+              {/* JWT Private Key explanation */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                <p className="text-sm font-semibold text-blue-900">Authentication: JWT Grant (Private Key)</p>
+                <p className="text-xs text-blue-800">
+                  This integration uses <strong>DocuSign JWT Grant</strong> authentication. The edge function automatically generates short-lived access tokens using your RSA private key — no manual token management needed.
                 </p>
               </div>
 
-              {/* Integration Key */}
-              <div className="space-y-2">
-                <Label htmlFor="ds-integration-key">Integration Key (Client ID)</Label>
-                <Input
-                  id="ds-integration-key"
-                  type={showSecrets ? "text" : "password"}
-                  placeholder="e.g., 12345678-abcd-1234-abcd-123456789012"
-                  value={docusignConfig.integrationKey}
-                  onChange={(e) =>
-                    setDocusignConfig({ ...docusignConfig, integrationKey: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Found in DocuSign Admin → Apps and Keys → Integration Keys
+              {/* Supabase Secrets required */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                <p className="text-sm font-semibold text-amber-900">Required Supabase Secrets</p>
+                <p className="text-xs text-amber-800">
+                  All DocuSign credentials are stored server-side in Supabase Secrets — never in the browser. Ensure these are set in your Supabase project:
+                </p>
+                <div className="text-xs font-mono space-y-1 bg-amber-100 rounded p-2 text-amber-900">
+                  <div>DOCUSIGN_INTEGRATION_KEY &nbsp;— your app's Client ID</div>
+                  <div>DOCUSIGN_USER_ID &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— API username (impersonation user)</div>
+                  <div>DOCUSIGN_ACCOUNT_ID &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— your DocuSign account ID</div>
+                  <div>DOCUSIGN_PRIVATE_KEY &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— RSA private key (PEM format)</div>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Supabase Dashboard → Project Settings → Edge Functions → Secrets
                 </p>
               </div>
 
-              {/* Secret Key */}
-              <div className="space-y-2">
-                <Label htmlFor="ds-secret-key">Secret Key</Label>
-                <Input
-                  id="ds-secret-key"
-                  type={showSecrets ? "text" : "password"}
-                  placeholder="Enter your secret key"
-                  value={docusignConfig.secretKey}
-                  onChange={(e) =>
-                    setDocusignConfig({ ...docusignConfig, secretKey: e.target.value })
-                  }
-                />
-              </div>
-
-              {/* Account ID */}
-              <div className="space-y-2">
-                <Label htmlFor="ds-account-id">Account ID</Label>
-                <Input
-                  id="ds-account-id"
-                  placeholder="e.g., 12345678-1234-1234-1234-123456789012"
-                  value={docusignConfig.accountId}
-                  onChange={(e) =>
-                    setDocusignConfig({ ...docusignConfig, accountId: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Found in DocuSign Admin → Account ID
-                </p>
-              </div>
-
-              {/* User ID */}
-              <div className="space-y-2">
-                <Label htmlFor="ds-user-id">User ID (API Username)</Label>
-                <Input
-                  id="ds-user-id"
-                  placeholder="e.g., 12345678-1234-1234-1234-123456789012"
-                  value={docusignConfig.userId}
-                  onChange={(e) =>
-                    setDocusignConfig({ ...docusignConfig, userId: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Found in DocuSign → Click your profile picture → My Preferences → API Username
-                </p>
-              </div>
-
-              {/* Show/Hide Secrets Toggle */}
-              <div className="flex items-center gap-2">
+              {/* Test Connection */}
+              <div>
                 <Button
                   variant="outline"
-                  size="sm"
-                  onClick={() => setShowSecrets(!showSecrets)}
-                >
-                  {showSecrets ? (
-                    <>
-                      <EyeOff className="h-4 w-4 mr-2" />
-                      Hide Secrets
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-4 w-4 mr-2" />
-                      Show Secrets
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="default"
                   size="sm"
                   onClick={handleTestConnection}
                   disabled={testing}
@@ -341,6 +202,9 @@ export function Settings() {
                     </>
                   )}
                 </Button>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Verifies that the edge function can authenticate with DocuSign using the private key
+                </p>
               </div>
 
               {/* Test Results */}
@@ -449,186 +313,31 @@ export function Settings() {
                 </div>
               )}
 
-              {/* Setup Instructions */}
-              <div className="space-y-4">
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h3 className="text-sm font-semibold mb-3 text-blue-900 flex items-center gap-2">
-                    <FileSignature className="h-5 w-5" />
-                    Generate Access Token (Recommended - 2 Minutes)
-                  </h3>
-                  <div className="space-y-3 text-sm text-blue-900">
-                    <div className="p-3 bg-white rounded border border-blue-200">
-                      <div className="font-semibold mb-2">Step 1: Open Developer Console</div>
-                      <a 
-                        href="https://admindemo.docusign.com/apps-and-keys" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-xs"
-                      >
-                        → Click here to open DocuSign Apps & Keys
-                      </a>
-                    </div>
-                    
-                    <div className="p-3 bg-white rounded border border-blue-200">
-                      <div className="font-semibold mb-2">Step 2: Generate Token</div>
-                      <ol className="text-xs space-y-1 list-decimal list-inside text-blue-800">
-                        <li>Scroll down to find your Integration Key (starts with f4216125b...)</li>
-                        <li>Click <strong>"Actions"</strong> → <strong>"Edit"</strong></li>
-                        <li>Scroll down to <strong>"Authentication"</strong> section</li>
-                        <li>Click <strong>"Generate Token"</strong> or <strong>"Add Secret Key"</strong> if shown</li>
-                        <li>Select scope: <strong>"signature"</strong></li>
-                        <li>Click <strong>"Generate"</strong></li>
-                        <li>Copy the token (it's valid for 8 hours)</li>
-                      </ol>
-                    </div>
-
-                    <div className="p-3 bg-white rounded border border-blue-200">
-                      <div className="font-semibold mb-2">Step 3: Save to Supabase</div>
-                      <p className="text-xs text-blue-800 mb-2">
-                        Copy the token and add it as a Supabase secret named:
-                      </p>
-                      <code className="bg-blue-100 px-2 py-1 rounded text-xs font-mono">
-                        DOCUSIGN_ACCESS_TOKEN
+              {/* JWT private key setup guide */}
+              <div className="space-y-3 pt-2 border-t">
+                <h3 className="text-sm font-semibold">Initial setup checklist</h3>
+                <div className="text-xs text-muted-foreground space-y-2">
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold min-w-5">1.</span>
+                    <span>In DocuSign Admin → Apps and Keys → your app → <strong>Actions → Edit</strong> → ensure <strong>RSA Keypair</strong> is generated and the public key is uploaded</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold min-w-5">2.</span>
+                    <span>Grant <strong>impersonation consent</strong> for your User ID — visit:<br/>
+                      <code className="bg-muted px-1 py-0.5 rounded break-all">
+                        https://account-d.docusign.com/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=YOUR_INTEGRATION_KEY&redirect_uri=https://www.docusign.com
                       </code>
-                    </div>
-
-                    <div className="p-3 bg-yellow-50 border border-yellow-300 rounded">
-                      <p className="text-xs text-yellow-900">
-                        <strong>⚠️ Note:</strong> Tokens expire after 8 hours. For production, you'll need to implement refresh tokens or use JWT authentication.
-                      </p>
-                    </div>
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold min-w-5">3.</span>
+                    <span>Add all four secrets to Supabase (listed above) — the edge function handles token generation automatically from there</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold min-w-5">4.</span>
+                    <span>Click <strong>Test Connection</strong> to confirm everything is working</span>
                   </div>
                 </div>
-
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                  <h3 className="text-sm font-semibold mb-3 text-gray-900 flex items-center gap-2">
-                    <FileSignature className="h-5 w-5" />
-                    Alternative: OAuth Flow (Requires Additional Setup)
-                  </h3>
-                  <p className="text-xs text-gray-700 mb-3">
-                    To use the one-click OAuth button, you need to first register the redirect URI in DocuSign:
-                  </p>
-                  <ol className="text-xs text-gray-700 space-y-2 list-decimal list-inside mb-3">
-                    <li>Go to <a href="https://admindemo.docusign.com/apps-and-keys" target="_blank" className="text-blue-600 hover:underline">DocuSign Apps & Keys</a></li>
-                    <li>Find your Integration Key → Click <strong>Actions → Edit</strong></li>
-                    <li>Scroll to <strong>"Redirect URIs"</strong> section</li>
-                    <li>Click <strong>"Add URI"</strong></li>
-                    <li>Enter: <code className="bg-gray-200 px-1 py-0.5 rounded font-mono text-xs">{window.location.origin}/docusign-callback</code></li>
-                    <li>Click <strong>Save</strong></li>
-                    <li>Then click the button below</li>
-                  </ol>
-                  <Button 
-                    onClick={handleConnectDocuSign}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    <FileSignature className="h-5 w-5 mr-2" />
-                    Connect DocuSign Account (OAuth)
-                  </Button>
-                  <p className="text-xs text-gray-600 mt-2">
-                    Only use this after adding the redirect URI above.
-                  </p>
-                </div>
-
-                <div className="pt-4 border-t">
-                  <h3 className="text-sm font-semibold mb-2">Current Configuration</h3>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>✅ Integration Key configured</p>
-                    <p>✅ Account ID configured</p>
-                    <p>✅ User ID configured</p>
-                    <p>✅ Access Token configured</p>
-                    <p>✅ Environment: Demo/Sandbox</p>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t">
-                  <h3 className="text-sm font-semibold mb-3">Your Configuration Details</h3>
-                  <div className="space-y-3 text-xs">
-                    <div className="bg-muted p-3 rounded">
-                      <div className="font-semibold mb-1 text-muted-foreground">Integration Key</div>
-                      <code className="text-xs">f4216125b-db8d-421b-9426-bcda6106cd37</code>
-                    </div>
-                    <div className="bg-muted p-3 rounded">
-                      <div className="font-semibold mb-1 text-muted-foreground">API Account ID</div>
-                      <code className="text-xs">407c22f3-9f3c-403b-8c4c-6be28fe3c3c0</code>
-                    </div>
-                    <div className="bg-muted p-3 rounded">
-                      <div className="font-semibold mb-1 text-muted-foreground">User ID</div>
-                      <code className="text-xs">oco7b4f9-6c85-43b6-9f4c-9237e452587c</code>
-                    </div>
-                    <div className="bg-muted p-3 rounded">
-                      <div className="font-semibold mb-1 text-muted-foreground">Account Base URI</div>
-                      <code className="text-xs">https://demo.docusign.net</code>
-                    </div>
-                    <div className="bg-muted p-3 rounded">
-                      <div className="font-semibold mb-1 text-muted-foreground">Template ID (Pre-configured)</div>
-                      <code className="text-xs">2237778a-4e23-432b-9d5f-8d62074bfd89</code>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t space-y-3">
-                  <h3 className="text-sm font-semibold">How to Generate Access Token</h3>
-                  <div className="text-xs text-muted-foreground space-y-2">
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">1.</span>
-                      <span>Go to <a href="https://developers.docusign.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">DocuSign Developer Portal</a></span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">2.</span>
-                      <span>Click on your app: <strong>"Butler CRM Integration"</strong></span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">3.</span>
-                      <span>Go to <strong>Authentication → Token Generator</strong></span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">4.</span>
-                      <span>Select scope: <strong>"signature"</strong> and click Generate</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">5.</span>
-                      <span>Copy the generated token (valid for 8 hours)</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold min-w-6">6.</span>
-                      <span>Store it in Supabase Secrets as <code className="bg-muted px-1 py-0.5 rounded">DOCUSIGN_ACCESS_TOKEN</code></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Save Status */}
-              {saveStatus === "success" && (
-                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  <span className="text-sm text-green-800 font-medium">
-                    Configuration saved successfully!
-                  </span>
-                </div>
-              )}
-
-              {saveStatus === "error" && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <AlertCircle className="h-5 w-5 text-red-600" />
-                  <span className="text-sm text-red-800 font-medium">
-                    Failed to save configuration. Please try again.
-                  </span>
-                </div>
-              )}
-
-              {/* Save Button */}
-              <div className="flex justify-end pt-4 border-t">
-                <Button onClick={handleDocuSignSave} disabled={saving}>
-                  {saving ? (
-                    <>Saving...</>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save DocuSign Configuration
-                    </>
-                  )}
-                </Button>
               </div>
             </CardContent>
           </Card>

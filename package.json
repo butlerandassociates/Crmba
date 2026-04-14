@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "test:qa": "playwright test tests/qa-full-audit.spec.ts",
+    "test:qa:headless": "playwright test tests/qa-full-audit.spec.ts --headed=false",
+    "test:report": "node tests/generate-report.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -69,6 +72,7 @@
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "4.1.12",
     "@types/react": "18.3.1",
     "@types/react-dom": "18.3.1",

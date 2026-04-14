@@ -22,12 +22,12 @@ import {
   Briefcase,
   ListTodo,
   Clock,
-  Loader2,
   Building2,
   Award,
   Bell,
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
+import { PageLoader, SkeletonCards, SkeletonTable } from "./ui/page-loader";
 
 const clientDisplayName = (c: any) =>
   `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || c.company || c.email || "—";
@@ -104,8 +104,14 @@ export function PipelineForecast() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-4 space-y-4">
+        <div>
+          <div className="h-7 w-64 bg-gray-200 rounded animate-pulse" />
+          <div className="h-4 w-80 bg-gray-100 rounded animate-pulse mt-2" />
+        </div>
+        <SkeletonCards count={4} />
+        <SkeletonTable rows={6} cols={5} />
+        <PageLoader title="Loading pipeline & forecast…" description="Calculating deal stages, weighted revenue & commission forecasts" />
       </div>
     );
   }
@@ -217,10 +223,10 @@ export function PipelineForecast() {
           </DialogHeader>
           <DialogBody className="divide-y px-0 py-0">
             {selectedStage?.list.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <div className="flex flex-col items-center justify-center py-10">
                 <Users className="h-8 w-8 mb-2 opacity-20" />
                 <p className="text-sm font-medium">No clients in this stage</p>
-                <p className="text-xs mt-1">Move clients here from the pipeline to track them.</p>
+                <p className="text-xs mt-1 text-muted-foreground">Move clients here from the pipeline to track them.</p>
               </div>
             ) : (
               selectedStage?.list.map((client) => (
@@ -228,7 +234,7 @@ export function PipelineForecast() {
                   key={client.id}
                   to={`/clients/${client.id}`}
                   onClick={() => setSelectedStage(null)}
-                  className="flex items-center justify-between p-3 hover:bg-accent transition-colors group"
+                  className="flex items-center justify-between p-3 hover:bg-accent transition-colors group no-underline"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -287,13 +293,13 @@ export function PipelineForecast() {
                 <span className="font-semibold">{activeProjects}</span>
               </div>
 
-              <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
+              <Link to="/team" className="flex items-center justify-between p-3 bg-accent/50 rounded-lg hover:bg-accent transition-colors no-underline">
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">Team Members</span>
                 </div>
                 <span className="font-semibold">{totalTeamMembers}</span>
-              </div>
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -343,10 +349,10 @@ export function PipelineForecast() {
                   );
                 })}
                 {salesReps.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center py-8">
                     <Award className="h-8 w-8 mb-2 opacity-20" />
                     <p className="text-sm font-medium">No sales reps yet</p>
-                    <p className="text-xs mt-1">Assign sales reps to clients to track commissions.</p>
+                    <p className="text-xs mt-1 text-muted-foreground">Assign sales reps to clients to track commissions.</p>
                   </div>
                 )}
               </div>
@@ -371,7 +377,7 @@ export function PipelineForecast() {
                 <Link
                   key={client.id}
                   to={`/clients/${client.id}`}
-                  className="block p-3 border rounded-lg hover:bg-accent transition-colors"
+                  className="block p-3 border rounded-lg hover:bg-accent transition-colors no-underline"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -390,7 +396,7 @@ export function PipelineForecast() {
                 <Link
                   key={client.id}
                   to={`/clients/${client.id}`}
-                  className="block p-3 border rounded-lg hover:bg-accent transition-colors"
+                  className="block p-3 border rounded-lg hover:bg-accent transition-colors no-underline"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -406,10 +412,10 @@ export function PipelineForecast() {
               ))}
 
               {prospectClients.length === 0 && soldClients.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center py-8">
                   <ListTodo className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No pending tasks</p>
-                  <p className="text-xs mt-1">Tasks appear when clients are in prospect or sold stages.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">Tasks appear when clients are in prospect or sold stages.</p>
                 </div>
               )}
             </div>
@@ -441,7 +447,7 @@ export function PipelineForecast() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="flex items-center gap-2 text-xs p-2 bg-accent/50 rounded hover:bg-accent transition-colors"
+                        className="flex items-center gap-2 text-xs p-2 bg-accent/50 rounded hover:bg-accent transition-colors no-underline"
                       >
                         <Users className="h-3 w-3 text-blue-600 flex-shrink-0" />
                         <span className="font-medium">{clientDisplayName(client)}</span>
@@ -469,7 +475,7 @@ export function PipelineForecast() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="flex items-center gap-2 text-xs p-2 bg-orange-50 border border-orange-100 rounded hover:bg-orange-100 transition-colors"
+                        className="flex items-center gap-2 text-xs p-2 bg-orange-50 border border-orange-100 rounded hover:bg-orange-100 transition-colors no-underline"
                       >
                         <Calendar className="h-3 w-3 text-orange-600 flex-shrink-0" />
                         <span className="font-medium">{clientDisplayName(client)}</span>
@@ -490,7 +496,7 @@ export function PipelineForecast() {
                     <Link
                       key={client.id}
                       to={`/clients/${client.id}`}
-                      className="flex items-center gap-2 text-xs p-2 bg-green-50 border border-green-100 rounded hover:bg-green-100 transition-colors"
+                      className="flex items-center gap-2 text-xs p-2 bg-green-50 border border-green-100 rounded hover:bg-green-100 transition-colors no-underline"
                     >
                       <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
                       <span className="font-medium">{clientDisplayName(client)}</span>
@@ -505,10 +511,10 @@ export function PipelineForecast() {
               )}
 
               {clients.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center py-8">
                   <Activity className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No recent activity</p>
-                  <p className="text-xs mt-1">Client updates will appear here as they progress.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">Client updates will appear here as they progress.</p>
                 </div>
               )}
 

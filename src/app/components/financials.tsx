@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { DollarSign, TrendingUp, TrendingDown, Percent, Loader2, BarChart2, Award } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Percent, BarChart2, Award } from "lucide-react";
+import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import {
@@ -43,8 +44,10 @@ export function Financials() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 space-y-6">
+        <SkeletonCards count={4} />
+        <SkeletonChart height={260} />
+        <PageLoader title="Building your financial overview…" description="Calculating revenue, costs, gross profit & margins across all projects" className="min-h-[8vh]" />
       </div>
     );
   }
@@ -201,7 +204,7 @@ export function Financials() {
                 <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <Link to={`/clients/${project.client?.id}`} className="font-semibold hover:text-primary">
+                      <Link to={`/clients/${project.client?.id}`} className="font-semibold hover:text-primary no-underline">
                         {project.clientName || project.name || "Unnamed"}
                       </Link>
                       <Badge className={STATUS_COLORS[project.status] ?? "bg-gray-500"}>
@@ -255,7 +258,7 @@ export function Financials() {
                   {projects.map((project) => (
                     <tr key={project.id} className="border-b hover:bg-accent">
                       <td className="p-3">
-                        <Link to={`/clients/${project.client?.id}`} className="hover:text-primary">
+                        <Link to={`/clients/${project.client?.id}`} className="hover:text-primary no-underline">
                           <div className="font-medium">{project.clientName || project.name || "Unnamed"}</div>
                           <div className="text-sm text-muted-foreground">{project.name}</div>
                         </Link>

@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { ProposalExport } from "./proposal-export";
+import { PageLoader, SkeletonCards } from "./ui/page-loader";
 
 export function ProposalDetail() {
   const { id } = useParams();
@@ -141,14 +142,21 @@ export function ProposalDetail() {
 
   const handleWizardComplete = async (items: any[], formData?: Record<string, any>) => {
     if (!proposal?.id) return;
-    // Delete old items for this category from DB
+    // Delete old items for this category — must succeed before inserting
     const oldIds = editLineItems
-      .filter((li) => li.category === wizardCategory && !li.id?.startsWith("new-"))
+      .filter((li) => li.category === wizardCategory && li.id && !li.id.startsWith("new-"))
       .map((li) => li.id);
     if (oldIds.length > 0) {
-      await supabase.from("estimate_line_items").delete().in("id", oldIds);
+      const { error: deleteError } = await supabase
+        .from("estimate_line_items")
+        .delete()
+        .in("id", oldIds);
+      if (deleteError) {
+        toast.error("Failed to replace wizard items — please try again.");
+        return;
+      }
     }
-    // Insert new items
+    // Insert new items only after delete confirmed
     const newRows = items.map((item, i) => ({
       estimate_id: proposal.id,
       category: wizardCategory,
@@ -164,10 +172,14 @@ export function ProposalDetail() {
       total_price: (item.quantity ?? 0) * (item.pricePerUnit ?? 0),
       sort_order: i,
     }));
-    const { data: inserted } = await supabase
+    const { data: inserted, error: insertError } = await supabase
       .from("estimate_line_items")
       .insert(newRows)
       .select();
+    if (insertError) {
+      toast.error("Failed to save wizard items — please try again.");
+      return;
+    }
     // Update local state — remove old, add new
     const freshItems = inserted ?? newRows.map((r, i) => ({ ...r, id: `new-${Date.now()}-${i}` }));
     const updatedItems = [
@@ -243,8 +255,29 @@ export function ProposalDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="p-4 space-y-4">
+        {/* Back button + title */}
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 bg-accent animate-pulse rounded-lg" />
+          <div className="space-y-1">
+            <div className="h-5 w-48 bg-accent animate-pulse rounded-md" />
+            <div className="h-3 w-32 bg-accent animate-pulse rounded-md" />
+          </div>
+        </div>
+        {/* 4 stat cards: Created / Sent At / Subtotal / Total — full width */}
+        <SkeletonCards count={4} />
+        {/* Line items table */}
+        <div className="border rounded-xl p-6 space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="grid grid-cols-5 gap-4">
+              <div className="h-4 bg-accent animate-pulse rounded col-span-2" />
+              <div className="h-4 bg-accent animate-pulse rounded" />
+              <div className="h-4 bg-accent animate-pulse rounded" />
+              <div className="h-4 bg-accent animate-pulse rounded" />
+            </div>
+          ))}
+        </div>
+        <PageLoader title="Loading proposal…" description="Fetching line items, pricing, tax & totals" className="min-h-[6vh]" />
       </div>
     );
   }
@@ -326,7 +359,7 @@ export function ProposalDetail() {
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
     } catch (err) {
       console.error("PDF generation error:", err);
-      toast.error("Failed to generate PDF — check console for details");
+      toast.error("Failed to generate PDF — please try again.");
     } finally {
       setDownloading(false);
     }
@@ -341,7 +374,7 @@ export function ProposalDetail() {
   };
 
   const handleSendEmail = async () => {
-    if (!emailTo) return;
+    if (!emailTo || !emailSubject.trim()) return;
     setSendingEmail(true);
     try {
       const proposalLink = `${window.location.origin}/p/${proposal.id}`;
@@ -946,13 +979,23 @@ export function ProposalDetail() {
           </DialogHeader>
           {/* Scrollable body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+            {client && (!client.address || !client.phone) && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                Warning: {[!client.address && "address", !client.phone && "phone"].filter(Boolean).join(" and ")} missing on this client — the proposal PDF will have blank fields.
+              </div>
+            )}
             <div className="space-y-2">
               <Label>To</Label>
               <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+              <Label>Subject <span className="text-destructive">*</span></Label>
+              <Input
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                className={!emailSubject.trim() ? "border-red-500" : ""}
+              />
+              {!emailSubject.trim() && <p className="text-xs text-red-500">Subject is required.</p>}
             </div>
             <div className="space-y-2">
               <Label>Message</Label>
@@ -969,7 +1012,7 @@ export function ProposalDetail() {
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
-            <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo}>
+            <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo || !emailSubject.trim()}>
               {sendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
               Send Email
             </Button>

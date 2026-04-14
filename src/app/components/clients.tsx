@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { Plus, Search, Mail, Phone, MapPin, Loader2, Users } from "lucide-react";
+import { SkeletonTable } from "./ui/page-loader";
 import { Link } from "react-router";
 import {
   Dialog,
@@ -18,6 +19,14 @@ import {
 import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { clientsAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
@@ -26,18 +35,27 @@ export function Clients() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [clients, setClients] = useState<any[]>([]);
+  const [leadSources, setLeadSources] = useState<any[]>([]);
+  const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
   const [form, setForm] = useState({
-    first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "",
+    first_name: "", last_name: "", email: "", phone: "",
+    address: "", city: "", state: "", zip: "",
+    lead_source_id: "", pipeline_stage_id: "",
   });
 
   useEffect(() => {
-    clientsAPI.getAll()
-      .then(setClients)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    Promise.all([
+      clientsAPI.getAll(),
+      supabase.from("lead_sources").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("pipeline_stages").select("id, name, color").eq("is_active", true).order("order_index"),
+    ]).then(([clientsData, { data: ls }, { data: ps }]) => {
+      setClients(clientsData);
+      setLeadSources(ls ?? []);
+      setPipelineStages(ps ?? []);
+    }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
   const filteredClients = clients.filter((client) => {
@@ -52,14 +70,19 @@ export function Clients() {
   });
 
   // Computed validation errors
-  const fnErr    = !form.first_name.trim() ? "First name is required." : form.first_name.trim().length < 2 ? "Min 2 characters." : "";
-  const emailErr = form.email.trim() && !isValidEmail(form.email.trim()) ? "Enter a valid email address." : "";
-  const phoneErr = form.phone.trim() && !isValidPhone(form.phone) ? "Enter a valid phone number (min 7 digits)." : "";
-  const zipErr   = form.zip.trim() && form.zip.trim().length < 4 ? "ZIP must be at least 4 characters." : "";
-  const hasErrors = !!fnErr || !!emailErr || !!phoneErr || !!zipErr;
+  const fnErr       = !form.first_name.trim() ? "First name is required." : form.first_name.trim().length < 2 ? "Min 2 characters." : "";
+  const emailErr    = !form.email.trim() ? "Email is required." : !isValidEmail(form.email.trim()) ? "Enter a valid email address." : "";
+  const phoneErr    = !form.phone.trim() ? "Phone is required." : !isValidPhone(form.phone) ? "Enter a valid phone number (min 7 digits)." : "";
+  const addressErr  = !form.address.trim() ? "Address is required." : "";
+  const cityErr     = !form.city.trim() ? "City is required." : "";
+  const stateErr    = !form.state.trim() ? "State is required." : "";
+  const zipErr      = !form.zip.trim() ? "ZIP is required." : form.zip.trim().length < 4 ? "ZIP must be at least 4 characters." : "";
+  const leadSrcErr  = !form.lead_source_id ? "Lead source is required." : "";
+  const stageErr    = !form.pipeline_stage_id ? "Pipeline stage is required." : "";
+  const hasErrors   = !!fnErr || !!emailErr || !!phoneErr || !!addressErr || !!cityErr || !!stateErr || !!zipErr || !!leadSrcErr || !!stageErr;
 
   const resetForm = () => {
-    setForm({ first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "" });
+    setForm({ first_name: "", last_name: "", email: "", phone: "", address: "", city: "", state: "", zip: "", lead_source_id: "", pipeline_stage_id: "" });
     setTouched(false);
   };
 
@@ -83,8 +106,15 @@ export function Clients() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="h-7 w-32 bg-accent animate-pulse rounded-md" />
+            <div className="h-4 w-48 bg-accent animate-pulse rounded-md mt-1" />
+          </div>
+          <div className="h-9 w-32 bg-accent animate-pulse rounded-lg" />
+        </div>
+        <SkeletonTable rows={8} cols={5} />
       </div>
     );
   }
@@ -127,7 +157,7 @@ export function Clients() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Email</Label>
+                  <Label>Email <span className="text-destructive">*</span></Label>
                   <Input
                     type="email"
                     value={form.email}
@@ -138,7 +168,7 @@ export function Clients() {
                   {touched && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Phone</Label>
+                  <Label>Phone <span className="text-destructive">*</span></Label>
                   <Input
                     type="tel"
                     value={form.phone}
@@ -149,20 +179,39 @@ export function Clients() {
                   {touched && phoneErr && <p className="text-xs text-red-500">{phoneErr}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Address</Label>
-                  <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Main St" />
+                  <Label>Address <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={form.address}
+                    onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    placeholder="123 Main St"
+                    className={touched && addressErr ? "border-red-500" : ""}
+                  />
+                  {touched && addressErr && <p className="text-xs text-red-500">{addressErr}</p>}
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label>City</Label>
-                    <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Austin" />
+                    <Label>City <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={form.city}
+                      onChange={(e) => setForm({ ...form, city: e.target.value })}
+                      placeholder="Austin"
+                      className={touched && cityErr ? "border-red-500" : ""}
+                    />
+                    {touched && cityErr && <p className="text-xs text-red-500">{cityErr}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>State</Label>
-                    <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="TX" maxLength={2} />
+                    <Label>State <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      placeholder="TX"
+                      maxLength={2}
+                      className={touched && stateErr ? "border-red-500" : ""}
+                    />
+                    {touched && stateErr && <p className="text-xs text-red-500">{stateErr}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>ZIP</Label>
+                    <Label>ZIP <span className="text-destructive">*</span></Label>
                     <Input
                       value={form.zip}
                       onChange={(e) => setForm({ ...form, zip: e.target.value })}
@@ -170,6 +219,36 @@ export function Clients() {
                       className={touched && zipErr ? "border-red-500" : ""}
                     />
                     {touched && zipErr && <p className="text-xs text-red-500">{zipErr}</p>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Lead Source <span className="text-destructive">*</span></Label>
+                    <Select value={form.lead_source_id} onValueChange={(v) => setForm({ ...form, lead_source_id: v })}>
+                      <SelectTrigger className={touched && leadSrcErr ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leadSources.map((ls) => (
+                          <SelectItem key={ls.id} value={ls.id}>{ls.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {touched && leadSrcErr && <p className="text-xs text-red-500">{leadSrcErr}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Pipeline Stage <span className="text-destructive">*</span></Label>
+                    <Select value={form.pipeline_stage_id} onValueChange={(v) => setForm({ ...form, pipeline_stage_id: v })}>
+                      <SelectTrigger className={touched && stageErr ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select stage" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pipelineStages.map((ps) => (
+                          <SelectItem key={ps.id} value={ps.id}>{ps.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {touched && stageErr && <p className="text-xs text-red-500">{stageErr}</p>}
                   </div>
                 </div>
               </DialogBody>
@@ -207,7 +286,7 @@ export function Clients() {
               const stageName  = client.pipeline_stage?.name ?? null;
               const stageColor = client.pipeline_stage?.color ?? null;
               return (
-                <Link key={client.id} to={`/clients/${client.id}`} className="block">
+                <Link key={client.id} to={`/clients/${client.id}`} className="block no-underline">
                   <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
                     <CardContent className="p-6 space-y-4">
                       <div className="flex items-start justify-between">

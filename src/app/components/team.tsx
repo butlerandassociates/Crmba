@@ -17,6 +17,7 @@ import {
 import { Label } from "./ui/label";
 import { Input } from "./ui/input";
 import { toast } from "sonner";
+import { SkeletonTable } from "./ui/page-loader";
 
 const ROLE_CONFIG: Record<string, { label: string; color: string }> = {
   sales_rep:       { label: "Sales Rep",       color: "bg-orange-500" },
@@ -168,8 +169,8 @@ export function Team() {
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center p-12">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+        <div className="space-y-4">
+          <SkeletonTable rows={5} cols={4} />
         </div>
       )}
 

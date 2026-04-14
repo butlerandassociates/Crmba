@@ -56,7 +56,7 @@ export function AuthScreen() {
         try {
           await signIn(email, password);
         } catch {
-          toast.error("Please sign in manually");
+          toast.error("Account created — please sign in to continue.");
           setShowSignup(false);
         }
       }, 1000);

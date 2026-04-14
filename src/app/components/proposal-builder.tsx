@@ -239,10 +239,11 @@ export function ProposalBuilder() {
 
   const titleErr = !proposalTitle.trim() ? "Proposal title is required." : "";
   const itemsErr = lineItems.length === 0 ? "Please add at least one line item." : "";
+  const totalErr = lineItems.length > 0 && lineItems.reduce((sum, item) => sum + item.totalPrice, 0) <= 0 ? "Proposal total must be greater than $0." : "";
 
   const handleSaveProposal = async () => {
     setSaveTouched(true);
-    if (titleErr || itemsErr) return;
+    if (titleErr || itemsErr || totalErr) return;
     setSaving(true);
     try {
       const subtotalVal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -486,13 +487,13 @@ export function ProposalBuilder() {
         </div>
 
         {/* Full-Width Line Items Table */}
-        <Card className={saveTouched && itemsErr ? "border-red-500" : ""}>
+        <Card className={saveTouched && (itemsErr || totalErr) ? "border-red-500" : ""}>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Proposal Line Items</CardTitle>
           </CardHeader>
-          {saveTouched && itemsErr && (
+          {saveTouched && (itemsErr || totalErr) && (
             <div className="px-6 pb-2">
-              <p className="text-xs text-red-500">{itemsErr}</p>
+              <p className="text-xs text-red-500">{itemsErr || totalErr}</p>
             </div>
           )}
           <CardContent className="p-0">

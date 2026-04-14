@@ -14,13 +14,13 @@ import {
   Users,
   Briefcase,
   AlertCircle,
-  Loader2,
   Building2,
   Award,
   Bell
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
+import { PageLoader, SkeletonCards, SkeletonTable } from "./ui/page-loader";
 
 export function Pipeline() {
   const [clients, setClients] = useState<any[]>([]);
@@ -186,8 +186,10 @@ export function Pipeline() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 space-y-6">
+        <SkeletonCards count={4} />
+        <SkeletonTable rows={6} cols={5} />
+        <PageLoader title="Loading pipeline & forecast…" description="Fetching weighted values, close dates & stage probabilities" className="min-h-[8vh]" />
       </div>
     );
   }
@@ -275,7 +277,7 @@ export function Pipeline() {
                   <Link
                     key={client.id}
                     to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
+                    className="block p-3 hover:bg-accent transition-colors group no-underline"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between">
@@ -343,7 +345,7 @@ export function Pipeline() {
                   <Link
                     key={client.id}
                     to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
+                    className="block p-3 hover:bg-accent transition-colors group no-underline"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between">
@@ -398,7 +400,7 @@ export function Pipeline() {
                   <Link
                     key={client.id}
                     to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
+                    className="block p-3 hover:bg-accent transition-colors group no-underline"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between">
@@ -447,7 +449,7 @@ export function Pipeline() {
                   <Link
                     key={client.id}
                     to={`/clients/${client.id}`}
-                    className="block p-3 hover:bg-accent transition-colors group"
+                    className="block p-3 hover:bg-accent transition-colors group no-underline"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between">
@@ -606,7 +608,7 @@ export function Pipeline() {
                   <Link
                     key={alert.id}
                     to={alert.clientId ? `/clients/${alert.clientId}` : "#"}
-                    className="block p-3 border rounded-lg hover:bg-accent transition-colors"
+                    className="block p-3 border rounded-lg hover:bg-accent transition-colors no-underline"
                   >
                     <div className="flex items-start gap-3">
                       <AlertCircle className={`h-4 w-4 mt-0.5 shrink-0 ${alert.severity === "red" ? "text-red-500" : "text-amber-500"}`} />
@@ -655,7 +657,7 @@ export function Pipeline() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="block text-xs text-red-700 hover:opacity-75"
+                        className="block text-xs text-red-700 hover:opacity-75 no-underline"
                       >
                         • {client.name} - {formatCurrency(client.balanceDue || 0)}
                       </Link>
@@ -678,7 +680,7 @@ export function Pipeline() {
                       <Link
                         key={client.id}
                         to={`/clients/${client.id}`}
-                        className="block text-xs text-blue-700 hover:opacity-75"
+                        className="block text-xs text-blue-700 hover:opacity-75 no-underline"
                       >
                         • {client.name} - {formatCurrency(client.balanceDue || 0)} 
                         {client.nextPaymentDate && ` - ${new Date(client.nextPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
@@ -686,10 +688,10 @@ export function Pipeline() {
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center py-4">
                     <DollarSign className="h-6 w-6 mb-1 opacity-20" />
                     <p className="text-xs font-medium">No upcoming collections</p>
-                    <p className="text-xs mt-0.5">Payment milestones will appear here.</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">Payment milestones will appear here.</p>
                   </div>
                 )}
               </div>
@@ -707,10 +709,10 @@ export function Pipeline() {
                   </div>
                 ))}
                 {soldClients.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center py-4">
                     <Activity className="h-6 w-6 mb-1.5 opacity-20" />
                     <p className="text-xs font-medium">No recent activity</p>
-                    <p className="text-xs mt-0.5">Signed contracts will appear here.</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">Signed contracts will appear here.</p>
                   </div>
                 )}
               </div>

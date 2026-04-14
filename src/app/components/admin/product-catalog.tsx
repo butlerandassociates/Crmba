@@ -24,14 +24,19 @@ import {
   SelectValue,
 } from "../ui/select";
 import { toast } from "sonner";
+import { SkeletonTable } from "../ui/page-loader";
 
 export function ProductCatalog() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showMarkup, setShowMarkup] = useState(true);
   const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    productsAPI.getAll().then(setProducts).catch(console.error);
+    productsAPI.getAll()
+      .then(setProducts)
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   const formatCurrency = (value: number) => {
@@ -205,14 +210,15 @@ export function ProductCatalog() {
       </div>
 
       <div className="space-y-4">
-        {products.length === 0 && (
+        {loading && <SkeletonTable rows={5} cols={4} />}
+        {!loading && products.length === 0 && (
           <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
             <Package className="h-10 w-10 mb-3 opacity-20" />
             <p className="text-sm font-medium">No products yet</p>
             <p className="text-xs mt-1">Add your first product using the form above.</p>
           </div>
         )}
-        {products.map((product) => {
+        {!loading && products.map((product) => {
           const mat = Number(product.material_cost ?? 0);
           const lab = Number(product.labor_cost ?? 0);
           const mkp = Number(product.markup_percentage ?? 0);

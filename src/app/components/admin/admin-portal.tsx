@@ -12,6 +12,7 @@ import { FileText, List, Archive, Loader2, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { activityLogAPI } from "../../utils/api";
 import { toast } from "sonner";
+import { SkeletonList } from "../ui/page-loader";
 
 function DiscardedClients() {
   const [clients, setClients] = useState<any[]>([]);
@@ -52,11 +53,7 @@ function DiscardedClients() {
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-16">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
+  if (loading) return <SkeletonList rows={5} />;
 
   if (clients.length === 0) return (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">

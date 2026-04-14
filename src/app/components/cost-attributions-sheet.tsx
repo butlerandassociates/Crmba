@@ -39,7 +39,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
       const data = await receiptsAPI.getByProject(project.id);
       setReceipts(data || []);
     } catch {
-      toast.error("Failed to load receipts");
+      toast.error("Failed to load receipts — please refresh.");
     } finally {
       setLoading(false);
     }
@@ -53,8 +53,8 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   const totalLabor    = receipts.filter((r) => r.category === "labor").reduce((s, r) => s + r.amount, 0);
 
   const handleAdd = async () => {
-    if (!form.name || !form.amount) { toast.error("Name and amount are required"); return; }
-    if (!project?.id) { toast.error("No project linked yet"); return; }
+    if (!form.name || !form.amount) { toast.error("Receipt name and amount are required."); return; }
+    if (!project?.id) { toast.error("No project linked — a project must exist before adding receipts."); return; }
     setSaving(true);
     try {
       const saved = await receiptsAPI.create(
@@ -83,7 +83,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
       toast.success("Receipt deleted");
       onReceiptChange?.();
     } catch {
-      toast.error("Failed to delete");
+      toast.error("Failed to delete receipt — please try again.");
     } finally {
       setDeletingId(null);
     }

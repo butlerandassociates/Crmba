@@ -51,6 +51,7 @@ export function AppointmentDialog({
   const [notes, setNotes]                     = useState("");
   const [ccEmails, setCcEmails]               = useState("");
   const [scheduling, setScheduling]           = useState(false);
+  const [touched, setTouched]                 = useState(false);
   const [teamMembers, setTeamMembers]           = useState<any[]>([]);
   const [assignedUserId, setAssignedUserId]     = useState("");
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
@@ -65,10 +66,8 @@ export function AppointmentDialog({
   const clientAddress = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
 
   const handleSchedule = async () => {
-    if (!appointmentType || !selectedDate || !startTime || !endTime) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
+    setTouched(true);
+    if (!appointmentType || !selectedDate || !startTime || !endTime) return;
     if (!isConnected) {
       toast.error("Please connect your Google Calendar first");
       return;
@@ -124,7 +123,7 @@ export function AppointmentDialog({
         google_calendar_event_id: createdEvent.id,
         google_meet_link:         createdEvent.hangoutLink ?? null,
         google_event_html_link:   createdEvent.htmlLink ?? null,
-        email_notification_sent:  !!client?.email,
+        email_notification_sent:  false, // set true only after successful send below
       });
 
       // Log appointment scheduled
@@ -156,6 +155,14 @@ export function AppointmentDialog({
             time:           timeLabel,
             meet_link:      createdEvent.hangoutLink ?? null,
           },
+        }).then(() => {
+          // Mark email sent only after successful delivery
+          appointmentsAPI.update && supabase.from("appointments")
+            .update({ email_notification_sent: true })
+            .eq("client_id", client.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .catch(() => {});
         }).catch((err: any) => console.error("Email send failed:", err));
       }
 
@@ -197,6 +204,7 @@ export function AppointmentDialog({
       setNotes("");
       setCcEmails("");
       setAssignedUserId("");
+      setTouched(false);
 
       onOpenChange(false);
       onAppointmentScheduled?.();
@@ -219,6 +227,22 @@ export function AppointmentDialog({
         </DialogHeader>
 
         <DialogBody className="space-y-5">
+          {/* Missing email/phone warnings */}
+          {!client?.email && !client?.phone && (
+            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+              No email or phone on this client — confirmation email and SMS will not be sent.
+            </div>
+          )}
+          {client?.email && !client?.phone && (
+            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+              No phone number on this client — SMS confirmation will not be sent.
+            </div>
+          )}
+          {!client?.email && client?.phone && (
+            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+              No email on this client — confirmation email will not be sent.
+            </div>
+          )}
           {/* Google Calendar Connection */}
           <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/40">
             <div className="flex items-center gap-2">
@@ -270,9 +294,9 @@ export function AppointmentDialog({
 
           {/* Appointment Type */}
           <div className="space-y-2">
-            <Label>Appointment Type *</Label>
+            <Label>Appointment Type <span className="text-destructive">*</span></Label>
             <Select value={appointmentType} onValueChange={setAppointmentType}>
-              <SelectTrigger>
+              <SelectTrigger className={touched && !appointmentType ? "border-red-500" : ""}>
                 <SelectValue placeholder="Select appointment type" />
               </SelectTrigger>
               <SelectContent>
@@ -283,12 +307,13 @@ export function AppointmentDialog({
                 ))}
               </SelectContent>
             </Select>
+            {touched && !appointmentType && <p className="text-xs text-red-500">Appointment type is required.</p>}
           </div>
 
           {/* Date Picker */}
           <div className="space-y-2">
-            <Label>Select Date *</Label>
-            <div className="border rounded-lg p-3">
+            <Label>Select Date <span className="text-destructive">*</span></Label>
+            <div className={`border rounded-lg p-3 ${touched && !selectedDate ? "border-red-500" : ""}`}>
               <Calendar
                 mode="single"
                 selected={selectedDate}
@@ -296,6 +321,7 @@ export function AppointmentDialog({
                 disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
               />
             </div>
+            {touched && !selectedDate && <p className="text-xs text-red-500">Date is required.</p>}
             {selectedDate && (
               <p className="text-sm text-muted-foreground">
                 <CalendarIcon className="h-3 w-3 inline mr-1" />
@@ -309,16 +335,18 @@ export function AppointmentDialog({
             <div className="space-y-2">
               <Label>
                 <Clock className="h-3 w-3 inline mr-1" />
-                Start Time *
+                Start Time <span className="text-destructive">*</span>
               </Label>
-              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={touched && !startTime ? "border-red-500" : ""} />
+              {touched && !startTime && <p className="text-xs text-red-500">Start time is required.</p>}
             </div>
             <div className="space-y-2">
               <Label>
                 <Clock className="h-3 w-3 inline mr-1" />
-                End Time *
+                End Time <span className="text-destructive">*</span>
               </Label>
-              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={touched && !endTime ? "border-red-500" : ""} />
+              {touched && !endTime && <p className="text-xs text-red-500">End time is required.</p>}
             </div>
           </div>
 
@@ -349,7 +377,7 @@ export function AppointmentDialog({
             <div className="bg-muted/50 p-4 rounded-lg space-y-2 text-sm">
               <p className="font-medium flex items-center gap-2">
                 <Video className="h-4 w-4 text-blue-500" />
-                {appointmentTypes.find((t) => t.value === appointmentType)?.label} — {clientName}
+                {appointmentTypes.find((t) => t.id === appointmentType)?.name ?? appointmentType} — {clientName}
               </p>
               <p className="text-muted-foreground">{format(selectedDate, "EEEE, MMMM d, yyyy")} · {startTime} – {endTime}</p>
               {clientAddress && <p className="text-muted-foreground">{clientAddress}</p>}

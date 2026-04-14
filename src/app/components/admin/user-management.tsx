@@ -37,6 +37,7 @@ import {
 } from "../ui/select";
 import { Checkbox } from "../ui/checkbox";
 import { toast } from "sonner";
+import { SkeletonCards } from "../ui/page-loader";
 
 
 function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resending, getRoleBadgeColor, getRoleLabel, getUserPermissions }: {
@@ -434,9 +435,7 @@ export function UserManagement() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center p-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <SkeletonCards count={6} />
       ) : users.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
           <Shield className="h-10 w-10 mb-3 opacity-20" />

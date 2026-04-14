@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X } from "lucide-react";
+import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -85,6 +85,9 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const [loading, setLoading] = useState(false);
   const [selectedPo, setSelectedPo] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Form state
   const [supplierName, setSupplierName] = useState("");
@@ -111,7 +114,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
       const data = await purchaseOrdersAPI.getByClient(client.id);
       setPos(data);
     } catch {
-      toast.error("Failed to load purchase orders");
+      toast.error("Failed to load purchase orders — please refresh.");
     } finally {
       setLoading(false);
     }
@@ -137,6 +140,92 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     setRecipientName("");
     setRecipientEmail("");
     setErrors({});
+    setIsEditing(false);
+    setConfirmDelete(false);
+  };
+
+  const handleEditPo = (po: any) => {
+    setSupplierName(po.supplier_name || "");
+    setContactName("");
+    setContactPhone("");
+    setContactEmail("");
+    setDeliveryDate(po.delivery_date || "");
+    setDeliveryTime(po.delivery_time || "morning");
+    setNotes(po.notes || "");
+    setMaterials(
+      (po.items || []).length > 0
+        ? po.items.map((item: any) => {
+            const mat = AVAILABLE_MATERIALS.find((m) => m.name === item.product_name);
+            return {
+              id: `line-${Date.now()}-${Math.random()}`,
+              product_name: item.product_name,
+              color: item.color || "",
+              quantity: item.quantity,
+              unit: item.unit as UnitOption,
+              availableColors: mat?.availableColors || [],
+            };
+          })
+        : [emptyLine()]
+    );
+    setErrors({});
+    setIsEditing(true);
+    setView("create");
+  };
+
+  const handleUpdatePo = async () => {
+    if (!selectedPo?.id) return;
+    setSaving(true);
+    try {
+      await purchaseOrdersAPI.update(selectedPo.id, {
+        supplier_name: supplierName.trim(),
+        delivery_date: deliveryDate || undefined,
+        notes: notes || undefined,
+      });
+      const validItems = materials.filter((m) => m.product_name.trim());
+      await purchaseOrdersAPI.updateItems(
+        selectedPo.id,
+        validItems.map((item, i) => ({
+          product_name: item.product_name,
+          color: item.color || undefined,
+          quantity: Number(item.quantity) || 0,
+          unit: item.unit,
+          sort_order: i,
+        }))
+      );
+      activityLogAPI.create({ client_id: client?.id, action_type: "po_updated", description: `Purchase order updated — supplier: ${supplierName.trim()}` }).catch(() => {});
+      toast.success("Purchase order updated");
+      // Refresh PO list then go back to the detail view for this PO
+      const fresh = await purchaseOrdersAPI.getByClient(client.id);
+      setPos(fresh);
+      const updatedPo = fresh.find((p: any) => p.id === selectedPo.id) ?? selectedPo;
+      setSelectedPo(updatedPo);
+      resetForm();
+      setView("detail");
+      onSave?.();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update purchase order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePo = async () => {
+    if (!selectedPo?.id) return;
+    setDeleting(true);
+    try {
+      await purchaseOrdersAPI.delete(selectedPo.id);
+      activityLogAPI.create({ client_id: client?.id, action_type: "po_deleted", description: `Purchase order deleted — supplier: ${selectedPo.supplier_name}` }).catch(() => {});
+      toast.success("Purchase order deleted");
+      setConfirmDelete(false);
+      setSelectedPo(null);
+      setView("list");
+      loadPOs();
+      onSave?.();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete purchase order");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleCreate = async (sendAfter = false) => {
@@ -214,7 +303,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
       activityLogAPI.create({ client_id: client?.id, action_type: "po_status_updated", description: `Purchase order status updated to "${statusLabel}"` }).catch(() => {});
       toast.success(`Status updated to ${statusLabel}`);
     } catch {
-      toast.error("Failed to update status");
+      toast.error("Failed to update status — please try again.");
     }
   };
 
@@ -256,7 +345,15 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
             <div className="flex items-center gap-3">
               {view !== "list" && (
                 <button
-                  onClick={() => { setView("list"); setSelectedPo(null); }}
+                  onClick={() => {
+                    if (view === "create" && isEditing) {
+                      resetForm();
+                      setView("detail");
+                    } else {
+                      setView("list");
+                      setSelectedPo(null);
+                    }
+                  }}
                   className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <ChevronLeft className="h-5 w-5" />
@@ -264,7 +361,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
               )}
               <div>
                 <SheetTitle className="text-base">
-                  {view === "list" ? "Purchase Orders" : view === "create" ? "New Purchase Order" : `PO — ${selectedPo?.supplier_name || selectedPo?.vendor_name}`}
+                  {view === "list" ? "Purchase Orders" : view === "create" ? (isEditing ? "Edit Purchase Order" : "New Purchase Order") : `PO — ${selectedPo?.supplier_name || selectedPo?.vendor_name}`}
                 </SheetTitle>
                 <SheetDescription className="text-xs mt-0.5">
                   {client?.first_name} {client?.last_name}
@@ -640,26 +737,76 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
           </div>
 
           {/* Footer */}
+          {view === "detail" && selectedPo && (
+            <div className="px-6 py-4 border-t flex justify-between gap-2">
+              {/* Delete side */}
+              <div>
+                {!confirmDelete ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Delete
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-destructive font-medium">Delete this PO?</span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={deleting}
+                      onClick={handleDeletePo}
+                    >
+                      {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {/* Edit side */}
+              {!confirmDelete && (
+                <Button size="sm" onClick={() => handleEditPo(selectedPo)}>
+                  <Pencil className="h-4 w-4 mr-1.5" />
+                  Edit
+                </Button>
+              )}
+            </div>
+          )}
+
           {view === "create" && (
             <div className="px-6 py-4 border-t flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setView("list")}>Cancel</Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={saving}
-                onClick={() => handleCreate(false)}
-              >
-                {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileText className="h-4 w-4 mr-1.5" />}
-                Save as Draft
-              </Button>
-              <Button
-                size="sm"
-                disabled={saving}
-                onClick={() => setShowSendModal(true)}
-              >
-                <Send className="h-4 w-4 mr-1.5" />
-                Preview &amp; Send
-              </Button>
+              <Button variant="outline" size="sm" onClick={() => { resetForm(); setView(isEditing ? "detail" : "list"); }}>Cancel</Button>
+              {isEditing ? (
+                <Button size="sm" disabled={saving} onClick={handleUpdatePo}>
+                  {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Pencil className="h-4 w-4 mr-1.5" />}
+                  Update PO
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => handleCreate(false)}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileText className="h-4 w-4 mr-1.5" />}
+                    Save as Draft
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => setShowSendModal(true)}
+                  >
+                    <Send className="h-4 w-4 mr-1.5" />
+                    Preview &amp; Send
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </SheetContent>

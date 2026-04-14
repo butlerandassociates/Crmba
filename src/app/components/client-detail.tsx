@@ -95,6 +95,8 @@ import { CostAttributionsSheet } from "./cost-attributions-sheet";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
 import { Progress } from "./ui/progress";
 import { toast } from "sonner";
+import { PageLoader, SkeletonList, SkeletonInfoCard } from "./ui/page-loader";
+import { Skeleton } from "./ui/skeleton";
 
 export function ClientDetail() {
   const { id } = useParams();
@@ -466,6 +468,11 @@ export function ClientDetail() {
         status: newStatus,
         pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
       });
+      // Keep project status in sync with client status
+      const activeProject = clientProjects[0];
+      if (activeProject?.id) {
+        await projectsAPI.update(activeProject.id, { status: newStatus }).catch(() => {});
+      }
       setClient({ ...client, status: newStatus, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
       activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Status changed to "${newStatus}"` }).then(loadActivityLog).catch(() => {});
       toast.success(`Moved to ${newStatus}`);
@@ -539,7 +546,7 @@ export function ClientDetail() {
         },
       }));
     } catch {
-      toast.error("Failed to load financial health data");
+      toast.error("Failed to load financial data — please refresh the page.");
     }
   };
 
@@ -641,11 +648,25 @@ export function ClientDetail() {
   
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-sm text-muted-foreground">Loading client details...</p>
+      <div className="p-4 space-y-4">
+        {/* Header: back button + name/badge + actions button — matches real layout */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-9 w-20 rounded-lg" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-7 w-44" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+          </div>
+          <Skeleton className="h-9 w-28 rounded-lg" />
         </div>
+        {/* 3 tall info cards: Contact Info / Lead Info / Project Details */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <SkeletonInfoCard rows={5} />
+          <SkeletonInfoCard rows={4} />
+          <SkeletonInfoCard rows={5} />
+        </div>
+        <PageLoader title="Loading client profile…" description="Fetching contact info, proposals, appointments & project history" className="min-h-[6vh]" />
       </div>
     );
   }
@@ -1996,10 +2017,11 @@ export function ClientDetail() {
               <Button variant="outline" onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
               <Button disabled={savingPayment || !newPayment.label || !newPayment.amount} onClick={async () => {
                 if (!client) return;
+                const project = clientProjects[0];
+                if (!project?.id) { toast.error("No project found — create a project first before adding milestones."); return; }
                 setSavingPayment(true);
                 try {
-                  const project = clientProjects[0];
-                  const created = await projectPaymentsAPI.create({ project_id: project?.id ?? "", client_id: client.id, label: newPayment.label, amount: parseFloat(newPayment.amount) || 0, due_date: newPayment.due_date || undefined, notes: newPayment.notes || undefined, sort_order: clientPayments.length });
+                  const created = await projectPaymentsAPI.create({ project_id: project.id, client_id: client.id, label: newPayment.label, amount: parseFloat(newPayment.amount) || 0, due_date: newPayment.due_date || undefined, notes: newPayment.notes || undefined, sort_order: clientPayments.length });
                   setClientPayments((prev) => [...prev, created]);
                   setAddPaymentOpen(false);
                   toast.success("Payment added.");
@@ -2344,6 +2366,7 @@ export function ClientDetail() {
         onOpenChange={setSoldModalOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        hasProposal={clientProposals.length > 0}
         onSuccess={() => {
           setClient({ ...client, status: "sold" });
           loadActivityLog();

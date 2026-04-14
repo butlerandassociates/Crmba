@@ -31,13 +31,14 @@ interface MoveToSoldModalProps {
   client: any;
   project: any;
   onSuccess: () => void;
+  hasProposal?: boolean;
 }
 
 const TOTAL_STEPS = 4;
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess }: MoveToSoldModalProps) {
+export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess, hasProposal = true }: MoveToSoldModalProps) {
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
 
@@ -261,6 +262,14 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           {/* ── Step 1: Hard Gate ── */}
           {step === 1 && (
             <div className="space-y-4">
+              {!hasProposal && (
+                <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+                  <AlertCircle className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-yellow-800">
+                    <strong>No proposal found</strong> — the project will be created with a $0 value. You can update the contract value manually after moving to Sold.
+                  </p>
+                </div>
+              )}
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-sm text-amber-800">Both documents are required before this client can be moved to Sold.</p>
