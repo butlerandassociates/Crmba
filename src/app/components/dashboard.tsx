@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2 } from "lucide-react";
+import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { Link } from "react-router";
 import {
   XAxis,
@@ -104,8 +105,15 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 space-y-6">
+        <SkeletonCards count={4} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <SkeletonChart height={240} />
+          </div>
+          <SkeletonChart height={240} />
+        </div>
+        <PageLoader title="Loading your dashboard…" description="Fetching clients, revenue & pipeline data" className="min-h-[10vh]" />
       </div>
     );
   }
@@ -407,10 +415,10 @@ export function Dashboard() {
                     </div>
                     );
                   }) : (
-                    <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center py-6">
                       <Cloud className="h-7 w-7 mb-1.5 opacity-20" />
                       <p className="text-xs font-medium">No lead sources yet</p>
-                      <p className="text-xs mt-0.5">Set a lead source when adding clients.</p>
+                      <p className="text-xs mt-0.5 text-muted-foreground">Set a lead source when adding clients.</p>
                     </div>
                   )}
                 </div>
@@ -681,9 +689,10 @@ export function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               {activeList.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className="text-center py-8">
                   <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                  <p className="text-sm">No payments {collectionsTab === 'overdue' ? 'past due' : collectionsTab === 'today' ? 'due today' : 'upcoming'}</p>
+                  <p className="text-sm font-medium">No payments {collectionsTab === 'overdue' ? 'past due' : collectionsTab === 'today' ? 'due today' : 'upcoming'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">All clear for this period</p>
                 </div>
               ) : (
                 <div className="divide-y">
@@ -716,7 +725,7 @@ export function Dashboard() {
                       </>
                     );
                     return to ? (
-                      <Link key={payment.id} to={to} className="py-3 flex items-center justify-between gap-4 hover:bg-accent/40 rounded-md px-2 -mx-2 transition-colors block">
+                      <Link key={payment.id} to={to} className="py-3 flex items-center justify-between gap-4 hover:bg-accent/40 rounded-md px-2 -mx-2 transition-colors block no-underline">
                         {inner}
                       </Link>
                     ) : (

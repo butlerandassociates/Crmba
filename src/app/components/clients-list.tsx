@@ -6,6 +6,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users } from "lucide-react";
+import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import {
   Dialog,
@@ -96,17 +97,16 @@ export function ClientsList() {
     const errors: Record<string, string> = {};
     if (!newClient.first_name.trim()) errors.first_name = "First name is required.";
     else if (newClient.first_name.trim().length < 2) errors.first_name = "First name must be at least 2 characters.";
-    if (newClient.email.trim()) {
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(newClient.email.trim())) errors.email = "Enter a valid email address.";
-    }
-    if (newClient.phone.trim()) {
-      const digits = newClient.phone.replace(/\D/g, "");
-      if (digits.length < 7 || digits.length > 15) errors.phone = "Phone must be 7–15 digits.";
-    }
-    if (newClient.zip.trim()) {
-      if (!/^[A-Za-z0-9\s\-]{3,10}$/.test(newClient.zip.trim())) errors.zip = "Enter a valid postal code.";
-    }
+    if (!newClient.email.trim()) errors.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newClient.email.trim())) errors.email = "Enter a valid email address.";
+    if (!newClient.phone.trim()) errors.phone = "Phone is required.";
+    else { const d = newClient.phone.replace(/\D/g, ""); if (d.length < 7 || d.length > 15) errors.phone = "Phone must be 7–15 digits."; }
+    if (!newClient.address.trim()) errors.address = "Address is required.";
+    if (!newClient.city.trim()) errors.city = "City is required.";
+    if (!newClient.state.trim()) errors.state = "State is required.";
+    if (!newClient.zip.trim()) errors.zip = "ZIP is required.";
+    else if (!/^[A-Za-z0-9\s\-]{3,10}$/.test(newClient.zip.trim())) errors.zip = "Enter a valid postal code.";
+    if (!newClient.lead_source_id) errors.lead_source_id = "Lead source is required.";
     return errors;
   };
 
@@ -240,7 +240,7 @@ export function ClientsList() {
                     </Badge>
                   </td>
                   <td className="p-3">
-                    <Link to={`/clients/${client.id}`} className="font-semibold text-sm hover:text-primary">
+                    <Link to={`/clients/${client.id}`} className="font-semibold text-sm hover:text-primary no-underline">
                       {client.first_name} {client.last_name}
                     </Link>
                   </td>
@@ -351,11 +351,7 @@ export function ClientsList() {
         />
       </div>
 
-      {loading && (
-        <div className="flex items-center justify-center p-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      )}
+      {loading && <SkeletonList rows={8} />}
 
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -385,7 +381,7 @@ export function ClientsList() {
             <div className="grid gap-4 px-6 py-5 overflow-y-auto flex-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="first_name">First Name *</Label>
+                  <Label htmlFor="first_name">First Name <span className="text-destructive">*</span></Label>
                   <Input
                     id="first_name"
                     placeholder="John"
@@ -406,7 +402,7 @@ export function ClientsList() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
                 <Input
                   id="email"
                   type="email"
@@ -418,7 +414,7 @@ export function ClientsList() {
                 {formErrors.email && <p className="text-xs text-red-500">{formErrors.email}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="phone">Phone <span className="text-destructive">*</span></Label>
                 <Input
                   id="phone"
                   placeholder="+1 (256) 555-0100"
@@ -429,7 +425,7 @@ export function ClientsList() {
                 {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
               </div>
               <div className="space-y-1.5 relative">
-                <Label htmlFor="address">Street Address</Label>
+                <Label htmlFor="address">Street Address <span className="text-destructive">*</span></Label>
                 <div className="relative">
                   <Input
                     id="address"
@@ -437,6 +433,7 @@ export function ClientsList() {
                     value={newClient.address}
                     onChange={(e) => handleAddressInput(e.target.value)}
                     autoComplete="off"
+                    className={formErrors.address ? "border-red-500" : ""}
                   />
                   {addressLoading && (
                     <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
@@ -456,28 +453,33 @@ export function ClientsList() {
                     ))}
                   </div>
                 )}
+                {formErrors.address && <p className="text-xs text-red-500">{formErrors.address}</p>}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5 col-span-1">
-                  <Label htmlFor="city">City</Label>
+                  <Label htmlFor="city">City <span className="text-destructive">*</span></Label>
                   <Input
                     id="city"
                     placeholder="Huntsville"
                     value={newClient.city}
                     onChange={(e) => setField("city", e.target.value)}
+                    className={formErrors.city ? "border-red-500" : ""}
                   />
+                  {formErrors.city && <p className="text-xs text-red-500">{formErrors.city}</p>}
                 </div>
                 <div className="space-y-1.5 col-span-1">
-                  <Label htmlFor="state">State / Region</Label>
+                  <Label htmlFor="state">State <span className="text-destructive">*</span></Label>
                   <Input
                     id="state"
                     placeholder="AL"
                     value={newClient.state}
                     onChange={(e) => setField("state", e.target.value)}
+                    className={formErrors.state ? "border-red-500" : ""}
                   />
+                  {formErrors.state && <p className="text-xs text-red-500">{formErrors.state}</p>}
                 </div>
                 <div className="space-y-1.5 col-span-1">
-                  <Label htmlFor="zip">ZIP / Postal</Label>
+                  <Label htmlFor="zip">ZIP <span className="text-destructive">*</span></Label>
                   <Input
                     id="zip"
                     placeholder="35801"
@@ -508,12 +510,12 @@ export function ClientsList() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Lead Source</Label>
+                  <Label>Lead Source <span className="text-destructive">*</span></Label>
                   <Select
                     value={newClient.lead_source_id}
-                    onValueChange={(v) => setNewClient((p) => ({ ...p, lead_source_id: v }))}
+                    onValueChange={(v) => { setNewClient((p) => ({ ...p, lead_source_id: v })); setFormErrors((e) => { const next = { ...e }; delete next.lead_source_id; return next; }); }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={formErrors.lead_source_id ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select source" />
                     </SelectTrigger>
                     <SelectContent>
@@ -524,6 +526,7 @@ export function ClientsList() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {formErrors.lead_source_id && <p className="text-xs text-red-500">{formErrors.lead_source_id}</p>}
                 </div>
               </div>
             </div>

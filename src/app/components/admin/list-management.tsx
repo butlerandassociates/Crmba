@@ -8,6 +8,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../ui/sheet";
 import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
+import { SkeletonList } from "../ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -131,9 +132,7 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <SkeletonList rows={3} />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
             <List className="h-7 w-7 mb-2 opacity-20" />
@@ -380,9 +379,7 @@ function ProposalReviewsSection({
         </CardHeader>
         <CardContent className="flex flex-col flex-1 space-y-2">
           {loading ? (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
+            <SkeletonList rows={3} />
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
               <MessageSquare className="h-7 w-7 mb-2 opacity-20" />
@@ -590,7 +587,7 @@ function AppointmentTypeSection({
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            <SkeletonList rows={3} />
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
               <List className="h-7 w-7 mb-2 opacity-20" />
@@ -826,7 +823,7 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+          <SkeletonList rows={3} />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
             <MapPin className="h-7 w-7 mb-2 opacity-20" />
@@ -1143,7 +1140,7 @@ function RolePermissionsCard({
 
           {/* List */}
           {loadingRoles ? (
-            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+            <SkeletonList rows={3} />
           ) : (
             <div className="flex-1 overflow-y-auto thin-scroll space-y-0.5 pr-1">
               {filteredRoles.map((role) => (
@@ -1275,7 +1272,7 @@ function RolePermissionsCard({
 
           {/* Permissions list */}
           {loadingPerms ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+            <SkeletonList rows={3} />
           ) : (
             <div className="flex-1 overflow-y-auto thin-scroll space-y-3 pr-1">
               {(permSearch ? [{ cat: "Results", perms: filteredPerms }] : categories.map((cat) => ({ cat, perms: filteredPerms.filter((p) => p.category === cat) }))).map(({ cat, perms }) => {

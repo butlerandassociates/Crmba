@@ -30,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { SkeletonTable } from "./ui/page-loader";
 
 const STAGES = ["prospect", "selling", "sold", "active", "completed"] as const;
 type Stage = (typeof STAGES)[number];
@@ -147,7 +148,7 @@ export function Projects() {
                 {project.client_id ? (
                   <Link
                     to={`/clients?stage=${project.status ?? "active"}`}
-                    className="text-sm hover:text-primary hover:opacity-75"
+                    className="text-sm hover:text-primary hover:opacity-75 no-underline"
                   >
                     {project.clientName || "—"}
                   </Link>
@@ -279,11 +280,8 @@ export function Projects() {
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center p-12">
-          <div className="text-center space-y-3">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-            <p className="text-sm text-muted-foreground">Loading projects...</p>
-          </div>
+        <div className="space-y-4">
+          <SkeletonTable rows={7} cols={6} />
         </div>
       )}
 

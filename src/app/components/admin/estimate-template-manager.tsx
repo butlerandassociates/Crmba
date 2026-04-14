@@ -36,6 +36,7 @@ import {
   Info,
 } from "lucide-react";
 import { estimateTemplatesAPI, productsAPI } from "../../utils/api";
+import { SkeletonList } from "../ui/page-loader";
 import { toast } from "sonner";
 
 const FIELD_TYPES = [
@@ -484,9 +485,7 @@ export function EstimateTemplateManager() {
 
       {/* Template List */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
+        <SkeletonList rows={5} />
       ) : filteredTemplates.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
           <FileText className="h-10 w-10 mb-3 opacity-20" />

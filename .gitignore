@@ -7,6 +7,11 @@ dist/
 dist-ssr/
 build/
 
+# Tests — ignored until verified
+tests/
+test-results/
+playwright-report/
+
 # Environment variables
 .env
 .env.local

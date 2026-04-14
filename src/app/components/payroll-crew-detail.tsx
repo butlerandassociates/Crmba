@@ -8,7 +8,8 @@ import { useParams, Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { ArrowLeft, Loader2, CheckCircle2, Clock, Wrench, ClipboardList } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Wrench, ClipboardList } from "lucide-react";
+import { PageLoader, SkeletonCards, SkeletonFIOCard } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { fioAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
@@ -112,8 +113,19 @@ export function PayrollCrewDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 bg-accent animate-pulse rounded-lg" />
+          <div className="space-y-1">
+            <div className="h-5 w-40 bg-accent animate-pulse rounded-md" />
+            <div className="h-3 w-28 bg-accent animate-pulse rounded-md" />
+          </div>
+        </div>
+        <SkeletonCards count={3} />
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => <SkeletonFIOCard key={i} />)}
+        </div>
+        <PageLoader title="Loading crew payments…" description="Fetching FIO records, labor totals & payment history" className="min-h-[6vh]" />
       </div>
     );
   }

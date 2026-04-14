@@ -28,6 +28,7 @@ import { productsAPI } from "../../utils/api";
 import { Textarea } from "../ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { SkeletonTable } from "../ui/page-loader";
 
 const emptyForm = {
   name: "",
@@ -188,6 +189,27 @@ export function ProductManager() {
       const editMaterial = parseFloat(editingProduct.materialCost) || 0;
       const editLabor    = parseFloat(editingProduct.laborCost) || 0;
       const editMarkup   = parseFloat(editingProduct.markupPercent) || 0;
+
+      // Check if name changed and product is connected to a wizard
+      const original = allProducts.find((p) => p.id === editingProduct.id);
+      const nameChanged = original?.name !== editingProduct.name.trim();
+      let wizardsToUpdate: any[] = [];
+      if (nameChanged) {
+        const { data: wizards } = await supabase
+          .from("estimate_templates")
+          .select("id, name, calc_rules")
+          .eq("is_active", true);
+        wizardsToUpdate = (wizards ?? []).filter((w: any) =>
+          (w.calc_rules ?? []).some((r: any) => r.product_id === editingProduct.id)
+        );
+        if (wizardsToUpdate.length > 0) {
+          toast.warning(
+            `"${editingProduct.name}" is connected to: ${wizardsToUpdate.map((w: any) => w.name).join(", ")}. The wizard label will update automatically.`,
+            { duration: 5000 }
+          );
+        }
+      }
+
       await productsAPI.save({
         id: editingProduct.id,
         name: editingProduct.name,
@@ -200,6 +222,24 @@ export function ProductManager() {
         sales_tax_rate: editingProduct.salesTaxApplicable ? 9 : null,
         description: editingProduct.description || null,
       });
+
+      // Update product_name snapshot in connected wizard calc_rules
+      if (nameChanged && wizardsToUpdate.length > 0) {
+        await Promise.all(
+          wizardsToUpdate.map((w: any) => {
+            const updatedRules = (w.calc_rules ?? []).map((r: any) =>
+              r.product_id === editingProduct.id
+                ? { ...r, product_name: editingProduct.name.trim() }
+                : r
+            );
+            return supabase
+              .from("estimate_templates")
+              .update({ calc_rules: updatedRules })
+              .eq("id", w.id);
+          })
+        );
+      }
+
       const refreshed = await productsAPI.getAll();
       setAllProducts(refreshed || []);
       setEditingProduct(null);
@@ -214,6 +254,21 @@ export function ProductManager() {
 
   const handleDeleteProduct = async (id: string) => {
     try {
+      // Block delete if product is connected to any active wizard
+      const { data: wizards } = await supabase
+        .from("estimate_templates")
+        .select("id, name, calc_rules")
+        .eq("is_active", true);
+      const usedIn = (wizards ?? []).filter((w: any) =>
+        (w.calc_rules ?? []).some((r: any) => r.product_id === id)
+      );
+      if (usedIn.length > 0) {
+        toast.error(
+          `Cannot delete — connected to: ${usedIn.map((w: any) => w.name).join(", ")}. Disconnect from the wizard first.`,
+          { duration: 6000 }
+        );
+        return;
+      }
       await productsAPI.archive(id);
       setAllProducts((prev) => prev.filter((p) => p.id !== id));
       toast.success("Product removed");
@@ -552,8 +607,8 @@ export function ProductManager() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="py-2">
+              <SkeletonTable rows={6} cols={5} />
             </div>
           ) : (
           <div className="overflow-x-auto">

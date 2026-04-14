@@ -10,6 +10,7 @@ import { changeOrdersAPI } from "../api/change-orders";
 import { activityLogAPI } from "../api/activity-log";
 import { estimatesAPI } from "../api/estimates";
 import { projectPaymentsAPI } from "../api/project-payments";
+import { projectsAPI } from "../api/projects";
 import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
 import html2canvas from "html2canvas";
@@ -77,7 +78,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       const data = await changeOrdersAPI.getByClient(client.id);
       setCos(data);
     } catch {
-      toast.error("Failed to load change orders");
+      toast.error("Failed to load change orders — please refresh.");
     } finally {
       setLoading(false);
     }
@@ -261,7 +262,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       if (selectedCo?.id === coId) setSelectedCo((prev: any) => ({ ...prev, status }));
       toast.success(`Status updated to ${STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}`);
     } catch {
-      toast.error("Failed to update status");
+      toast.error("Failed to update status — please try again.");
     }
   };
 
@@ -271,6 +272,10 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     try {
       const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
       setMergedTotal(newEstimateTotal);
+      // Sync project total_value so financials stay accurate
+      if (project?.id) {
+        await projectsAPI.update(project.id, { total_value: newEstimateTotal }).catch(() => {});
+      }
       activityLogAPI.create({ client_id: client.id, action_type: "co_merged", description: `Change order "${selectedCo.title}" merged — new contract total: ${formatCurrency(newEstimateTotal)}` }).catch(() => {});
       toast.success(`Merged into proposal. New contract total: ${formatCurrency(newEstimateTotal)}`);
       const merged = { ...selectedCo, status: "merged" };
@@ -353,7 +358,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       activityLogAPI.create({ client_id: client.id, action_type: "co_pdf_exported", description: `Change order PDF exported: "${selectedCo.title}"` }).catch(() => {});
     } catch (err) {
       console.error("PDF generation error:", err);
-      toast.error("Failed to generate PDF");
+      toast.error("Failed to generate PDF — please try again.");
     } finally {
       setDownloading(false);
     }

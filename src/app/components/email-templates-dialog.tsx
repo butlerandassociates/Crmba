@@ -52,7 +52,7 @@ export function EmailTemplatesDialog({
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [to, setTo] = useState(client.email);
+  const [to, setTo] = useState(client.email ?? "");
 
   useEffect(() => {
     if (!open) return;
@@ -173,7 +173,7 @@ export function EmailTemplatesDialog({
       setSelectedTemplate("");
       setSubject("");
       setBody("");
-      setTo(client.email);
+      setTo(client.email ?? "");
       setSendTouched(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");

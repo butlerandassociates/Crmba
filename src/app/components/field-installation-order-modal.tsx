@@ -70,7 +70,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       const data = await fioAPI.getCrewPayments(fioId);
       setCrewPayments(data);
     } catch {
-      toast.error("Failed to load payment history");
+      toast.error("Failed to load payment history — please refresh.");
     } finally {
       setLoadingPayments(false);
     }
@@ -78,6 +78,10 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
   const handleRecordPayment = async () => {
     if (!fio) return;
+    if (fio.status === "paid") {
+      toast.error("This FIO is already fully paid — no further payments can be recorded.");
+      return;
+    }
     const entries = (fio.items || [])
       .filter((item: any) => (completionPct[item.id] || 0) > 0)
       .map((item: any) => {
@@ -85,8 +89,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         const pct = completionPct[item.id] || 0;
         return { fio_item_id: item.id, completion_pct: pct, amount_paid: total * (pct / 100) };
       });
-    if (!weekEndingDate) { toast.error("Week ending date is required"); return; }
-    if (entries.length === 0) { toast.error("Enter a % for at least one item"); return; }
+    if (!weekEndingDate) { toast.error("Week ending date is required."); return; }
+    if (entries.length === 0) { toast.error("Enter a completion percentage for at least one item."); return; }
     setRecording(true);
     try {
       await fioAPI.recordCrewPayment(fio.id, weekEndingDate, entries, payNotes);
@@ -168,7 +172,11 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({});
 
   const handleSave = async () => {
-    if (editItems.length === 0) { toast.error("Add at least one labor item"); return; }
+    if (!project?.foreman?.id && !fio) {
+      toast.error("No foreman assigned to this project — assign a foreman before creating an FIO.");
+      return;
+    }
+    if (editItems.length === 0) { toast.error("At least one labor item is required."); return; }
     // Per-row validation
     const errs: Record<number, string> = {};
     editItems.forEach((item, idx) => {
@@ -369,7 +377,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_pdf_exported", description: `FIO PDF exported — project: ${project.name ?? ""}` }).catch(() => {});
     } catch (err) {
       console.error(err);
-      toast.error("Failed to export PDF");
+      toast.error("Failed to export PDF — please try again.");
     } finally {
       setExporting(false);
     }

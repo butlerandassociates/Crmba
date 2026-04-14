@@ -114,7 +114,9 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
           qty = deliveryOverride;
         }
         const product = dbProducts.find(
-          (p: any) => p.name?.trim().toLowerCase() === rule.product_name?.trim().toLowerCase()
+          (p: any) =>
+            (rule.product_id && p.id === rule.product_id) ||
+            p.name?.trim().toLowerCase() === rule.product_name?.trim().toLowerCase()
         );
         const costPerUnit = (product?.material_cost ?? 0) + (product?.labor_cost ?? 0);
         const price = product
@@ -152,7 +154,9 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
       if (qty <= 0) return;
 
       const product = dbProducts.find(
-        (p: any) => p.name?.toLowerCase() === rule.product_name?.toLowerCase()
+        (p: any) =>
+          (rule.product_id && p.id === rule.product_id) ||
+          p.name?.toLowerCase() === rule.product_name?.toLowerCase()
       );
 
       items.push({

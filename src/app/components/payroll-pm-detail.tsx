@@ -9,8 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { ArrowLeft, Loader2, TrendingUp, Clock, CheckCircle2, Edit2, Check, X } from "lucide-react";
+import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
 import { toast } from "sonner";
 
@@ -69,7 +70,7 @@ export function PayrollPMDetail() {
 
   const handleSaveAmount = async (cpId: string) => {
     const amount = parseFloat(editAmount);
-    if (isNaN(amount) || amount < 0) { toast.error("Invalid amount"); return; }
+    if (isNaN(amount) || amount < 0) { toast.error("Please enter a valid amount greater than 0."); return; }
     setProcessing(cpId);
     try {
       await commissionPaymentsAPI.update(cpId, { amount });
@@ -85,8 +86,17 @@ export function PayrollPMDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 bg-accent animate-pulse rounded-lg" />
+          <div className="space-y-1">
+            <div className="h-5 w-40 bg-accent animate-pulse rounded-md" />
+            <div className="h-3 w-28 bg-accent animate-pulse rounded-md" />
+          </div>
+        </div>
+        <SkeletonCards count={3} />
+        <SkeletonList rows={4} />
+        <PageLoader title="Loading commission details…" description="Fetching installments, project GP & processed payments" className="min-h-[6vh]" />
       </div>
     );
   }

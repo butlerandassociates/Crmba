@@ -59,6 +59,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { PageLoader, SkeletonDetailHeader, SkeletonList } from "./ui/page-loader";
 
 export function ProjectDetail() {
   const { id } = useParams();
@@ -125,8 +126,15 @@ export function ProjectDetail() {
 
   if (loadingProject) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <SkeletonDetailHeader />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <SkeletonList rows={4} />
+          </div>
+          <SkeletonList rows={3} />
+        </div>
+        <PageLoader title="Loading project details…" description="Fetching costs, payments, DocuSign status & crew assignments" className="min-h-[6vh]" />
       </div>
     );
   }
@@ -199,6 +207,10 @@ export function ProjectDetail() {
     project.status === "sold" ? paymentProgressPercentage : 15;
 
   const handleTogglePaid = async (payment: any, checked: boolean) => {
+    if (checked && !['sold', 'active', 'completed'].includes(project.status)) {
+      toast.error(`Cannot mark as paid — project must be Sold, Active, or Completed first.`);
+      return;
+    }
     const updates = { is_paid: checked, paid_date: checked ? new Date().toISOString().split('T')[0] : null };
     try {
       const updated = await projectPaymentsAPI.update(payment.id, updates);
@@ -224,8 +236,8 @@ export function ProjectDetail() {
   };
 
   const handleSavePaymentEdit = async (paymentId: string) => {
-    if (!editPaymentForm.label.trim()) { toast.error('Label is required'); return; }
-    if (!editPaymentForm.amount || parseFloat(editPaymentForm.amount) <= 0) { toast.error('Amount must be greater than 0'); return; }
+    if (!editPaymentForm.label.trim()) { toast.error('Payment label is required.'); return; }
+    if (!editPaymentForm.amount || parseFloat(editPaymentForm.amount) <= 0) { toast.error('Amount must be greater than 0.'); return; }
     try {
       const updated = await projectPaymentsAPI.update(paymentId, {
         label: editPaymentForm.label.trim(),
@@ -244,7 +256,7 @@ export function ProjectDetail() {
 
   const handleAddPayment = async () => {
     if (!newPaymentForm.label || !newPaymentForm.amount) {
-      toast.error('Label and amount are required');
+      toast.error('Payment label and amount are required.');
       return;
     }
     try {
@@ -306,7 +318,7 @@ export function ProjectDetail() {
   // };
   const handleAddReceipt = async () => {
     if (!newReceipt.name || !newReceipt.amount) {
-      toast.error('Please enter receipt name and amount');
+      toast.error('Receipt name and amount are required.');
       return;
     }
     if (!id) return;

@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { clientsAPI, projectsAPI } from "../../utils/api";
-import { TrendingUp, DollarSign, Target, Calendar, Loader2 } from "lucide-react";
+import { TrendingUp, DollarSign, Target, Calendar } from "lucide-react";
+import { SkeletonCards, SkeletonChart } from "../ui/page-loader";
 import {
   BarChart,
   Bar,
@@ -35,8 +36,10 @@ export function ForecastDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="space-y-4">
+        <SkeletonCards count={4} />
+        <SkeletonChart />
+        <SkeletonChart height={180} />
       </div>
     );
   }

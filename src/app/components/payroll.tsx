@@ -3,7 +3,8 @@ import { Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
-import { Loader2, DollarSign, TrendingUp, Users, Search, ChevronRight, Clock, History } from "lucide-react";
+import { DollarSign, TrendingUp, Users, Search, ChevronRight, Clock, History } from "lucide-react";
+import { PageLoader, SkeletonCards, SkeletonPayrollRow } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 
@@ -218,8 +219,12 @@ export function Payroll() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <SkeletonCards count={4} />
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => <SkeletonPayrollRow key={i} />)}
+        </div>
+        <PageLoader title="Loading payroll data…" description="Fetching commissions, crew payments & payroll history" className="min-h-[6vh]" />
       </div>
     );
   }
@@ -390,16 +395,16 @@ export function Payroll() {
           {historyData.length === 0 ? (
             <Card>
               <CardContent className="py-14 text-center">
-                <History className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
-                <p className="text-sm text-muted-foreground font-medium">No payroll history yet</p>
+                <History className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">No payroll history yet</p>
                 <p className="text-xs text-muted-foreground mt-1">Processed commissions and paid crew payments will appear here.</p>
               </CardContent>
             </Card>
           ) : filteredHistory.length === 0 ? (
             <Card>
               <CardContent className="py-14 text-center">
-                <Search className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
-                <p className="text-sm text-muted-foreground font-medium">No results match your search</p>
+                <Search className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">No results match your search</p>
                 <p className="text-xs text-muted-foreground mt-1">Try searching by name, client, or project.</p>
               </CardContent>
             </Card>
