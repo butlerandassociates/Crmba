@@ -110,6 +110,9 @@ export function ClientDetail() {
   const [activeModalOpen, setActiveModalOpen] = useState(false);
   const [sellingGateOpen, setSellingGateOpen] = useState(false);
   const [completedGateOpen, setCompletedGateOpen] = useState(false);
+  const [backwardConfirmOpen, setBackwardConfirmOpen] = useState(false);
+  const [backwardTargetStatus, setBackwardTargetStatus] = useState("");
+  const [backwardReason, setBackwardReason] = useState("");
   const [editClientOpen, setEditClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState<any>({});
   const [savingClient, setSavingClient] = useState(false);
@@ -436,6 +439,22 @@ export function ClientDetail() {
     }
   };
   
+  const stageOrder = ['prospect', 'selling', 'sold', 'active', 'completed'];
+  const isBackwardMove = (target: string) => {
+    const currentIdx = stageOrder.indexOf(client?.status?.toLowerCase() ?? '');
+    const targetIdx = stageOrder.indexOf(target.toLowerCase());
+    return currentIdx > 0 && targetIdx >= 0 && targetIdx < currentIdx;
+  };
+  const handleStageClick = (target: string, forwardAction: () => void) => {
+    if (isBackwardMove(target)) {
+      setBackwardTargetStatus(target);
+      setBackwardReason("");
+      setBackwardConfirmOpen(true);
+    } else {
+      forwardAction();
+    }
+  };
+
   const handleStatusChange = async (newStatus: string) => {
     if (!client) return;
     try {
@@ -784,28 +803,28 @@ export function ClientDetail() {
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Move to Stage</DropdownMenuLabel>
             <DropdownMenuItem
-              onClick={() => handleStatusChange('prospect')}
+              onClick={() => handleStageClick('prospect', () => handleStatusChange('prospect'))}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Prospect
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => {
+              onClick={() => handleStageClick('selling', () => {
                 if (clientAppointments.length === 0) { setSellingGateOpen(true); return; }
                 setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true);
-              }}
+              })}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Selling
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => setSoldModalOpen(true)}
+              onClick={() => handleStageClick('sold', () => setSoldModalOpen(true))}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Sold
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => setActiveModalOpen(true)}
+              onClick={() => handleStageClick('active', () => setActiveModalOpen(true))}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Active
@@ -2272,6 +2291,48 @@ export function ClientDetail() {
             </Button>
             <Button size="sm" onClick={() => { setCompletedGateOpen(false); handleStatusChange('completed'); }}>
               Mark as Completed Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Backward Stage Move — Confirmation */}
+      <Dialog open={backwardConfirmOpen} onOpenChange={setBackwardConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Move Stage Backward?</DialogTitle>
+            <DialogDescription>
+              You're moving this client back to <span className="font-semibold capitalize">{backwardTargetStatus}</span>. This will update their pipeline stage.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reason <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <input
+                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="e.g. Client requested more time, proposal revision needed…"
+                value={backwardReason}
+                onChange={(e) => setBackwardReason(e.target.value)}
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setBackwardConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={async () => {
+              setBackwardConfirmOpen(false);
+              await handleStatusChange(backwardTargetStatus);
+              if (backwardReason.trim()) {
+                activityLogAPI.create({
+                  client_id: client.id,
+                  action_type: "note_added",
+                  description: `Stage moved back to ${backwardTargetStatus}: ${backwardReason.trim()}`,
+                }).catch(() => {});
+              }
+              setBackwardReason("");
+            }}>
+              Yes, Move Back
             </Button>
           </DialogFooter>
         </DialogContent>
