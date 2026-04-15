@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "../contexts/auth-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -19,7 +20,6 @@ import {
   Database,
 } from "lucide-react";
 import { projectId, publicAnonKey } from "utils/supabase/info";
-import { Link } from "react-router";
 import {
   Select,
   SelectContent,
@@ -47,12 +47,16 @@ interface TestResult {
 }
 
 export function Settings() {
+  const { user } = useAuth();
+  const isAdmin = user?.profile?.role === "admin";
+
   // QuickBooks Settings
-  const [quickbooksConfig, setQuickbooksConfig] = useState({
-    clientId: "",
-    clientSecret: "",
-    companyId: "",
-    environment: "sandbox",
+  const [quickbooksConfig, setQuickbooksConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem("quickbooks_config");
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return { clientId: "", clientSecret: "", companyId: "", environment: "sandbox" };
   });
 
   const [saving, setSaving] = useState(false);
@@ -60,6 +64,7 @@ export function Settings() {
   const [showSecrets, setShowSecrets] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [dbPing, setDbPing] = useState<"idle" | "checking" | "ok" | "error">("idle");
 
   const handleQuickBooksSave = async () => {
     setSaving(true);
@@ -82,6 +87,18 @@ export function Settings() {
     }
   };
 
+  const handleDbPing = async () => {
+    setDbPing("checking");
+    try {
+      const { error } = await import("@/lib/supabase").then(({ supabase }) =>
+        supabase.from("clients").select("id").limit(1)
+      );
+      setDbPing(error ? "error" : "ok");
+    } catch {
+      setDbPing("error");
+    }
+  };
+
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
@@ -99,7 +116,6 @@ export function Settings() {
       );
 
       const data = await response.json();
-      console.log("DocuSign test connection result:", data);
       setTestResult(data);
     } catch (error: any) {
       console.error("Error testing DocuSign connection:", error);
@@ -382,6 +398,20 @@ export function Settings() {
                 </Select>
               </div>
 
+              {/* Show/Hide secrets toggle */}
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSecrets((v) => !v)}
+                  className="h-7 text-xs text-muted-foreground"
+                >
+                  {showSecrets ? <EyeOff className="h-3.5 w-3.5 mr-1" /> : <Eye className="h-3.5 w-3.5 mr-1" />}
+                  {showSecrets ? "Hide secrets" : "Show secrets"}
+                </Button>
+              </div>
+
               {/* Client ID */}
               <div className="space-y-2">
                 <Label htmlFor="qb-client-id">Client ID</Label>
@@ -489,105 +519,104 @@ export function Settings() {
         <TabsContent value="database" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Supabase Database Connection
-              </CardTitle>
-              <CardDescription className="mt-2">
-                Manage your Supabase backend and migrate data from mock to production
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="h-5 w-5" />
+                    Supabase Database
+                  </CardTitle>
+                  <CardDescription className="mt-2">
+                    Connection status and database access
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="ml-4 text-green-700 border-green-300 bg-green-50">
+                  Connected
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Connection Status */}
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  <h3 className="font-semibold text-green-900">Supabase Connected</h3>
-                </div>
-                <p className="text-sm text-green-800">
-                  Your Supabase backend is configured and ready to use!
-                </p>
-                <div className="mt-3 space-y-2 text-sm">
+
+              {/* Project info */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                <p className="text-sm font-semibold text-blue-900">Project Details</p>
+                <div className="space-y-1.5 text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-green-700">Project ID:</span>
-                    <code className="bg-green-100 px-2 py-0.5 rounded text-xs">
-                      {projectId}
-                    </code>
+                    <span className="text-blue-700 w-20 shrink-0">Project ID</span>
+                    <code className="bg-blue-100 border border-blue-200 px-2 py-0.5 rounded text-xs font-mono text-blue-900">{projectId}</code>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-green-700">Database:</span>
-                    <code className="bg-green-100 px-2 py-0.5 rounded text-xs">
-                      kv_store_9d56a30d (Key-Value Table)
-                    </code>
+                    <span className="text-blue-700 w-20 shrink-0">Provider</span>
+                    <span className="text-xs text-blue-900">Supabase (PostgreSQL)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-700 w-20 shrink-0">Auth</span>
+                    <span className="text-xs text-blue-900">Row Level Security enabled</span>
                   </div>
                 </div>
               </div>
 
-              {/* Data Migration */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h3 className="font-semibold text-blue-900 mb-2">
-                  Ready to migrate your data?
-                </h3>
-                <p className="text-sm text-blue-800 mb-4">
-                  Transfer your mock data (clients, projects, products, team members) to your live Supabase database.
-                  This will allow the CRM to persist data and work in production mode.
-                </p>
-                <Link to="/admin/data-migration">
-                  <Button className="w-full">
-                    <Database className="h-4 w-4 mr-2" />
-                    Go to Data Migration Tool
+              {/* Live connection check */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900">Connection Check</p>
+                    <p className="text-xs text-amber-700 mt-0.5">Verify the database is reachable from your browser</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDbPing}
+                    disabled={dbPing === "checking"}
+                    className="h-8 bg-white border-amber-300 text-amber-900 hover:bg-amber-50 shrink-0"
+                  >
+                    {dbPing === "checking" ? (
+                      <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Checking...</>
+                    ) : (
+                      <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Check Now</>
+                    )}
                   </Button>
-                </Link>
-              </div>
-
-              {/* API Information */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold">Available API Endpoints</h3>
-                <div className="text-xs space-y-2">
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">GET /clients</div>
-                    <div className="text-muted-foreground">Fetch all clients</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">POST /clients</div>
-                    <div className="text-muted-foreground">Create new client</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">PUT /clients/:id</div>
-                    <div className="text-muted-foreground">Update client</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">GET /projects</div>
-                    <div className="text-muted-foreground">Fetch all projects</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">POST /projects</div>
-                    <div className="text-muted-foreground">Create new project</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">GET /products</div>
-                    <div className="text-muted-foreground">Fetch all products</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded">
-                    <div className="font-mono font-semibold mb-1">POST /users</div>
-                    <div className="text-muted-foreground">Create/update team members</div>
-                  </div>
                 </div>
+
+                {dbPing === "idle" && (
+                  <div className="flex items-center gap-2 p-3 bg-white border border-amber-200 rounded-lg text-sm text-amber-800">
+                    <Database className="h-4 w-4 shrink-0 text-amber-500" />
+                    Click "Check Now" to ping the database and confirm it's reachable.
+                  </div>
+                )}
+                {dbPing === "ok" && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    <span className="text-sm text-green-800 font-medium">Database is reachable — all good.</span>
+                  </div>
+                )}
+                {dbPing === "error" && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                    <span className="text-sm text-red-800 font-medium">Connection failed — check your Supabase project status.</span>
+                  </div>
+                )}
               </div>
 
-              {/* View in Supabase Dashboard */}
-              <div className="pt-4 border-t">
-                <a
-                  href="https://supabase.com/dashboard/project/yohhdvwifjgarnaxrbev/database/tables"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Button variant="outline" className="w-full">
-                    <Database className="h-4 w-4 mr-2" />
-                    View Data in Supabase Dashboard
-                  </Button>
-                </a>
-              </div>
+              {/* Supabase dashboard link — admin only */}
+              {isAdmin && (
+                <div className="space-y-2 pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    Admin only — opens the Supabase dashboard. Requires a Supabase account with access to this project.
+                  </p>
+                  <a
+                    href={`https://supabase.com/dashboard/project/${projectId}/database/tables`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="no-underline"
+                  >
+                    <Button variant="outline" className="w-full">
+                      <Database className="h-4 w-4 mr-2" />
+                      View Tables in Supabase Dashboard
+                    </Button>
+                  </a>
+                </div>
+              )}
+
             </CardContent>
           </Card>
         </TabsContent>

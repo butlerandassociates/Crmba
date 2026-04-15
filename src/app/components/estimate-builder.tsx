@@ -76,15 +76,11 @@ export function EstimateBuilder() {
 
       // Parse and evaluate formula
       try {
-        // Replace field IDs with actual values
-        let formula = rule.calculation.formula;
-        Object.keys(formData).forEach((key) => {
-          const regex = new RegExp(key, 'g');
-          formula = formula.replace(regex, String(formData[key] || 0));
-        });
-
-        // Evaluate the formula (basic math)
-        calculatedValue = eval(formula);
+        const keys = Object.keys(formData);
+        const values = keys.map((k) => Number(formData[k]) || 0);
+        // eslint-disable-next-line no-new-func
+        const fn = new Function(...keys, `return (${rule.calculation.formula})`);
+        calculatedValue = parseFloat(fn(...values)) || 0;
         calculations[rule.id] = calculatedValue;
       } catch (error) {
         console.error('Calculation error:', error);

@@ -19,8 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Badge } from "./ui/badge";
 import { projectId, publicAnonKey } from "utils/supabase/info";
+import { supabase } from "@/lib/supabase";
 
 interface DocuSignDialogProps {
   open: boolean;
@@ -36,6 +36,7 @@ interface DocuSignTemplate {
   description?: string;
 }
 
+
 interface FieldMapping {
   [key: string]: string;
 }
@@ -48,14 +49,14 @@ export function DocuSignDialog({
   onSent,
 }: DocuSignDialogProps) {
   const [templates, setTemplates] = useState<DocuSignTemplate[]>([]);
+  const [dbTemplates, setDbTemplates] = useState<{ id: string; name: string; template_id: string }[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
-  const [manualTemplateId, setManualTemplateId] = useState("04bbe153-e82b-46df-a17e-3edcdaabe071");
-  const [useManualTemplate, setUseManualTemplate] = useState(false);
+  const [manualTemplateId, setManualTemplateId] = useState("");
 
   // Auto-map CRM fields to DocuSign template fields
   const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
@@ -122,6 +123,15 @@ export function DocuSignDialog({
     }
   }, [open]);
 
+  const loadDbTemplates = async () => {
+    const { data } = await supabase
+      .from("docusign_templates")
+      .select("id, name, template_id")
+      .eq("is_active", true)
+      .order("sort_order");
+    setDbTemplates(data ?? []);
+  };
+
   const loadTemplates = async () => {
     setLoadingTemplates(true);
     try {
@@ -134,26 +144,21 @@ export function DocuSignDialog({
         }
       );
 
-      if (!response.ok) {
-        throw new Error("Failed to load templates");
-      }
+      if (!response.ok) throw new Error("Failed to load templates");
 
       const data = await response.json();
-      
-      // Check for error response
+
       if (data.error) {
-        // Check if it's a token expiration error
-        if (data.details && data.details.includes('expired') || data.details.includes('AUTHORIZATION_INVALID_TOKEN')) {
-          setErrorMessage("DocuSign access token has expired. Please refresh your DocuSign token in the admin settings.");
+        await loadDbTemplates();
+        if (data.details?.includes("expired") || data.details?.includes("AUTHORIZATION_INVALID_TOKEN")) {
+          setErrorMessage("DocuSign token expired. Showing saved templates as fallback.");
         } else {
-          setErrorMessage(`Failed to load templates: ${data.details || data.error}`);
+          setErrorMessage(`Could not load live templates: ${data.details || data.error}`);
         }
         setStatus("error");
-        setLoadingTemplates(false);
         return;
       }
-      
-      // DocuSign returns templates in envelopeTemplates array
+
       const templateList = data.envelopeTemplates || [];
       setTemplates(
         templateList.map((t: any) => ({
@@ -164,7 +169,8 @@ export function DocuSignDialog({
       );
     } catch (error) {
       console.error("Error loading DocuSign templates:", error);
-      setErrorMessage("Failed to load templates. Please check your DocuSign configuration.");
+      await loadDbTemplates();
+      setErrorMessage("Could not reach DocuSign. Showing saved templates as fallback.");
       setStatus("error");
     } finally {
       setLoadingTemplates(false);
@@ -219,7 +225,6 @@ export function DocuSignDialog({
         },
       };
 
-      console.log("Creating DocuSign embedded envelope with data:", requestBody);
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/create-embedded-envelope`,
@@ -250,7 +255,6 @@ export function DocuSignDialog({
       setEnvelopeId(data.envelopeId);
       onOpenChange(false);
       onSent?.(data.envelopeId);
-      console.log("DocuSign envelope created successfully:", data);
       
     } catch (error: any) {
       console.error("Error creating DocuSign envelope:", error);
@@ -263,8 +267,11 @@ export function DocuSignDialog({
   const handleClose = () => {
     setStatus("idle");
     setSelectedTemplate("");
+    setManualTemplateId("");
     setErrorMessage("");
     setEnvelopeId("");
+    setTemplates([]);
+    setDbTemplates([]);
     onOpenChange(false);
   };
 
@@ -359,46 +366,48 @@ export function DocuSignDialog({
                   </div>
                 ) : templates.length === 0 ? (
                   <div className="space-y-3">
-                    <div className="p-4 border border-yellow-200 bg-yellow-50 rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-yellow-900 mb-1">
-                            No Templates Found
-                          </div>
-                          <div className="text-sm text-yellow-800 space-y-1">
-                            <p>
-                              <strong>Where to find templates:</strong> Your templates should be in your{" "}
-                              <strong>production DocuSign account</strong> (not the developer portal).
-                            </p>
-                            <p className="pt-1">
-                              If you have a template ID, enter it below to continue.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                    <div className="p-3 border border-yellow-200 bg-yellow-50 rounded-lg flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-yellow-800">
+                        {dbTemplates.length > 0
+                          ? "Live DocuSign fetch unavailable — showing your saved templates."
+                          : "No templates found. Add templates in Admin → List Management → DocuSign Templates, or enter an ID manually below."}
+                      </p>
                     </div>
 
-                    {/* Manual Template ID Input */}
-                    <div className="space-y-2">
-                      <Label htmlFor="manual-template-id" className="font-semibold">
-                        Enter Template ID Manually
+                    {/* DB saved templates dropdown */}
+                    {dbTemplates.length > 0 && (
+                      <Select
+                        value={selectedTemplate}
+                        onValueChange={(value) => { setSelectedTemplate(value); setManualTemplateId(""); }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a saved template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {dbTemplates.map((t) => (
+                            <SelectItem key={t.id} value={t.template_id}>
+                              {t.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+
+                    {/* Manual fallback — last resort */}
+                    <div className="space-y-1.5">
+                      <Label htmlFor="manual-template-id" className="text-sm">
+                        {dbTemplates.length > 0 ? "Or enter a different Template ID" : "Template ID"}
                       </Label>
                       <Input
                         id="manual-template-id"
                         value={manualTemplateId}
-                        onChange={(e) => {
-                          setManualTemplateId(e.target.value);
-                          if (e.target.value) {
-                            setSelectedTemplate("");
-                          }
-                        }}
-                        placeholder="e.g., 04bbe153-e82b-46df-a17e-3edcdaabe071"
+                        onChange={(e) => { setManualTemplateId(e.target.value); if (e.target.value) setSelectedTemplate(""); }}
+                        placeholder="e.g. 04bbe153-e82b-46df-a17e-3edcdaabe071"
                         className="font-mono"
                       />
                       <p className="text-xs text-muted-foreground">
-                        You can find your template ID in DocuSign → Templates → Click on template → 
-                        look for "Template ID" in the URL or template details
+                        Find in DocuSign → Templates → click template → copy UUID from URL.
                       </p>
                     </div>
                   </div>

@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../ui/sheet";
-import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock, FileSignature } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { SkeletonList } from "../ui/page-loader";
 import { supabase } from "@/lib/supabase";
@@ -245,6 +245,207 @@ const appointmentTypesAPI = {
 };
 const unitsAPI        = tableAPI("units");
 const scopeOfWorkAPI  = tableAPI("scope_of_work");
+
+interface DocuSignTemplate { id: string; name: string; template_id: string; }
+
+const docuSignTemplatesAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from("docusign_templates")
+      .select("id, name, template_id")
+      .eq("is_active", true)
+      .order("sort_order");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as DocuSignTemplate[];
+  },
+  create: async (name: string, template_id: string, sort_order: number) => {
+    const { data, error } = await supabase
+      .from("docusign_templates")
+      .insert({ name, template_id, sort_order })
+      .select("id, name, template_id")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as DocuSignTemplate;
+  },
+  update: async (id: string, name: string, template_id: string) => {
+    const { data, error } = await supabase
+      .from("docusign_templates")
+      .update({ name, template_id })
+      .eq("id", id)
+      .select("id, name, template_id")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as DocuSignTemplate;
+  },
+  delete: async (id: string) => {
+    const { error } = await supabase.from("docusign_templates").update({ is_active: false }).eq("id", id);
+    if (error) throw new Error(error.message);
+  },
+};
+
+function DocuSignTemplatesSection({
+  items, loading, onAdd, onUpdate, onDelete,
+}: {
+  items: DocuSignTemplate[];
+  loading: boolean;
+  onAdd: (name: string, template_id: string) => Promise<void>;
+  onUpdate: (id: string, name: string, template_id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [sheet, setSheet]         = useState<null | "new" | DocuSignTemplate>(null);
+  const [name, setName]           = useState("");
+  const [templateId, setTemplateId] = useState("");
+  const [touched, setTouched]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [search, setSearch]       = useState("");
+
+  const nameErr       = name.trim().length === 0 ? "Template name is required." : name.trim().length < 2 ? "Min 2 characters." : "";
+  const templateIdErr = templateId.trim().length === 0 ? "Template ID is required."
+    : !/^[0-9a-f-]{8,}$/i.test(templateId.trim()) ? "Enter a valid DocuSign template UUID." : "";
+  const hasErrors = !!nameErr || !!templateIdErr;
+
+  const openNew = () => { setName(""); setTemplateId(""); setTouched(false); setSheet("new"); };
+  const openEdit = (item: DocuSignTemplate) => { setName(item.name); setTemplateId(item.template_id); setTouched(false); setSheet(item); };
+  const closeSheet = () => { setSheet(null); setTouched(false); };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (hasErrors) return;
+    setSaving(true);
+    try {
+      if (sheet === "new") {
+        await onAdd(name.trim(), templateId.trim());
+        toast.success(`"${name.trim()}" added.`);
+      } else {
+        await onUpdate((sheet as DocuSignTemplate).id, name.trim(), templateId.trim());
+        toast.success("Updated.");
+      }
+      closeSheet();
+    } catch (err: any) { toast.error(err.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string, n: string) => {
+    setDeletingId(id);
+    try { await onDelete(id); toast.success(`"${n}" removed.`); }
+    catch (err: any) { toast.error(err.message || "Failed to delete."); }
+    finally { setDeletingId(null); }
+  };
+
+  const filtered = items.filter((i) =>
+    i.name.toLowerCase().includes(search.toLowerCase()) ||
+    i.template_id.toLowerCase().includes(search.toLowerCase())
+  );
+  const isEditing = sheet && sheet !== "new";
+
+  return (
+    <>
+      <Card className="flex flex-col min-h-[340px]">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">DocuSign Templates</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Saved templates shown as fallback when DocuSign API is unavailable.
+              </p>
+            </div>
+            <Button size="sm" className="h-8 shrink-0" onClick={openNew}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-1 space-y-2">
+          {!loading && items.length > 0 && (
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-7 text-xs pl-7" />
+            </div>
+          )}
+
+          {loading ? (
+            <SkeletonList rows={3} />
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <FileSignature className="h-7 w-7 mb-2 opacity-20" />
+              <p className="text-sm font-medium">{search ? "No matches found" : "No templates saved yet"}</p>
+              <p className="text-xs mt-0.5">{search ? "Try a different search term." : "Add a template name and ID to use as fallback."}</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
+              {filtered.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 group px-2 py-1.5 rounded hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">{item.template_id}</p>
+                  </div>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openEdit(item)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(item.id, item.name)} disabled={deletingId === item.id}>
+                    {deletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={!!sheet} onOpenChange={(open: boolean) => { if (!open) closeSheet(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col gap-0 p-0">
+          <SheetHeader className="px-6 py-4 border-b shrink-0">
+            <SheetTitle>{isEditing ? "Edit Template" : "Add DocuSign Template"}</SheetTitle>
+            <SheetDescription>
+              {isEditing ? "Update the template details below." : "Save a DocuSign template ID with a friendly name."}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto thin-scroll px-6 py-5 space-y-5">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Template Name <span className="text-destructive">*</span></label>
+              <Input
+                placeholder="e.g. Standard Construction Contract"
+                value={name}
+                onChange={(e) => { setName(e.target.value); if (touched) setTouched(false); }}
+                maxLength={120}
+                className={touched && nameErr ? "border-destructive focus-visible:ring-destructive" : ""}
+                autoFocus
+              />
+              {touched && nameErr
+                ? <p className="text-xs text-destructive">{nameErr}</p>
+                : <p className="text-xs text-muted-foreground">Friendly name shown in the Send DocuSign dropdown.</p>}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Template ID <span className="text-destructive">*</span></label>
+              <Input
+                placeholder="e.g. 04bbe153-e82b-46df-a17e-3edcdaabe071"
+                value={templateId}
+                onChange={(e) => { setTemplateId(e.target.value); if (touched) setTouched(false); }}
+                className={`font-mono ${touched && templateIdErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {touched && templateIdErr
+                ? <p className="text-xs text-destructive">{templateIdErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Find this in DocuSign → Templates → click template → copy the UUID from the URL.
+                  </p>}
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t shrink-0 flex justify-end gap-2">
+            <Button variant="outline" onClick={closeSheet} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {isEditing ? "Save Changes" : "Add Template"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
 
 interface ProposalReview {
   id: string;
@@ -1365,6 +1566,7 @@ export function ListManagement() {
   const [roles,             setRoles]              = useState<Role[]>([]);
   const [permissions,       setPermissions]        = useState<Permission[]>([]);
   const [reviews,           setReviews]            = useState<ProposalReview[]>([]);
+  const [docuSignTemplates, setDocuSignTemplates]  = useState<DocuSignTemplate[]>([]);
 
   const [loadingCats,    setLoadingCats]    = useState(true);
   const [loadingLS,      setLoadingLS]      = useState(true);
@@ -1375,6 +1577,7 @@ export function ListManagement() {
   const [loadingRoles,   setLoadingRoles]   = useState(true);
   const [loadingPerms,   setLoadingPerms]   = useState(true);
   const [loadingReviews, setLoadingReviews] = useState(true);
+  const [loadingDST,     setLoadingDST]     = useState(true);
 
 
   useEffect(() => {
@@ -1397,6 +1600,8 @@ export function ListManagement() {
       .then((d) => setPermissions(d as Permission[])).catch(console.error).finally(() => setLoadingPerms(false));
     proposalReviewsAPI.getAll()
       .then(setReviews).catch(console.error).finally(() => setLoadingReviews(false));
+    docuSignTemplatesAPI.getAll()
+      .then(setDocuSignTemplates).catch(console.error).finally(() => setLoadingDST(false));
   }, []);
 
   useRealtimeRefetch(
@@ -1408,7 +1613,7 @@ export function ListManagement() {
       rolesAPI.getAll().then((d) => setRoles(d as Role[])).catch(console.error);
       permissionsAPI.getAll().then((d) => setPermissions(d as Permission[])).catch(console.error);
     },
-    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions", "proposal_reviews"],
+    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions", "proposal_reviews", "docusign_templates"],
     "list-management"
   );
 
@@ -1485,6 +1690,23 @@ export function ListManagement() {
           onDelete={async (id) => {
             await appointmentTypesAPI.delete(id);
             setAppointmentTypes((prev) => prev.filter((a) => a.id !== id));
+          }}
+        />
+
+        <DocuSignTemplatesSection
+          items={docuSignTemplates}
+          loading={loadingDST}
+          onAdd={async (name, template_id) => {
+            const created = await docuSignTemplatesAPI.create(name, template_id, docuSignTemplates.length);
+            setDocuSignTemplates((prev) => [...prev, created]);
+          }}
+          onUpdate={async (id, name, template_id) => {
+            const updated = await docuSignTemplatesAPI.update(id, name, template_id);
+            setDocuSignTemplates((prev) => prev.map((t) => t.id === id ? updated : t));
+          }}
+          onDelete={async (id) => {
+            await docuSignTemplatesAPI.delete(id);
+            setDocuSignTemplates((prev) => prev.filter((t) => t.id !== id));
           }}
         />
 
