@@ -24,7 +24,6 @@ export function DocuSignCallback() {
           throw new Error("No authorization code received from DocuSign");
         }
 
-        console.log("Received authorization code, exchanging for access token...");
 
         // Exchange code for access token
         const response = await fetch(
@@ -53,7 +52,6 @@ export function DocuSignCallback() {
           throw new Error("Failed to obtain access token");
         }
 
-        console.log("Successfully obtained access token!");
         setAccessToken(data.accessToken);
         setMessage(`Access token obtained successfully! Valid for ${Math.floor(data.expiresIn / 3600)} hours.`);
         setStatus("success");

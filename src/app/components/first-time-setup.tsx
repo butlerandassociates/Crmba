@@ -30,10 +30,7 @@ export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
     setLoading(true);
 
     try {
-      console.log("Calling signup API...");
-      
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/auth/signup`;
-      console.log("Signup URL:", url);
       
       const response = await fetch(url, {
         method: "POST",
@@ -49,10 +46,7 @@ export function FirstTimeSetup({ onComplete }: { onComplete: () => void }) {
         }),
       });
 
-      console.log("Response status:", response.status);
-      
       const data = await response.json();
-      console.log("Response data:", data);
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to create admin account");

@@ -5,9 +5,7 @@ import { ClientLogin } from "./client-login";
 export function ClientPortalLayout() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const handleLogin = (email: string, password: string) => {
-    // Simple demo authentication - in production this would call an API
-    console.log('Client logging in with:', email);
+  const handleLogin = (_email: string, _password: string) => {
     setIsAuthenticated(true);
   };
 
