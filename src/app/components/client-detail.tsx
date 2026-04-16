@@ -52,6 +52,8 @@ import {
   HardHat,
   FolderOpen,
   FileDown,
+  MailX,
+  PhoneMissed,
 } from "lucide-react";
 import {
   Dialog,
@@ -1962,6 +1964,8 @@ export function ClientDetail() {
                     : type === "proposal_accepted"       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                     : type === "proposal_rejected"       ? <XCircle className="h-3.5 w-3.5 text-red-400" />
                     : type === "proposal_deleted"        ? <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                    : type === "email_bounced"           ? <MailX className="h-3.5 w-3.5 text-red-500" />
+                    : type === "sms_failed"              ? <PhoneMissed className="h-3.5 w-3.5 text-red-500" />
                     : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
                     : type === "project_value_updated"   ? <TrendingUp className="h-3.5 w-3.5 text-green-600" />
                     : type === "project_updated"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
