@@ -28,6 +28,7 @@ import {
   FolderOpen,
   PenLine,
   X,
+  Pencil,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
@@ -71,6 +72,9 @@ export function ProposalDetail() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
+  const [editingBad, setEditingBad] = useState(false);
+  const [badInputValue, setBadInputValue] = useState("");
+  const [badOverride, setBadOverride] = useState<number | null>(null);
 
   // Expanded line item rows (internal cost details)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -164,7 +168,8 @@ export function ProposalDetail() {
     (sum, item) => sum + (Number(item.quantity) * Number(item.client_price)),
     0
   );
-  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0) + (proposal?.bad_amount ?? 0);
+  const activeBad = badOverride !== null ? badOverride : (proposal?.bad_amount ?? 0);
+  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0) + activeBad;
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
@@ -232,7 +237,7 @@ export function ProposalDetail() {
       (sum, item) => sum + (Number(item.quantity) * Number(item.client_price ?? item.pricePerUnit ?? 0)),
       0
     );
-    const newTotal = newSubtotal + (proposal.tax_amount ?? 0) + (proposal.bad_amount ?? 0);
+    const newTotal = newSubtotal + (proposal.tax_amount ?? 0) + activeBad;
     await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal }).eq("id", proposal.id);
     setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
 
@@ -255,6 +260,7 @@ export function ProposalDetail() {
         description: editDescription,
         subtotal: computedSubtotal,
         total: computedTotal,
+        ...(badOverride !== null ? { bad_amount: badOverride } : {}),
       });
       // Insert new items (added via picker/custom form during this session)
       const newItems = editLineItems.filter((item) => item.id?.startsWith("new-"));
@@ -874,10 +880,53 @@ export function ProposalDetail() {
               <span className="text-muted-foreground">Subtotal</span>
               <span className="font-semibold">{formatCurrency(computedSubtotal)}</span>
             </div>
-            {(proposal?.bad_amount ?? 0) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Base, Aggregate & Disposal</span>
-                <span className="font-semibold">{formatCurrency(proposal.bad_amount)}</span>
+            {activeBad > 0 && (
+              <div className="flex justify-between text-sm items-center">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Base, Aggregate & Disposal</span>
+                  {badOverride !== null && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-orange-300 text-orange-600">manual</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {editingBad ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground text-xs">$</span>
+                      <input
+                        type="number" step="0.01"
+                        className="w-24 border rounded px-1 py-0.5 text-right text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                        value={badInputValue}
+                        onChange={(e) => setBadInputValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const val = parseFloat(badInputValue);
+                            setBadOverride(!isNaN(val) && val >= 0 ? val : null);
+                            setEditingBad(false);
+                          }
+                          if (e.key === "Escape") setEditingBad(false);
+                        }}
+                        autoFocus
+                      />
+                      <button type="button" className="text-xs text-green-600 font-medium"
+                        onClick={() => { const val = parseFloat(badInputValue); setBadOverride(!isNaN(val) && val >= 0 ? val : null); setEditingBad(false); }}>✓</button>
+                      <button type="button" className="text-xs text-muted-foreground"
+                        onClick={() => setEditingBad(false)}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-semibold">{formatCurrency(activeBad)}</span>
+                      <button type="button" className="text-muted-foreground hover:text-foreground transition-colors"
+                        title="Override BAD amount"
+                        onClick={() => { setBadInputValue(activeBad.toFixed(2)); setEditingBad(true); }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {badOverride !== null && (
+                        <button type="button" className="text-xs text-muted-foreground hover:text-destructive"
+                          title="Reset to original" onClick={() => setBadOverride(null)}>↩</button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             )}
             <div className="flex justify-between text-sm">
@@ -1225,6 +1274,7 @@ export function ProposalDetail() {
 <html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
+<style>::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.32)}*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}</style>
 </head>
 <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">

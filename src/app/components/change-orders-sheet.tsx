@@ -134,6 +134,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     if (!nextOpen && isEditOrCreate && isDirty) {
       if (!window.confirm("You have unsaved changes. Leave without saving?")) return;
     }
+    if (!nextOpen) { resetForm(); setView("list"); setSelectedCo(null); }
     onOpenChange(nextOpen);
   };
 

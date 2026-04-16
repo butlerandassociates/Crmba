@@ -407,7 +407,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   }, 0);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) { setView("view"); setEditItems([]); setEditWorkDate(""); setCompletionPct({}); setWeekEndingDate(""); setPayNotes(""); } onOpenChange(o); }}>
       <SheetContent side="right" className="w-full sm:max-w-3xl flex flex-col p-0 gap-0">
 
         {/* Header */}

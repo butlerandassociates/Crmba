@@ -261,7 +261,7 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) { setCreating(false); setEditingId(null); setForm(emptyForm()); setFormTouched(false); setViewingPO(null); } onOpenChange(o); }}>
         <DialogContent className="max-h-[90vh] flex flex-col p-0" style={{ width: "95vw", maxWidth: "95vw" }}>
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <div className="flex items-center justify-between pr-6">

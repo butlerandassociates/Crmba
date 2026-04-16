@@ -182,7 +182,7 @@ export function EmailTemplatesDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setSelectedTemplate(""); setSubject(""); setBody(""); setTo(client.email ?? ""); } onOpenChange(o); }}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
