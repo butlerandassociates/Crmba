@@ -5,7 +5,9 @@ import { useAuth } from "../../contexts/auth-context";
 import {
   Loader2, Search, ChevronRight, HardHat,
   Briefcase, DollarSign, Clock, CheckCircle2, MapPin, Calendar,
+  FileText, Download,
 } from "lucide-react";
+
 import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
@@ -27,10 +29,11 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function ForemanDashboard() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<"jobs" | "payments">("jobs");
+  const [activeTab, setActiveTab] = useState<"jobs" | "payments" | "documents">("jobs");
   const [search, setSearch] = useState("");
   const [jobs, setJobs] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,10 +44,30 @@ export function ForemanDashboard() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      await Promise.all([loadJobs(), loadPayments()]);
+      await Promise.all([loadJobs(), loadPayments(), loadDocuments()]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadDocuments = async () => {
+    // Get all projects where this foreman is assigned
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id, client_id, name")
+      .eq("foreman_id", user!.profile!.id);
+    if (!projects || projects.length === 0) { setDocuments([]); return; }
+    const clientIds = projects.map((p: any) => p.client_id);
+    const projectMap: Record<string, string> = {};
+    projects.forEach((p: any) => { projectMap[p.client_id] = p.name; });
+    // Get files for those clients — subcontractor agreements and certificates only
+    const { data: files } = await supabase
+      .from("client_files")
+      .select("id, file_name, file_url, file_type, created_at, client_id")
+      .in("client_id", clientIds)
+      .in("file_type", ["subcontractor", "certificate"])
+      .order("created_at", { ascending: false });
+    setDocuments((files ?? []).map((f: any) => ({ ...f, projectName: projectMap[f.client_id] ?? "—" })));
   };
 
   const loadJobs = async () => {
@@ -197,8 +220,9 @@ export function ForemanDashboard() {
       <div className="border-b">
         <div className="flex gap-6">
           {[
-            { key: "jobs", label: "My Jobs" },
-            { key: "payments", label: "My Payments" },
+            { key: "jobs",      label: "My Jobs"     },
+            { key: "payments",  label: "My Payments" },
+            { key: "documents", label: "Documents"   },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -215,16 +239,18 @@ export function ForemanDashboard() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder={activeTab === "jobs" ? "Search jobs…" : "Search payments…"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
+      {/* Search — hidden on documents tab */}
+      {activeTab !== "documents" && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={activeTab === "jobs" ? "Search jobs…" : "Search payments…"}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      )}
 
       {/* ── MY JOBS TAB ── */}
       {activeTab === "jobs" && (
@@ -370,6 +396,56 @@ export function ForemanDashboard() {
           )}
         </div>
       )}
+      {/* ── DOCUMENTS TAB ── */}
+      {/* ── DOCUMENTS TAB ── */}
+      {activeTab === "documents" && (
+        <div className="space-y-3">
+          {documents.length === 0 ? (
+            <Card>
+              <CardContent className="py-14 flex flex-col items-center justify-center text-muted-foreground">
+                <FileText className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No documents yet</p>
+                <p className="text-xs mt-1">Signed agreements and certificates will appear here once uploaded.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4 px-0">
+                <div className="divide-y">
+                  {documents.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between gap-4 px-5 py-3 hover:bg-accent/40 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="shrink-0 h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {doc.file_type === "subcontractor" ? "Subcontractor Agreement" : "Certificate of Completion"} · {doc.projectName} · {new Date(doc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-primary hover:opacity-80 font-medium no-underline shrink-0"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </a>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 pt-3 border-t mt-1 text-xs text-muted-foreground">
+                  {documents.length} document{documents.length !== 1 ? "s" : ""}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

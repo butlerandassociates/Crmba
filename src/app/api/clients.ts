@@ -106,8 +106,40 @@ export const clientsAPI = {
     return data;
   },
 
-  /** Hard delete */
+  /** Hard delete — removes storage files before deleting the DB row */
   delete: async (id: string) => {
+    // 1. Clean up client-files storage
+    const { data: clientFiles } = await supabase
+      .from("client_files")
+      .select("file_url")
+      .eq("client_id", id);
+    if (clientFiles && clientFiles.length > 0) {
+      const paths = clientFiles
+        .map((f: any) => f.file_url?.split("/client-files/")[1])
+        .filter(Boolean);
+      if (paths.length > 0) await supabase.storage.from("client-files").remove(paths);
+    }
+
+    // 2. Clean up project-receipts storage for all projects linked to this client
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("client_id", id);
+    if (projects && projects.length > 0) {
+      const projectIds = projects.map((p: any) => p.id);
+      const { data: receipts } = await supabase
+        .from("project_receipts")
+        .select("file_url")
+        .in("project_id", projectIds)
+        .not("file_url", "is", null);
+      if (receipts && receipts.length > 0) {
+        const paths = receipts
+          .map((r: any) => r.file_url?.split("/project-receipts/")[1])
+          .filter(Boolean);
+        if (paths.length > 0) await supabase.storage.from("project-receipts").remove(paths);
+      }
+    }
+
     const { error } = await supabase.from("clients").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return { id };

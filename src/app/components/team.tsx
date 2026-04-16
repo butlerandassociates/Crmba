@@ -36,7 +36,7 @@ export function Team() {
 
   // Edit modal
   const [editMember, setEditMember] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "", insurance_expiration_date: "" });
   const [editTouched, setEditTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -64,7 +64,7 @@ export function Team() {
 
   const openEdit = (member: any) => {
     setEditMember(member);
-    setEditForm({ first_name: member.first_name ?? "", last_name: member.last_name ?? "", phone: member.phone ?? "" });
+    setEditForm({ first_name: member.first_name ?? "", last_name: member.last_name ?? "", phone: member.phone ?? "", insurance_expiration_date: member.insurance_expiration_date ?? "" });
     setEditTouched(false);
   };
 
@@ -287,6 +287,17 @@ export function Team() {
                 />
                 {editTouched && editPhoneErr && <p className="text-xs text-red-500">{editPhoneErr}</p>}
               </div>
+              {editMember?.role === "foreman" && (
+                <div className="grid gap-2">
+                  <Label>Insurance Expiration Date</Label>
+                  <Input
+                    type="date"
+                    value={editForm.insurance_expiration_date}
+                    onChange={(e) => setEditForm({ ...editForm, insurance_expiration_date: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">You will receive a bell notification 30 days before expiration.</p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
