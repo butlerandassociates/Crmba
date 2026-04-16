@@ -90,7 +90,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) { setForm({ ...EMPTY }); setDroppedFile(null); } onOpenChange(o); }}>
       <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
         {/* Header */}
         <SheetHeader className="px-6 py-4 border-b">

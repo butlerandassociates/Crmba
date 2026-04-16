@@ -152,37 +152,19 @@
   background-color: rgba(255, 255, 255, 0.32);
 }
 
+/* ── Global thin scrollbar (outside @layer so webkit rules are never stripped) ── */
+*::-webkit-scrollbar        { width: 4px; height: 4px; }
+*::-webkit-scrollbar-track  { background: transparent; }
+*::-webkit-scrollbar-thumb  { background-color: rgba(0,0,0,0.18); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(0,0,0,0.32); }
+.dark *::-webkit-scrollbar-thumb       { background-color: rgba(255,255,255,0.18); }
+.dark *::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.32); }
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
-  }
-
-  *::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-  }
-
-  *::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  *::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.15);
-    border-radius: 4px;
-  }
-
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(0, 0, 0, 0.28);
-  }
-
-  .dark *::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.18);
-  }
-
-  .dark *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.32);
+    scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
   }
 
   body {

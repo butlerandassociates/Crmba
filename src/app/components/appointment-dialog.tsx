@@ -22,7 +22,7 @@ import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { toast } from "sonner";
-import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { useGoogleCalendar } from "../hooks/use-google-calendar";
 import { clientsAPI, appointmentsAPI, usersAPI, activityLogAPI } from "../utils/api";
@@ -55,12 +55,67 @@ export function AppointmentDialog({
   const [teamMembers, setTeamMembers]           = useState<any[]>([]);
   const [assignedUserId, setAssignedUserId]     = useState("");
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
+  const [clientEmail, setClientEmail]           = useState(client?.email ?? "");
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
 
   useEffect(() => {
     usersAPI.getAll().then(setTeamMembers).catch(console.error);
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
   }, []);
+
+  useEffect(() => { setClientEmail(client?.email ?? ""); }, [client?.email]);
+
+  const INTAKE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?usp=header";
+
+  const buildPreviewHtml = () => {
+    const apptType = appointmentTypes.find((t) => t.id === appointmentType);
+    const typeName = apptType?.name ?? "Appointment";
+    const dateLabel = selectedDate ? format(selectedDate, "EEEE, MMMM d, yyyy") : "—";
+    const timeLabel = startTime && endTime ? `${startTime} – ${endTime}` : "—";
+    const vars: Record<string, string> = {
+      client_name: clientName,
+      date: dateLabel,
+      time: timeLabel,
+      type: typeName,
+      address: clientAddress || "",
+      intake_form_url: INTAKE_FORM_URL,
+      meet_link: "",
+    };
+    const rawBody = apptType?.email_body?.trim() ||
+      `Your {type} has been confirmed.\n\nDate: {date}\nTime: {time}\nLocation: {address}\n\nWe look forward to meeting with you!`;
+    const body = Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), rawBody);
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet"/><style>::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.32)}*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}</style></head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+  <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td style="vertical-align:middle;">
+        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
+        <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
+      </td>
+      <td style="vertical-align:middle;text-align:right;width:60px;">
+        <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;"/>
+      </td>
+    </tr></table>
+  </div>
+  <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+  <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Message from Butler &amp; Associates</p>
+    <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
+    <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:0 0 28px 0;background:#FAFAF8;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Before Your Appointment</p>
+      <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;line-height:1.6;margin:0 0 16px 0;">Please take a moment to complete our intake form — it helps us prepare and make the most of your time with us.</p>
+      <div style="text-align:center;"><a href="${INTAKE_FORM_URL}" target="_blank" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 24px;border-radius:4px;">Complete Intake Form →</a></div>
+    </div>
+    <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+  </div>
+  <div style="text-align:center;padding:20px 0 0 0;">
+    <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+  </div>
+</div></body></html>`;
+  };
 
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || client?.company || "Client";
   const clientAddress = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
@@ -146,7 +201,7 @@ export function AppointmentDialog({
       let emailSent = false;
       let smsSent   = false;
 
-      if (client?.email) {
+      if (clientEmail.trim()) {
         const { data: emailData, error: emailErr } = await supabase.functions.invoke(
           "send-appointment-email",
           {
@@ -154,7 +209,7 @@ export function AppointmentDialog({
               appointment_type_id: appointmentType,
               client_id:      client.id,
               client_name:    clientName,
-              client_email:   client.email,
+              client_email:   clientEmail.trim(),
               client_address: clientAddress || null,
               date:           dateLabel,
               time:           timeLabel,
@@ -207,14 +262,14 @@ export function AppointmentDialog({
 
       // Primary success toast
       toast.success(
-        `Appointment scheduled!${emailSent ? ` Invite sent to ${client?.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
+        `Appointment scheduled!${emailSent ? ` Invite sent to ${clientEmail.trim()}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
         { duration: 6000 }
       );
 
       // Failure toasts (shown after success so they appear on top)
-      if (client?.email && !emailSent) {
+      if (clientEmail.trim() && !emailSent) {
         toast.error(
-          `Confirmation email could not be sent to ${client.email}. Check the address is correct.`,
+          `Confirmation email could not be sent to ${clientEmail.trim()}. Check the address is correct.`,
           { duration: 8000 }
         );
       }
@@ -237,16 +292,6 @@ export function AppointmentDialog({
         );
       }
 
-      // Reset form
-      setAppointmentType("");
-      setSelectedDate(undefined);
-      setStartTime("");
-      setEndTime("");
-      setNotes("");
-      setCcEmails("");
-      setAssignedUserId("");
-      setTouched(false);
-
       onOpenChange(false);
       onAppointmentScheduled?.();
     } catch (error: any) {
@@ -257,8 +302,20 @@ export function AppointmentDialog({
     }
   };
 
+  const resetForm = () => {
+    setAppointmentType("");
+    setSelectedDate(undefined);
+    setStartTime("");
+    setEndTime("");
+    setNotes("");
+    setCcEmails("");
+    setAssignedUserId("");
+    setClientEmail(client?.email ?? "");
+    setTouched(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Schedule Appointment</DialogTitle>
@@ -331,6 +388,32 @@ export function AppointmentDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">They will receive the calendar invite alongside the client.</p>
+          </div>
+
+          {/* Client Email */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Client Email</Label>
+              {appointmentType && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  onClick={() => setShowEmailPreview(true)}
+                >
+                  <Mail className="h-3 w-3" />
+                  Preview Email
+                </Button>
+              )}
+            </div>
+            <Input
+              type="email"
+              value={clientEmail}
+              onChange={(e) => setClientEmail(e.target.value)}
+              placeholder="client@email.com"
+            />
+            <p className="text-xs text-muted-foreground">Pre-filled from client record — edit here if a different address is needed for this appointment.</p>
           </div>
 
           {/* Appointment Type */}
@@ -501,6 +584,28 @@ export function AppointmentDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Email Preview Dialog */}
+      <Dialog open={showEmailPreview} onOpenChange={setShowEmailPreview}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+          <DialogHeader className="shrink-0 px-6 py-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              Email Preview — {appointmentTypes.find((t) => t.id === appointmentType)?.name ?? "Appointment"}
+            </DialogTitle>
+            <DialogDescription>
+              This is exactly what {clientEmail || clientName} will receive.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+            <iframe
+              srcDoc={buildPreviewHtml()}
+              className="w-full h-full border-0"
+              title="Email Preview"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

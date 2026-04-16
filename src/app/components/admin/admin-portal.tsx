@@ -4,11 +4,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { UserManagement } from "./user-management";
 import { ForecastDashboard } from "./forecast-dashboard";
 import { ProductManager } from "./product-manager";
+import { PLReport } from "./pl-report";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Link } from "react-router";
-import { FileText, List, Archive, Loader2, RotateCcw } from "lucide-react";
+import { FileText, List, Archive, Loader2, RotateCcw, FileBarChart2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { activityLogAPI } from "../../utils/api";
 import { toast } from "sonner";
@@ -151,10 +152,14 @@ export function AdminPortal() {
       </div>
 
       <Tabs defaultValue="products" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-5 max-w-3xl">
           <TabsTrigger value="products">Products & Pricing</TabsTrigger>
           <TabsTrigger value="forecast">Forecasting</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="reports">
+            <FileBarChart2 className="h-3.5 w-3.5 mr-1.5" />
+            Reports
+          </TabsTrigger>
           <TabsTrigger value="discarded">
             <Archive className="h-3.5 w-3.5 mr-1.5" />
             Discarded
@@ -171,6 +176,10 @@ export function AdminPortal() {
 
         <TabsContent value="users" className="mt-4">
           <UserManagement />
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-4">
+          <PLReport />
         </TabsContent>
 
         <TabsContent value="discarded" className="mt-4">

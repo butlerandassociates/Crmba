@@ -2104,7 +2104,7 @@ export function ClientDetail() {
         </Dialog>
 
         {/* Add Payment Dialog */}
-        <Dialog open={addPaymentOpen} onOpenChange={setAddPaymentOpen}>
+        <Dialog open={addPaymentOpen} onOpenChange={(o) => { setAddPaymentOpen(o); if (!o) setNewPayment(EMPTY_PAYMENT); }}>
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Add Payment Milestone</DialogTitle>
@@ -2139,7 +2139,7 @@ export function ClientDetail() {
         </Dialog>
 
         {/* Mark as Paid Dialog */}
-        <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) setMarkPaidOpen(null); }}>
+        <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) { setMarkPaidOpen(null); setPaidForm({ payment_method: "", notes: "" }); } }}>
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Mark as Paid</DialogTitle>
@@ -2171,7 +2171,7 @@ export function ClientDetail() {
         </Dialog>
 
         {/* Edit Payment Dialog */}
-        <Dialog open={editPaymentOpen} onOpenChange={setEditPaymentOpen}>
+        <Dialog open={editPaymentOpen} onOpenChange={(o) => { setEditPaymentOpen(o); if (!o) setEditPayment(null); }}>
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Edit Milestone</DialogTitle>
@@ -2479,7 +2479,7 @@ export function ClientDetail() {
         const hasErr = !!fnErr || !!emailErr || !!phoneErr || !!zipErr;
         const t = editClientTouched;
         return (
-          <Dialog open={editClientOpen} onOpenChange={(open) => { setEditClientOpen(open); if (!open) setEditClientTouched(false); }}>
+          <Dialog open={editClientOpen} onOpenChange={(open) => { setEditClientOpen(open); if (!open) { setEditClientTouched(false); setClientForm({}); } }}>
             <DialogContent className="sm:max-w-[480px]">
               <DialogHeader>
                 <DialogTitle>Edit Client</DialogTitle>
@@ -2617,7 +2617,7 @@ export function ClientDetail() {
       </Sheet>
 
       {/* Move to Selling / Update Forecast Modal */}
-      <Dialog open={sellingModalOpen} onOpenChange={setSellingModalOpen}>
+      <Dialog open={sellingModalOpen} onOpenChange={(o) => { setSellingModalOpen(o); if (!o) { setSellingProbability(""); setSellingCloseDate(""); } }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

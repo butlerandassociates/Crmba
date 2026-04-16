@@ -322,7 +322,7 @@ export function UserManagement() {
           <p className="text-muted-foreground mt-1">Manage user access and permissions</p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setInviteTouched(false); } }}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setFormData({ firstName: "", lastName: "", email: "" }); setSelectedRole(""); setSelectedPermissions([]); setInviteTouched(false); } }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
