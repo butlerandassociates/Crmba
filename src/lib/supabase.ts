@@ -14,7 +14,7 @@ export const supabase = createClient(
 
 // ── Types ────────────────────────────────────────────────────
 
-export type UserRole = "admin" | "team_member";
+export type UserRole = "admin" | "project_manager" | "sales_rep" | "foreman" | "team_member";
 
 export interface Profile {
   id: string;

@@ -26,7 +26,7 @@ import {
   Award,
   Bell,
 } from "lucide-react";
-import { clientsAPI, projectsAPI, usersAPI } from "../utils/api";
+import { clientsAPI, projectsAPI, usersAPI, estimatesAPI } from "../utils/api";
 import { PageLoader, SkeletonCards, SkeletonTable } from "./ui/page-loader";
 
 const clientDisplayName = (c: any) =>
@@ -36,6 +36,7 @@ export function PipelineForecast() {
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [proposalClientIds, setProposalClientIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [selectedStage, setSelectedStage] = useState<{ label: string; color: string; list: any[] } | null>(null);
 
@@ -46,14 +47,16 @@ export function PipelineForecast() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [clientsData, projectsData, usersData] = await Promise.all([
+      const [clientsData, projectsData, usersData, estimatesData] = await Promise.all([
         clientsAPI.getAll(),
         projectsAPI.getAll(),
-        usersAPI.getAll()
+        usersAPI.getAll(),
+        estimatesAPI.getAll(),
       ]);
       setClients(clientsData);
       setProjects(projectsData);
       setUsers(usersData);
+      setProposalClientIds(new Set(estimatesData.map((e: any) => e.client_id)));
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -61,7 +64,7 @@ export function PipelineForecast() {
     }
   };
 
-  useRealtimeRefetch(fetchData, ["clients", "projects"], "pipeline-forecast");
+  useRealtimeRefetch(fetchData, ["clients", "projects", "estimates"], "pipeline-forecast");
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -71,23 +74,33 @@ export function PipelineForecast() {
     }).format(value);
   };
 
-  // Bucket by pipeline_stage.name (source of truth — not clients.status)
-  const stageName = (c: any) => c.pipeline_stage?.name?.toLowerCase() ?? "";
-  const prospectClients  = clients.filter((c) => ["new", "pursuing"].includes(stageName(c)));
-  const soldClients      = clients.filter((c) => stageName(c) === "closing");
-  const activeClients    = clients.filter((c) => stageName(c) === "active");
-  const completedClients = clients.filter((c) => stageName(c) === "completed");
+  // Bucket by client.status (source of truth — matches what is written on every stage move)
+  const statusName = (c: any) => (c.status ?? "").toLowerCase();
+  const prospectClients  = clients.filter((c) => statusName(c) === "prospect");
+  const sellingClients   = clients.filter((c) => statusName(c) === "selling");
+  const soldClients      = clients.filter((c) => statusName(c) === "sold");
+  const activeClients    = clients.filter((c) => statusName(c) === "active");
+  const completedClients = clients.filter((c) => statusName(c) === "completed");
+
+  // Pipeline card: "Prospect" shows both prospect + selling (pre-closed pipeline)
+  const pipelineClients = [...prospectClients, ...sellingClients];
 
   // Revenue per bucket — project_total computed by clientsAPI.getAll()
-  const prospectValue  = prospectClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const prospectValue  = pipelineClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
   const soldValue      = soldClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
   const activeValue    = activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
   const completedValue = completedClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
 
-  // Weighted forecast (65% probability for prospects)
-  const weightedForecast = prospectClients.reduce((sum, c) => {
-    return sum + ((c.project_total ?? 0) * 0.65);
-  }, 0);
+  // Weighted forecast:
+  //   Prospect clients → 35% default (no probability set yet)
+  //   Selling clients  → use their closing_probability if set (0-100), else 60%
+  const weightedForecast = [
+    ...prospectClients.map((c) => ({ total: c.project_total ?? 0, prob: 0.35 })),
+    ...sellingClients.map((c) => ({
+      total: c.project_total ?? 0,
+      prob: c.closing_probability > 0 ? c.closing_probability / 100 : 0.60,
+    })),
+  ].reduce((sum, { total, prob }) => sum + total * prob, 0);
 
   // Company Stats — from projects (camelCased by mapProject)
   const totalRevenue    = projects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
@@ -182,7 +195,7 @@ export function PipelineForecast() {
       {/* Pipeline Stages in Columns — click to open client list */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {[
-          { label: "Prospect",  color: "bg-blue-500",   list: prospectClients,  value: prospectValue  },
+          { label: "Prospect",  color: "bg-blue-500",   list: pipelineClients,  value: prospectValue  },
           { label: "Sold",      color: "bg-orange-500", list: soldClients,      value: soldValue      },
           { label: "Active",    color: "bg-green-500",  list: activeClients,    value: activeValue    },
           { label: "Completed", color: "bg-purple-500", list: completedClients, value: completedValue },
@@ -368,12 +381,12 @@ export function PipelineForecast() {
                 <ListTodo className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base">Tasks</CardTitle>
               </div>
-              <Badge variant="secondary">{prospectClients.length + soldClients.length}</Badge>
+              <Badge variant="secondary">{pipelineClients.length + soldClients.length}</Badge>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {prospectClients.slice(0, 3).map((client) => (
+              {prospectClients.map((client) => (
                 <Link
                   key={client.id}
                   to={`/clients/${client.id}`}
@@ -385,14 +398,18 @@ export function PipelineForecast() {
                         <Badge variant="outline" className="text-xs">Follow Up</Badge>
                         <span className="text-sm font-medium">{clientDisplayName(client)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">Send proposal and schedule meeting</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {proposalClientIds.has(client.id)
+                          ? "Proposal exists — follow up and move to Selling"
+                          : "No proposal yet — send proposal and schedule meeting"}
+                      </p>
                     </div>
                     <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
                   </div>
                 </Link>
               ))}
 
-              {soldClients.slice(0, 2).map((client) => (
+              {sellingClients.map((client) => (
                 <Link
                   key={client.id}
                   to={`/clients/${client.id}`}
@@ -401,21 +418,55 @@ export function PipelineForecast() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs bg-orange-50">Closing</Badge>
+                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">Selling</Badge>
                         <span className="text-sm font-medium">{clientDisplayName(client)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">Assign PM and schedule kickoff</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {!proposalClientIds.has(client.id)
+                          ? "No proposal yet — create and send proposal"
+                          : client.closing_probability > 0
+                            ? `${client.closing_probability}% probability — follow up to close`
+                            : "Proposal sent — set closing probability"}
+                      </p>
                     </div>
-                    <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+                    <TrendingUp className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
                   </div>
                 </Link>
               ))}
 
-              {prospectClients.length === 0 && soldClients.length === 0 && (
+              {soldClients.map((client) => {
+                const clientProject = projects.find((p) => p.clientId === client.id || p.client_id === client.id);
+                const pmAssigned = !!clientProject?.projectManagerId || !!clientProject?.project_manager_id;
+                const pm = pmAssigned ? users.find((u) => u.id === (clientProject?.projectManagerId ?? clientProject?.project_manager_id)) : null;
+                return (
+                  <Link
+                    key={client.id}
+                    to={`/clients/${client.id}`}
+                    className="block p-3 border rounded-lg hover:bg-accent transition-colors no-underline"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs bg-orange-50">Closing</Badge>
+                          <span className="text-sm font-medium">{clientDisplayName(client)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {pmAssigned
+                            ? `PM: ${pm ? `${pm.first_name ?? ""} ${pm.last_name ?? ""}`.trim() : "Assigned"} — schedule kickoff`
+                            : "Assign PM and schedule kickoff"}
+                        </p>
+                      </div>
+                      <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+                    </div>
+                  </Link>
+                );
+              })}
+
+              {pipelineClients.length === 0 && soldClients.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8">
                   <ListTodo className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No pending tasks</p>
-                  <p className="text-xs mt-1 text-muted-foreground">Tasks appear when clients are in prospect or sold stages.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">Tasks appear when clients are in prospect, selling, or sold stages.</p>
                 </div>
               )}
             </div>
