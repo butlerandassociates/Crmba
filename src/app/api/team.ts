@@ -86,4 +86,21 @@ export const usersAPI = {
     if (error) throw new Error(error.message);
     return data;
   },
+
+  /** Hard delete — cleans up profile-files storage first */
+  delete: async (id: string) => {
+    const { data: files } = await supabase
+      .from("profile_files")
+      .select("url")
+      .eq("profile_id", id);
+    if (files && files.length > 0) {
+      const paths = files
+        .map((f: any) => f.url?.split("/profile-files/")[1])
+        .filter(Boolean);
+      if (paths.length > 0) await supabase.storage.from("profile-files").remove(paths);
+    }
+    const { error } = await supabase.from("profiles").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return { id };
+  },
 };

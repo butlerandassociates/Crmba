@@ -126,7 +126,7 @@ export function RootLayout() {
     try {
       const today = new Date().toISOString().split("T")[0];
       const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-      const [clientsRes, estimatesRes, paymentsRes, apptRes] = await Promise.all([
+      const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes] = await Promise.all([
         supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
@@ -136,12 +136,36 @@ export function RootLayout() {
           .select("id, title, appointment_date, is_met, client:clients!appointments_client_id_fkey(id, first_name, last_name, status, is_discarded)")
           .eq("is_met", false)
           .lte("appointment_date", cutoff24h),
+        supabase.from("profiles")
+          .select("id, first_name, last_name, insurance_expiration_date")
+          .eq("role", "foreman")
+          .not("insurance_expiration_date", "is", null),
       ]);
       const clients = clientsRes.data ?? [];
       const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
       const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+      const in30Days = new Date(todayDate); in30Days.setDate(in30Days.getDate() + 30);
 
       const alerts: NavAlert[] = [];
+
+      // Foreman insurance expiration — alert when within 30 days
+      (foremanRes.data ?? []).forEach((f: any) => {
+        const expDate = new Date(f.insurance_expiration_date); expDate.setHours(0, 0, 0, 0);
+        if (expDate <= in30Days) {
+          const daysLeft = Math.ceil((expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+          const name = `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "Foreman";
+          alerts.push({
+            id: `insurance-expiry-${f.id}`,
+            clientId: "",
+            clientName: name,
+            label: "Insurance Expiring",
+            description: daysLeft <= 0
+              ? `${name}'s insurance has expired`
+              : `${name}'s insurance expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+            severity: daysLeft <= 7 ? "red" : "amber",
+          });
+        }
+      });
 
       clients.filter((c: any) => c.status === "selling" && !proposalClientIds.has(c.id)).forEach((c: any) => {
         alerts.push({

@@ -69,6 +69,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI} from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
+import { MoveToCompletedModal } from "./move-to-completed-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,8 +113,8 @@ export function ClientDetail() {
   const [deletingProposal, setDeletingProposal] = useState(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
   const [activeModalOpen, setActiveModalOpen] = useState(false);
+  const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [sellingGateOpen, setSellingGateOpen] = useState(false);
-  const [completedGateOpen, setCompletedGateOpen] = useState(false);
   const [backwardConfirmOpen, setBackwardConfirmOpen] = useState(false);
   const [backwardTargetStatus, setBackwardTargetStatus] = useState("");
   const [backwardReason, setBackwardReason] = useState("");
@@ -468,9 +469,15 @@ export function ClientDetail() {
   };
   const handleStageClick = (target: string, forwardAction: () => void) => {
     if (isBackwardMove(target)) {
-      setBackwardTargetStatus(target);
-      setBackwardReason("");
-      setBackwardConfirmOpen(true);
+      // Only Selling → Prospect is allowed backward. All others are blocked.
+      const current = client?.status?.toLowerCase() ?? "";
+      if (current === "selling" && target.toLowerCase() === "prospect") {
+        setBackwardTargetStatus(target);
+        setBackwardReason("");
+        setBackwardConfirmOpen(true);
+      } else {
+        toast.error("This stage cannot be reversed. Once a contract is signed the pipeline can only move forward.");
+      }
     } else {
       forwardAction();
     }
@@ -920,11 +927,7 @@ export function ClientDetail() {
               Active
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => {
-                const unpaid = clientPayments.filter((p: any) => !p.is_paid);
-                if (unpaid.length > 0) { setCompletedGateOpen(true); return; }
-                handleStatusChange('completed');
-              }}
+              onClick={() => setCompletedModalOpen(true)}
             >
               <MoveRight className="h-4 w-4 mr-2" />
               Completed
@@ -1834,7 +1837,9 @@ export function ClientDetail() {
                   <SelectItem value="contract">Contract</SelectItem>
                   <SelectItem value="proposal">Proposal</SelectItem>
                   <SelectItem value="receipt">Receipt</SelectItem>
-                  <SelectItem value="photo">Photo</SelectItem>
+                  <SelectItem value="photo">Site Photo</SelectItem>
+                  <SelectItem value="certificate">Certificate of Completion</SelectItem>
+                  <SelectItem value="subcontractor">Subcontractor Agreement</SelectItem>
                   <SelectItem value="insurance">Insurance</SelectItem>
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
@@ -2383,38 +2388,17 @@ export function ClientDetail() {
       </Dialog>
 
       {/* Completed Gate — unpaid milestones warning */}
-      <Dialog open={completedGateOpen} onOpenChange={setCompletedGateOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Unpaid Milestones</DialogTitle>
-            <DialogDescription>
-              The following payment milestones have not been marked as paid.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="space-y-3">
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-800">Mark all payments as paid before completing this job, or proceed if payments were collected outside the system.</p>
-            </div>
-            <div className="space-y-1.5">
-              {clientPayments.filter((p: any) => !p.is_paid).map((p: any) => (
-                <div key={p.id} className="flex items-center justify-between text-sm border rounded px-3 py-2">
-                  <span className="font-medium">{p.label}</span>
-                  <span className="text-muted-foreground">${Number(p.amount).toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setCompletedGateOpen(false)}>
-              Go Back
-            </Button>
-            <Button size="sm" onClick={() => { setCompletedGateOpen(false); handleStatusChange('completed'); }}>
-              Mark as Completed Anyway
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Move to Completed Modal */}
+      <MoveToCompletedModal
+        open={completedModalOpen}
+        onOpenChange={setCompletedModalOpen}
+        client={client}
+        project={clientProjects[0] ?? null}
+        onSuccess={() => {
+          setClient({ ...client, status: "completed" });
+          loadActivityLog();
+        }}
+      />
 
       {/* Backward Stage Move — Confirmation */}
       <Dialog open={backwardConfirmOpen} onOpenChange={setBackwardConfirmOpen}>
