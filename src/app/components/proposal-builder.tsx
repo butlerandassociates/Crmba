@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
@@ -122,6 +122,40 @@ export function ProposalBuilder() {
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  // Custom item form
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customItem, setCustomItem] = useState({
+    name: "", category: "", qty: 1, unit: "",
+    materialCost: 0, laborCost: 0, markup: 0,
+  });
+  const customCostPerUnit = customItem.materialCost + customItem.laborCost;
+  const customPricePerUnit = customCostPerUnit * (1 + customItem.markup / 100);
+  const [customValidated, setCustomValidated] = useState(false);
+
+  const resetCustomForm = () => {
+    setCustomItem({ name: "", category: "", qty: 1, unit: "", materialCost: 0, laborCost: 0, markup: 0 });
+    setCustomValidated(false);
+    setShowCustomForm(false);
+  };
+
+  const handleAddCustomItem = () => {
+    setCustomValidated(true);
+    if (!customItem.name.trim() || !customItem.category.trim() || !customItem.unit.trim()) return;
+    addLineItem({
+      category: customItem.category.trim(),
+      productName: customItem.name.trim(),
+      description: undefined,
+      quantity: customItem.qty || 1,
+      unit: customItem.unit.trim(),
+      materialCost: customItem.materialCost,
+      laborCost: customItem.laborCost,
+      costPerUnit: customCostPerUnit,
+      markupPercent: customItem.markup,
+      pricePerUnit: customPricePerUnit,
+    });
+    resetCustomForm();
+  };
 
   // Qualifying categories for Base, Aggregate & Disposal
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
@@ -458,6 +492,129 @@ export function ProposalBuilder() {
                     {wizardType} wizard will guide you through the estimate
                   </div>
                 )}
+
+                {/* Divider + Custom Item toggle */}
+                <div className="pt-1">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                    <div className="flex-1 border-t" />
+                    <span>or</span>
+                    <div className="flex-1 border-t" />
+                  </div>
+                  {!showCustomForm ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs gap-1.5"
+                      onClick={() => setShowCustomForm(true)}
+                    >
+                      <PenLine className="h-3.5 w-3.5" />
+                      Custom Item
+                    </Button>
+                  ) : (
+                    <div className="border rounded-lg p-3 space-y-2 bg-amber-50/40 border-amber-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold text-amber-800">Custom Item</span>
+                        <button type="button" onClick={resetCustomForm} className="text-muted-foreground hover:text-foreground">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Name + Category */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Name *</Label>
+                          <Input
+                            placeholder="e.g. Custom Lighting"
+                            value={customItem.name}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, name: e.target.value }))}
+                            className={`h-8 text-xs ${customValidated && !customItem.name.trim() ? "border-red-400" : ""}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Category *</Label>
+                          <Input
+                            placeholder="e.g. Landscaping"
+                            value={customItem.category}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, category: e.target.value }))}
+                            className={`h-8 text-xs ${customValidated && !customItem.category.trim() ? "border-red-400" : ""}`}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Qty + Unit */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Qty</Label>
+                          <Input
+                            type="number" min={0}
+                            value={customItem.qty}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, qty: parseFloat(e.target.value) || 0 }))}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Unit *</Label>
+                          <Input
+                            placeholder="e.g. SF, LF, EA"
+                            value={customItem.unit}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, unit: e.target.value }))}
+                            className={`h-8 text-xs ${customValidated && !customItem.unit.trim() ? "border-red-400" : ""}`}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Costs */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Material $</Label>
+                          <Input
+                            type="number" min={0} step={0.01}
+                            value={customItem.materialCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, materialCost: parseFloat(e.target.value) || 0 }))}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Labor $</Label>
+                          <Input
+                            type="number" min={0} step={0.01}
+                            value={customItem.laborCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, laborCost: parseFloat(e.target.value) || 0 }))}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Markup %</Label>
+                          <Input
+                            type="number" min={0} step={1}
+                            value={customItem.markup}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, markup: parseFloat(e.target.value) || 0 }))}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live price preview */}
+                      {customCostPerUnit > 0 && (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-amber-200">
+                          <span>Price / unit</span>
+                          <span className="font-semibold text-foreground">{formatCurrency(customPricePerUnit)}</span>
+                        </div>
+                      )}
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="w-full h-8 text-xs mt-1"
+                        onClick={handleAddCustomItem}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        Add to Proposal
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

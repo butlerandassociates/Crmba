@@ -26,6 +26,8 @@ import {
   ChevronUp,
   Package,
   FolderOpen,
+  PenLine,
+  X,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
@@ -78,6 +80,42 @@ export function ProposalDetail() {
   const [pickerCategory, setPickerCategory] = useState("");
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
+
+  // Custom item form (inside picker)
+  const [customItem, setCustomItem] = useState({ name: "", category: "", qty: 1, unit: "", materialCost: 0, laborCost: 0, markup: 0 });
+  const [customValidated, setCustomValidated] = useState(false);
+  const customCostPerUnit = customItem.materialCost + customItem.laborCost;
+  const customPricePerUnit = customCostPerUnit * (1 + customItem.markup / 100);
+  const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+
+  const resetCustomItem = () => {
+    setCustomItem({ name: "", category: "", qty: 1, unit: "", materialCost: 0, laborCost: 0, markup: 0 });
+    setCustomValidated(false);
+  };
+
+  const handleAddCustomItem = () => {
+    setCustomValidated(true);
+    if (!customItem.name.trim() || !customItem.category.trim() || !customItem.unit.trim()) return;
+    setEditLineItems((prev) => [...prev, {
+      id: `new-${Date.now()}`,
+      fromPicker: true,
+      name: customItem.name.trim(),
+      product_name: customItem.name.trim(),
+      category: customItem.category.trim(),
+      quantity: customItem.qty || 1,
+      unit: customItem.unit.trim(),
+      client_price: customPricePerUnit,
+      price_per_unit: customPricePerUnit,
+      material_cost: customItem.materialCost,
+      labor_cost: customItem.laborCost,
+      cost_per_unit: customCostPerUnit,
+      markup_percent: customItem.markup,
+      total_price: (customItem.qty || 1) * customPricePerUnit,
+    }]);
+    resetCustomItem();
+    setPickerCategory("");
+    setShowItemPicker(false);
+  };
 
   // Wizard edit
   const [templates, setTemplates] = useState<any[]>([]);
@@ -218,24 +256,46 @@ export function ProposalDetail() {
         subtotal: computedSubtotal,
         total: computedTotal,
       });
+      // Insert new items (added via picker/custom form during this session)
+      const newItems = editLineItems.filter((item) => item.id?.startsWith("new-"));
+      if (newItems.length > 0) {
+        await supabase.from("estimate_line_items").insert(
+          newItems.map((item) => ({
+            estimate_id: proposal.id,
+            name: item.product_name ?? item.name,
+            product_name: item.product_name ?? item.name,
+            category: item.category ?? null,
+            quantity: Number(item.quantity),
+            unit: item.unit ?? "",
+            client_price: Number(item.client_price),
+            price_per_unit: Number(item.client_price),
+            total_price: Number(item.quantity) * Number(item.client_price),
+            material_cost: item.material_cost ?? 0,
+            labor_cost: item.labor_cost ?? 0,
+            cost_per_unit: item.cost_per_unit ?? 0,
+            markup_percent: item.markup_percent ?? 0,
+          }))
+        );
+      }
+      // Update existing items
       await Promise.all(
-        editLineItems.map((item) =>
-          item.id?.startsWith("new-")
-            ? Promise.resolve()
-            : supabase.from("estimate_line_items").update({
-                product_name: item.product_name ?? item.name,
-                unit: item.unit ?? "",
-                quantity: item.quantity,
-                client_price: Number(item.client_price),
-                price_per_unit: Number(item.client_price),
-                total_price: Number(item.quantity) * Number(item.client_price),
-                material_cost: item.material_cost ?? 0,
-                labor_cost: item.labor_cost ?? 0,
-                cost_per_unit: item.cost_per_unit ?? 0,
-                markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
-                fio_qty: item.fio_qty ?? null,
-              }).eq("id", item.id)
-        )
+        editLineItems
+          .filter((item) => !item.id?.startsWith("new-"))
+          .map((item) =>
+            supabase.from("estimate_line_items").update({
+              product_name: item.product_name ?? item.name,
+              unit: item.unit ?? "",
+              quantity: item.quantity,
+              client_price: Number(item.client_price),
+              price_per_unit: Number(item.client_price),
+              total_price: Number(item.quantity) * Number(item.client_price),
+              material_cost: item.material_cost ?? 0,
+              labor_cost: item.labor_cost ?? 0,
+              cost_per_unit: item.cost_per_unit ?? 0,
+              markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
+              fio_qty: item.fio_qty ?? null,
+            }).eq("id", item.id)
+          )
       );
       setProposal((p: any) => ({
         ...p,
@@ -836,8 +896,21 @@ export function ProposalDetail() {
       <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
         <DialogContent className="h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
           <DialogHeader className="px-6 py-5 border-b shrink-0">
-            <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
-            <DialogDescription>Select a category on the left, then click a product to add it</DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
+                <DialogDescription className="mt-0.5">Select a category on the left, then click a product to add it</DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50 shrink-0"
+                onClick={() => { setPickerCategory("__custom__"); resetCustomItem(); }}
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Custom Item
+              </Button>
+            </div>
           </DialogHeader>
           <div className="flex flex-1 min-h-0 overflow-hidden">
             {/* Categories sidebar */}
@@ -862,7 +935,81 @@ export function ProposalDetail() {
 
             {/* Products panel — fills all remaining width */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              {!pickerCategory ? (
+              {pickerCategory === "__custom__" ? (
+                <div className="flex-1 overflow-y-auto px-8 py-6 thin-scroll">
+                  <div className="max-w-lg">
+                    <p className="text-base font-semibold mb-0.5">Custom Item</p>
+                    <p className="text-xs text-muted-foreground mb-5">Add a one-off product or service. It won't be saved to the catalog.</p>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Item Name <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="e.g. Custom Lighting Install"
+                            value={customItem.name}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, name: e.target.value }))}
+                            className={customValidated && !customItem.name.trim() ? "border-red-400" : ""}
+                          />
+                          {customValidated && !customItem.name.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Category <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="e.g. Landscaping, Lighting"
+                            value={customItem.category}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, category: e.target.value }))}
+                            className={customValidated && !customItem.category.trim() ? "border-red-400" : ""}
+                          />
+                          {customValidated && !customItem.category.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Quantity</Label>
+                          <Input type="number" min={0} value={customItem.qty}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, qty: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Unit <span className="text-destructive">*</span></Label>
+                          <Input placeholder="e.g. SF, LF, EA, HR" value={customItem.unit}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, unit: e.target.value }))}
+                            className={customValidated && !customItem.unit.trim() ? "border-red-400" : ""} />
+                          {customValidated && !customItem.unit.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Material Cost / Unit ($)</Label>
+                          <Input type="number" min={0} step={0.01} value={customItem.materialCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, materialCost: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Labor Cost / Unit ($)</Label>
+                          <Input type="number" min={0} step={0.01} value={customItem.laborCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, laborCost: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Markup (%)</Label>
+                          <Input type="number" min={0} step={1} value={customItem.markup}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, markup: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                      </div>
+                      {customCostPerUnit > 0 && (
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 text-sm">
+                          <span className="text-muted-foreground">Price / unit</span>
+                          <span className="font-bold text-primary">{formatC(customPricePerUnit)}</span>
+                          <span className="text-muted-foreground">Line total</span>
+                          <span className="font-bold">{formatC((customItem.qty || 1) * customPricePerUnit)}</span>
+                        </div>
+                      )}
+                      <Button className="w-full" onClick={handleAddCustomItem}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add to Proposal
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : !pickerCategory ? (
                 <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
                   <p className="text-sm">← Select a category to browse products</p>
                 </div>
@@ -875,7 +1022,6 @@ export function ProposalDetail() {
                     <p className="text-xs mt-1">Add products in the Admin Portal to use them here.</p>
                   </div>
                 );
-                const formatC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
                 return (
                   <>
                     <div className="px-6 pt-5 pb-3 shrink-0 border-b">
