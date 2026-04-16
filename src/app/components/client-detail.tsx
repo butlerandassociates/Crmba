@@ -122,16 +122,33 @@ export function ClientDetail() {
   const [clientAppointments, setClientAppointments] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [scopeOptions, setScopeOptions] = useState<any[]>([]);
+
+  // 811 completion dialog
+  const [call811Open, setCall811Open] = useState(false);
+  const [call811Date, setCall811Date] = useState("");
+  const [call811Time, setCall811Time] = useState("");
+  const [saving811, setSaving811] = useState(false);
   
   // Fetch client from API
   useEffect(() => {
     const fetchClient = async () => {
       if (!id) return;
-      
+
       try {
         setLoading(true);
         const data = await clientsAPI.getById(id);
         setClient(data);
+        // Prime leadSources with the client's current lead source immediately so the
+        // Select trigger shows the correct name before the full list loads (Radix Select
+        // does not re-sync the displayed label when options arrive asynchronously after
+        // the value is already set).
+        if (data?.lead_source) {
+          setLeadSources((prev) =>
+            prev.some((ls) => ls.id === data.lead_source.id)
+              ? prev
+              : [data.lead_source, ...prev]
+          );
+        }
         setError(null);
       } catch (err: any) {
         console.error("Failed to fetch client:", err);
@@ -506,6 +523,56 @@ export function ClientDetail() {
     }
   };
 
+  const handleConfirm811 = async () => {
+    if (!client || !call811Date || !call811Time) return;
+    setSaving811(true);
+    try {
+      const completedAt = new Date(`${call811Date}T${call811Time}`).toISOString();
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("clients").update({
+        call_811_completed_at: completedAt,
+        call_811_completed_by: user?.id ?? null,
+      }).eq("id", client.id);
+
+      // Notify all admin + project_manager users (Jonathan + DeWayne)
+      const { data: admins } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("role", ["admin", "project_manager"])
+        .eq("is_active", true);
+
+      const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+      const displayDate = new Date(`${call811Date}T${call811Time}`).toLocaleString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit",
+      });
+
+      await supabase.from("notifications").insert({
+        type: "call_811",
+        title: "811 Call Confirmed",
+        message: `811 was called for ${clientName} on ${displayDate}. Utility location services satisfied.`,
+        link: `/clients/${client.id}`,
+        created_by: user?.id ?? null,
+      });
+
+      activityLogAPI.create({
+        client_id: client.id,
+        action_type: "note_added",
+        description: `811 call confirmed — satisfied on ${displayDate}`,
+      }).catch(() => {});
+
+      setClient({ ...client, call_811_completed_at: completedAt });
+      toast.success("811 confirmed — team has been notified.");
+      setCall811Open(false);
+      setCall811Date("");
+      setCall811Time("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save 811 confirmation.");
+    } finally {
+      setSaving811(false);
+    }
+  };
+
   const loadGpHealth = async (projectId: string) => {
     try {
       const receipts = await receiptsAPI.getByProject(projectId);
@@ -583,7 +650,7 @@ export function ClientDetail() {
     if (!client) return;
     try {
       await clientsAPI.update(client.id, { lead_source_id: leadSourceId });
-      const selected = leadSources.find((ls) => ls.id === leadSourceId);
+      const selected = leadSources.find((ls) => ls.id === leadSourceId) ?? { id: leadSourceId, name: "" };
       setClient({ ...client, lead_source: selected, lead_source_id: leadSourceId });
       activityLogAPI.create({ client_id: client.id, action_type: "lead_source_changed", description: `Lead source changed to "${selected?.name ?? "unknown"}"` }).then(loadActivityLog).catch(() => {});
       toast.success("Lead source updated");
@@ -1209,14 +1276,40 @@ export function ClientDetail() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3 pt-2">
-              <Checkbox id="call-811" defaultChecked={client.call_811_required} />
-              <Label htmlFor="call-811" className="text-sm font-medium cursor-pointer flex items-center gap-2">
-                <PhoneCall className="h-4 w-4 text-muted-foreground" />
-                Call 811?
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground pl-6">Call before you dig for utility location services</p>
+            <div className="pt-2 space-y-1">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="call-811"
+                    checked={!!client.call_811_completed_at}
+                    onCheckedChange={() => {
+                      if (!client.call_811_completed_at) {
+                        setCall811Date(new Date().toISOString().split("T")[0]);
+                        setCall811Time(new Date().toTimeString().slice(0, 5));
+                        setCall811Open(true);
+                      }
+                    }}
+                  />
+                  <Label htmlFor="call-811" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+                    <PhoneCall className="h-4 w-4 text-muted-foreground" />
+                    Call 811?
+                    {client.call_811_completed_at && (
+                      <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 ml-1">
+                        Satisfied
+                      </Badge>
+                    )}
+                  </Label>
+                </div>
+                {client.call_811_completed_at ? (
+                  <p className="text-xs text-green-700 pl-6">
+                    Called on {new Date(client.call_811_completed_at).toLocaleString("en-US", {
+                      month: "short", day: "numeric", year: "numeric",
+                      hour: "numeric", minute: "2-digit",
+                    })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground pl-6">Call before you dig for utility location services</p>
+                )}
+              </div>
           </CardContent>
         </Card>
 
@@ -1388,7 +1481,8 @@ export function ClientDetail() {
                   .filter((p) => p.status !== "declined")
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
                 const projectedValue = latestProposal?.total ?? client.projected_value;
-                const hasData = projectedValue || client.closing_probability || client.expected_close_date;
+                const isSelling = client.status === "selling";
+                const hasData = projectedValue || (isSelling && (client.closing_probability || client.expected_close_date));
                 return (
                   !hasData ? (
                     <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
@@ -1398,7 +1492,7 @@ export function ClientDetail() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-4">
-                      {client.closing_probability != null && (
+                      {isSelling && client.closing_probability != null && (
                         <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <RadialBarChart
@@ -1431,7 +1525,7 @@ export function ClientDetail() {
                             <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(projectedValue)}</div>
                           </div>
                         )}
-                        {client.expected_close_date && (
+                        {isSelling && client.expected_close_date && (
                           <div>
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Est. Close Date</div>
                             <div className="text-sm font-semibold text-slate-700">{formatDate(client.expected_close_date)}</div>
@@ -2646,6 +2740,52 @@ export function ClientDetail() {
             >
               {discarding ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
               Discard Client
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 811 Confirmation Dialog */}
+      <Dialog open={call811Open} onOpenChange={(v) => { setCall811Open(v); if (!v) { setCall811Date(""); setCall811Time(""); } }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PhoneCall className="h-5 w-5 text-primary" />
+              Confirm 811 Call
+            </DialogTitle>
+            <DialogDescription>
+              Enter the date and time you called 811 to satisfy the utility location requirement.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            <div className="grid gap-1.5">
+              <Label>Date Called <span className="text-destructive">*</span></Label>
+              <Input
+                type="date"
+                value={call811Date}
+                onChange={(e) => setCall811Date(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Time Called <span className="text-destructive">*</span></Label>
+              <Input
+                type="time"
+                value={call811Time}
+                onChange={(e) => setCall811Time(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Jonathan and the Project Manager will receive an in-app notification once confirmed.
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCall811Open(false)}>Cancel</Button>
+            <Button
+              onClick={handleConfirm811}
+              disabled={saving811 || !call811Date || !call811Time}
+            >
+              {saving811 ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <CheckCircle2 className="h-4 w-4 mr-1.5" />}
+              Confirm & Notify Team
             </Button>
           </DialogFooter>
         </DialogContent>

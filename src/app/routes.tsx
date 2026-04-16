@@ -28,6 +28,9 @@ import { DocuSignLoadingPreview } from "./components/docusign-loading-preview";
 import { Payroll } from "./components/payroll";
 import { PayrollPMDetail } from "./components/payroll-pm-detail";
 import { PayrollCrewDetail } from "./components/payroll-crew-detail";
+import { ForemanLayout } from "./components/foreman/foreman-layout";
+import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
+import { ForemanJobDetail } from "./components/foreman/foreman-job-detail";
 
 // Simple 404 component
 function NotFound() {
@@ -67,6 +70,14 @@ export const router = createBrowserRouter([
       { path: "payroll/pm/:id", Component: PayrollPMDetail },
       { path: "payroll/crew/:id", Component: PayrollCrewDetail },
       { path: "*", Component: NotFound },
+    ],
+  },
+  {
+    path: "/foreman",
+    Component: ForemanLayout,
+    children: [
+      { index: true, Component: ForemanDashboard },
+      { path: "jobs/:fioId", Component: ForemanJobDetail },
     ],
   },
   {

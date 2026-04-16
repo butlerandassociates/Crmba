@@ -143,46 +143,87 @@ export function AppointmentDialog({
       // Send branded confirmation email via SendGrid
       const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
       const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
+      let emailSent = false;
+      let smsSent   = false;
+
       if (client?.email) {
-        supabase.functions.invoke("send-appointment-email", {
-          body: {
-            appointment_type_id: appointmentType,
-            client_id:      client.id,
-            client_name:    clientName,
-            client_email:   client.email,
-            client_address: clientAddress || null,
-            date:           dateLabel,
-            time:           timeLabel,
-            meet_link:      createdEvent.hangoutLink ?? null,
-          },
-        }).then(() => {
-          // Mark email sent only after successful delivery
-          appointmentsAPI.update && supabase.from("appointments")
+        const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+          "send-appointment-email",
+          {
+            body: {
+              appointment_type_id: appointmentType,
+              client_id:      client.id,
+              client_name:    clientName,
+              client_email:   client.email,
+              client_address: clientAddress || null,
+              date:           dateLabel,
+              time:           timeLabel,
+            },
+          }
+        );
+        if (emailErr || emailData?.error) {
+          const reason = emailErr?.message ?? emailData?.error ?? "Unknown error";
+          activityLogAPI.create({
+            client_id:    client.id,
+            action_type:  "email_failed",
+            description:  `Appointment confirmation email failed to deliver to ${client.email}: ${reason}`,
+          }).catch(() => {});
+        } else {
+          emailSent = true;
+          void supabase.from("appointments")
             .update({ email_notification_sent: true })
             .eq("client_id", client.id)
             .order("created_at", { ascending: false })
-            .limit(1)
-            .catch(() => {});
-        }).catch((err: any) => console.error("Email send failed:", err));
+            .limit(1);
+        }
       }
 
       // Send SMS confirmation via Twilio
       if (client?.phone) {
-        supabase.functions.invoke("send-appointment-sms", {
-          body: {
-            client_phone:      client.phone,
-            client_first_name: client.first_name ?? "",
-            date:              dateLabel,
-            time:              timeLabel,
-          },
-        }).catch((err: any) => console.error("SMS send failed:", err));
+        const { data: smsData, error: smsErr } = await supabase.functions.invoke(
+          "send-appointment-sms",
+          {
+            body: {
+              client_phone:      client.phone,
+              client_first_name: client.first_name ?? "",
+              date:              dateLabel,
+              time:              timeLabel,
+            },
+          }
+        );
+        if (smsErr || smsData?.error) {
+          const reason = smsErr?.message ?? smsData?.error ?? "Unknown error";
+          activityLogAPI.create({
+            client_id:    client.id,
+            action_type:  "sms_failed",
+            description:  `Appointment SMS failed to deliver to ${client.phone}: ${reason}`,
+          }).catch(() => {});
+        } else {
+          smsSent = true;
+        }
       }
 
       const meetLink = createdEvent.hangoutLink;
+
+      // Primary success toast
       toast.success(
-        `Appointment scheduled!${client?.email ? ` Invite sent to ${client.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
+        `Appointment scheduled!${emailSent ? ` Invite sent to ${client?.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
         { duration: 6000 }
       );
+
+      // Failure toasts (shown after success so they appear on top)
+      if (client?.email && !emailSent) {
+        toast.error(
+          `Confirmation email could not be sent to ${client.email}. Check the address is correct.`,
+          { duration: 8000 }
+        );
+      }
+      if (client?.phone && !smsSent) {
+        toast.error(
+          `SMS could not be sent to ${client.phone}. Check the phone number is correct.`,
+          { duration: 8000 }
+        );
+      }
 
       if (meetLink) {
         toast.info(
@@ -313,12 +354,34 @@ export function AppointmentDialog({
           {/* Date Picker */}
           <div className="space-y-2">
             <Label>Select Date <span className="text-destructive">*</span></Label>
-            <div className={`border rounded-lg p-3 ${touched && !selectedDate ? "border-red-500" : ""}`}>
+            <div className={`border rounded-lg overflow-hidden flex justify-center ${touched && !selectedDate ? "border-red-500" : ""}`}>
               <Calendar
                 mode="single"
                 selected={selectedDate}
                 onSelect={setSelectedDate}
                 disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                className="w-[340px] p-4"
+                classNames={{
+                  months: "w-full",
+                  month: "w-full flex flex-col gap-4",
+                  caption: "flex justify-center pt-1 relative items-center w-full",
+                  caption_label: "text-sm font-medium",
+                  table: "w-full border-collapse",
+                  head_row: "flex w-full",
+                  head_cell: "text-muted-foreground font-normal text-[0.8rem] flex-1 text-center",
+                  row: "flex w-full mt-2",
+                  cell: "flex-1 relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent [&:has([aria-selected])]:rounded-md",
+                  day: "w-full h-9 p-0 font-normal rounded-md hover:bg-accent hover:text-accent-foreground aria-selected:opacity-100 flex items-center justify-center text-sm",
+                  day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+                  day_today: "bg-accent text-accent-foreground font-semibold",
+                  day_outside: "text-muted-foreground opacity-40",
+                  day_disabled: "text-muted-foreground opacity-30 cursor-not-allowed",
+                  day_hidden: "invisible",
+                  nav: "flex items-center gap-1",
+                  nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 border rounded-md flex items-center justify-center",
+                  nav_button_previous: "absolute left-1",
+                  nav_button_next: "absolute right-1",
+                }}
               />
             </div>
             {touched && !selectedDate && <p className="text-xs text-red-500">Date is required.</p>}
@@ -337,7 +400,22 @@ export function AppointmentDialog({
                 <Clock className="h-3 w-3 inline mr-1" />
                 Start Time <span className="text-destructive">*</span>
               </Label>
-              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={touched && !startTime ? "border-red-500" : ""} />
+              <Input
+                type="time"
+                value={startTime}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStartTime(val);
+                  if (val) {
+                    const [h, m] = val.split(":").map(Number);
+                    const total = h * 60 + m + 90;
+                    const eh = Math.floor(total / 60) % 24;
+                    const em = total % 60;
+                    setEndTime(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
+                  }
+                }}
+                className={touched && !startTime ? "border-red-500" : ""}
+              />
               {touched && !startTime && <p className="text-xs text-red-500">Start time is required.</p>}
             </div>
             <div className="space-y-2">

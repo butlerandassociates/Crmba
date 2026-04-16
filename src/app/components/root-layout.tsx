@@ -153,7 +153,7 @@ export function RootLayout() {
       });
 
       clients.filter((c: any) => {
-        if (!["prospect", "selling"].includes(c.status) || !c.expected_close_date) return false;
+        if (c.status !== "selling" || !c.expected_close_date) return false;
         const d = new Date(c.expected_close_date); d.setHours(0, 0, 0, 0);
         return d < todayDate;
       }).forEach((c: any) => {
@@ -319,6 +319,11 @@ export function RootLayout() {
 
   if (!user || isInviteFlow) {
     return <Navigate to="/login" replace state={{ isInvite: isInviteFlow }} />;
+  }
+
+  // Foreman users get their own portal — not the main CRM
+  if (user.profile?.role === "foreman") {
+    return <Navigate to="/foreman" replace />;
   }
 
   const displayName = user.profile

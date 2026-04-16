@@ -15,6 +15,7 @@ import { Link } from "react-router";
 
 interface ListItem { id: string; name: string; }
 interface AppointmentType { id: string; name: string; email_subject: string | null; email_body: string | null; }
+interface EmailTemplate { id: string; name: string; subject: string; body_html: string; }
 
 interface ListSectionProps {
   title: string;
@@ -243,6 +244,41 @@ const appointmentTypesAPI = {
     if (error) throw new Error(error.message);
   },
 };
+const emailTemplatesAPI = {
+  getAll: async () => {
+    const { data, error } = await supabase
+      .from("email_templates")
+      .select("id, name, subject, body_html")
+      .eq("is_active", true)
+      .order("name");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as EmailTemplate[];
+  },
+  create: async (fields: Omit<EmailTemplate, "id">) => {
+    const { data, error } = await supabase
+      .from("email_templates")
+      .insert({ ...fields, is_active: true })
+      .select("id, name, subject, body_html")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as EmailTemplate;
+  },
+  update: async (id: string, fields: Omit<EmailTemplate, "id">) => {
+    const { data, error } = await supabase
+      .from("email_templates")
+      .update(fields)
+      .eq("id", id)
+      .select("id, name, subject, body_html")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as EmailTemplate;
+  },
+  delete: async (id: string) => {
+    const { error } = await supabase.from("email_templates").update({ is_active: false }).eq("id", id);
+    if (error) throw new Error(error.message);
+  },
+};
+
 const unitsAPI        = tableAPI("units");
 const scopeOfWorkAPI  = tableAPI("scope_of_work");
 
@@ -684,6 +720,202 @@ function ProposalReviewsSection({
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {isEditing ? "Save Changes" : "Add Review"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+function EmailTemplatesSection({
+  items, loading, onAdd, onUpdate, onDelete,
+}: {
+  items: EmailTemplate[];
+  loading: boolean;
+  onAdd: (fields: Omit<EmailTemplate, "id">) => Promise<void>;
+  onUpdate: (id: string, fields: Omit<EmailTemplate, "id">) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [sheet, setSheet]     = useState<null | "new" | EmailTemplate>(null);
+  const [name, setName]       = useState("");
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [search, setSearch]   = useState("");
+
+  const nameErr    = name.trim().length === 0 ? "Template name is required."
+    : name.trim().length < 2 ? "Min 2 characters." : "";
+  const subjectErr = subject.trim().length === 0 ? "Email subject is required."
+    : subject.trim().length < 3 ? "Min 3 characters." : "";
+  const bodyErr    = bodyHtml.trim().length === 0 ? "Email body is required."
+    : bodyHtml.trim().length < 10 ? "Min 10 characters." : "";
+  const hasErrors  = !!nameErr || !!subjectErr || !!bodyErr;
+
+  const openNew = () => { setName(""); setSubject(""); setBodyHtml(""); setTouched(false); setSheet("new"); };
+  const openEdit = (item: EmailTemplate) => {
+    setName(item.name); setSubject(item.subject); setBodyHtml(item.body_html);
+    setTouched(false); setSheet(item);
+  };
+  const closeSheet = () => { setSheet(null); setTouched(false); };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (hasErrors) return;
+    setSaving(true);
+    try {
+      const fields = { name: name.trim(), subject: subject.trim(), body_html: bodyHtml.trim() };
+      if (sheet === "new") {
+        await onAdd(fields);
+        toast.success(`"${name.trim()}" added.`);
+      } else {
+        await onUpdate((sheet as EmailTemplate).id, fields);
+        toast.success("Template updated.");
+      }
+      closeSheet();
+    } catch (err: any) { toast.error(err.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string, n: string) => {
+    setDeletingId(id);
+    try { await onDelete(id); toast.success(`"${n}" removed.`); }
+    catch (err: any) { toast.error(err.message || "Failed to delete."); }
+    finally { setDeletingId(null); }
+  };
+
+  const filtered = items.filter((i) =>
+    i.name.toLowerCase().includes(search.toLowerCase()) ||
+    i.subject.toLowerCase().includes(search.toLowerCase())
+  );
+  const isEditing = sheet && sheet !== "new";
+
+  return (
+    <>
+      <Card className="flex flex-col min-h-[340px]">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Email Templates</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Outreach email templates used in the Send Email dialog.
+              </p>
+            </div>
+            <Button size="sm" className="h-8 shrink-0" onClick={openNew}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-1 space-y-2">
+          {!loading && items.length > 0 && (
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-7 text-xs pl-7" />
+            </div>
+          )}
+
+          {loading ? (
+            <SkeletonList rows={3} />
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <Mail className="h-7 w-7 mb-2 opacity-20" />
+              <p className="text-sm font-medium">{search ? "No matches found" : "No templates yet"}</p>
+              <p className="text-xs mt-0.5">{search ? "Try a different search term." : "Add your first email template above."}</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto thin-scroll space-y-1 pr-1">
+              {filtered.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 group px-2 py-1.5 rounded hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.name}</p>
+                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+                      <Mail className="h-2.5 w-2.5 shrink-0" />{item.subject}
+                    </p>
+                  </div>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openEdit(item)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(item.id, item.name)} disabled={deletingId === item.id}>
+                    {deletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={!!sheet} onOpenChange={(open: boolean) => { if (!open) closeSheet(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col gap-0 p-0">
+          <SheetHeader className="px-6 py-4 border-b shrink-0">
+            <SheetTitle>{isEditing ? "Edit Email Template" : "New Email Template"}</SheetTitle>
+            <SheetDescription>
+              {isEditing ? "Update the template details below." : "Create a reusable outreach email template."}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto thin-scroll px-6 py-5 space-y-5">
+            {/* Name */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Template Name <span className="text-destructive">*</span>
+              </label>
+              <Input
+                placeholder="e.g. Initial Follow Up"
+                value={name}
+                onChange={(e) => { setName(e.target.value); if (touched) setTouched(false); }}
+                maxLength={120}
+                className={touched && nameErr ? "border-destructive focus-visible:ring-destructive" : ""}
+                autoFocus
+              />
+              {touched && nameErr
+                ? <p className="text-xs text-destructive">{nameErr}</p>
+                : <p className="text-xs text-muted-foreground">Shown in the Send Email dropdown.</p>}
+            </div>
+
+            {/* Subject */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Subject <span className="text-destructive">*</span>
+              </label>
+              <Input
+                placeholder="e.g. Following Up — Butler & Associates Construction"
+                value={subject}
+                onChange={(e) => { setSubject(e.target.value); if (touched) setTouched(false); }}
+                maxLength={200}
+                className={touched && subjectErr ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {touched && subjectErr && <p className="text-xs text-destructive">{subjectErr}</p>}
+            </div>
+
+            {/* Body */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Body <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                placeholder="Hi {client_name}, ..."
+                value={bodyHtml}
+                onChange={(e) => { setBodyHtml(e.target.value); if (touched) setTouched(false); }}
+                rows={10}
+                className={`resize-none font-mono text-xs ${touched && bodyErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {touched && bodyErr
+                ? <p className="text-xs text-destructive">{bodyErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Variable: <code className="bg-muted px-1 rounded">{"{client_name}"}</code>
+                  </p>}
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t shrink-0 flex justify-end gap-2">
+            <Button variant="outline" onClick={closeSheet} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {isEditing ? "Save Changes" : "Add Template"}
             </Button>
           </div>
         </SheetContent>
@@ -1567,6 +1799,7 @@ export function ListManagement() {
   const [permissions,       setPermissions]        = useState<Permission[]>([]);
   const [reviews,           setReviews]            = useState<ProposalReview[]>([]);
   const [docuSignTemplates, setDocuSignTemplates]  = useState<DocuSignTemplate[]>([]);
+  const [emailTemplates,    setEmailTemplates]      = useState<EmailTemplate[]>([]);
 
   const [loadingCats,    setLoadingCats]    = useState(true);
   const [loadingLS,      setLoadingLS]      = useState(true);
@@ -1578,6 +1811,7 @@ export function ListManagement() {
   const [loadingPerms,   setLoadingPerms]   = useState(true);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [loadingDST,     setLoadingDST]     = useState(true);
+  const [loadingET,      setLoadingET]      = useState(true);
 
 
   useEffect(() => {
@@ -1602,6 +1836,8 @@ export function ListManagement() {
       .then(setReviews).catch(console.error).finally(() => setLoadingReviews(false));
     docuSignTemplatesAPI.getAll()
       .then(setDocuSignTemplates).catch(console.error).finally(() => setLoadingDST(false));
+    emailTemplatesAPI.getAll()
+      .then(setEmailTemplates).catch(console.error).finally(() => setLoadingET(false));
   }, []);
 
   useRealtimeRefetch(
@@ -1612,8 +1848,9 @@ export function ListManagement() {
       scopeOfWorkAPI.getAll().then(setScopeOfWork).catch(console.error);
       rolesAPI.getAll().then((d) => setRoles(d as Role[])).catch(console.error);
       permissionsAPI.getAll().then((d) => setPermissions(d as Permission[])).catch(console.error);
+      emailTemplatesAPI.getAll().then(setEmailTemplates).catch(console.error);
     },
-    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions", "proposal_reviews", "docusign_templates"],
+    ["product_categories", "lead_sources", "units", "scope_of_work", "roles", "permissions", "proposal_reviews", "docusign_templates", "email_templates"],
     "list-management"
   );
 
@@ -1690,6 +1927,23 @@ export function ListManagement() {
           onDelete={async (id) => {
             await appointmentTypesAPI.delete(id);
             setAppointmentTypes((prev) => prev.filter((a) => a.id !== id));
+          }}
+        />
+
+        <EmailTemplatesSection
+          items={emailTemplates}
+          loading={loadingET}
+          onAdd={async (fields) => {
+            const created = await emailTemplatesAPI.create(fields);
+            setEmailTemplates((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+          }}
+          onUpdate={async (id, fields) => {
+            const updated = await emailTemplatesAPI.update(id, fields);
+            setEmailTemplates((prev) => prev.map((t) => t.id === id ? updated : t));
+          }}
+          onDelete={async (id) => {
+            await emailTemplatesAPI.delete(id);
+            setEmailTemplates((prev) => prev.filter((t) => t.id !== id));
           }}
         />
 

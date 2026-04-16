@@ -147,7 +147,7 @@ export function Projects() {
               <td className="p-3">
                 {project.client_id ? (
                   <Link
-                    to={`/clients?stage=${project.status ?? "active"}`}
+                    to={`/clients/${project.client_id}`}
                     className="text-sm hover:text-primary hover:opacity-75 no-underline"
                   >
                     {project.clientName || "—"}

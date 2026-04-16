@@ -86,6 +86,7 @@ export function ProposalDetail() {
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
   const COMPLEX_CATEGORIES = ["Concrete"];
 
+  const [markingAccepted, setMarkingAccepted] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
 
   useEffect(() => {
@@ -365,6 +366,29 @@ export function ProposalDetail() {
     }
   };
 
+  const handleMarkAccepted = async () => {
+    if (!proposal) return;
+    setMarkingAccepted(true);
+    try {
+      const now = new Date().toISOString();
+      await supabase.from("estimates").update({
+        status: "accepted",
+        accepted_at: now,
+      }).eq("id", proposal.id);
+      activityLogAPI.create({
+        client_id: proposal.client_id,
+        action_type: "status_changed",
+        description: `Proposal manually accepted: "${proposal.title}"`,
+      }).catch(() => {});
+      setProposal({ ...proposal, status: "accepted", accepted_at: now });
+      toast.success("Proposal marked as accepted");
+    } catch {
+      toast.error("Failed to update proposal status");
+    } finally {
+      setMarkingAccepted(false);
+    }
+  };
+
   const handleEmail = () => {
     const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
     setEmailTo(client?.email ?? "");
@@ -508,6 +532,20 @@ export function ProposalDetail() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {proposal.status !== "accepted" && (
+            <Button
+              variant="outline"
+              onClick={handleMarkAccepted}
+              disabled={markingAccepted}
+              className="border-green-300 text-green-700 hover:bg-green-50"
+            >
+              {markingAccepted
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              Mark as Accepted
+            </Button>
+          )}
 
           <Button variant="outline" onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}

@@ -786,7 +786,7 @@ export function ProposalBuilder() {
       </div>
 
       {/* Wizard Dialog */}
-      <Dialog open={showWizard} onOpenChange={setShowWizard}>
+      <Dialog open={showWizard} onOpenChange={(open) => { setShowWizard(open); if (!open) { setSelectedCategory(""); setActiveTemplate(null); } }}>
         <DialogContent className="max-w-[900px] w-[92vw] h-[90vh] flex flex-col p-0 gap-0">
           <DialogHeader className="shrink-0 bg-white border-b px-8 py-6 rounded-t-lg">
             <DialogTitle className="text-xl font-bold">{wizardType} Estimate Wizard</DialogTitle>

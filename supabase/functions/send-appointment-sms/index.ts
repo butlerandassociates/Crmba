@@ -52,11 +52,29 @@ serve(async (req) => {
       });
     }
 
+    // ── Twilio Lookup: validate line status before sending ──────────────────
+    const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
+    const lookupUrl = `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(toNumber)}?Fields=line_status`;
+    const lookupRes = await fetch(lookupUrl, {
+      headers: { "Authorization": `Basic ${credentials}` },
+    });
+    if (lookupRes.ok) {
+      const lookupData = await lookupRes.json();
+      const lineStatus = lookupData?.line_status?.status;
+      // Block only definitively bad statuses — skip if unknown/null so we still attempt send
+      if (lineStatus === "inactive" || lineStatus === "disconnected") {
+        return new Response(
+          JSON.stringify({ error: `Phone number appears to be ${lineStatus} — SMS not sent.`, line_status: lineStatus }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+    // If Lookup itself fails (network, quota, etc.) we fall through and attempt the send anyway
+
     const firstName = (client_first_name ?? "").trim() || "there";
     const body = `Hi ${firstName}, we're looking forward to meeting with you on ${date} at ${time}. Please let us know if your availability changes! — Butler & Associates Construction, Inc.`;
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-    const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
 
     const params = new URLSearchParams();
     params.set("From", TWILIO_FROM_NUMBER);

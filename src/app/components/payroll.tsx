@@ -296,6 +296,8 @@ export function Payroll() {
           ].map((tab) => (
             <button
               key={tab.key}
+              role="tab"
+              aria-selected={activeTab === tab.key}
               onClick={() => { setActiveTab(tab.key as any); setSearch(""); }}
               className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors ${
                 activeTab === tab.key

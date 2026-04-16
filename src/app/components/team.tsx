@@ -141,7 +141,6 @@ export function Team() {
           <h1 className="text-3xl font-bold">Team</h1>
           <p className="text-muted-foreground mt-1">Manage your sales reps, project managers and crew</p>
         </div>
-        {/* TODO: confirm with client — remove this button once invite-only flow is approved */}
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Add Team Member

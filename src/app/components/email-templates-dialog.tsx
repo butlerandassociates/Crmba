@@ -58,21 +58,19 @@ export function EmailTemplatesDialog({
     if (!open) return;
     setLoadingTemplates(true);
     supabase
-      .from("appointment_types")
-      .select("id, name, email_subject, email_body")
+      .from("email_templates")
+      .select("id, name, subject, body_html")
       .eq("is_active", true)
-      .order("sort_order")
+      .order("name")
       .then(({ data }) => {
-        const mapped: EmailTemplate[] = (data ?? [])
-          .filter((t) => t.email_subject || t.email_body)
-          .map((t) => ({
-            id: t.id,
-            name: t.name,
-            subject: (t.email_subject ?? "").replace("{client_name}", firstName),
-            body: (t.email_body ?? "")
-              .replace(/\{client_name\}/g, firstName)
-              .replace(/\{address\}/g, clientAddress || "[Address]"),
-          }));
+        const mapped: EmailTemplate[] = (data ?? []).map((t) => ({
+          id: t.id,
+          name: t.name,
+          subject: (t.subject ?? "").replace(/\{client_name\}/g, firstName),
+          body: (t.body_html ?? "")
+            .replace(/\{client_name\}/g, firstName)
+            .replace(/\{address\}/g, clientAddress || "[Address]"),
+        }));
         setTemplates(mapped);
         setLoadingTemplates(false);
       });

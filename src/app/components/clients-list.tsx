@@ -28,7 +28,7 @@ import { toast } from "sonner";
 
 export function ClientsList() {
   const location = useLocation();
-  const stageFilter = new URLSearchParams(location.search).get("stage");
+  const stageFilter = new URLSearchParams(location.search).get("stage") ?? "";
 
   const [searchTerm, setSearchTerm] = useState("");
   const [clients, setClients] = useState<any[]>([]);
@@ -360,14 +360,14 @@ export function ClientsList() {
       )}
 
       {!loading && !error && (
-        <div>
-          <p className="text-sm text-muted-foreground mb-3">
-            {stageFilter
-              ? `${stageClients.length} client${stageClients.length !== 1 ? "s" : ""} in ${stageFilter.charAt(0).toUpperCase() + stageFilter.slice(1)}`
-              : `${clients.length} client${clients.length !== 1 ? "s" : ""} total`}
-          </p>
+        <>
+          {stageFilter && (
+            <p className="text-sm text-muted-foreground mb-3">
+              {stageClients.length} clients in <span className="capitalize">{stageFilter}</span>
+            </p>
+          )}
           <ClientTable list={stageClients} />
-        </div>
+        </>
       )}
 
       {/* Add Client Dialog */}
