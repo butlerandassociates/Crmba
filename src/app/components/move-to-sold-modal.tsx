@@ -18,7 +18,7 @@ import {
 } from "./ui/select";
 import {
   Loader2, ChevronRight, ChevronLeft, Check,
-  Upload, FileText, AlertCircle, Plus, Trash2,
+  Upload, FileText, AlertCircle, Plus, Trash2, FileSignature,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usersAPI, fioAPI, activityLogAPI, projectPaymentsAPI } from "../utils/api";
@@ -45,6 +45,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
   // Step 1 — Hard gate: file uploads
   const [docusignFile, setDocusignFile] = useState<File | null>(null);
   const [depositFile, setDepositFile] = useState<File | null>(null);
+  const [alreadySignedExternally, setAlreadySignedExternally] = useState(false);
   const docusignRef = useRef<HTMLInputElement>(null);
   const depositRef = useRef<HTMLInputElement>(null);
 
@@ -75,6 +76,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       setStep(1);
       setDocusignFile(null);
       setDepositFile(null);
+      setAlreadySignedExternally(false);
       setSelectedForeman(""); setSelectedPM(""); setSelectedSalesRep("");
       setSuggestedItems([]); setCheckedIds(new Set()); setSelectedItems([]);
       setPaymentMilestones([
@@ -132,7 +134,9 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
   const updateMilestone = (i: number, key: string, value: string) =>
     setPaymentMilestones((prev) => prev.map((m, idx) => idx === i ? { ...m, [key]: value } : m));
 
-  const canProceedStep1 = !!docusignFile && !!depositFile;
+  const docusignSigned = client?.docusign_status === "completed";
+  const contractSatisfied = docusignSigned || alreadySignedExternally || !!docusignFile;
+  const canProceedStep1 = contractSatisfied && !!depositFile;
   const canConfirm = !!startDate;
 
   const handleConfirm = async () => {
@@ -163,7 +167,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         financials = { total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin, commission: totalValue * (commissionRate / 100), commission_rate: commissionRate };
       }
 
-      // 3. Create or update project
+      // 3. Create or update project — check for existing to prevent duplicates
       let projectId = project?.id;
       const projectPayload = {
         foreman_id: selectedForeman || null,
@@ -174,6 +178,12 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         status: "sold",
         ...financials,
       };
+
+      if (!projectId) {
+        const { data: existing } = await supabase
+          .from("projects").select("id").eq("client_id", client.id).limit(1).maybeSingle();
+        if (existing) projectId = existing.id;
+      }
 
       if (projectId) {
         await supabase.from("projects").update(projectPayload).eq("id", projectId);
@@ -272,36 +282,63 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
               )}
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-800">Both documents are required before this client can be moved to Sold.</p>
+                <p className="text-sm text-amber-800">A signed contract and deposit confirmation are required before moving to Sold.</p>
               </div>
 
-              {/* DocuSign upload */}
+              {/* Contract gate — 3 paths */}
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Signed DocuSign Contract <span className="text-destructive">*</span></Label>
-                <div
-                  onClick={() => docusignRef.current?.click()}
-                  className={`flex items-center gap-3 border-2 border-dashed rounded-lg px-4 py-3 cursor-pointer transition-colors ${docusignFile ? "border-green-400 bg-green-50" : "hover:border-primary"}`}
-                >
-                  <input ref={docusignRef} type="file" className="hidden" accept=".pdf,image/*,.doc,.docx"
-                    onChange={(e) => setDocusignFile(e.target.files?.[0] ?? null)} />
-                  {docusignFile ? (
-                    <>
-                      <Check className="h-5 w-5 text-green-600 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-green-700 truncate">{docusignFile.name}</p>
-                        <p className="text-xs text-green-600">Ready to upload</p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium">Upload signed contract</p>
-                        <p className="text-xs text-muted-foreground">PDF, image, or Word document</p>
-                      </div>
-                    </>
-                  )}
-                </div>
+                <Label className="text-sm font-medium">Signed Contract <span className="text-destructive">*</span></Label>
+
+                {docusignSigned ? (
+                  <div className="flex items-center gap-3 border-2 border-green-400 bg-green-50 rounded-lg px-4 py-3">
+                    <FileSignature className="h-5 w-5 text-green-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-green-700">DocuSign completed via CRM</p>
+                      <p className="text-xs text-green-600">Contract is already on file — no upload needed</p>
+                    </div>
+                    <Check className="h-5 w-5 text-green-600 ml-auto shrink-0" />
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      onClick={() => { if (!alreadySignedExternally) docusignRef.current?.click(); }}
+                      className={`flex items-center gap-3 border-2 border-dashed rounded-lg px-4 py-3 transition-colors ${alreadySignedExternally ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:border-primary"} ${docusignFile ? "border-green-400 bg-green-50" : ""}`}
+                    >
+                      <input ref={docusignRef} type="file" className="hidden" accept=".pdf,image/*,.doc,.docx"
+                        onChange={(e) => setDocusignFile(e.target.files?.[0] ?? null)} />
+                      {docusignFile ? (
+                        <>
+                          <Check className="h-5 w-5 text-green-600 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-green-700 truncate">{docusignFile.name}</p>
+                            <p className="text-xs text-green-600">Ready to upload</p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
+                          <div>
+                            <p className="text-sm font-medium">Upload signed contract</p>
+                            <p className="text-xs text-muted-foreground">PDF, image, or Word document — scan of paper contract is fine</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
+                      <input
+                        type="checkbox"
+                        checked={alreadySignedExternally}
+                        onChange={(e) => {
+                          setAlreadySignedExternally(e.target.checked);
+                          if (e.target.checked) setDocusignFile(null);
+                        }}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="text-sm text-muted-foreground">Already signed externally (paper / outside CRM)</span>
+                    </label>
+                  </>
+                )}
               </div>
 
               {/* Deposit upload */}
@@ -334,7 +371,10 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
               </div>
 
               {!canProceedStep1 && (
-                <p className="text-xs text-destructive">Both documents must be uploaded to proceed.</p>
+                <p className="text-xs text-destructive">
+                  {!contractSatisfied ? "A signed contract is required. " : ""}
+                  {!depositFile ? "Deposit confirmation is required." : ""}
+                </p>
               )}
             </div>
           )}

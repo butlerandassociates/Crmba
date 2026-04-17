@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck } from "lucide-react";
+import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck, FileSignature } from "lucide-react";
 import { notificationsAPI } from "../utils/api";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
@@ -429,10 +429,13 @@ export function RootLayout() {
                             setCrewNotifications((prev) => prev.filter((x) => x.id !== n.id));
                           }}
                         >
-                          <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
+                          {n.type === "docusign_completed"
+                            ? <FileSignature className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
+                            : <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
+                          }
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${n.type === "docusign_completed" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
                                 {n.title}
                               </span>
                             </div>
