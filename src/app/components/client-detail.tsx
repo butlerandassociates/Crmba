@@ -77,7 +77,7 @@ import {
 } from "./ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI} from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI } from "../utils/api";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
 import { MoveToCompletedModal } from "./move-to-completed-modal";
@@ -366,6 +366,15 @@ export function ClientDetail() {
           docusign_completed_date: completedDate ?? null,
         }).eq("id", client.id);
         setClient((prev: any) => ({ ...prev, docusign_status: clientStatus, docusign_completed_date: completedDate }));
+        if (clientStatus === "completed" && client.docusign_status !== "completed") {
+          const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          notificationsAPI.create({
+            type: "docusign_completed",
+            title: "DocuSign Completed",
+            message: `${clientName} has signed the contract.`,
+            link: `/clients/${client.id}`,
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       console.error("Failed to refresh DocuSign status:", e);
@@ -2017,7 +2026,7 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent>
             {activityLog.length > 0 ? (
-              <div className="max-h-52 overflow-y-auto thin-scroll pr-1">
+              <div className="max-h-[310px] overflow-y-auto thin-scroll pr-1">
                 {activityLog.map((entry) => {
                   const type = entry.action_type ?? "";
                   const icon =
