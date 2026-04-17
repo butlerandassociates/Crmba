@@ -54,6 +54,7 @@ import {
   FileDown,
   MailX,
   PhoneMissed,
+  ClipboardList,
 } from "lucide-react";
 import {
   Dialog,
@@ -64,6 +65,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI} from "../utils/api";
@@ -131,6 +142,31 @@ export function ClientDetail() {
   const [call811Date, setCall811Date] = useState("");
   const [call811Time, setCall811Time] = useState("");
   const [saving811, setSaving811] = useState(false);
+
+  // Intake form
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [intakeViewOpen, setIntakeViewOpen] = useState(false);
+  const [intakeUndoOpen, setIntakeUndoOpen] = useState(false);
+  const [intakeClearOpen, setIntakeClearOpen] = useState(false);
+  const [intakeUnsavedOpen, setIntakeUnsavedOpen] = useState(false);
+  const [intakeData, setIntakeData] = useState<Record<string, any>>({});
+  const [savingIntake, setSavingIntake] = useState(false);
+
+  const INTAKE_EMPTY: Record<string, any> = {
+    email: "", name: "", phone: "", address: "",
+    project_scope: "", project_goals: [], timeline: "", budget: "",
+    referral_source: "", existing_features: "", decision_factors: [],
+  };
+
+  const intakeHasChanges = () =>
+    JSON.stringify(intakeData) !== JSON.stringify(client?.intake_form_data ?? INTAKE_EMPTY);
+
+  const toggleIntakeCheck = (field: "project_goals" | "decision_factors", value: string) => {
+    setIntakeData((prev) => {
+      const arr: string[] = prev[field] ?? [];
+      return { ...prev, [field]: arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value] };
+    });
+  };
   
   // Fetch client from API
   useEffect(() => {
@@ -514,10 +550,12 @@ export function ClientDetail() {
     if (!client) return;
     setDiscarding(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       await clientsAPI.update(client.id, {
         is_discarded: true,
         discarded_at: new Date().toISOString(),
         discarded_reason: `${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}`,
+        discarded_by: user?.id ?? null,
       });
       const discardedOnLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
       activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded on ${discardedOnLabel}: ${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
@@ -1315,6 +1353,53 @@ export function ClientDetail() {
                   <p className="text-xs text-muted-foreground pl-6">Call before you dig for utility location services</p>
                 )}
               </div>
+
+              {/* Intake Form */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Intake Form</span>
+                  {client.intake_form_completed ? (
+                    <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200">Completed</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground">Incomplete</Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {client.intake_form_completed && (
+                    <button
+                      type="button"
+                      onClick={() => setIntakeViewOpen(true)}
+                      className="text-xs text-primary hover:opacity-75 font-medium"
+                    >
+                      View
+                    </button>
+                  )}
+                  {!client.intake_form_completed && (
+                    <button
+                      type="button"
+                      onClick={() => { setIntakeData(client?.intake_form_data ?? INTAKE_EMPTY); setIntakeOpen(true); }}
+                      className="text-xs text-primary hover:opacity-75 font-medium"
+                    >
+                      Mark Complete
+                    </button>
+                  )}
+                  {client.intake_form_completed && (
+                    <button
+                      type="button"
+                      onClick={() => setIntakeUndoOpen(true)}
+                      className="text-xs text-muted-foreground hover:text-destructive font-medium"
+                    >
+                      Undo
+                    </button>
+                  )}
+                </div>
+              </div>
+              {client.intake_form_completed_at && (
+                <p className="text-xs text-green-700 pl-6">
+                  Completed {new Date(client.intake_form_completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </p>
+              )}
           </CardContent>
         </Card>
 
@@ -2557,6 +2642,339 @@ export function ClientDetail() {
           </Dialog>
         );
       })()}
+
+      {/* Intake Form — Mark Complete */}
+      <Dialog open={intakeOpen} onOpenChange={(open) => {
+        if (!open && intakeHasChanges()) { setIntakeUnsavedOpen(true); return; }
+        setIntakeOpen(open);
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Mark Intake Form Complete</DialogTitle>
+            <DialogDescription>Enter the client's responses from the Google Form, or leave fields blank to just mark as complete.</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="max-h-[65vh] overflow-y-auto thin-scroll">
+            <div className="space-y-5">
+              {/* Page 1 */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Page 1 — Contact Info</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Email</Label>
+                    <Input placeholder="client@example.com" value={intakeData.email ?? ""} onChange={e => setIntakeData(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Name</Label>
+                    <Input placeholder="Full name" value={intakeData.name ?? ""} onChange={e => setIntakeData(p => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Phone</Label>
+                    <Input placeholder="(555) 000-0000" value={intakeData.phone ?? ""} onChange={e => setIntakeData(p => ({ ...p, phone: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Home Address</Label>
+                    <Input placeholder="123 Main St…" value={intakeData.address ?? ""} onChange={e => setIntakeData(p => ({ ...p, address: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t" />
+
+              {/* Page 2 */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Page 2 — Project Details</p>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Project Scope</Label>
+                    <Textarea placeholder="Describe the scope of the project…" value={intakeData.project_scope ?? ""} onChange={e => setIntakeData(p => ({ ...p, project_scope: e.target.value }))} rows={3} className="resize-none text-sm" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Project Goals</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {["Increase usable space", "Fix an existing issue", "Enhance curb appeal", "Other"].map(opt => (
+                        <label key={opt} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" className="rounded" checked={(intakeData.project_goals ?? []).includes(opt)} onChange={() => toggleIntakeCheck("project_goals", opt)} />
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Ideal Timeline</Label>
+                      <select
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                        value={intakeData.timeline ?? ""}
+                        onChange={e => setIntakeData(p => ({ ...p, timeline: e.target.value }))}
+                      >
+                        <option value="">Select…</option>
+                        <option>Within the next few weeks</option>
+                        <option>Within the next month or two</option>
+                        <option>ASAP</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm">Budget</Label>
+                      <select
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                        value={intakeData.budget ?? ""}
+                        onChange={e => setIntakeData(p => ({ ...p, budget: e.target.value }))}
+                      >
+                        <option value="">Select…</option>
+                        <option>$15,000 - $30,000</option>
+                        <option>$31,000 - $50,000</option>
+                        <option>$50,000 - $75,000</option>
+                        <option>$75,000+</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">How Did You Hear About Us?</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                      value={intakeData.referral_source ?? ""}
+                      onChange={e => setIntakeData(p => ({ ...p, referral_source: e.target.value }))}
+                    >
+                      <option value="">Select…</option>
+                      <option>Referral</option>
+                      <option>Google</option>
+                      <option>Yelp</option>
+                      <option>Facebook/Instagram</option>
+                      <option>Yard Sign</option>
+                      <option>Nextdoor</option>
+                      <option>HomeAdvisor/Angi</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Existing Features</Label>
+                    <Textarea placeholder="Any existing hardscape, landscaping, or structures…" value={intakeData.existing_features ?? ""} onChange={e => setIntakeData(p => ({ ...p, existing_features: e.target.value }))} rows={2} className="resize-none text-sm" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">How Will You Be Making Your Decision?</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {["Depends on the design", "Depends on the cost", "Depends on the timing", "All of the above"].map(opt => (
+                        <label key={opt} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" className="rounded" checked={(intakeData.decision_factors ?? []).includes(opt)} onChange={() => toggleIntakeCheck("decision_factors", opt)} />
+                          {opt}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {intakeHasChanges() && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> Unsaved changes — click Save to keep responses.
+                </p>
+              )}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              if (intakeHasChanges()) { setIntakeUnsavedOpen(true); return; }
+              setIntakeOpen(false);
+            }}>Cancel</Button>
+            <Button disabled={savingIntake} onClick={async () => {
+              setSavingIntake(true);
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                const now = new Date().toISOString();
+                await clientsAPI.update(client!.id, {
+                  intake_form_completed: true,
+                  intake_form_completed_at: now,
+                  intake_form_completed_by: user?.id ?? null,
+                  intake_form_data: intakeData,
+                });
+                setClient({ ...client!, intake_form_completed: true, intake_form_completed_at: now, intake_form_data: intakeData });
+                activityLogAPI.create({ client_id: client!.id, action_type: "status_changed", description: "Intake form marked as completed" }).then(loadActivityLog).catch(() => {});
+                toast.success("Intake form marked complete.");
+                setIntakeOpen(false);
+              } catch (err: any) {
+                toast.error(err.message || "Failed to save.");
+              } finally {
+                setSavingIntake(false);
+              }
+            }}>
+              {savingIntake ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Mark Complete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Intake Form — View Responses */}
+      <Dialog open={intakeViewOpen} onOpenChange={setIntakeViewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Intake Form Responses
+            </DialogTitle>
+            <DialogDescription>
+              {client?.intake_form_completed_at
+                ? `Completed ${new Date(client.intake_form_completed_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                : "Intake form responses"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="max-h-[60vh] overflow-y-auto thin-scroll">
+            {client?.intake_form_data && Object.values(client.intake_form_data).some((v: any) => v && (Array.isArray(v) ? v.length > 0 : String(v).trim())) ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Contact Info</p>
+                  <div className="space-y-2">
+                    {([["Email", "email"], ["Name", "name"], ["Phone", "phone"], ["Address", "address"]] as const).map(([label, key]) =>
+                      client.intake_form_data?.[key] ? (
+                        <div key={key} className="flex gap-3 text-sm">
+                          <span className="text-muted-foreground w-24 shrink-0">{label}</span>
+                          <span className="font-medium">{client.intake_form_data[key]}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                </div>
+                <div className="border-t" />
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Project Details</p>
+                  <div className="space-y-3">
+                    {client.intake_form_data.project_scope && (
+                      <div className="text-sm">
+                        <p className="text-muted-foreground mb-1">Project Scope</p>
+                        <p className="font-medium">{client.intake_form_data.project_scope}</p>
+                      </div>
+                    )}
+                    {(client.intake_form_data.project_goals ?? []).length > 0 && (
+                      <div className="text-sm">
+                        <p className="text-muted-foreground mb-1">Project Goals</p>
+                        <div className="flex flex-wrap gap-1">
+                          {(client.intake_form_data.project_goals as string[]).map((g: string) => <Badge key={g} variant="secondary" className="text-xs">{g}</Badge>)}
+                        </div>
+                      </div>
+                    )}
+                    {client.intake_form_data.timeline && (
+                      <div className="flex gap-3 text-sm">
+                        <span className="text-muted-foreground w-36 shrink-0">Timeline</span>
+                        <span className="font-medium">{client.intake_form_data.timeline}</span>
+                      </div>
+                    )}
+                    {client.intake_form_data.budget && (
+                      <div className="flex gap-3 text-sm">
+                        <span className="text-muted-foreground w-36 shrink-0">Budget</span>
+                        <span className="font-medium">{client.intake_form_data.budget}</span>
+                      </div>
+                    )}
+                    {client.intake_form_data.referral_source && (
+                      <div className="flex gap-3 text-sm">
+                        <span className="text-muted-foreground w-36 shrink-0">Referral Source</span>
+                        <span className="font-medium">{client.intake_form_data.referral_source}</span>
+                      </div>
+                    )}
+                    {client.intake_form_data.existing_features && (
+                      <div className="text-sm">
+                        <p className="text-muted-foreground mb-1">Existing Features</p>
+                        <p className="font-medium">{client.intake_form_data.existing_features}</p>
+                      </div>
+                    )}
+                    {(client.intake_form_data.decision_factors ?? []).length > 0 && (
+                      <div className="text-sm">
+                        <p className="text-muted-foreground mb-1">Decision Factors</p>
+                        <div className="flex flex-wrap gap-1">
+                          {(client.intake_form_data.decision_factors as string[]).map((d: string) => <Badge key={d} variant="secondary" className="text-xs">{d}</Badge>)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <ClipboardList className="h-8 w-8 mb-2 opacity-20" />
+                <p className="text-sm font-medium">No responses recorded</p>
+                <p className="text-xs mt-1">Form was marked complete without entering responses.</p>
+              </div>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="destructive" size="sm" onClick={() => { setIntakeViewOpen(false); setIntakeClearOpen(true); }}>
+              Clear Responses
+            </Button>
+            <Button variant="outline" onClick={() => setIntakeViewOpen(false)}>Close</Button>
+            <Button variant="ghost" onClick={() => { setIntakeViewOpen(false); setIntakeData(client?.intake_form_data ?? INTAKE_EMPTY); setIntakeOpen(true); }}>
+              Edit Responses
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Intake Form — Unsaved Changes Warning */}
+      <AlertDialog open={intakeUnsavedOpen} onOpenChange={setIntakeUnsavedOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved responses</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes. If you close now the responses you typed will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => { setIntakeUnsavedOpen(false); setIntakeOpen(false); }}>
+              Discard & close
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Intake Form — Undo Confirmation */}
+      <AlertDialog open={intakeUndoOpen} onOpenChange={setIntakeUndoOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark intake form incomplete?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark the intake form as incomplete. The responses already saved will be kept — you can view or edit them anytime.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              await clientsAPI.update(client!.id, { intake_form_completed: false, intake_form_completed_at: null, intake_form_completed_by: null });
+              setClient({ ...client!, intake_form_completed: false, intake_form_completed_at: null });
+              toast.success("Intake form marked incomplete. Responses preserved.");
+              setIntakeUndoOpen(false);
+            }}>
+              Yes, mark incomplete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Intake Form — Clear Responses Confirmation */}
+      <AlertDialog open={intakeClearOpen} onOpenChange={setIntakeClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all responses?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the saved intake form responses. The form will remain marked as complete but responses will be gone. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={async () => {
+              await clientsAPI.update(client!.id, { intake_form_notes: null, intake_form_data: null });
+              setClient({ ...client!, intake_form_notes: null, intake_form_data: null });
+              toast.success("Responses cleared.");
+              setIntakeClearOpen(false);
+            }}>
+              Clear Responses
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Proposal Confirmation */}
       <Dialog open={!!proposalToDelete} onOpenChange={(open) => !open && setProposalToDelete(null)}>

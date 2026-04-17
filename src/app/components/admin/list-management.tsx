@@ -502,20 +502,18 @@ const proposalReviewsAPI = {
     return (data ?? []) as ProposalReview[];
   },
   create: async (fields: Omit<ProposalReview, "id">) => {
-    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("proposal_reviews")
-      .insert({ ...fields, created_by: user?.id, updated_by: user?.id })
+      .insert({ ...fields })
       .select("id, reviewer_name, rating, review_text, sort_order, is_active")
       .single();
     if (error) throw new Error(error.message);
     return data as ProposalReview;
   },
   update: async (id: string, fields: Partial<Omit<ProposalReview, "id">>) => {
-    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("proposal_reviews")
-      .update({ ...fields, updated_by: user?.id })
+      .update({ ...fields })
       .eq("id", id)
       .select("id, reviewer_name, rating, review_text, sort_order, is_active")
       .single();

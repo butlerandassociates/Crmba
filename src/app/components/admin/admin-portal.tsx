@@ -38,9 +38,10 @@ function DiscardedClients() {
   const handleRevive = async (client: any) => {
     setReviving(client.id);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       const { error } = await supabase
         .from("clients")
-        .update({ is_discarded: false, discarded_at: null, discarded_reason: null })
+        .update({ is_discarded: false, reverted_at: new Date().toISOString(), reverted_by: user?.id ?? null })
         .eq("id", client.id);
       if (error) throw error;
       const revivedOnLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

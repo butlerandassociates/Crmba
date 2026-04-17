@@ -84,9 +84,10 @@ export const clientsAPI = {
 
   /** Soft-delete — moves to discarded list */
   discard: async (id: string, reason?: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("clients")
-      .update({ is_discarded: true, discarded_at: new Date().toISOString(), discarded_reason: reason ?? null })
+      .update({ is_discarded: true, discarded_at: new Date().toISOString(), discarded_reason: reason ?? null, discarded_by: user?.id ?? null })
       .eq("id", id)
       .select()
       .single();
@@ -96,9 +97,10 @@ export const clientsAPI = {
 
   /** Restore a discarded client */
   restore: async (id: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("clients")
-      .update({ is_discarded: false, discarded_at: null, discarded_reason: null })
+      .update({ is_discarded: false, reverted_at: new Date().toISOString(), reverted_by: user?.id ?? null })
       .eq("id", id)
       .select()
       .single();

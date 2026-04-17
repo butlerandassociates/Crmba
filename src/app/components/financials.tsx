@@ -52,19 +52,20 @@ export function Financials() {
     );
   }
 
-  const totalRevenue = projects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  const totalCosts   = projects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
-  const totalProfit  = projects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const totalCommissions = projects.reduce((sum, p) => sum + (p.commission || 0), 0);
+  const completedProjects = projects.filter((p) => p.status === "completed");
+  const totalRevenue = completedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalCosts   = completedProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
+  const totalProfit  = completedProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const totalCommissions = completedProjects.reduce((sum, p) => sum + (p.commission || 0), 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
-  // Monthly financial trends — group projects by start_date (last 6 months)
+  // Monthly financial trends — group completed projects by start_date (last 6 months)
   const now = new Date();
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const y = d.getFullYear();
     const m = d.getMonth();
-    const monthProjects = projects.filter((p) => {
+    const monthProjects = completedProjects.filter((p) => {
       const date = p.start_date ? new Date(p.start_date) : null;
       return date && date.getFullYear() === y && date.getMonth() === m;
     });
@@ -76,7 +77,7 @@ export function Financials() {
     };
   });
 
-  const projectProfitability = projects.map((p) => ({
+  const projectProfitability = completedProjects.map((p) => ({
     name:   p.name && p.name.length > 20 ? p.name.substring(0, 20) + "…" : (p.name || "Unnamed"),
     profit: p.grossProfit || 0,
     margin: p.profitMargin || 0,

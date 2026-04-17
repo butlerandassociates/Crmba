@@ -66,7 +66,7 @@ export function AppointmentDialog({
 
   useEffect(() => { setClientEmail(client?.email ?? ""); }, [client?.email]);
 
-  const INTAKE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?usp=header";
+  const INTAKE_FORM_URL = `https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?entry.1284149011=${encodeURIComponent(client?.id ?? "")}`;
 
   const buildPreviewHtml = () => {
     const apptType = appointmentTypes.find((t) => t.id === appointmentType);
@@ -131,7 +131,7 @@ export function AppointmentDialog({
     try {
       setScheduling(true);
 
-      const typeLabel = appointmentTypes.find((t) => t.id === appointmentType)?.name ?? appointmentType;
+      const typeLabel = appointmentTypes.find((t) => t.id === appointmentType)?.name ?? "Appointment";
 
       const [sh, sm] = startTime.split(":").map(Number);
       const [eh, em] = endTime.split(":").map(Number);

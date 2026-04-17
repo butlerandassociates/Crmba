@@ -131,10 +131,11 @@ export function Dashboard() {
 
   const activeClients = clients.filter((c) => c.pipeline_stage?.name?.toLowerCase() !== "completed").length;
   const activeProjects = projects.filter((p) => p.status === "active").length;
-  const totalRevenue = projects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  const totalProfit = projects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const avgProfitMargin = projects.length > 0
-    ? projects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / projects.length
+  const completedProjects = projects.filter((p) => p.status === "completed");
+  const totalRevenue = completedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalProfit = completedProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const avgProfitMargin = completedProjects.length > 0
+    ? completedProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / completedProjects.length
     : 0;
 
   // Lead stats
@@ -165,6 +166,7 @@ export function Dashboard() {
       const y = d.getFullYear();
       const m = d.getMonth();
       const monthProjects = projects.filter((p) => {
+        if (p.status !== "completed") return false;
         const date = p.start_date ? new Date(p.start_date) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });
@@ -219,6 +221,7 @@ export function Dashboard() {
   // Calculate revenue based on selected date range (using project start_date)
   const periodRevenue = projects
     .filter((p) => {
+      if (p.status !== "completed") return false;
       if (!p.start_date) return false;
       const d = new Date(p.start_date);
       return d >= startDate && d <= endDate;
@@ -252,6 +255,7 @@ export function Dashboard() {
   const currentYear = currentDate.getFullYear();
   
   const currentMonthProjects = projects.filter((p) => {
+    if (p.status !== "completed") return false;
     if (!p.start_date) return false;
     const d = new Date(p.start_date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
