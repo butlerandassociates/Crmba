@@ -100,6 +100,7 @@ export function ProposalDetail() {
   const handleAddCustomItem = () => {
     setCustomValidated(true);
     if (!customItem.name.trim() || !customItem.category.trim() || !customItem.unit.trim()) return;
+    const isLabor = ["labor", "installation"].includes(customItem.category.trim().toLowerCase());
     setEditLineItems((prev) => [...prev, {
       id: `new-${Date.now()}`,
       fromPicker: true,
@@ -107,6 +108,7 @@ export function ProposalDetail() {
       product_name: customItem.name.trim(),
       category: customItem.category.trim(),
       quantity: customItem.qty || 1,
+      fio_qty: isLabor ? (customItem.qty || 1) : 0,
       unit: customItem.unit.trim(),
       client_price: customPricePerUnit,
       price_per_unit: customPricePerUnit,
@@ -792,8 +794,8 @@ export function ProposalDetail() {
                                     type="number"
                                     min={0}
                                     step="any"
-                                    value={item.fio_qty ?? ""}
-                                    placeholder="—"
+                                    value={item.fio_qty ?? 0}
+                                    placeholder="0"
                                     onChange={(e) => {
                                       const val = e.target.value === "" ? null : Number(e.target.value);
                                       setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li));
