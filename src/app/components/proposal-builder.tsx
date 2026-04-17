@@ -229,22 +229,26 @@ export function ProposalBuilder() {
   };
 
   const addLineItem = (item: Omit<LineItem, "id" | "totalPrice">) => {
+    const isLabor = ["labor", "installation"].includes((item.category ?? "").toLowerCase());
     const newItem: LineItem = {
       ...item,
       id: `item-${Date.now()}-${Math.random()}`,
-      fioQty: item.fioQty ?? item.quantity,
+      fioQty: item.fioQty ?? (isLabor ? item.quantity : 0),
       totalPrice: item.quantity * item.pricePerUnit,
     };
     setLineItems([...lineItems, newItem]);
   };
 
   const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[], formData?: Record<string, any>) => {
-    const newItems = items.map((item) => ({
-      ...item,
-      id: `item-${Date.now()}-${Math.random()}`,
-      fioQty: item.fioQty ?? item.quantity,
-      totalPrice: item.quantity * item.pricePerUnit,
-    }));
+    const newItems = items.map((item) => {
+      const isLabor = ["labor", "installation"].includes((item.category ?? "").toLowerCase());
+      return {
+        ...item,
+        id: `item-${Date.now()}-${Math.random()}`,
+        fioQty: item.fioQty ?? (isLabor ? item.quantity : 0),
+        totalPrice: item.quantity * item.pricePerUnit,
+      };
+    });
     setLineItems([...lineItems, ...newItems]);
     if (formData && wizardType) {
       setWizardInputs((prev) => ({ ...prev, [wizardType]: formData }));
@@ -698,7 +702,7 @@ export function ProposalBuilder() {
                                 <td className="px-4 py-4 text-center">
                                   <Input
                                     type="number"
-                                    value={item.fioQty ?? item.quantity ?? ""}
+                                    value={item.fioQty ?? 0}
                                     onChange={(e) => updateLineItem(item.id, "fioQty" as any, parseFloat(e.target.value) || null)}
                                     className="h-9 text-sm text-center w-20 mx-auto"
                                   />
