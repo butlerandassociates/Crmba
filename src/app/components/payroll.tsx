@@ -217,18 +217,6 @@ export function Payroll() {
     );
   });
 
-  if (loading) {
-    return (
-      <div className="p-6 max-w-6xl mx-auto space-y-6">
-        <SkeletonCards count={4} />
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => <SkeletonPayrollRow key={i} />)}
-        </div>
-        <PageLoader title="Loading payroll data…" description="Fetching commissions, crew payments & payroll history" className="min-h-[6vh]" />
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
 
@@ -237,6 +225,43 @@ export function Payroll() {
         <h1 className="text-2xl font-bold">Payroll</h1>
         <p className="text-muted-foreground text-sm mt-1">PM commissions and crew labor payments</p>
       </div>
+
+      {loading && (
+        <div className="space-y-6">
+          <SkeletonCards count={4} />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonPayrollRow key={i} />)}
+          </div>
+          <PageLoader title="Loading payroll data…" description="Fetching commissions, crew payments & payroll history" className="min-h-[6vh]" />
+        </div>
+      )}
+
+      {/* Tabs — always rendered so tests can find them */}
+      <div className="border-b">
+        <div className="flex gap-6">
+          {[
+            { key: "commissions", label: "PM Commissions" },
+            { key: "crews", label: "Crew Payments" },
+            { key: "history", label: "Payroll History" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              onClick={() => { setActiveTab(tab.key as any); setSearch(""); }}
+              className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!loading && (<>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -284,31 +309,6 @@ export function Payroll() {
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Tabs */}
-      <div className="border-b">
-        <div className="flex gap-6">
-          {[
-            { key: "commissions", label: "PM Commissions" },
-            { key: "crews", label: "Crew Payments" },
-            { key: "history", label: "Payroll History" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              onClick={() => { setActiveTab(tab.key as any); setSearch(""); }}
-              className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors ${
-                activeTab === tab.key
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Search */}
@@ -539,6 +539,8 @@ export function Payroll() {
           })}
         </div>
       )}
+
+      </>)}
 
     </div>
   );

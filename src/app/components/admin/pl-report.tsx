@@ -578,12 +578,22 @@ export function PLReport() {
       const toLabel    = `${MONTHS[toMonth]} ${toYear}`;
       const periodLabel = fromLabel === toLabel ? fromLabel : `${fromLabel} – ${toLabel}`;
 
-      // Revenue: estimates created in range → line items
+      // Get client IDs in active or completed pipeline stages only
+      const { data: eligibleClients } = await supabase
+        .from("clients")
+        .select("id, pipeline_stage:pipeline_stages!pipeline_stage_id(name)")
+        .eq("is_discarded", false);
+      const eligibleClientIds = (eligibleClients ?? [])
+        .filter((c: any) => ["active", "completed"].includes((c.pipeline_stage?.name ?? "").toLowerCase()))
+        .map((c: any) => c.id);
+
+      // Revenue: estimates created in range → line items (active + completed clients only)
       const { data: estimates, error: propErr } = await supabase
         .from("estimates")
         .select("id")
         .gte("created_at", rangeStart)
-        .lt("created_at", rangeEnd);
+        .lt("created_at", rangeEnd)
+        .in("client_id", eligibleClientIds.length > 0 ? eligibleClientIds : ["00000000-0000-0000-0000-000000000000"]);
       if (propErr) throw new Error(propErr.message);
 
       let materialSold = 0, laborSold = 0, otherSold = 0;
@@ -604,16 +614,17 @@ export function PLReport() {
         }
       }
 
-      // Costs: receipts created in range
+      // Costs: receipts created in range (active + completed clients only)
       const { data: receipts, error: recErr } = await supabase
         .from("project_receipts")
-        .select("amount, category")
+        .select("amount, category, project:projects!project_id(client_id)")
         .gte("created_at", rangeStart)
         .lt("created_at", rangeEnd);
       if (recErr) throw new Error(recErr.message);
 
       let materialCosts = 0, laborCosts = 0;
       for (const r of receipts ?? []) {
+        if (!eligibleClientIds.includes((r.project as any)?.client_id)) continue;
         const cat = (r.category ?? "").toLowerCase();
         if (cat === "labor") laborCosts += Number(r.amount) || 0;
         else materialCosts += Number(r.amount) || 0;

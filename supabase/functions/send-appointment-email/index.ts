@@ -8,8 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const INTAKE_FORM_URL =
-  "https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?usp=header";
+const INTAKE_FORM_BASE = "https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform";
 
 function replaceVars(template: string, vars: Record<string, string>): string {
   return Object.entries(vars).reduce(
@@ -129,13 +128,15 @@ serve(async (req) => {
       .eq("client_id", client_id);
     const isFirstAppointment = (count ?? 0) <= 1;
 
+    const intakeFormUrl = `${INTAKE_FORM_BASE}?entry.1284149011=${encodeURIComponent(client_id ?? "")}`;
+
     const vars: Record<string, string> = {
       client_name:     client_name ?? "Valued Client",
       date:            date ?? "",
       time:            time ?? "",
       type:            typeName,
       address:         client_address ?? "",
-      intake_form_url: INTAKE_FORM_URL,
+      intake_form_url: intakeFormUrl,
       meet_link:       meet_link ?? "",
     };
 
@@ -148,7 +149,7 @@ serve(async (req) => {
       apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates",
       vars
     );
-    const html = buildHtml(bodyText, INTAKE_FORM_URL, isFirstAppointment);
+    const html = buildHtml(bodyText, intakeFormUrl, isFirstAppointment);
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
