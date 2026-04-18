@@ -40,6 +40,16 @@ export function PublicProposal() {
       status: "accepted",
       accepted_at: new Date().toISOString(),
     }).eq("id", id);
+    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
+    supabase.from("notifications").insert({
+      type: "proposal_accepted",
+      title: "Proposal Accepted",
+      message: `${clientName} accepted the proposal${proposal?.title ? ` "${proposal.title}"` : ""}.`,
+      link: `/proposals/${id}`,
+      is_read: false,
+      created_by: null,
+      metadata: { proposal_id: id, client_id: proposal?.client_id },
+    }).then(() => {});
     setDone("accepted");
     setSubmitting(false);
     setAction(null);
@@ -52,6 +62,16 @@ export function PublicProposal() {
       declined_at: new Date().toISOString(),
       decline_reason: declineReason.trim() || null,
     }).eq("id", id);
+    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
+    supabase.from("notifications").insert({
+      type: "proposal_declined",
+      title: "Proposal Declined",
+      message: `${clientName} declined the proposal${proposal?.title ? ` "${proposal.title}"` : ""}${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}.`,
+      link: `/proposals/${id}`,
+      is_read: false,
+      created_by: null,
+      metadata: { proposal_id: id, client_id: proposal?.client_id },
+    }).then(() => {});
     setDone("declined");
     setSubmitting(false);
     setAction(null);

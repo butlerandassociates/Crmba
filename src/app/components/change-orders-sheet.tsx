@@ -11,7 +11,8 @@ import { activityLogAPI } from "../api/activity-log";
 import { estimatesAPI } from "../api/estimates";
 import { projectPaymentsAPI } from "../api/project-payments";
 import { projectsAPI } from "../api/projects";
-import { productsAPI } from "../utils/api";
+import { productsAPI, notificationsAPI } from "../utils/api";
+import { usePermissions } from "../hooks/usePermissions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ const formatCurrency = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
 export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave }: ChangeOrdersSheetProps) {
+  const { can } = usePermissions();
   const [view, setView] = useState<View>("list");
   const [cos, setCos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -283,6 +285,23 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       await changeOrdersAPI.updateStatus(coId, status);
       setCos((prev) => prev.map((c) => c.id === coId ? { ...c, status } : c));
       if (selectedCo?.id === coId) setSelectedCo((prev: any) => ({ ...prev, status }));
+      const co = cos.find((c) => c.id === coId) ?? selectedCo;
+      const coTitle = co?.title ?? "Change Order";
+      const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+      const notifMap: Record<string, { title: string; message: string }> = {
+        pending_client: { title: "CO Sent to Client", message: `"${coTitle}" sent to client${clientName ? ` — ${clientName}` : ""} for approval.` },
+        approved:       { title: "CO Approved",       message: `"${coTitle}" has been approved${clientName ? ` by ${clientName}` : ""}.` },
+        rejected:       { title: "CO Rejected",       message: `"${coTitle}" was rejected${clientName ? ` by ${clientName}` : ""}.` },
+      };
+      if (notifMap[status]) {
+        notificationsAPI.create({
+          type: `co_${status}`,
+          title: notifMap[status].title,
+          message: notifMap[status].message,
+          link: client?.id ? `/clients/${client.id}` : "/",
+          metadata: { co_id: coId, client_id: client?.id, project_id: project?.id },
+        }).catch(() => {});
+      }
       toast.success(`Status updated to ${STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}`);
     } catch {
       toast.error("Failed to update status — please try again.");
@@ -745,6 +764,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                 <div className="flex flex-wrap gap-2">
                   {(["draft", "pending_client", "approved", "rejected"] as const)
                     .filter(() => selectedCo.status !== "merged")
+                    .filter((s) => (s === "approved" || s === "rejected") ? can("can_approve_change_orders") : true)
                     .map((s) => {
                       const cfg = STATUS_CONFIG[s];
                       const active = selectedCo.status === s;

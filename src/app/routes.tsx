@@ -31,8 +31,8 @@ import { PayrollCrewDetail } from "./components/payroll-crew-detail";
 import { ForemanLayout } from "./components/foreman/foreman-layout";
 import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
 import { ForemanJobDetail } from "./components/foreman/foreman-job-detail";
+import { PermissionGuard } from "./components/permission-guard";
 
-// Simple 404 component
 function NotFound() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -44,32 +44,36 @@ function NotFound() {
   );
 }
 
+const G = (permission: string, C: React.ComponentType) => () => (
+  <PermissionGuard permission={permission}><C /></PermissionGuard>
+);
+
 export const router = createBrowserRouter([
   {
     path: "/",
     Component: RootLayout,
     children: [
       { index: true, Component: Dashboard },
-      { path: "clients", Component: ClientsList },
-      { path: "clients/:id", Component: ClientDetail },
-      { path: "clients/:clientId/create-proposal", Component: ProposalBuilder },
+      { path: "clients",                              Component: ClientsList },
+      { path: "clients/:id",                          Component: ClientDetail },
+      { path: "clients/:clientId/create-proposal",    Component: ProposalBuilder },
       { path: "clients/:clientId/estimate/:templateId", Component: EstimateBuilder },
-      { path: "projects", Component: Projects },
-      { path: "projects/:id", Component: ProjectDetail },
-      { path: "proposals/:id", Component: ProposalDetail },
-      { path: "team", Component: Team },
-      { path: "financials", Component: Financials },
-      { path: "integrations", Component: Integrations },
-      { path: "settings", Component: Settings },
-      { path: "admin", Component: AdminPortal },
-      { path: "admin/estimate-templates", Component: EstimateTemplateManager },
-      { path: "admin/data-migration", Component: DataMigration },
-      { path: "admin/list-management", Component: ListManagement },
-      { path: "pipeline", Component: PipelineForecast },
-      { path: "payroll", Component: Payroll },
-      { path: "payroll/pm/:id", Component: PayrollPMDetail },
-      { path: "payroll/crew/:id", Component: PayrollCrewDetail },
-      { path: "*", Component: NotFound },
+      { path: "projects",                             Component: Projects },
+      { path: "projects/:id",                         Component: ProjectDetail },
+      { path: "proposals/:id",                        Component: ProposalDetail },
+      { path: "team",                                 Component: G("can_manage_team", Team) },
+      { path: "financials",                           Component: G("can_view_financials", Financials) },
+      { path: "integrations",                         Component: G("can_view_integrations", Integrations) },
+      { path: "settings",                             Component: G("can_manage_settings", Settings) },
+      { path: "admin",                                Component: G("can_view_admin_portal", AdminPortal) },
+      { path: "admin/estimate-templates",             Component: G("can_view_admin_portal", EstimateTemplateManager) },
+      { path: "admin/data-migration",                 Component: G("can_view_admin_portal", DataMigration) },
+      { path: "admin/list-management",                Component: G("can_view_admin_portal", ListManagement) },
+      { path: "pipeline",                             Component: G("can_view_pipeline", PipelineForecast) },
+      { path: "payroll",                              Component: G("can_view_payroll", Payroll) },
+      { path: "payroll/pm/:id",                       Component: G("can_view_payroll", PayrollPMDetail) },
+      { path: "payroll/crew/:id",                     Component: G("can_view_payroll", PayrollCrewDetail) },
+      { path: "*",                                    Component: NotFound },
     ],
   },
   {
@@ -87,24 +91,9 @@ export const router = createBrowserRouter([
       { index: true, Component: ClientDashboard },
     ],
   },
-  {
-    path: "/p/:id",
-    Component: PublicProposal,
-  },
-  {
-    path: "/docusign-callback",
-    Component: DocuSignCallback,
-  },
-  {
-    path: "/login",
-    Component: LoginPage,
-  },
-  {
-    path: "/set-password",
-    Component: SetPasswordPage,
-  },
-  {
-    path: "/docusign-loading-preview",
-    Component: DocuSignLoadingPreview,
-  },
+  { path: "/p/:id",                    Component: PublicProposal },
+  { path: "/docusign-callback",        Component: DocuSignCallback },
+  { path: "/login",                    Component: LoginPage },
+  { path: "/set-password",             Component: SetPasswordPage },
+  { path: "/docusign-loading-preview", Component: DocuSignLoadingPreview },
 ]);

@@ -78,6 +78,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI } from "../utils/api";
+import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
 import { MoveToCompletedModal } from "./move-to-completed-modal";
@@ -115,6 +116,7 @@ import { Skeleton } from "./ui/skeleton";
 export function ClientDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const { can } = usePermissions();
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -918,12 +920,12 @@ export function ClientDetail() {
               <Send className="h-4 w-4 mr-2" />
               Send Email
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setDocusignDialogOpen(true)}
-            >
-              <FileSignature className="h-4 w-4 mr-2" />
-              Send DocuSign
-            </DropdownMenuItem>
+            {can("can_send_docusign") && (
+              <DropdownMenuItem onClick={() => setDocusignDialogOpen(true)}>
+                <FileSignature className="h-4 w-4 mr-2" />
+                Send DocuSign
+              </DropdownMenuItem>
+            )}
             {["prospect", "selling"].includes(client.status) && (
               <DropdownMenuItem
                 onClick={() => {
@@ -948,41 +950,30 @@ export function ClientDetail() {
                 Mark Appointment as Met
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Move to Stage</DropdownMenuLabel>
-            <DropdownMenuItem
-              onClick={() => handleStageClick('prospect', () => handleStatusChange('prospect'))}
-            >
-              <MoveRight className="h-4 w-4 mr-2" />
-              Prospect
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleStageClick('selling', () => {
-                if (clientAppointments.length === 0) { setSellingGateOpen(true); return; }
-                setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true);
-              })}
-            >
-              <MoveRight className="h-4 w-4 mr-2" />
-              Selling
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleStageClick('sold', () => setSoldModalOpen(true))}
-            >
-              <MoveRight className="h-4 w-4 mr-2" />
-              Sold
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleStageClick('active', () => setActiveModalOpen(true))}
-            >
-              <MoveRight className="h-4 w-4 mr-2" />
-              Active
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setCompletedModalOpen(true)}
-            >
-              <MoveRight className="h-4 w-4 mr-2" />
-              Completed
-            </DropdownMenuItem>
+            {can("can_move_pipeline_stage") && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Move to Stage</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => handleStageClick('prospect', () => handleStatusChange('prospect'))}>
+                  <MoveRight className="h-4 w-4 mr-2" />Prospect
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStageClick('selling', () => {
+                  if (clientAppointments.length === 0) { setSellingGateOpen(true); return; }
+                  setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true);
+                })}>
+                  <MoveRight className="h-4 w-4 mr-2" />Selling
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStageClick('sold', () => setSoldModalOpen(true))}>
+                  <MoveRight className="h-4 w-4 mr-2" />Sold
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStageClick('active', () => setActiveModalOpen(true))}>
+                  <MoveRight className="h-4 w-4 mr-2" />Active
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCompletedModalOpen(true)}>
+                  <MoveRight className="h-4 w-4 mr-2" />Completed
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => setDiscardOpen(true)}
@@ -1337,7 +1328,9 @@ export function ClientDetail() {
                   <Checkbox
                     id="call-811"
                     checked={!!client.call_811_completed_at}
+                    disabled={!can("can_confirm_811")}
                     onCheckedChange={() => {
+                      if (!can("can_confirm_811")) return;
                       if (!client.call_811_completed_at) {
                         setCall811Date(new Date().toISOString().split("T")[0]);
                         setCall811Time(new Date().toTimeString().slice(0, 5));
@@ -2148,7 +2141,9 @@ export function ClientDetail() {
                           <div key={payment.id} className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}`}>
                             <Checkbox
                               checked={payment.is_paid}
+                              disabled={!can("can_record_payments")}
                               onCheckedChange={() => {
+                                if (!can("can_record_payments")) return;
                                 if (!payment.is_paid) {
                                   setMarkPaidOpen(payment);
                                   setPaidForm({ payment_method: "", notes: payment.notes ?? "" });
@@ -2496,6 +2491,14 @@ export function ClientDetail() {
         onSuccess={() => {
           setClient({ ...client, status: "completed" });
           loadActivityLog();
+          const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          notificationsAPI.create({
+            type: "project_completed",
+            title: "Project Completed",
+            message: `${clientName}'s project has been marked as completed.`,
+            link: `/clients/${client.id}`,
+            metadata: { client_id: client.id },
+          }).catch(() => {});
         }}
       />
 
@@ -2563,6 +2566,14 @@ export function ClientDetail() {
         onSuccess={() => {
           setClient({ ...client, status: "active" });
           loadActivityLog();
+          const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          notificationsAPI.create({
+            type: "project_active",
+            title: "Project Started",
+            message: `${clientName} moved to Active — project is now underway.`,
+            link: `/clients/${client.id}`,
+            metadata: { client_id: client.id },
+          }).catch(() => {});
         }}
       />
 

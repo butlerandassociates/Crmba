@@ -28,6 +28,7 @@ import {
   Banknote,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
+import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { usersAPI } from "../utils/api";
 import { Button } from "./ui/button";
@@ -51,15 +52,15 @@ import {
   DialogFooter,
 } from "./ui/dialog";
 
-const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Stats", href: "/pipeline", icon: Workflow },
-  { name: "Prospect",  href: "/clients?stage=prospect",  icon: UserRoundSearch },
-  { name: "Scheduled", href: "/clients?stage=scheduled", icon: CalendarClock },
-  { name: "Selling",   href: "/clients?stage=selling",   icon: UserRoundCog },
-  { name: "Sold", href: "/clients?stage=sold", icon: UserRoundCheck },
-  { name: "Active", href: "/clients?stage=active", icon: UserRoundPlus },
-  { name: "Completed", href: "/clients?stage=completed", icon: UserCheck },
+const ALL_NAVIGATION = [
+  { name: "Dashboard", href: "/",                         icon: LayoutDashboard, permission: null },
+  { name: "Stats",     href: "/pipeline",                 icon: Workflow,        permission: "can_view_pipeline" },
+  { name: "Prospect",  href: "/clients?stage=prospect",   icon: UserRoundSearch, permission: null },
+  { name: "Scheduled", href: "/clients?stage=scheduled",  icon: CalendarClock,   permission: null },
+  { name: "Selling",   href: "/clients?stage=selling",    icon: UserRoundCog,    permission: null },
+  { name: "Sold",      href: "/clients?stage=sold",       icon: UserRoundCheck,  permission: null },
+  { name: "Active",    href: "/clients?stage=active",     icon: UserRoundPlus,   permission: null },
+  { name: "Completed", href: "/clients?stage=completed",  icon: UserCheck,       permission: null },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -71,6 +72,8 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function RootLayout() {
   const location = useLocation();
+  const { can } = usePermissions();
+  const navigation = ALL_NAVIGATION.filter(item => !item.permission || can(item.permission));
   const navigate = useNavigate();
   const { user, loading, isInviteFlow, signOut, refreshProfile } = useAuth();
 
@@ -128,7 +131,8 @@ export function RootLayout() {
     try {
       const today = new Date().toISOString().split("T")[0];
       const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-      const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes] = await Promise.all([
+      const cutoff3days = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes, docusignRes, budgetRes] = await Promise.all([
         supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
@@ -142,6 +146,19 @@ export function RootLayout() {
           .select("id, first_name, last_name, insurance_expiration_date")
           .eq("role", "foreman")
           .not("insurance_expiration_date", "is", null),
+        // DocuSign sent but not signed after 3 days
+        supabase.from("clients")
+          .select("id, first_name, last_name, docusign_sent_date")
+          .in("docusign_status", ["preparing", "sent_to_client"])
+          .not("docusign_sent_date", "is", null)
+          .lt("docusign_sent_date", cutoff3days)
+          .eq("is_discarded", false),
+        // Job costs >= 75% of contract value
+        supabase.from("projects")
+          .select("id, client_id, name, total_value, client:clients!projects_client_id_fkey(first_name, last_name, is_discarded), line_items:estimate_line_items(labor_cost, material_cost, quantity)")
+          .in("status", ["active", "sold"])
+          .not("total_value", "is", null)
+          .gt("total_value", 0),
       ]);
       const clients = clientsRes.data ?? [];
       const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
@@ -220,6 +237,41 @@ export function RootLayout() {
           });
         });
 
+      // DocuSign sent but not signed after 3 days
+      (docusignRes.data ?? []).forEach((c: any) => {
+        const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
+        const sentDate = new Date(c.docusign_sent_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        alerts.push({
+          id: `docusign-unsigned-${c.id}`,
+          clientId: c.id,
+          clientName: name,
+          label: "Contract Not Signed",
+          description: `DocuSign sent ${sentDate} — awaiting client signature`,
+          severity: "amber",
+        });
+      });
+
+      // Job costs at 75%+ of budget
+      (budgetRes.data ?? [])
+        .filter((p: any) => !p.client?.is_discarded)
+        .forEach((p: any) => {
+          const items = (p.line_items ?? []) as any[];
+          const totalCost = items.reduce((sum: number, li: any) => sum + ((Number(li.labor_cost) + Number(li.material_cost)) * (Number(li.quantity) || 1)), 0);
+          const ratio = totalCost / Number(p.total_value);
+          if (ratio >= 0.75) {
+            const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "—";
+            const pct = Math.round(ratio * 100);
+            alerts.push({
+              id: `budget-threshold-${p.id}`,
+              clientId: p.client_id ?? "",
+              clientName,
+              label: pct >= 100 ? "Over Budget" : "Budget Alert",
+              description: `${pct}% of budget used${p.name ? ` — ${p.name}` : ""}`,
+              severity: pct >= 100 ? "red" : "amber",
+            });
+          }
+        });
+
       setNavAlerts(alerts);
 
       // Prune dismissed rows whose underlying issue is now resolved
@@ -248,7 +300,7 @@ export function RootLayout() {
   };
 
   useEffect(() => { fetchAlerts(); }, []);
-  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments"], "nav-alerts");
+  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items"], "nav-alerts");
   useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
 
   // My Profile modal state
@@ -508,45 +560,41 @@ export function RootLayout() {
                   My Profile
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/financials" className="cursor-pointer flex items-center">
+                {can("can_view_financials") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/financials")}>
                     <DollarSign className="mr-2 h-4 w-4" />
                     Financials
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/integrations" className="cursor-pointer flex items-center">
+                  </DropdownMenuItem>
+                )}
+                {can("can_view_integrations") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/integrations")}>
                     <Plug className="mr-2 h-4 w-4" />
                     Integrations
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/settings" className="cursor-pointer flex items-center">
+                  </DropdownMenuItem>
+                )}
+                {can("can_manage_settings") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/settings")}>
                     <SettingsIcon className="mr-2 h-4 w-4" />
                     Settings
-                  </Link>
-                </DropdownMenuItem>
-                {user.profile?.role === "admin" && (
-                  <>
-                    <DropdownMenuItem asChild>
-                      <Link to="/team" className="cursor-pointer flex items-center">
-                        <UsersRound className="mr-2 h-4 w-4" />
-                        Team
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to="/payroll" className="cursor-pointer flex items-center">
-                        <Banknote className="mr-2 h-4 w-4" />
-                        Payroll
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to="/admin" className="cursor-pointer flex items-center">
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Admin Portal
-                      </Link>
-                    </DropdownMenuItem>
-                  </>
+                  </DropdownMenuItem>
+                )}
+                {can("can_manage_team") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/team")}>
+                    <UsersRound className="mr-2 h-4 w-4" />
+                    Team
+                  </DropdownMenuItem>
+                )}
+                {can("can_view_payroll") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/payroll")}>
+                    <Banknote className="mr-2 h-4 w-4" />
+                    Payroll
+                  </DropdownMenuItem>
+                )}
+                {can("can_view_admin_portal") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/admin")}>
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Admin Portal
+                  </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="cursor-pointer" onClick={() => signOut()}>
