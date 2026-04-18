@@ -31,21 +31,16 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
 
   const PageHeader = () => (
     <div>
-      <div style={{ background: B.black, padding: "22px 48px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 5px 0" }}>
-            Butler & Associates Construction, Inc.
-          </p>
-          <p style={{ fontFamily: B.cg, fontSize: 18, fontStyle: "italic", fontWeight: 300, color: "#fff", margin: 0, lineHeight: 1.3 }}>
-            Crafted with intention. Built to last.
-          </p>
-        </div>
+      <div style={{ background: B.black, padding: "28px 32px", textAlign: "center" as const }}>
         <img
           src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
           alt="Butler & Associates Construction"
-          style={{ height: 52, width: "auto", objectFit: "contain" as const }}
+          style={{ height: 56, width: "auto", display: "block", margin: "0 auto 14px auto" }}
           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
         />
+        <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
+          Butler & Associates Construction, Inc.
+        </p>
       </div>
       <div style={{ height: 2, background: `linear-gradient(90deg, ${B.gold}, #8A7040)` }} />
     </div>
