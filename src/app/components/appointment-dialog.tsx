@@ -88,17 +88,12 @@ export function AppointmentDialog({
     return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet"/><style>::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.32)}*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}</style></head>
 <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
-  <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
-    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td style="vertical-align:middle;">
-        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
-        <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
-      </td>
-      <td style="vertical-align:middle;text-align:right;width:60px;">
-        <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;"/>
-      </td>
-    </tr></table>
-  </div>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
+    <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;background:#0A0A0A;"/>
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    </td>
+  </tr></table>
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
   <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
     <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Message from Butler &amp; Associates</p>
@@ -188,48 +183,71 @@ export function AppointmentDialog({
         description: `${typeLabel} scheduled for ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}${assignedUser ? ` — assigned to ${assignedUser.first_name} ${assignedUser.last_name}` : ""}`,
       }).catch(() => {});
 
-      // Update client record
-      await clientsAPI.update(client.id, {
+      // Update client record — advance Prospect → Scheduled automatically
+      const clientUpdate: Record<string, any> = {
         appointment_scheduled: true,
         appointment_date:      startDT.toISOString(),
         appointment_end_date:  endDT.toISOString(),
-      });
+      };
+      if (client.status === "prospect") {
+        const { data: scheduledStage } = await supabase
+          .from("pipeline_stages").select("id").ilike("name", "scheduled").limit(1).maybeSingle();
+        clientUpdate.status = "scheduled";
+        if (scheduledStage?.id) clientUpdate.pipeline_stage_id = scheduledStage.id;
+        activityLogAPI.create({
+          client_id:   client.id,
+          action_type: "status_changed",
+          description: `Pipeline stage advanced: Prospect → Scheduled (appointment booked)`,
+        }).catch(() => {});
+      }
+      await clientsAPI.update(client.id, clientUpdate);
 
       // Send branded confirmation email via SendGrid
       const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
       const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
-      let emailSent = false;
-      let smsSent   = false;
+      let emailSent        = false;
+      let smsSent          = false;
+      let emailFormatBad   = false;
+      const emailRegex     = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
       if (clientEmail.trim()) {
-        const { data: emailData, error: emailErr } = await supabase.functions.invoke(
-          "send-appointment-email",
-          {
-            body: {
-              appointment_type_id: appointmentType,
-              client_id:      client.id,
-              client_name:    clientName,
-              client_email:   clientEmail.trim(),
-              client_address: clientAddress || null,
-              date:           dateLabel,
-              time:           timeLabel,
-            },
-          }
-        );
-        if (emailErr || emailData?.error) {
-          const reason = emailErr?.message ?? emailData?.error ?? "Unknown error";
+        if (!emailRegex.test(clientEmail.trim())) {
+          emailFormatBad = true;
           activityLogAPI.create({
-            client_id:    client.id,
-            action_type:  "email_failed",
-            description:  `Appointment confirmation email failed to deliver to ${client.email}: ${reason}`,
+            client_id:   client.id,
+            action_type: "email_failed",
+            description: `Appointment confirmation email skipped — invalid email format: "${clientEmail.trim()}"`,
           }).catch(() => {});
         } else {
-          emailSent = true;
-          void supabase.from("appointments")
-            .update({ email_notification_sent: true })
-            .eq("client_id", client.id)
-            .order("created_at", { ascending: false })
-            .limit(1);
+          const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+            "send-appointment-email",
+            {
+              body: {
+                appointment_type_id: appointmentType,
+                client_id:      client.id,
+                client_name:    clientName,
+                client_email:   clientEmail.trim(),
+                client_address: clientAddress || null,
+                date:           dateLabel,
+                time:           timeLabel,
+              },
+            }
+          );
+          if (emailErr || emailData?.error) {
+            const reason = emailErr?.message ?? emailData?.error ?? "Unknown error";
+            activityLogAPI.create({
+              client_id:    client.id,
+              action_type:  "email_failed",
+              description:  `Appointment confirmation email failed to deliver to ${clientEmail.trim()}: ${reason}`,
+            }).catch(() => {});
+          } else {
+            emailSent = true;
+            void supabase.from("appointments")
+              .update({ email_notification_sent: true })
+              .eq("client_id", client.id)
+              .order("created_at", { ascending: false })
+              .limit(1);
+          }
         }
       }
 
@@ -267,7 +285,12 @@ export function AppointmentDialog({
       );
 
       // Failure toasts (shown after success so they appear on top)
-      if (clientEmail.trim() && !emailSent) {
+      if (emailFormatBad) {
+        toast.error(
+          `"${clientEmail.trim()}" is not a valid email address — confirmation email was not sent. Update the client's email and resend manually.`,
+          { duration: 10000 }
+        );
+      } else if (clientEmail.trim() && !emailSent) {
         toast.error(
           `Confirmation email could not be sent to ${clientEmail.trim()}. Check the address is correct.`,
           { duration: 8000 }

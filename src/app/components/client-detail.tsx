@@ -506,7 +506,7 @@ export function ClientDetail() {
     }
   };
   
-  const stageOrder = ['prospect', 'selling', 'sold', 'active', 'completed'];
+  const stageOrder = ['prospect', 'scheduled', 'selling', 'sold', 'active', 'completed'];
   const isBackwardMove = (target: string) => {
     const currentIdx = stageOrder.indexOf(client?.status?.toLowerCase() ?? '');
     const targetIdx = stageOrder.indexOf(target.toLowerCase());
@@ -816,6 +816,10 @@ export function ClientDetail() {
         return "bg-orange-500";
       case "prospect":
         return "bg-blue-500";
+      case "scheduled":
+        return "bg-indigo-500";
+      case "selling":
+        return "bg-yellow-500";
       case "completed":
         return "bg-purple-500";
       case "inactive":
@@ -1503,9 +1507,10 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent className="pt-0">
             {["active", "completed"].includes(client.status) ? (() => {
-              const totalValue = clientProjects[0]?.totalValue ?? 0;
-              const grossProfit = clientProjects[0]?.grossProfit ?? 0;
-              const cost = totalValue - grossProfit;
+              const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
+              const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
+              const grossProfit = clientProjects[0] ? (clientProjects[0]?.grossProfit ?? 0) : 0;
+              const cost = clientProjects[0] ? (totalValue - grossProfit) : 0;
               const margin = clientProjects[0]?.profitMargin ?? 0;
               const commission = clientProjects[0]?.commission ?? 0;
               const donutData = totalValue > 0

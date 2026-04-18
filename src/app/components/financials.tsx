@@ -52,20 +52,20 @@ export function Financials() {
     );
   }
 
-  const completedProjects = projects.filter((p) => p.status === "completed");
-  const totalRevenue = completedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  const totalCosts   = completedProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
-  const totalProfit  = completedProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const totalCommissions = completedProjects.reduce((sum, p) => sum + (p.commission || 0), 0);
+  const revenueProjects = projects.filter((p) => p.status === "active" || p.status === "completed");
+  const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
+  const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0), 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
-  // Monthly financial trends — group completed projects by start_date (last 6 months)
+  // Monthly financial trends — active + completed projects by start_date (last 6 months)
   const now = new Date();
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const y = d.getFullYear();
     const m = d.getMonth();
-    const monthProjects = completedProjects.filter((p) => {
+    const monthProjects = revenueProjects.filter((p) => {
       const date = p.start_date ? new Date(p.start_date) : null;
       return date && date.getFullYear() === y && date.getMonth() === m;
     });
@@ -77,7 +77,7 @@ export function Financials() {
     };
   });
 
-  const projectProfitability = completedProjects.map((p) => ({
+  const projectProfitability = revenueProjects.map((p) => ({
     name:   p.name && p.name.length > 20 ? p.name.substring(0, 20) + "…" : (p.name || "Unnamed"),
     profit: p.grossProfit || 0,
     margin: p.profitMargin || 0,
@@ -256,7 +256,7 @@ export function Financials() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projects.map((project) => (
+                  {revenueProjects.map((project) => (
                     <tr key={project.id} className="border-b hover:bg-accent">
                       <td className="p-3">
                         <Link to={`/clients/${project.client?.id}`} className="hover:text-primary no-underline">

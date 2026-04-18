@@ -210,14 +210,14 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
                   return (
                     <div key={gIdx}>
                       {/* Primary line — category name + qty/unit + category total */}
-                      <div style={{ display: "flex", alignItems: "center", padding: "14px 24px", background: rowBg, borderTop }}>
+                      <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: rowBg, borderTop }}>
                         <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, flex: 1 }}>
                           {group.category}
                         </p>
                         <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, width: 100, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
                           {qtyLabel ?? ""}
                         </p>
-                        <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const }}>
+                        <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>
                           {formatCurrency(categoryTotal)}
                         </p>
                       </div>
@@ -225,7 +225,7 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
                       {group.items.map((item, iIdx) => (
                         <div key={iIdx} style={{
                           display: "flex", alignItems: "center",
-                          padding: "5px 24px 5px 36px",
+                          padding: "10px 24px 10px 36px",
                           background: rowBg,
                           borderTop: `1px solid ${B.bg}`,
                         }}>
@@ -246,7 +246,7 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
                       return (
                         <div key={iIdx} style={{
                           display: "flex", alignItems: "center",
-                          padding: "14px 24px",
+                          padding: "20px 24px",
                           background: isAlt ? B.rowAlt : "#fff",
                           borderBottom: `1px solid ${B.bg}`,
                         }}>
@@ -266,39 +266,39 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
             {/* Subtotal / Discount / Tax / Total block */}
             <div style={{ borderTop: `2px solid ${B.border}` }}>
               {/* Subtotal */}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
                 <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Subtotal</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(subtotal)}</p>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(subtotal)}</p>
               </div>
               {/* Discount */}
               {discountAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: B.rowAlt }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: B.rowAlt }}>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>
                     Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}
                   </p>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>− {formatCurrency(discountAmount)}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>− {formatCurrency(discountAmount)}</p>
                 </div>
               )}
               {/* Base, Aggregate & Disposal */}
               {badAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: B.rowAlt }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: B.rowAlt }}>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{badLabel}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(badAmount)}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(badAmount)}</p>
                 </div>
               )}
               {/* Tax */}
               {taxAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{formatCurrency(taxAmount)}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(taxAmount)}</p>
                 </div>
               )}
               {/* Total Investment */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "26px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
                 <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>
                   Total Investment{taxAmount > 0 ? " + Tax" : ""}
                 </p>
-                <p style={{ fontFamily: B.cg, fontSize: 26, fontWeight: 400, color: B.gold, margin: 0 }}>
+                <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 400, color: B.gold, margin: 0, fontVariantNumeric: "tabular-nums" }}>
                   {formatCurrency(total)}
                 </p>
               </div>

@@ -744,136 +744,142 @@ export function ProposalDetail() {
               if (!groups[cat]) groups[cat] = [];
               groups[cat].push({ ...item, _idx: idx });
             });
-            return Object.entries(groups).map(([cat, groupItems]) => {
-              const hasWizard = templates.some((t: any) => t.category === cat) || COMPLEX_CATEGORIES.includes(cat);
-              return (
-                <div key={cat} className="border-b last:border-0">
-                  {/* Category header */}
-                  <div className="flex items-center justify-between px-4 py-2 bg-muted/30">
-                    <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
-                    {hasWizard && (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
-                        <Wand2 className="h-3.5 w-3.5" />
-                        Edit in Wizard
-                      </Button>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="border-b bg-muted/20">
-                        <tr>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Item</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">FIO Qty</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">Qty</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Unit</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Rate</th>
-                          <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Total</th>
-                          <th className="p-3 w-8"></th>
-                          <th className="p-3 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {groupItems.map((item: any) => {
-                          const idx = item._idx;
-                          const rowKey = item.id ?? String(idx);
-                          const isExpanded = expandedRows.has(rowKey);
-                          const laborCost = Number(item.labor_cost ?? 0);
-                          const materialCost = Number(item.material_cost ?? 0);
-                          const markupPct = Number(item.markup_percent ?? 0);
-                          return (
-                            <>
-                              <tr key={rowKey} className="hover:bg-accent/50">
-                                <td className="p-3">
-                                  <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
-                                  {item.description && (
-                                    <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
-                                  )}
-                                </td>
-                                <td className="p-3">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step="any"
-                                    value={item.fio_qty ?? 0}
-                                    placeholder="0"
-                                    onChange={(e) => {
-                                      const val = e.target.value === "" ? null : Number(e.target.value);
-                                      setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li));
-                                    }}
-                                    className="w-20"
-                                  />
-                                </td>
-                                <td className="p-3">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step="any"
-                                    value={item.quantity}
-                                    onChange={(e) => updateQty(idx, Number(e.target.value))}
-                                    className="w-20"
-                                  />
-                                </td>
-                                <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
-                                <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
-                                <td className="p-3">
-                                  <span className="font-semibold text-sm">{formatCurrency(Number(item.quantity) * Number(item.client_price))}</span>
-                                </td>
-                                <td className="p-3">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0"
-                                    onClick={() => setExpandedRows((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
-                                      return next;
-                                    })}
-                                  >
-                                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b bg-muted/20">
+                    <tr>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Item</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">FIO Qty</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">Qty</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-24">Unit</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-28">Rate</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase w-28">Total</th>
+                      <th className="p-3 w-8"></th>
+                      <th className="p-3 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {Object.entries(groups).map(([cat, groupItems]) => {
+                      const hasWizard = templates.some((t: any) => t.category === cat) || COMPLEX_CATEGORIES.includes(cat);
+                      return (
+                        <>
+                          {/* Category header row */}
+                          <tr key={`cat-${cat}`} className="border-b border-t">
+                            <td colSpan={8} className="px-4 py-2 bg-muted/30">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
+                                {hasWizard && (
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
+                                    <Wand2 className="h-3.5 w-3.5" />
+                                    Edit in Wizard
                                   </Button>
-                                </td>
-                                <td className="p-3">
-                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </td>
-                              </tr>
-                              {isExpanded && (
-                                <tr key={`${rowKey}-expanded`} className="bg-muted/30">
-                                  <td colSpan={8} className="pr-[200px] pl-6 py-3">
-                                    <div className="flex items-center justify-end gap-8 text-xs">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew Cost/Unit</span>
-                                        <span className="font-semibold">{formatCurrency(laborCost)}</span>
-                                      </div>
-                                      <div className="h-3 w-px bg-border" />
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Material/Unit</span>
-                                        <span className="font-semibold">{formatCurrency(materialCost)}</span>
-                                      </div>
-                                      <div className="h-3 w-px bg-border" />
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost/Unit</span>
-                                        <span className="font-semibold">{formatCurrency(laborCost + materialCost)}</span>
-                                      </div>
-                                      <div className="h-3 w-px bg-border" />
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
-                                        <span className="font-semibold text-amber-600">{markupPct}%</span>
-                                      </div>
-                                    </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {groupItems.map((item: any) => {
+                            const idx = item._idx;
+                            const rowKey = item.id ?? String(idx);
+                            const isExpanded = expandedRows.has(rowKey);
+                            const laborCost = Number(item.labor_cost ?? 0);
+                            const materialCost = Number(item.material_cost ?? 0);
+                            const markupPct = Number(item.markup_percent ?? 0);
+                            return (
+                              <>
+                                <tr key={rowKey} className="hover:bg-accent/50">
+                                  <td className="p-3">
+                                    <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
+                                    {item.description && (
+                                      <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                                    )}
+                                  </td>
+                                  <td className="p-3">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step="any"
+                                      value={item.fio_qty ?? 0}
+                                      placeholder="0"
+                                      onChange={(e) => {
+                                        const val = e.target.value === "" ? null : Number(e.target.value);
+                                        setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li));
+                                      }}
+                                      className="w-20"
+                                    />
+                                  </td>
+                                  <td className="p-3">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step="any"
+                                      value={item.quantity}
+                                      onChange={(e) => updateQty(idx, Number(e.target.value))}
+                                      className="w-20"
+                                    />
+                                  </td>
+                                  <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
+                                  <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
+                                  <td className="p-3">
+                                    <span className="font-semibold text-sm">{formatCurrency(Number(item.quantity) * Number(item.client_price))}</span>
+                                  </td>
+                                  <td className="p-3">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => setExpandedRows((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+                                        return next;
+                                      })}
+                                    >
+                                      {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                    </Button>
+                                  </td>
+                                  <td className="p-3">
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
                                   </td>
                                 </tr>
-                              )}
-                            </>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            });
+                                {isExpanded && (
+                                  <tr key={`${rowKey}-expanded`} className="bg-muted/30">
+                                    <td colSpan={8} className="pr-[200px] pl-6 py-3">
+                                      <div className="flex items-center justify-end gap-8 text-xs">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew Cost/Unit</span>
+                                          <span className="font-semibold">{formatCurrency(laborCost)}</span>
+                                        </div>
+                                        <div className="h-3 w-px bg-border" />
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-muted-foreground font-medium uppercase tracking-wide">Material/Unit</span>
+                                          <span className="font-semibold">{formatCurrency(materialCost)}</span>
+                                        </div>
+                                        <div className="h-3 w-px bg-border" />
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost/Unit</span>
+                                          <span className="font-semibold">{formatCurrency(laborCost + materialCost)}</span>
+                                        </div>
+                                        <div className="h-3 w-px bg-border" />
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
+                                          <span className="font-semibold text-amber-600">{markupPct}%</span>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            );
+                          })}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
           })()}
 
           {/* Totals */}

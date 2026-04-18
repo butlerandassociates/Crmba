@@ -24,6 +24,7 @@ import {
   UserRoundCheck,
   UserRoundPlus,
   UserCheck,
+  CalendarClock,
   Banknote,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
@@ -53,8 +54,9 @@ import {
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Stats", href: "/pipeline", icon: Workflow },
-  { name: "Prospect", href: "/clients?stage=prospect", icon: UserRoundSearch },
-  { name: "Selling", href: "/clients?stage=selling", icon: UserRoundCog },
+  { name: "Prospect",  href: "/clients?stage=prospect",  icon: UserRoundSearch },
+  { name: "Scheduled", href: "/clients?stage=scheduled", icon: CalendarClock },
+  { name: "Selling",   href: "/clients?stage=selling",   icon: UserRoundCog },
   { name: "Sold", href: "/clients?stage=sold", icon: UserRoundCheck },
   { name: "Active", href: "/clients?stage=active", icon: UserRoundPlus },
   { name: "Completed", href: "/clients?stage=completed", icon: UserCheck },
