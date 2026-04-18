@@ -169,7 +169,6 @@ async function exportToExcel(data: PLData, logoUrl: string) {
     ws.addImage(imgId, { tl: { col: 1, row: 0 }, br: { col: 2, row: 4 }, editAs: "oneCell" } as any);
   } catch { /* logo optional — skip if fetch fails */ }
   mergedHeader("BUTLER & ASSOCIATES CONSTRUCTION, INC.", C_BLACK, C_GOLD, 9);
-  mergedHeader("Crafted with intention. Built to last.", C_BLACK, C_WHITE, 13, false, true);
   mergedHeader("Profit & Loss Statement", C_BLACK, C_WHITE, 16);
   mergedHeader(`Period: ${data.periodLabel}`, C_BLACK, C_MUTED, 10, false);
   goldBar();
@@ -323,18 +322,11 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
 <div class="doc">
 
   <!-- ── Header ── -->
-  <div style="background:#0A0A0A;padding:26px 32px 22px;display:flex;align-items:center;justify-content:space-between;">
-    <div>
-      <div style="font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#BB984D;margin-bottom:5px;">
-        Butler &amp; Associates Construction, Inc.
-      </div>
-      <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-style:italic;font-weight:300;color:#fff;margin-bottom:13px;line-height:1.3;">
-        Crafted with intention. Built to last.
-      </div>
-      <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;">Profit &amp; Loss Statement</div>
-      <div style="font-size:13px;color:#888;">Period: ${data.periodLabel}</div>
-    </div>
-    <img src="${logoUrl}" style="height:60px;width:auto;object-fit:contain;flex-shrink:0;" alt="Logo"/>
+  <div style="background:#0A0A0A;padding:28px 32px;text-align:center;">
+    <img src="${logoUrl}" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;" alt="Logo"/>
+    <div style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Butler &amp; Associates Construction, Inc.</div>
+    <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:4px;">Profit &amp; Loss Statement</div>
+    <div style="font-size:12px;color:#888;">Period: ${data.periodLabel}</div>
   </div>
   <!-- Gold rule -->
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);flex-shrink:0;"></div>
@@ -421,9 +413,8 @@ function buildPreviewHtml(data: PLData, logoUrl: string): string {
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:'Inter',Arial,sans-serif;background:#F5F3EF;color:#3A3A38;padding:24px 16px;}
     .page{max-width:620px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12);}
-    .hdr{background:#0A0A0A;padding:22px 28px 18px;}
-    .eyebrow{font-size:9px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#BB984D;margin-bottom:4px;}
-    .tagline{font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;font-weight:300;color:#fff;margin-bottom:12px;line-height:1.3;}
+    .hdr{background:#0A0A0A;padding:28px 32px;text-align:center;}
+    .eyebrow{font-size:9px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#BB984D;margin-bottom:10px;}
     .title{font-size:19px;font-weight:700;color:#fff;margin-bottom:3px;}
     .period{font-size:12px;color:#888;}
     .gold{height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);}
@@ -458,14 +449,11 @@ function buildPreviewHtml(data: PLData, logoUrl: string): string {
 </head>
 <body>
 <div class="page">
-  <div class="hdr" style="display:flex;align-items:center;justify-content:space-between;">
-    <div>
-      <div class="eyebrow">Butler &amp; Associates Construction, Inc.</div>
-      <div class="tagline">Crafted with intention. Built to last.</div>
-      <div class="title">Profit &amp; Loss Statement</div>
-      <div class="period">Period: ${data.periodLabel}</div>
-    </div>
-    <img src="${logoUrl}" style="height:54px;width:auto;object-fit:contain;flex-shrink:0;" alt="Logo"/>
+  <div class="hdr">
+    <img src="${logoUrl}" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;" alt="Logo"/>
+    <div class="eyebrow">Butler &amp; Associates Construction, Inc.</div>
+    <div class="title">Profit &amp; Loss Statement</div>
+    <div class="period">Period: ${data.periodLabel}</div>
   </div>
   <div class="gold"></div>
   <div class="summary">
@@ -597,37 +585,32 @@ export function PLReport() {
       if (propErr) throw new Error(propErr.message);
 
       let materialSold = 0, laborSold = 0, otherSold = 0;
+      let materialCosts = 0, laborCosts = 0;
 
       if (estimates && estimates.length > 0) {
         const ids = estimates.map((p: any) => p.id);
         const { data: lineItems, error: liErr } = await supabase
           .from("estimate_line_items")
-          .select("total_price, category")
+          .select("total_price, labor_cost, material_cost, quantity")
           .in("estimate_id", ids);
         if (liErr) throw new Error(liErr.message);
         for (const li of lineItems ?? []) {
-          const cat = (li.category ?? "").toLowerCase();
-          const amt = Number(li.total_price) || 0;
-          if (cat === "labor" || cat === "installation") laborSold += amt;
-          else if (cat === "material" || cat === "materials") materialSold += amt;
-          else otherSold += amt;
+          const revenue = Number(li.total_price) || 0;
+          const qty = Number(li.quantity) || 1;
+          const lc = Number(li.labor_cost || 0) * qty;
+          const mc = Number(li.material_cost || 0) * qty;
+          const totalCost = lc + mc;
+          // Split revenue proportionally by labor vs material cost
+          if (totalCost > 0) {
+            laborSold    += (lc / totalCost) * revenue;
+            materialSold += (mc / totalCost) * revenue;
+          } else {
+            otherSold += revenue;
+          }
+          // Costs = actual labor + material cost from line items
+          laborCosts    += lc;
+          materialCosts += mc;
         }
-      }
-
-      // Costs: receipts created in range (active + completed clients only)
-      const { data: receipts, error: recErr } = await supabase
-        .from("project_receipts")
-        .select("amount, category, project:projects!project_id(client_id)")
-        .gte("created_at", rangeStart)
-        .lt("created_at", rangeEnd);
-      if (recErr) throw new Error(recErr.message);
-
-      let materialCosts = 0, laborCosts = 0;
-      for (const r of receipts ?? []) {
-        if (!eligibleClientIds.includes((r.project as any)?.client_id)) continue;
-        const cat = (r.category ?? "").toLowerCase();
-        if (cat === "labor") laborCosts += Number(r.amount) || 0;
-        else materialCosts += Number(r.amount) || 0;
       }
 
       setData({ materialSold, laborSold, otherSold, materialCosts, laborCosts, fromLabel, toLabel, periodLabel });

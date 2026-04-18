@@ -182,8 +182,9 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
 
   const exportPDF = (po: any) => {
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const GOLD = "#C9A84C";
-    const BLACK = "#111111";
+    const GOLD = "#BB984D";
+    const BLACK = "#0A0A0A";
+    const LOGO = "https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png";
     const fmtDate = (d: string) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
     const senderName = po.sent_by ? `${po.sent_by.first_name ?? ""} ${po.sent_by.last_name ?? ""}`.trim() : "";
 
@@ -198,10 +199,11 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
 <title>Purchase Order — ${po.supplier_name}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px 48px;}@page{margin:0;}table{border-collapse:collapse;width:100%;}</style>
 </head><body style="display:flex;flex-direction:column;min-height:100vh;">
-<div style="background:${BLACK};color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-  <div style="font-size:22px;font-weight:bold;">Butler &amp; Associates Construction</div>
-  <div style="font-size:17px;font-weight:bold;color:${GOLD};">Purchase Order</div>
+<div style="background:${BLACK};padding:28px 32px;text-align:center;">
+  <img src="${LOGO}" alt="Butler &amp; Associates" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;" />
+  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0;font-family:Arial,sans-serif;">Butler &amp; Associates Construction, Inc.</p>
 </div>
+<div style="height:2px;background:linear-gradient(90deg,${GOLD},#8A7040);margin-bottom:24px;"></div>
 <div style="display:flex;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #d1d5db;">
   <div>
     <div style="color:${GOLD};font-size:13px;">Supplier: ${po.supplier_name}</div>

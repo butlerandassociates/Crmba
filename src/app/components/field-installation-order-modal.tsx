@@ -224,19 +224,28 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       const pageW = pdf.internal.pageSize.getWidth();
       const margin = 14;
       const contentW = pageW - margin * 2;
-      let y = margin;
+      let y = 0;
 
-      // ── Header bar ──
-      pdf.setFillColor(17, 17, 17);
-      pdf.rect(margin, y, contentW, 12, "F");
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(11);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("Butler & Associates Construction", margin + 4, y + 8);
-      pdf.setTextColor(201, 168, 76);
-      pdf.setFontSize(9);
-      pdf.text("Crew Labor Schedule", pageW - margin - 4, y + 8, { align: "right" });
-      y += 16;
+      // ── Branded header bar — centered logo + company name ──
+      const logoH = 18;
+      const headerH = logoH + 18;
+      pdf.setFillColor(10, 10, 10);
+      pdf.rect(0, 0, pageW, headerH, "F");
+      try {
+        const resp = await fetch("https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png");
+        const blob = await resp.blob();
+        const b64: string = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.readAsDataURL(blob); });
+        const logoW = 22;
+        pdf.addImage(b64, "PNG", (pageW - logoW) / 2, 4, logoW, logoH);
+      } catch { /* logo unavailable — skip */ }
+      pdf.setTextColor(187, 152, 77);
+      pdf.setFontSize(7);
+      pdf.setFont("helvetica", "normal");
+      pdf.text("BUTLER & ASSOCIATES CONSTRUCTION, INC.", pageW / 2, logoH + 10, { align: "center" });
+      pdf.setDrawColor(187, 152, 77);
+      pdf.setLineWidth(0.8);
+      pdf.line(0, headerH, pageW, headerH);
+      y = headerH + 6;
 
       // ── Project / date row ──
       pdf.setFontSize(9);
