@@ -8,6 +8,7 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { purchaseOrdersAPI } from "../api/purchase-orders";
 import { activityLogAPI } from "../api/activity-log";
+import { notificationsAPI } from "../utils/api";
 import { toast } from "sonner";
 
 interface PurchaseOrdersSheetProps {
@@ -272,6 +273,16 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
         }))
       );
       activityLogAPI.create({ client_id: client?.id, action_type: "po_created", description: `Purchase order ${sendAfter ? "sent" : "saved as draft"} — supplier: ${supplierName.trim()}` }).catch(() => {});
+      if (sendAfter) {
+        const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+        notificationsAPI.create({
+          type: "po_sent",
+          title: "Purchase Order Sent",
+          message: `PO sent to ${supplierName.trim()}${clientName ? ` — ${clientName}` : ""}.`,
+          link: client?.id ? `/clients/${client.id}` : "/",
+          metadata: { client_id: client?.id, project_id: project?.id },
+        }).catch(() => {});
+      }
       toast.success(sendAfter ? "Purchase order sent" : "Purchase order saved as draft");
       resetForm();
       setView("list");

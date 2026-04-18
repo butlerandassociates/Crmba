@@ -45,8 +45,6 @@ interface LineItem {
   totalPrice: number;
 }
 
-// Will be dynamic once templates are in DB — categories with a template show wizard button
-const COMPLEX_CATEGORIES = ["Concrete", "Outdoor Kitchen", "Pergola/Pavilion"];
 
 export function ProposalBuilder() {
   const { clientId } = useParams();
@@ -189,11 +187,6 @@ export function ProposalBuilder() {
     const template = templates.find((t: any) => t.category === category);
     if (template) {
       setActiveTemplate(template);
-      setWizardType(category);
-      setShowWizard(true);
-    } else if (COMPLEX_CATEGORIES.includes(category)) {
-      // Legacy fallback for categories without a DB template yet
-      setActiveTemplate(null);
       setWizardType(category);
       setShowWizard(true);
     }
@@ -347,8 +340,9 @@ export function ProposalBuilder() {
   };
 
   // Get products for selected category from DB
+  const isComplexCategory = (cat: string) => templates.some((t: any) => t.category === cat);
   const categoryProducts = dbProducts.filter(
-    (p: any) => p.category?.name === selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory)
+    (p: any) => p.category?.name === selectedCategory && !isComplexCategory(selectedCategory)
   );
 
   // Group line items by category
@@ -468,7 +462,7 @@ export function ProposalBuilder() {
                   </Select>
                 </div>
 
-                {selectedCategory && !COMPLEX_CATEGORIES.includes(selectedCategory) && (
+                {selectedCategory && !isComplexCategory(selectedCategory) && (
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium">2. Select Item</Label>
                     <Select value={selectedProduct} onValueChange={handleProductSelect}>
@@ -490,7 +484,7 @@ export function ProposalBuilder() {
                   </div>
                 )}
 
-                {selectedCategory && COMPLEX_CATEGORIES.includes(selectedCategory) && (
+                {selectedCategory && isComplexCategory(selectedCategory) && (
                   <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg">
                     <Hammer className="h-4 w-4 inline mr-2" />
                     {wizardType} wizard will guide you through the estimate

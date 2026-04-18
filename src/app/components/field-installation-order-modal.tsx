@@ -103,7 +103,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       await notificationsAPI.create({
         type: "crew_payment_submitted",
         title: "Crew Pay Needs Review",
-        message: `Crew payment submitted for ${foremanName} on ${projectName} — week ending ${weekEndingDate}.`,
+        message: `Crew payment recorded for ${foremanName} on ${projectName} — week ending ${weekEndingDate}. Review in Payroll.`,
         link: fio?.foreman?.id ? `/payroll/crew/${fio.foreman.id}` : "/payroll",
         metadata: { fio_id: fio.id, project_id: project?.id, week_ending_date: weekEndingDate },
       });
@@ -206,6 +206,13 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
           items
         );
         activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_created", description: `Field Installation Order created — project: ${project.name ?? ""}` }).catch(() => {});
+        notificationsAPI.create({
+          type: "fio_created",
+          title: "FIO Created",
+          message: `Field Installation Order created for ${project.name ?? "a project"}.`,
+          link: project.client_id ? `/clients/${project.client_id}` : "/projects",
+          metadata: { project_id: project.id },
+        }).catch(() => {});
         toast.success("Field Installation Order created");
       }
       setView("view");

@@ -30,7 +30,8 @@ import {
   X,
   Pencil,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI } from "../utils/api";
+import { usePermissions } from "../hooks/usePermissions";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard";
 import { supabase } from "@/lib/supabase";
@@ -55,6 +56,7 @@ import { PageLoader, SkeletonCards } from "./ui/page-loader";
 
 export function ProposalDetail() {
   const { id } = useParams();
+  const { can } = usePermissions();
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -128,7 +130,6 @@ export function ProposalDetail() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardCategory, setWizardCategory] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
-  const COMPLEX_CATEGORIES = ["Concrete"];
 
   const [markingAccepted, setMarkingAccepted] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
@@ -448,6 +449,13 @@ export function ProposalDetail() {
         action_type: "status_changed",
         description: `Proposal manually accepted: "${proposal.title}"`,
       }).catch(() => {});
+      notificationsAPI.create({
+        type: "proposal_accepted",
+        title: "Proposal Accepted",
+        message: `"${proposal.title}" has been accepted.`,
+        link: `/proposals/${proposal.id}`,
+        metadata: { proposal_id: proposal.id, client_id: proposal.client_id },
+      }).catch(() => {});
       setProposal({ ...proposal, status: "accepted", accepted_at: now });
       toast.success("Proposal marked as accepted");
     } catch {
@@ -590,10 +598,12 @@ export function ProposalDetail() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>Share Proposal</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleEmail}>
-                <Mail className="h-4 w-4 mr-2" />
-                Email to Client
-              </DropdownMenuItem>
+              {can("can_send_proposals") && (
+                <DropdownMenuItem onClick={handleEmail}>
+                  <Mail className="h-4 w-4 mr-2" />
+                  Email to Client
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={handleDownload}>
                 <Download className="h-4 w-4 mr-2" />
                 Download PDF
@@ -761,7 +771,7 @@ export function ProposalDetail() {
                   </thead>
                   <tbody className="divide-y">
                     {Object.entries(groups).map(([cat, groupItems]) => {
-                      const hasWizard = templates.some((t: any) => t.category === cat) || COMPLEX_CATEGORIES.includes(cat);
+                      const hasWizard = templates.some((t: any) => t.category === cat);
                       return (
                         <>
                           {/* Category header row */}
@@ -1158,7 +1168,7 @@ export function ProposalDetail() {
                   onCancel={() => setShowWizard(false)}
                   initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
                 />
-              ) : COMPLEX_CATEGORIES.includes(wizardCategory) ? (
+              ) : templates.some((t: any) => t.category === wizardCategory) ? (
                 <ConcreteWizard
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
