@@ -289,14 +289,14 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
   // Inline table rows — no left/right padding (body provides it via 32px sides)
   const row = (label: string, amount: number, opts: { alt?: boolean; red?: boolean; redBg?: boolean } = {}) => `
     <tr style="background:${opts.redBg ? "#FEF2F2" : opts.alt ? "#FAF8F5" : "#fff"};">
-      <td style="padding:9px 0 9px 14px;font-size:13px;color:${opts.red ? "#B91C1C" : "#3A3A38"};">${label}</td>
-      <td style="padding:9px 0 9px 0;font-size:13px;text-align:right;color:${opts.red ? "#B91C1C" : "#3A3A38"};">${fmt(amount)}</td>
+      <td style="padding:13px 0 13px 14px;font-size:13px;color:${opts.red ? "#B91C1C" : "#3A3A38"};">${label}</td>
+      <td style="padding:13px 0 13px 0;font-size:13px;text-align:right;color:${opts.red ? "#B91C1C" : "#3A3A38"};font-variant-numeric:tabular-nums;">${fmt(amount)}</td>
     </tr>`;
 
   const totalRow = (label: string, amount: number, opts: { red?: boolean } = {}) => `
     <tr style="background:${opts.red ? "#FEF2F2" : "#F0EDE8"};">
-      <td style="padding:10px 0 10px 14px;font-size:13px;font-weight:700;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;">${label}</td>
-      <td style="padding:10px 0 10px 0;font-size:13px;font-weight:700;text-align:right;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;">${fmt(amount)}</td>
+      <td style="padding:14px 0 14px 14px;font-size:13px;font-weight:700;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;">${label}</td>
+      <td style="padding:14px 0 14px 0;font-size:13px;font-weight:700;text-align:right;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;font-variant-numeric:tabular-nums;">${fmt(amount)}</td>
     </tr>`;
 
   // Section headers bleed full-width by breaking out of body's 32px padding via negative margin
@@ -349,7 +349,7 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
     ].map(([label, value, color]) => `
       <div style="padding-right:12px;">
         <div style="font-size:9px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase;color:#888;margin-bottom:4px;">${label}</div>
-        <div style="font-size:17px;font-weight:700;color:${color};">${value}</div>
+        <div style="font-size:17px;font-weight:700;color:${color};font-variant-numeric:tabular-nums;">${value}</div>
       </div>`).join("")}
   </div>
 
@@ -380,7 +380,7 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
         <div style="font-size:12px;color:#888;margin-top:4px;">Gross Margin</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:15px;font-weight:700;color:${GRN};">${fmt(grossProfit)}</div>
+        <div style="font-size:15px;font-weight:700;color:${GRN};font-variant-numeric:tabular-nums;">${fmt(grossProfit)}</div>
         <div style="font-size:12px;font-weight:600;color:${GRN};margin-top:4px;">${fmtPct(grossMargin)}</div>
       </div>
     </div>
@@ -429,7 +429,7 @@ function buildPreviewHtml(data: PLData, logoUrl: string): string {
     .gold{height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);}
     .summary{background:#F5F3EF;padding:14px 28px;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #E8E4DC;}
     .slabel{font-size:9px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#888;margin-bottom:3px;}
-    .sval{font-size:16px;font-weight:700;}
+    .sval{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;}
     .body{padding:0 28px 24px;background:#fff;}
     .sec{background:#0A0A0A;color:#BB984D;font-size:9px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;padding:7px 14px;margin:16px -28px 0;}
     table{width:100%;border-collapse:collapse;}

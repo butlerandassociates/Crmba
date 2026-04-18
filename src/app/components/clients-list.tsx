@@ -153,6 +153,7 @@ export function ClientsList() {
       case "active":     return "bg-green-500";
       case "sold":       return "bg-orange-500";
       case "prospect":   return "bg-blue-500";
+      case "scheduled":  return "bg-indigo-500";
       case "selling":    return "bg-yellow-500";
       case "completed":  return "bg-purple-500";
       default:           return "bg-gray-500";
@@ -443,6 +444,7 @@ export function ClientsList() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="prospect">Prospect</SelectItem>
+                      <SelectItem value="scheduled">Scheduled</SelectItem>
                       <SelectItem value="selling">Selling</SelectItem>
                       <SelectItem value="sold">Sold</SelectItem>
                       <SelectItem value="active">Active</SelectItem>

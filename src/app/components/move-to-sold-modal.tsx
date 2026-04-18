@@ -225,8 +225,13 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         });
       }
 
-      // 6. Update client status
-      await supabase.from("clients").update({ status: "sold" }).eq("id", client.id);
+      // 6. Update client status + pipeline_stage_id
+      const { data: soldStage } = await supabase
+        .from("pipeline_stages").select("id").ilike("name", "sold").limit(1).maybeSingle();
+      await supabase.from("clients").update({
+        status: "sold",
+        ...(soldStage?.id ? { pipeline_stage_id: soldStage.id } : {}),
+      }).eq("id", client.id);
 
       await activityLogAPI.create({
         client_id: client.id,

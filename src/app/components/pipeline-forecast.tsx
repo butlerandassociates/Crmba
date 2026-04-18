@@ -76,34 +76,37 @@ export function PipelineForecast() {
 
   // Bucket by client.status (source of truth — matches what is written on every stage move)
   const statusName = (c: any) => (c.status ?? "").toLowerCase();
-  const prospectClients  = clients.filter((c) => statusName(c) === "prospect");
-  const sellingClients   = clients.filter((c) => statusName(c) === "selling");
-  const soldClients      = clients.filter((c) => statusName(c) === "sold");
-  const activeClients    = clients.filter((c) => statusName(c) === "active");
-  const completedClients = clients.filter((c) => statusName(c) === "completed");
+  const prospectClients   = clients.filter((c) => statusName(c) === "prospect");
+  const scheduledClients  = clients.filter((c) => statusName(c) === "scheduled");
+  const sellingClients    = clients.filter((c) => statusName(c) === "selling");
+  const soldClients       = clients.filter((c) => statusName(c) === "sold");
+  const activeClients     = clients.filter((c) => statusName(c) === "active");
+  const completedClients  = clients.filter((c) => statusName(c) === "completed");
 
-  // Pipeline card: "Prospect" shows both prospect + selling (pre-closed pipeline)
-  const pipelineClients = [...prospectClients, ...sellingClients];
+  // Revenue per bucket — pre-contract stages use proposal_forecast; sold/active/completed use project_total
+  const prospectValue   = prospectClients.reduce((sum, c) => sum + (c.proposal_forecast ?? 0), 0);
+  const scheduledValue  = scheduledClients.reduce((sum, c) => sum + (c.proposal_forecast ?? 0), 0);
+  const sellingValue    = sellingClients.reduce((sum, c) => sum + (c.proposal_forecast ?? 0), 0);
+  const soldValue       = soldClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const activeValue     = activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
+  const completedValue  = completedClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
 
-  // Revenue per bucket — project_total computed by clientsAPI.getAll()
-  const prospectValue  = pipelineClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
-  const soldValue      = soldClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
-  const activeValue    = activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
-  const completedValue = completedClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
-
-  // Weighted forecast:
-  //   Prospect clients → 35% default (no probability set yet)
-  //   Selling clients  → use their closing_probability if set (0-100), else 60%
+  // Weighted forecast uses saved proposal values (Jonathan confirmed Apr 18):
+  //   Prospect  → 35% probability
+  //   Scheduled → 50% (appointment booked, engaged lead)
+  //   Selling   → closing_probability if set, else 60%
   const weightedForecast = [
-    ...prospectClients.map((c) => ({ total: c.project_total ?? 0, prob: 0.35 })),
+    ...prospectClients.map((c) => ({ total: c.proposal_forecast ?? 0, prob: 0.35 })),
+    ...scheduledClients.map((c) => ({ total: c.proposal_forecast ?? 0, prob: 0.50 })),
     ...sellingClients.map((c) => ({
-      total: c.project_total ?? 0,
+      total: c.proposal_forecast ?? 0,
       prob: c.closing_probability > 0 ? c.closing_probability / 100 : 0.60,
     })),
   ].reduce((sum, { total, prob }) => sum + total * prob, 0);
 
-  // Company Stats — from projects (camelCased by mapProject)
-  const totalRevenue    = projects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
+  // Company Stats — completed projects only (real earned revenue)
+  const completedProjects = projects.filter((p) => p.status === "completed");
+  const totalRevenue    = completedProjects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
   const totalProjects   = projects.length;
   const activeProjects  = projects.filter((p) => p.status === "active").length;
   const totalTeamMembers = users.length;
@@ -193,26 +196,28 @@ export function PipelineForecast() {
       </div>
 
       {/* Pipeline Stages in Columns — click to open client list */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {[
-          { label: "Prospect",  color: "bg-blue-500",   list: pipelineClients,  value: prospectValue  },
-          { label: "Sold",      color: "bg-orange-500", list: soldClients,      value: soldValue      },
-          { label: "Active",    color: "bg-green-500",  list: activeClients,    value: activeValue    },
-          { label: "Completed", color: "bg-purple-500", list: completedClients, value: completedValue },
+          { label: "Prospect",  color: "bg-blue-500",    list: prospectClients,  value: prospectValue  },
+          { label: "Scheduled", color: "bg-indigo-500",  list: scheduledClients, value: scheduledValue },
+          { label: "Selling",   color: "bg-sky-500",     list: sellingClients,   value: sellingValue   },
+          { label: "Sold",      color: "bg-orange-500",  list: soldClients,      value: soldValue      },
+          { label: "Active",    color: "bg-green-500",   list: activeClients,    value: activeValue    },
+          { label: "Completed", color: "bg-purple-500",  list: completedClients, value: completedValue },
         ].map(({ label, color, list, value }) => (
           <Card
             key={label}
             className="flex flex-col cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => setSelectedStage({ label, color, list })}
           >
-            <CardHeader className={`${color} text-white pb-3 rounded-t-lg`}>
+            <CardHeader className={`${color} text-white px-3 py-2.5 rounded-t-lg`}>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{label}</CardTitle>
-                <Badge variant="secondary" className="bg-white text-gray-900">
+                <CardTitle className="text-sm font-semibold">{label}</CardTitle>
+                <Badge variant="secondary" className="bg-white text-gray-900 text-xs h-5 px-1.5">
                   {list.length}
                 </Badge>
               </div>
-              <div className="text-xl font-bold mt-1">{formatCurrency(value)}</div>
+              <div className="text-lg font-bold mt-0.5">{formatCurrency(value)}</div>
             </CardHeader>
             <CardContent className="pt-3 pb-3">
               <p className="text-xs text-muted-foreground">
@@ -381,7 +386,7 @@ export function PipelineForecast() {
                 <ListTodo className="h-5 w-5 text-primary" />
                 <CardTitle className="text-base">Tasks</CardTitle>
               </div>
-              <Badge variant="secondary">{pipelineClients.length + soldClients.length}</Badge>
+              <Badge variant="secondary">{prospectClients.length + scheduledClients.length + sellingClients.length + soldClients.length}</Badge>
             </div>
           </CardHeader>
           <CardContent>
@@ -462,7 +467,7 @@ export function PipelineForecast() {
                 );
               })}
 
-              {pipelineClients.length === 0 && soldClients.length === 0 && (
+              {prospectClients.length === 0 && scheduledClients.length === 0 && sellingClients.length === 0 && soldClients.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8">
                   <ListTodo className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No pending tasks</p>

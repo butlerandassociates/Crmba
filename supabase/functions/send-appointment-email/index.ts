@@ -29,19 +29,14 @@ function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boole
   <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
 
     <!-- Header -->
-    <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td style="vertical-align:middle;">
-            <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
-            <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
-          </td>
-          <td style="vertical-align:middle;text-align:right;width:60px;">
-            <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" />
-          </td>
-        </tr>
-      </table>
-    </div>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;">
+      <tr>
+        <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;background:#0A0A0A;" />
+          <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+        </td>
+      </tr>
+    </table>
 
     <!-- Gold rule -->
     <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>

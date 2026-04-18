@@ -263,16 +263,16 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       // ── Table header ──
       const cols = { item: margin, unit: margin + 80, qty: margin + 105, rate: margin + 125, total: margin + 150 };
       pdf.setFillColor(17, 17, 17);
-      pdf.rect(margin, y, contentW, 7, "F");
+      pdf.rect(margin, y, contentW, 9, "F");
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "bold");
-      pdf.text("Scope Item", cols.item + 2, y + 5);
-      pdf.text("Unit", cols.unit, y + 5);
-      pdf.text("Qty", cols.qty, y + 5);
-      pdf.text("Rate", cols.rate + 8, y + 5, { align: "right" });
-      pdf.text("Crew Pay", pageW - margin - 2, y + 5, { align: "right" });
-      y += 7;
+      pdf.text("Scope Item", cols.item + 2, y + 6);
+      pdf.text("Unit", cols.unit, y + 6);
+      pdf.text("Qty", cols.qty, y + 6);
+      pdf.text("Rate", cols.rate + 8, y + 6, { align: "right" });
+      pdf.text("Crew Pay", pageW - margin - 2, y + 6, { align: "right" });
+      y += 9;
 
       // ── Table rows ──
       const items = fio?.items || [];
@@ -285,24 +285,24 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
         if (idx % 2 === 1) {
           pdf.setFillColor(248, 248, 248);
-          pdf.rect(margin, y, contentW, 7, "F");
+          pdf.rect(margin, y, contentW, 9, "F");
         }
         pdf.setDrawColor(220, 220, 220);
-        pdf.line(margin, y + 7, pageW - margin, y + 7);
+        pdf.line(margin, y + 9, pageW - margin, y + 9);
 
         pdf.setTextColor(30, 30, 30);
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8);
         // Truncate long names
         const name = pdf.splitTextToSize(item.product_name || "—", 75)[0];
-        pdf.text(name, cols.item + 2, y + 5);
-        pdf.text(item.unit || "—", cols.unit, y + 5);
-        pdf.text(String(qty), cols.qty, y + 5);
-        pdf.text(rate > 0 ? `$${rate.toFixed(2)}` : "—", cols.rate + 8, y + 5, { align: "right" });
+        pdf.text(name, cols.item + 2, y + 6);
+        pdf.text(item.unit || "—", cols.unit, y + 6);
+        pdf.text(String(qty), cols.qty, y + 6);
+        pdf.text(rate > 0 ? `$${rate.toFixed(2)}` : "—", cols.rate + 8, y + 6, { align: "right" });
         pdf.setFont("helvetica", "bold");
-        pdf.text(`$${total.toFixed(2)}`, pageW - margin - 2, y + 5, { align: "right" });
+        pdf.text(`$${total.toFixed(2)}`, pageW - margin - 2, y + 6, { align: "right" });
         pdf.setFont("helvetica", "normal");
-        y += 7;
+        y += 9;
 
         // Page break guard
         if (y > 250) { pdf.addPage(); y = margin; }
@@ -314,20 +314,20 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       pdf.setFont("helvetica", "bold");
       pdf.setTextColor(201, 168, 76);
       pdf.setFontSize(8);
-      pdf.text("Subtotal", pageW - margin - 30, y + 5);
-      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 2, y + 5, { align: "right" });
-      y += 12;
+      pdf.text("Subtotal", pageW - margin - 30, y + 6);
+      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 2, y + 6, { align: "right" });
+      y += 14;
 
       // ── Total bar ──
       pdf.setFillColor(17, 17, 17);
-      pdf.rect(margin, y, contentW, 10, "F");
+      pdf.rect(margin, y, contentW, 12, "F");
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(9);
       pdf.setTextColor(255, 255, 255);
-      pdf.text("TOTAL CREW PAYOUT", margin + 4, y + 7);
+      pdf.text("TOTAL CREW PAYOUT", margin + 4, y + 8);
       pdf.setTextColor(201, 168, 76);
-      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 4, y + 7, { align: "right" });
-      y += 16;
+      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 4, y + 8, { align: "right" });
+      y += 18;
 
       // ── Notes ──
       if (fio?.notes) {
@@ -765,11 +765,11 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                     <table className="w-full border-collapse text-xs">
                       <thead>
                         <tr className="bg-[#111111] text-white">
-                          <th className="py-2 px-3 text-left font-semibold">Scope Item</th>
-                          <th className="py-2 px-3 text-center font-semibold w-14">Unit</th>
-                          <th className="py-2 px-3 text-center font-semibold w-12">Qty</th>
-                          <th className="py-2 px-3 text-right font-semibold w-20">Rate</th>
-                          <th className="py-2 px-3 text-right font-semibold w-24">Crew Pay</th>
+                          <th className="py-3 px-3 text-left font-semibold">Scope Item</th>
+                          <th className="py-3 px-3 text-center font-semibold w-14">Unit</th>
+                          <th className="py-3 px-3 text-center font-semibold w-12">Qty</th>
+                          <th className="py-3 px-3 text-right font-semibold w-20">Rate</th>
+                          <th className="py-3 px-3 text-right font-semibold w-24">Crew Pay</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -778,26 +778,26 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                           const rate = parseFloat(item.labor_cost_per_unit) || 0;
                           return (
                             <tr key={item.id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                              <td className="py-2 px-3">{item.product_name}</td>
-                              <td className="py-2 px-3 text-center">{item.unit}</td>
-                              <td className="py-2 px-3 text-center">{qty.toLocaleString()}</td>
-                              <td className="py-2 px-3 text-right">{rate > 0 ? formatCurrency(rate) : "—"}</td>
-                              <td className="py-2 px-3 text-right font-semibold">{formatCurrency(qty * rate)}</td>
+                              <td className="py-3 px-3">{item.product_name}</td>
+                              <td className="py-3 px-3 text-center">{item.unit}</td>
+                              <td className="py-3 px-3 text-center">{qty.toLocaleString()}</td>
+                              <td className="py-3 px-3 text-right tabular-nums">{rate > 0 ? formatCurrency(rate) : "—"}</td>
+                              <td className="py-3 px-3 text-right font-semibold tabular-nums">{formatCurrency(qty * rate)}</td>
                             </tr>
                           );
                         })}
                         <tr>
-                          <td colSpan={4} className="py-2 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300">Subtotal</td>
-                          <td className="py-2 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300">{formatCurrency(grandTotal)}</td>
+                          <td colSpan={4} className="py-3 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300">Subtotal</td>
+                          <td className="py-3 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300 tabular-nums">{formatCurrency(grandTotal)}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
 
                   {/* Total bar */}
-                  <div className="flex items-center justify-between bg-[#111111] text-white px-5 py-3">
+                  <div className="flex items-center justify-between bg-[#111111] text-white px-5 py-4">
                     <span className="text-sm font-bold tracking-wide">TOTAL CREW PAYOUT</span>
-                    <span className="text-base font-bold text-[#C9A84C]">{formatCurrency(grandTotal)}</span>
+                    <span className="text-base font-bold text-[#C9A84C] tabular-nums">{formatCurrency(grandTotal)}</span>
                   </div>
 
                   {fio?.notes && (

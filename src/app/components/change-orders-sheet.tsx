@@ -11,6 +11,8 @@ import { activityLogAPI } from "../api/activity-log";
 import { estimatesAPI } from "../api/estimates";
 import { projectPaymentsAPI } from "../api/project-payments";
 import { projectsAPI } from "../api/projects";
+import { productsAPI } from "../utils/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
 import html2canvas from "html2canvas";
@@ -64,6 +66,11 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const [items, setItems] = useState([{ ...EMPTY_ITEM, id: "1" }]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Product catalog state
+  const [dbProducts, setDbProducts] = useState<any[]>([]);
+  const [coCategories, setCoCategories] = useState<any[]>([]);
+  const [pickerState, setPickerState] = useState<Record<string, { categoryId: string }>>({});
+
   // Unsaved changes tracking
   const isDirty = title.trim() !== "" || reason.trim() !== "" || items.some((i) => i.description.trim() !== "");
   const isEditOrCreate = view === "create" || view === "edit";
@@ -99,6 +106,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       setView("list");
       loadCOs();
       loadAcceptedProposal();
+      productsAPI.getAll().then(setDbProducts).catch(() => {});
+      productsAPI.getCategories().then(setCoCategories).catch(() => {});
     }
   }, [open, client?.id]);
 
@@ -118,6 +127,19 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     setTimelineImpact("");
     setItems([{ ...EMPTY_ITEM, id: "1" }]);
     setErrors({});
+    setPickerState({});
+  };
+
+  const applyProduct = (itemId: string, productId: string) => {
+    const product = dbProducts.find((p) => p.id === productId);
+    if (!product) return;
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const unitPrice = Number(product.unit_price) || 0;
+        return { ...item, description: product.name, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
+      })
+    );
   };
 
   // Intercept back navigation when form is dirty
@@ -578,6 +600,48 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                             </Button>
                           )}
                         </div>
+
+                        {/* Product catalog picker */}
+                        {coCategories.length > 0 && (
+                          <div className="grid grid-cols-2 gap-3 bg-blue-50 border border-blue-200 rounded-md p-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-blue-800">Browse by Category</Label>
+                              <select
+                                className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+                                value={pickerState[item.id]?.categoryId || ""}
+                                onChange={(e) =>
+                                  setPickerState((prev) => ({ ...prev, [item.id]: { categoryId: e.target.value } }))
+                                }
+                              >
+                                <option value="">Select category…</option>
+                                {coCategories.map((c: any) => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-blue-800">Select Product</Label>
+                              <select
+                                className="w-full px-3 py-2 border rounded-md text-sm bg-white disabled:opacity-50"
+                                value=""
+                                disabled={!pickerState[item.id]?.categoryId}
+                                onChange={(e) => { if (e.target.value) applyProduct(item.id, e.target.value); }}
+                              >
+                                <option value="">
+                                  {pickerState[item.id]?.categoryId ? "Choose product…" : "Select category first"}
+                                </option>
+                                {dbProducts
+                                  .filter((p: any) => p.category?.id === pickerState[item.id]?.categoryId)
+                                  .map((p: any) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} — {formatCurrency(Number(p.unit_price) || 0)}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Category</Label>
@@ -880,6 +944,48 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                             </Button>
                           )}
                         </div>
+
+                        {/* Product catalog picker */}
+                        {coCategories.length > 0 && (
+                          <div className="grid grid-cols-2 gap-3 bg-blue-50 border border-blue-200 rounded-md p-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-blue-800">Browse by Category</Label>
+                              <select
+                                className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+                                value={pickerState[item.id]?.categoryId || ""}
+                                onChange={(e) =>
+                                  setPickerState((prev) => ({ ...prev, [item.id]: { categoryId: e.target.value } }))
+                                }
+                              >
+                                <option value="">Select category…</option>
+                                {coCategories.map((c: any) => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-blue-800">Select Product</Label>
+                              <select
+                                className="w-full px-3 py-2 border rounded-md text-sm bg-white disabled:opacity-50"
+                                value=""
+                                disabled={!pickerState[item.id]?.categoryId}
+                                onChange={(e) => { if (e.target.value) applyProduct(item.id, e.target.value); }}
+                              >
+                                <option value="">
+                                  {pickerState[item.id]?.categoryId ? "Choose product…" : "Select category first"}
+                                </option>
+                                {dbProducts
+                                  .filter((p: any) => p.category?.id === pickerState[item.id]?.categoryId)
+                                  .map((p: any) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} — {formatCurrency(Number(p.unit_price) || 0)}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Category</Label>

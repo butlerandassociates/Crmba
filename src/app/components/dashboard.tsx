@@ -131,11 +131,11 @@ export function Dashboard() {
 
   const activeClients = clients.filter((c) => c.pipeline_stage?.name?.toLowerCase() !== "completed").length;
   const activeProjects = projects.filter((p) => p.status === "active").length;
-  const completedProjects = projects.filter((p) => p.status === "completed");
-  const totalRevenue = completedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  const totalProfit = completedProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const avgProfitMargin = completedProjects.length > 0
-    ? completedProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / completedProjects.length
+  const revenueProjects = projects.filter((p) => p.status === "active" || p.status === "completed");
+  const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalProfit = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const avgProfitMargin = revenueProjects.length > 0
+    ? revenueProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / revenueProjects.length
     : 0;
 
   // Lead stats
@@ -166,7 +166,7 @@ export function Dashboard() {
       const y = d.getFullYear();
       const m = d.getMonth();
       const monthProjects = projects.filter((p) => {
-        if (p.status !== "completed") return false;
+        if (p.status !== "active" && p.status !== "completed") return false;
         const date = p.start_date ? new Date(p.start_date) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });

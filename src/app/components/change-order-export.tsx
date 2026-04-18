@@ -144,7 +144,7 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
             )}
 
             {items.map((item: any, i: number) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr 1fr", gap: 8, padding: "12px 24px", background: i % 2 === 1 ? B.rowAlt : "#fff", borderBottom: `1px solid ${B.bg}`, alignItems: "center" }}>
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "3fr 1fr 1fr 1fr", gap: 8, padding: "16px 24px", background: i % 2 === 1 ? B.rowAlt : "#fff", borderBottom: `1px solid ${B.bg}`, alignItems: "center" }}>
                 <div>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.description}</p>
                   {item.category && (
@@ -152,31 +152,31 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
                   )}
                 </div>
                 <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, textAlign: "right" as const }}>{item.quantity}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, textAlign: "right" as const }}>{fmt(item.unit_price)}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, textAlign: "right" as const }}>{fmt(item.total)}</p>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(item.unit_price)}</p>
+                <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(item.total)}</p>
               </div>
             ))}
 
             {/* Cost impact + contract totals */}
             <div style={{ borderTop: `2px solid ${B.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "26px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
                 <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>
                   Change Order Total
                 </p>
-                <p style={{ fontFamily: B.cg, fontSize: 26, fontWeight: 400, color: costImpact >= 0 ? B.gold : "#C0392B", margin: 0 }}>
+                <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 400, color: costImpact >= 0 ? B.gold : "#C0392B", margin: 0, fontVariantNumeric: "tabular-nums" }}>
                   {costImpact >= 0 ? "+" : ""}{fmt(costImpact)}
                 </p>
               </div>
 
               {originalTotal != null && newTotal != null && (
                 <>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 24px", background: "#fff" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
                     <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Original Contract Total</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{fmt(originalTotal)}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(originalTotal)}</p>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#F0EDE6" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", background: "#F0EDE6" }}>
                     <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 700, color: B.black, margin: 0 }}>Revised Contract Total</p>
-                    <p style={{ fontFamily: B.cg, fontSize: 22, fontWeight: 400, color: B.gold, margin: 0 }}>{fmt(newTotal)}</p>
+                    <p style={{ fontFamily: B.cg, fontSize: 24, fontWeight: 400, color: B.gold, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(newTotal)}</p>
                   </div>
                 </>
               )}
