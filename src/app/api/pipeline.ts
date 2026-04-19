@@ -64,6 +64,22 @@ export const leadSourcesAPI = {
   },
 
   create: async (name: string) => {
+    const { data: existing } = await supabase
+      .from("lead_sources")
+      .select("id")
+      .eq("name", name)
+      .eq("is_active", false)
+      .maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase
+        .from("lead_sources")
+        .update({ is_active: true })
+        .eq("id", existing.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
     const { data, error } = await supabase
       .from("lead_sources")
       .insert({ name })

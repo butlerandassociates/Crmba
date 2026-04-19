@@ -195,6 +195,23 @@ const tableAPI = (table: string) => ({
     return data ?? [];
   },
   create: async (name: string, sort_order: number) => {
+    // If a soft-deleted entry with the same name exists, reactivate it instead of inserting
+    const { data: existing } = await supabase
+      .from(table)
+      .select("id")
+      .eq("name", name)
+      .eq("is_active", false)
+      .maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase
+        .from(table)
+        .update({ is_active: true, sort_order })
+        .eq("id", existing.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
     const { data, error } = await supabase.from(table).insert({ name, sort_order }).select().single();
     if (error) throw new Error(error.message);
     return data;
@@ -221,6 +238,22 @@ const appointmentTypesAPI = {
     return (data ?? []) as AppointmentType[];
   },
   create: async (name: string, sort_order: number) => {
+    const { data: existing } = await supabase
+      .from("appointment_types")
+      .select("id")
+      .eq("name", name)
+      .eq("is_active", false)
+      .maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase
+        .from("appointment_types")
+        .update({ is_active: true, sort_order })
+        .eq("id", existing.id)
+        .select("id, name, email_subject, email_body")
+        .single();
+      if (error) throw new Error(error.message);
+      return data as AppointmentType;
+    }
     const { data, error } = await supabase
       .from("appointment_types")
       .insert({ name, sort_order })
@@ -1910,13 +1943,9 @@ export function ListManagement() {
           items={appointmentTypes}
           loading={loadingApts}
           onAdd={async (name, subject, body) => {
-            const { data, error } = await supabase
-              .from("appointment_types")
-              .insert({ name, email_subject: subject, email_body: body, sort_order: appointmentTypes.length })
-              .select("id, name, email_subject, email_body")
-              .single();
-            if (error) throw new Error(error.message);
-            setAppointmentTypes((prev) => [...prev, data]);
+            const data = await appointmentTypesAPI.create(name, appointmentTypes.length);
+            const updated = await appointmentTypesAPI.update(data.id, { email_subject: subject, email_body: body });
+            setAppointmentTypes((prev) => [...prev, updated]);
           }}
           onUpdate={async (id, fields) => {
             const updated = await appointmentTypesAPI.update(id, fields);

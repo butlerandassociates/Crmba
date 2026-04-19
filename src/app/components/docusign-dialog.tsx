@@ -181,6 +181,19 @@ export function DocuSignDialog({
     const templateToUse = manualTemplateId || selectedTemplate;
     if (!templateToUse) return;
 
+    // Validate required client fields before sending
+    const missingFields = [];
+    if (!client.email) missingFields.push("Email");
+    if (!client.address) missingFields.push("Address");
+    if (!client.city) missingFields.push("City");
+    if (!client.state) missingFields.push("State");
+    if (!client.zip) missingFields.push("ZIP");
+    if (missingFields.length > 0) {
+      setErrorMessage(`Cannot send — client is missing: ${missingFields.join(", ")}. Update the client's Contact Info first.`);
+      setStatus("error");
+      return;
+    }
+
     setLoading(true);
     setStatus("sending");
     setErrorMessage("");
