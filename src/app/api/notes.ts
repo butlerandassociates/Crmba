@@ -10,7 +10,7 @@ export const notesAPI = {
   getByClient: async (client_id: string) => {
     const { data, error } = await supabase
       .from("client_notes")
-      .select(`*, profile:profiles(first_name, last_name)`)
+      .select("*")
       .eq("client_id", client_id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);

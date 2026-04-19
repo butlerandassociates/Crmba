@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams } from "react-router";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect } from "react";
@@ -105,7 +105,6 @@ import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
 import { AppointmentDialog } from "./appointment-dialog";
 import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
-import { ChangeOrdersSheet } from "./change-orders-sheet";
 import { CostAttributionsSheet } from "./cost-attributions-sheet";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
 import { Progress } from "./ui/progress";
@@ -116,6 +115,7 @@ import { Skeleton } from "./ui/skeleton";
 export function ClientDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { can } = usePermissions();
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -235,6 +235,7 @@ export function ClientDetail() {
     "product-manager"
   );
 
+
   useEffect(() => {
     if (searchParams.get("payments") === "open") setPaymentTrackingOpen(true);
   }, [searchParams]);
@@ -265,7 +266,6 @@ export function ClientDetail() {
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
-  const [changeOrdersOpen, setChangeOrdersOpen] = useState(false);
   const [fioOpen, setFioOpen] = useState(false);
   const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -276,6 +276,9 @@ export function ClientDetail() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [noteEntries, setNoteEntries] = useState<any[]>([]);
   const [notesPage, setNotesPage] = useState(1);
+  const [selectedNote, setSelectedNote] = useState<any | null>(null);
+  const [editingNoteContent, setEditingNoteContent] = useState("");
+  const [savingNoteEdit, setSavingNoteEdit] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
   const [activityPage, setActivityPage] = useState(1);
@@ -335,6 +338,8 @@ export function ClientDetail() {
       console.error("Failed to load notes:", error);
     }
   };
+
+  useRealtimeRefetch(loadNotes, ["client_notes"], `notes-${id}`);
 
   const refreshDocusignStatus = async () => {
     if (!client?.docusign_envelope_id) return;
@@ -1859,17 +1864,16 @@ export function ClientDetail() {
         </Card>
       ))}
 
-      {/* ── Project Actions ── */}
-      {clientProjects.length > 0 && (() => {
-        const isSold = ["sold", "active", "completed"].includes(client.status);
+      {/* ── Project Actions — only visible for Sold / Active / Completed ── */}
+      {clientProjects.length > 0 && ["sold", "active", "completed"].includes(client.status) && (() => {
         const tileClass = "flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left";
         return (
-          <div className={`grid grid-cols-2 gap-3 ${isSold ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <button onClick={() => setPurchaseOrdersOpen(true)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
               <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">Order materials</p></div>
             </button>
-            <button onClick={() => setChangeOrdersOpen(true)} className={tileClass}>
+            <button onClick={() => navigate(`/clients/${id}/change-order`)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
               <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">Scope changes</p></div>
             </button>
@@ -1881,12 +1885,10 @@ export function ClientDetail() {
               <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
               <div><p className="font-semibold text-sm">Cost Attributions</p><p className="text-xs text-muted-foreground">Receipts &amp; actuals</p></div>
             </button>
-            {isSold && (
-              <button onClick={() => setPaymentTrackingOpen(true)} className={tileClass}>
-                <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
-                <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
-              </button>
-            )}
+            <button onClick={() => setPaymentTrackingOpen(true)} className={tileClass}>
+              <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
+              <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
+            </button>
           </div>
         );
       })()}
@@ -1975,14 +1977,17 @@ export function ClientDetail() {
                   {feedItems.map((item) => {
                     const ts = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
                     if (item._type === "note") return (
-                      <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0">
-                        <StickyNote className="h-3.5 w-3.5 shrink-0 mt-1 text-amber-500" />
+                      <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 transition-colors" onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
+                        <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm whitespace-pre-wrap">{item.content}</p>
+                          <p className="text-sm truncate">{item.content.split("\n")[0]}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {item.profile ? `${item.profile.first_name} ${item.profile.last_name}` : "Team"} · {ts}
+                            {item.is_system_generated ? "System" : "Team"} · {ts}
                           </p>
                         </div>
+                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={async (e) => { e.stopPropagation(); await notesAPI.delete(item.id); loadNotes(); }}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     );
                     const isImage = item.mime_type?.startsWith("image/");
@@ -2330,6 +2335,51 @@ export function ClientDetail() {
         client={client}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
+
+      {/* ── Note Detail Sheet ── */}
+      <Sheet open={!!selectedNote} onOpenChange={(o) => { if (!o) setSelectedNote(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+          <SheetHeader className="px-6 py-4 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <StickyNote className="h-4 w-4 text-amber-500" />
+              Note
+              {selectedNote?.is_system_generated && (
+                <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded">System</span>
+              )}
+            </SheetTitle>
+            <p className="text-xs text-muted-foreground">
+              {selectedNote && new Date(selectedNote.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+            </p>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+            <Textarea
+              className="flex-1 min-h-[200px] text-sm resize-none"
+              value={editingNoteContent}
+              onChange={(e) => setEditingNoteContent(e.target.value)}
+              placeholder="Note content…"
+            />
+          </div>
+
+          <div className="px-6 py-4 border-t flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedNote(null)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={savingNoteEdit || !editingNoteContent.trim()}
+              onClick={async () => {
+                if (!selectedNote || !editingNoteContent.trim()) return;
+                setSavingNoteEdit(true);
+                await supabase.from("client_notes").update({ content: editingNoteContent.trim() }).eq("id", selectedNote.id);
+                setSavingNoteEdit(false);
+                setSelectedNote(null);
+                loadNotes();
+              }}
+            >
+              {savingNoteEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Appointment History Sheet ── */}
       <Sheet open={appointmentHistoryOpen} onOpenChange={setAppointmentHistoryOpen}>
@@ -3231,14 +3281,6 @@ export function ClientDetail() {
         onSave={loadActivityLog}
       />
 
-      {/* Change Orders Sheet */}
-      <ChangeOrdersSheet
-        open={changeOrdersOpen}
-        onOpenChange={setChangeOrdersOpen}
-        client={client}
-        project={clientProjects[0] ?? null}
-        onSave={loadActivityLog}
-      />
 
       {/* FIO Modal */}
       <FieldInstallationOrderModal

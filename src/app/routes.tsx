@@ -17,6 +17,7 @@ import { EstimateTemplateSelector } from "./components/estimate-template-selecto
 import { EstimateBuilder } from "./components/estimate-builder";
 import { EstimateTemplateManager } from "./components/admin/estimate-template-manager";
 import { ProposalBuilder } from "./components/proposal-builder";
+import { ChangeOrderBuilder } from "./components/change-order-builder";
 import { Settings } from "./components/settings";
 import { DocuSignCallback } from "./components/docusign-callback";
 import { PublicProposal } from "./components/public-proposal";
@@ -57,6 +58,8 @@ export const router = createBrowserRouter([
       { path: "clients",                              Component: ClientsList },
       { path: "clients/:id",                          Component: ClientDetail },
       { path: "clients/:clientId/create-proposal",    Component: ProposalBuilder },
+      { path: "clients/:clientId/change-order",        Component: ChangeOrderBuilder },
+      { path: "clients/:clientId/change-order/:coId",  Component: ChangeOrderBuilder },
       { path: "clients/:clientId/estimate/:templateId", Component: EstimateBuilder },
       { path: "projects",                             Component: Projects },
       { path: "projects/:id",                         Component: ProjectDetail },
