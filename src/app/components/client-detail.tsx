@@ -77,7 +77,7 @@ import {
 } from "./ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
@@ -667,6 +667,11 @@ export function ClientDetail() {
       const laborActual = receipts.filter((r: any) => r.category === "labor")
         .reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
+      // FIO assigned labor (crew payout scheduled in FIO)
+      const fio = await fioAPI.getByProject(projectId).catch(() => null);
+      const fioAssigned = (fio?.items ?? []).reduce((s: number, item: any) =>
+        s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0);
+
       setGpHealthData((prev) => ({
         ...prev,
         [projectId]: {
@@ -674,6 +679,7 @@ export function ClientDetail() {
           laborBudget: effectiveLaborBudget,
           materialActual,
           laborActual,
+          fioAssigned,
           receipts,
           isFallbackBudget: lineItemCostTotal === 0 && estimateTotalCost > 0,
         },
@@ -1832,6 +1838,11 @@ export function ClientDetail() {
                       <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.laborBudget)}</span></span>
                       <span>Actual: <span className={`font-semibold ${health(d.laborActual, d.laborBudget)}`}>{formatCurrency(d.laborActual)}</span></span>
                     </div>
+                    {(d.fioAssigned ?? 0) > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        Assigned (FIO): <span className="font-medium text-foreground">{formatCurrency(d.fioAssigned)}</span>
+                      </div>
+                    )}
                     {d.laborBudget > 0 && (
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                         <div
