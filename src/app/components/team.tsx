@@ -36,7 +36,7 @@ export function Team() {
 
   // Edit modal
   const [editMember, setEditMember] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "", insurance_expiration_date: "" });
+  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "", insurance_expiration_date: "", commission_rate: "" });
   const [editTouched, setEditTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -64,7 +64,7 @@ export function Team() {
 
   const openEdit = (member: any) => {
     setEditMember(member);
-    setEditForm({ first_name: member.first_name ?? "", last_name: member.last_name ?? "", phone: member.phone ?? "", insurance_expiration_date: member.insurance_expiration_date ?? "" });
+    setEditForm({ first_name: member.first_name ?? "", last_name: member.last_name ?? "", phone: member.phone ?? "", insurance_expiration_date: member.insurance_expiration_date ?? "", commission_rate: member.commission_rate != null ? String(member.commission_rate) : "" });
     setEditTouched(false);
   };
 
@@ -78,7 +78,11 @@ export function Team() {
     if (!editMember) return;
     setSaving(true);
     try {
-      await usersAPI.update(editMember.id, editForm);
+      const payload: Record<string, unknown> = { ...editForm };
+      if (editMember.role === "project_manager") {
+        payload.commission_rate = editForm.commission_rate !== "" ? parseFloat(editForm.commission_rate) : null;
+      }
+      await usersAPI.update(editMember.id, payload);
       toast.success("Team member updated.");
       setEditMember(null);
       setEditTouched(false);
@@ -231,6 +235,11 @@ export function Team() {
                               <FolderKanban className="h-4 w-4" />
                               <span>{member.activeProjects ?? 0} active projects</span>
                             </div>
+                            {member.role === "project_manager" && member.commission_rate != null && (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <span className="text-xs">Commission: {member.commission_rate}%</span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="pt-4 border-t flex gap-2">
@@ -296,6 +305,21 @@ export function Team() {
                     onChange={(e) => setEditForm({ ...editForm, insurance_expiration_date: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">You will receive a bell notification 30 days before expiration.</p>
+                </div>
+              )}
+              {editMember?.role === "project_manager" && (
+                <div className="grid gap-2">
+                  <Label>Commission Rate (%)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="e.g. 3"
+                    value={editForm.commission_rate}
+                    onChange={(e) => setEditForm({ ...editForm, commission_rate: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Percentage of project subtotal awarded as commission.</p>
                 </div>
               )}
             </div>

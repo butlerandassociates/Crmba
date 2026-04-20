@@ -242,7 +242,11 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         const resp = await fetch("https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png");
         const blob = await resp.blob();
         const b64: string = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.readAsDataURL(blob); });
-        const logoW = 22;
+        const imgEl = new Image();
+        imgEl.src = b64;
+        await new Promise<void>((res) => { imgEl.onload = () => res(); imgEl.onerror = () => res(); });
+        const aspectRatio = imgEl.naturalWidth && imgEl.naturalHeight ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
+        const logoW = logoH * aspectRatio;
         pdf.addImage(b64, "PNG", (pageW - logoW) / 2, 4, logoW, logoH);
       } catch { /* logo unavailable — skip */ }
       pdf.setTextColor(187, 152, 77);
@@ -253,6 +257,9 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       pdf.setLineWidth(0.8);
       pdf.line(0, headerH, pageW, headerH);
       y = headerH + 6;
+
+      const fmtCurrency = (v: number) =>
+        new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v);
 
       // ── Project / date row ──
       pdf.setFontSize(9);
@@ -267,7 +274,42 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       y += 2;
       pdf.setDrawColor(200, 200, 200);
       pdf.line(margin, y, pageW - margin, y);
-      y += 6;
+      y += 5;
+
+      // ── Job details block ──
+      const client = project?.client ?? {};
+      const addressParts = [client.address, client.city, client.state, client.zip_code].filter(Boolean);
+      const addressLine = addressParts.join(", ") || null;
+      const pmName = project?.project_manager
+        ? `${project.project_manager.first_name ?? ""} ${project.project_manager.last_name ?? ""}`.trim()
+        : null;
+      const fmtDate = (d: string | null | undefined) =>
+        d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
+      const startFmt = fmtDate(project?.start_date);
+      const endFmt   = fmtDate(project?.end_date);
+      const scheduleLine = startFmt && endFmt ? `${startFmt} – ${endFmt}` : startFmt ?? null;
+
+      const detailRows: [string, string][] = [];
+      if (addressLine)  detailRows.push(["Job Address", addressLine]);
+      if (scheduleLine) detailRows.push(["Schedule", scheduleLine]);
+      if (pmName)       detailRows.push(["Project Manager", pmName]);
+
+      if (detailRows.length > 0) {
+        pdf.setFontSize(8);
+        detailRows.forEach(([label, value]) => {
+          pdf.setFont("helvetica", "bold");
+          pdf.setTextColor(80, 80, 80);
+          pdf.text(`${label}:`, margin, y);
+          pdf.setFont("helvetica", "normal");
+          pdf.setTextColor(30, 30, 30);
+          pdf.text(value, margin + 30, y);
+          y += 5;
+        });
+        y += 2;
+        pdf.setDrawColor(220, 220, 220);
+        pdf.line(margin, y, pageW - margin, y);
+        y += 5;
+      }
 
       // ── Section heading ──
       pdf.setFont("helvetica", "bold");
@@ -313,10 +355,10 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         const name = pdf.splitTextToSize(item.product_name || "—", 75)[0];
         pdf.text(name, cols.item + 2, y + 6);
         pdf.text(item.unit || "—", cols.unit, y + 6);
-        pdf.text(String(qty), cols.qty, y + 6);
-        pdf.text(rate > 0 ? `$${rate.toFixed(2)}` : "—", cols.rate + 8, y + 6, { align: "right" });
+        pdf.text(qty.toLocaleString("en-US"), cols.qty, y + 6);
+        pdf.text(rate > 0 ? fmtCurrency(rate) : "—", cols.rate + 8, y + 6, { align: "right" });
         pdf.setFont("helvetica", "bold");
-        pdf.text(`$${total.toFixed(2)}`, pageW - margin - 2, y + 6, { align: "right" });
+        pdf.text(fmtCurrency(total), pageW - margin - 2, y + 6, { align: "right" });
         pdf.setFont("helvetica", "normal");
         y += 9;
 
@@ -331,7 +373,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       pdf.setTextColor(201, 168, 76);
       pdf.setFontSize(8);
       pdf.text("Subtotal", pageW - margin - 30, y + 6);
-      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 2, y + 6, { align: "right" });
+      pdf.text(fmtCurrency(grandTotal), pageW - margin - 2, y + 6, { align: "right" });
       y += 14;
 
       // ── Total bar ──
@@ -342,7 +384,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       pdf.setTextColor(255, 255, 255);
       pdf.text("TOTAL CREW PAYOUT", margin + 4, y + 8);
       pdf.setTextColor(201, 168, 76);
-      pdf.text(`$${grandTotal.toFixed(2)}`, pageW - margin - 4, y + 8, { align: "right" });
+      pdf.text(fmtCurrency(grandTotal), pageW - margin - 4, y + 8, { align: "right" });
       y += 18;
 
       // ── Notes ──
@@ -361,7 +403,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       // ── Signatures — always pinned to bottom of page ──
       const pageH = pdf.internal.pageSize.getHeight();
       const midX = pageW / 2;
-      const sigY = pageH - 32; // pinned 32mm from bottom
+      const sigY = pageH - 46; // enough room for labels + signature lines + footer below
 
       pdf.setDrawColor(180, 180, 180);
       pdf.line(margin, sigY, pageW - margin, sigY);

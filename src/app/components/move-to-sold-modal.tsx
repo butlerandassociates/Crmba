@@ -156,15 +156,22 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         const { data: lineItems } = await supabase
           .from("estimate_line_items").select("material_cost, labor_cost, quantity")
           .eq("estimate_id", estimates[0].id);
-        const totalValue = Number(estimates[0].total || estimates[0].subtotal || 0);
+        const subtotalVal = Number(estimates[0].subtotal || 0);
+        const totalValue = Number(estimates[0].total || subtotalVal);
         const totalCosts = (lineItems || []).reduce(
           (s: number, item: any) =>
             s + (Number(item.material_cost || 0) + Number(item.labor_cost || 0)) * Number(item.quantity || 1), 0
         );
         const grossProfit = totalValue - totalCosts;
         const profitMargin = totalValue > 0 ? (grossProfit / totalValue) * 100 : 0;
-        const commissionRate = 10;
-        financials = { total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin, commission: totalValue * (commissionRate / 100), commission_rate: commissionRate };
+        // Look up PM's commission_rate from profiles
+        let commissionRate = 0;
+        if (selectedPM) {
+          const { data: pmProfile } = await supabase.from("profiles").select("commission_rate").eq("id", selectedPM).maybeSingle();
+          commissionRate = Number(pmProfile?.commission_rate ?? 0);
+        }
+        const commissionBase = subtotalVal || totalValue;
+        financials = { total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin, commission: commissionBase * (commissionRate / 100), commission_rate: commissionRate };
       }
 
       // 3. Create or update project — check for existing to prevent duplicates
