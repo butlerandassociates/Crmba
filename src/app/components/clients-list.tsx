@@ -6,7 +6,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X } from "lucide-react";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -58,6 +58,184 @@ export function ClientsList() {
   // Bulk merge dialog
   const [bulkMergeOpen, setBulkMergeOpen] = useState(false);
   const [mergePrimaryId, setMergePrimaryId] = useState("");
+
+  // Import dialog
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [importDone, setImportDone] = useState<{ created: number; skipped: number } | null>(null);
+
+  const SERVICE_MAP: Record<string, string> = {
+    "pavers": "Pavers", "concrete": "Concrete (Driveway, Walkway, Patio)",
+    "outdoor kitchen": "Outdoor Kitchen", "fire feature": "Fire Pit/Fireplace",
+    "retaining wall": "Retaining Wall", "pergola / pavilion": "Pergola/Pavilion",
+    "pergola/pavilion": "Pergola/Pavilion", "landscaping": "Landscaping",
+    "drainage": "Drainage", "lighting": "Outdoor Lighting",
+    "artificial grass": "Artificial Grass", "turf": "Artificial Grass",
+    "design": "Design Services",
+  };
+  const normalizeService = (s: string) => SERVICE_MAP[s.toLowerCase().trim()] ?? s.trim();
+
+  const SKIP_FORMS = ["concrete promotion", "20% off", "promo", "careers", "career", "5% off"];
+  const isSkippableForm = (formName: string) =>
+    SKIP_FORMS.some((k) => formName.toLowerCase().includes(k));
+
+  const parseFormspreeFile = (json: any): any[] => {
+    const submissions: any[] = json.submissions ?? (Array.isArray(json) ? json : [json]);
+    return submissions.map((f: any) => {
+      const sourceForm: string = f.source_form ?? f.form_name ?? f.page_title ?? f.page ?? f._subject ?? "Unknown Form";
+      if (isSkippableForm(sourceForm)) return { skip: true, skipReason: "Promo/careers form", sourceForm };
+
+      // Referral forms: new lead = referralName/referralPhone, submitter = clientName/Submitted By
+      const isReferral = !!(f.referralName ?? f["Referral Name"]);
+      let firstName: string, lastName: string, phone: string;
+      if (isReferral) {
+        const refName = (f.referralName ?? f["Referral Name"] ?? "").trim();
+        const parts = refName.split(/\s+/);
+        firstName = parts[0] ?? "Unknown";
+        lastName  = parts.slice(1).join(" ") ?? "";
+        phone     = f.referralPhone ?? f["Referral Phone"] ?? f.phone ?? f.phone_number ?? "";
+      } else {
+        const rawName = f.name ?? f.full_name ?? f["Full Name"] ?? f["Submitted By"] ?? "";
+        const nameParts = rawName.trim().split(/\s+/);
+        firstName = f.first_name ?? f.firstName ?? nameParts[0] ?? "";
+        lastName  = f.last_name  ?? f.lastName  ?? nameParts.slice(1).join(" ") ?? "";
+        phone     = f.phone ?? f.phone_number ?? "";
+      }
+
+      const email  = f.email ?? f._replyto ?? "";
+      const zip    = f.zip ?? f.zip_code ?? "";
+      const city   = f.city ?? "";
+      const address = f.address ?? "";
+
+      if (!firstName && !email && !phone) return { skip: true, skipReason: "No contact data", sourceForm };
+
+      const multiRaw: string | string[] = f["services[]"] ?? f.services ?? f.interest ?? f.service ?? f.primary_service ?? f.calc_type ?? "";
+      const singleRaw: string = f.project_type ?? f.calc_project_type ?? "";
+      const services: string[] = multiRaw
+        ? (Array.isArray(multiRaw)
+            ? multiRaw.filter(Boolean)
+            : multiRaw.split(",").map((s: string) => s.trim()).filter(Boolean)
+          ).map(normalizeService)
+        : singleRaw ? [normalizeService(singleRaw)] : [];
+
+      return {
+        skip: false, sourceForm, isReferral,
+        firstName: firstName || "Unknown", lastName,
+        email: email || null, phone: phone || null,
+        zip: zip || null, city: city || null, address: address || null,
+        services,
+        budget:         f.budget ?? f.budget_range ?? f.estimated_range_primary ?? "",
+        projectDetails: f.details ?? f.message ?? f.notes ?? f["Notes (Public)"] ?? f.project_details ?? "",
+        timeline:       f.timeline ?? f.ideal_start_date ?? f.desired_start_date ?? "",
+        squareFootage:  f.square_footage ?? f.estimated_sqft ?? f.calc_sqft ?? "",
+        primaryUse:     f.primary_use ?? "",
+        turfTier:       f.turf_tier ?? f.selected_tier ?? "",
+        selectedRate:   f.selected_rate ?? "",
+        estimateRange:  f.estimate_range ?? f.budget_range ?? "",
+        estimateTotal:  f.estimate_total ?? f.calc_estimate ?? f.calc_est_range ?? f.estimated_range_primary ?? "",
+        projectType:    f.project_type ?? f.calc_type ?? f.calc_project_type ?? "",
+        calcFinish:     f.calc_finish ?? "",
+        calcThickness:  f.calc_thickness_in ?? "",
+        selections:     f.selections ?? "",
+        verdict:        f.verdict ?? "",
+        optionsSummary: f.options_summary ?? "",
+        referrerName:   isReferral ? (f.clientName ?? f["Submitted By"] ?? "") : "",
+        referrerPhone:  isReferral ? (f.referralPhone ?? f["Referral Phone"] ?? "") : "",
+        submittedBy:    isReferral ? (f["Submitted By"] ?? f.clientName ?? "") : "",
+      };
+    });
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target?.result as string);
+        setImportRows(parseFormspreeFile(json));
+        setImportDone(null);
+      } catch {
+        toast.error("Invalid JSON file");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = async () => {
+    const toImport = importRows.filter((r) => !r.skip);
+    if (!toImport.length) return;
+    setImporting(true);
+
+    const websiteSource  = leadSources.find((s) => s.name === "Website");
+    const referralSource = leadSources.find((s) => s.name === "Referral");
+    const firstStage = pipelineStages.slice().sort((a, b) => a.order_index - b.order_index)[0];
+
+    // Fetch live scope_of_work names from DB for matching
+    const { data: scopeRows } = await supabase.from("scope_of_work").select("name").eq("is_active", true);
+    const scopeNames: string[] = (scopeRows ?? []).map((r: any) => r.name);
+    const matchScope = (raw: string): string => {
+      const lower = raw.toLowerCase().trim();
+      return scopeNames.find((n) => n.toLowerCase() === lower) ?? raw;
+    };
+
+    let created = 0;
+    for (const row of toImport) {
+      const matchedServices = (row.services ?? []).map(matchScope);
+      try {
+        const { data: client, error: clientErr } = await supabase.from("clients").insert({
+          first_name: row.firstName, last_name: row.lastName,
+          email: row.email, phone: row.phone,
+          zip: row.zip, city: row.city, address: row.address,
+          lead_source_id: (row.isReferral ? referralSource?.id : websiteSource?.id) ?? null,
+          pipeline_stage_id: firstStage?.id ?? null,
+          status: "prospect",
+          scope_of_work: matchedServices,
+        }).select("id").single();
+        if (clientErr || !client) continue;
+
+        const noteParts: string[] = [];
+        if (row.projectDetails) noteParts.push(`Project details: ${row.projectDetails}`);
+        if (row.budget)         noteParts.push(`Budget: ${row.budget}`);
+        if (row.timeline)       noteParts.push(`Timeline: ${row.timeline}`);
+        if (matchedServices.length) noteParts.push(`Services: ${matchedServices.join(", ")}`);
+        if (row.squareFootage)  noteParts.push(`Square footage: ${row.squareFootage}`);
+        if (row.primaryUse)     noteParts.push(`Primary use: ${row.primaryUse}`);
+        if (row.turfTier)       noteParts.push(`Tier selected: ${row.turfTier}`);
+        if (row.selectedRate)   noteParts.push(`Rate per sqft: ${row.selectedRate}`);
+        if (row.estimateTotal)  noteParts.push(`Estimate total: ${row.estimateTotal}`);
+        if (row.estimateRange)  noteParts.push(`Estimate range: ${row.estimateRange}`);
+        if (row.projectType)    noteParts.push(`Project type: ${row.projectType}`);
+        if (row.calcFinish)     noteParts.push(`Concrete finish: ${row.calcFinish}`);
+        if (row.calcThickness)  noteParts.push(`Thickness: ${row.calcThickness}"`);
+        if (row.selections)     noteParts.push(`Selections: ${row.selections}`);
+        if (row.verdict)        noteParts.push(`Recommendation: ${row.verdict}`);
+        if (row.optionsSummary) noteParts.push(`Options summary: ${row.optionsSummary}`);
+        if (row.referrerName)   noteParts.push(`Referred by: ${row.referrerName}`);
+        if (row.referrerPhone)  noteParts.push(`Referrer phone: ${row.referrerPhone}`);
+        if (row.submittedBy && row.submittedBy !== row.referrerName) noteParts.push(`Form submitted by: ${row.submittedBy}`);
+
+        if (noteParts.length) {
+          await supabase.from("client_notes").insert({
+            client_id: client.id, content: noteParts.join("\n"),
+            is_system_generated: true, action_type: "lead_received",
+          });
+        }
+        await supabase.from("activity_log").insert({
+          client_id: client.id, action_type: "lead_received",
+          description: `Lead imported from ${row.sourceForm}${row.services?.length ? ` — ${row.services.join(", ")}` : ""}`,
+        });
+        created++;
+      } catch { /* skip failed row */ }
+    }
+
+    const skipped = importRows.filter((r) => r.skip).length;
+    setImportDone({ created, skipped });
+    setImporting(false);
+    fetchClients();
+  };
 
   const EMPTY_CLIENT = {
     first_name: "", last_name: "",
@@ -357,10 +535,17 @@ export function ClientsList() {
   const clientProjectTotal = (client: any) =>
     (client.project_total ?? 0) > 0 ? (client.project_total ?? 0) : (client.proposal_forecast ?? 0);
 
+  const PAGE_SIZE = 15;
+
   const ClientTable = ({ list }: { list: any[] }) => {
+    const [page, setPage] = useState(0);
     const visible = filterClients(list);
-    const allSelected = visible.length > 0 && visible.every((c) => selectedIds.has(c.id));
-    const someSelected = visible.some((c) => selectedIds.has(c.id));
+    const totalPages = Math.ceil(visible.length / PAGE_SIZE);
+    const paged = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    const allSelected = paged.length > 0 && paged.every((c) => selectedIds.has(c.id));
+    const someSelected = paged.some((c) => selectedIds.has(c.id));
+
+    useEffect(() => { setPage(0); }, [visible.length]);
 
     return (
       <Card>
@@ -372,7 +557,7 @@ export function ClientsList() {
                   <th className="p-3 w-10">
                     <Checkbox
                       checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                      onCheckedChange={() => toggleSelectAll(list)}
+                      onCheckedChange={() => toggleSelectAll(paged)}
                       aria-label="Select all"
                     />
                   </th>
@@ -386,7 +571,7 @@ export function ClientsList() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {visible.map((client) => (
+                {paged.map((client) => (
                   <tr key={client.id} className={`hover:bg-accent/50 transition-colors ${selectedIds.has(client.id) ? "bg-primary/5" : ""}`}>
                     <td className="p-3">
                       <Checkbox
@@ -478,6 +663,19 @@ export function ClientsList() {
               </tbody>
             </table>
           </div>
+          {visible.length > PAGE_SIZE && (
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
+              <span className="text-xs text-muted-foreground">
+                Page {page + 1} of {totalPages} &nbsp;·&nbsp; {visible.length} clients
+              </span>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPage((p) => p - 1)} disabled={page === 0}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
           {visible.length === 0 && (
             <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
               <Users className="h-10 w-10 mb-3 opacity-20" />
@@ -499,10 +697,16 @@ export function ClientsList() {
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage your client relationships</p>
         </div>
-        <Button onClick={() => setAddDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Client
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => { setImportOpen(true); setImportRows([]); setImportDone(null); }}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
+          <Button onClick={() => setAddDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Client
+          </Button>
+        </div>
       </div>
 
       {/* Bulk action toolbar */}
@@ -679,6 +883,96 @@ export function ClientsList() {
             <Button disabled={!mergePrimaryId || bulkActioning} onClick={handleBulkMerge}>
               {bulkActioning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Merge"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Import Dialog ── */}
+      <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) { setImportRows([]); setImportDone(null); } }}>
+        <DialogContent className="sm:max-w-[680px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Import Leads from Formspree
+            </DialogTitle>
+            <DialogDescription>
+              Upload a Formspree JSON export file. All valid submissions will be imported as prospects.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2 space-y-4">
+            {!importDone && (
+              <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/40 transition-colors">
+                <Upload className="h-6 w-6 text-muted-foreground mb-2" />
+                <span className="text-sm text-muted-foreground">Click to select a Formspree JSON export file</span>
+                <input type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+              </label>
+            )}
+
+            {importDone && (
+              <div className="flex flex-col items-center justify-center py-6 gap-2">
+                <CheckCircle2 className="h-10 w-10 text-green-500" />
+                <p className="text-lg font-semibold">{importDone.created} client{importDone.created !== 1 ? "s" : ""} imported</p>
+                {importDone.skipped > 0 && (
+                  <p className="text-sm text-muted-foreground">{importDone.skipped} skipped (promo/careers forms or no contact data)</p>
+                )}
+              </div>
+            )}
+
+            {!importDone && importRows.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{importRows.filter(r => !r.skip).length} to import · {importRows.filter(r => r.skip).length} skipped</span>
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-lg border text-sm [scrollbar-width:thin]">
+                  <table className="w-full">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2 text-xs font-medium text-muted-foreground">Name</th>
+                        <th className="text-left p-2 text-xs font-medium text-muted-foreground">Contact</th>
+                        <th className="text-left p-2 text-xs font-medium text-muted-foreground">Form</th>
+                        <th className="text-left p-2 text-xs font-medium text-muted-foreground">Services</th>
+                        <th className="text-left p-2 text-xs font-medium text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {importRows.map((row, i) => (
+                        <tr key={i} className={row.skip ? "opacity-40" : ""}>
+                          <td className="p-2">{row.skip ? "—" : `${row.firstName} ${row.lastName}`.trim()}</td>
+                          <td className="p-2 text-xs text-muted-foreground">
+                            {row.skip ? "—" : (row.email || row.phone || "—")}
+                          </td>
+                          <td className="p-2 text-xs text-muted-foreground max-w-[140px] truncate">{row.sourceForm}</td>
+                          <td className="p-2 text-xs text-muted-foreground">{row.skip ? "—" : (row.services?.join(", ") || "—")}</td>
+                          <td className="p-2">
+                            {row.skip
+                              ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><AlertCircle className="h-3 w-3" /> {row.skipReason}</span>
+                              : <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="h-3 w-3" /> Import</span>
+                            }
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            {importDone ? (
+              <Button onClick={() => { setImportOpen(false); setImportRows([]); setImportDone(null); }}>Done</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+                <Button
+                  disabled={importRows.filter(r => !r.skip).length === 0 || importing}
+                  onClick={handleConfirmImport}
+                >
+                  {importing
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importing...</>
+                    : `Import ${importRows.filter(r => !r.skip).length} Records`}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

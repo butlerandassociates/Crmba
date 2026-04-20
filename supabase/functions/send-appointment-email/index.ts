@@ -78,13 +78,102 @@ function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boole
 </html>`;
 }
 
+async function getAccessToken(refreshToken: string): Promise<string> {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id:     Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID")!,
+      client_secret: Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET")!,
+      grant_type:    "refresh_token",
+    }),
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Failed to refresh Google access token");
+  return data.access_token;
+}
+
+async function createCalendarEvent(
+  supabaseClient: ReturnType<typeof createClient>,
+  params: {
+    title: string;
+    startDateTime: string;
+    endDateTime: string;
+    timeZone: string;
+    location?: string;
+    description?: string;
+    attendeeEmail?: string;
+    attendeeName?: string;
+    ccEmails?: string[];
+  }
+): Promise<{ id?: string; htmlLink?: string; hangoutLink?: string } | null> {
+  try {
+    const { data: settings } = await supabaseClient
+      .from("company_settings")
+      .select("google_calendar_refresh_token")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!settings?.google_calendar_refresh_token) return null;
+
+    const accessToken = await getAccessToken(settings.google_calendar_refresh_token);
+
+    const attendees: { email: string; displayName?: string }[] = [];
+    if (params.attendeeEmail) attendees.push({ email: params.attendeeEmail, displayName: params.attendeeName });
+    (params.ccEmails ?? []).forEach((email) => attendees.push({ email }));
+
+    const eventBody = {
+      summary:  params.title,
+      location: params.location,
+      description: params.description,
+      start: { dateTime: params.startDateTime, timeZone: params.timeZone },
+      end:   { dateTime: params.endDateTime,   timeZone: params.timeZone },
+      attendees,
+      conferenceData: {
+        createRequest: {
+          requestId: `crm-${Date.now()}`,
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: "email", minutes: 24 * 60 },
+          { method: "popup", minutes: 60 },
+        ],
+      },
+      guestsCanSeeOtherGuests: true,
+    };
+
+    const res = await fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(eventBody),
+      }
+    );
+
+    if (!res.ok) return null;
+    const event = await res.json();
+    return { id: event.id, htmlLink: event.htmlLink, hangoutLink: event.hangoutLink };
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const supabase = createClient(
+    const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
@@ -97,7 +186,12 @@ serve(async (req) => {
       client_address,
       date,
       time,
-      meet_link,
+      // Calendar params (optional — if provided, calendar event is created server-side)
+      title,
+      start_datetime,
+      end_datetime,
+      time_zone,
+      cc_emails,
     } = await req.json();
 
     if (!client_email) {
@@ -107,8 +201,26 @@ serve(async (req) => {
       });
     }
 
+    // Create Google Calendar event if datetime params were provided
+    let calendarEvent: { id?: string; htmlLink?: string; hangoutLink?: string } | null = null;
+    if (start_datetime && end_datetime && time_zone) {
+      calendarEvent = await createCalendarEvent(supabaseClient, {
+        title:         title ?? `Appointment – ${client_name ?? "Client"}`,
+        startDateTime: start_datetime,
+        endDateTime:   end_datetime,
+        timeZone:      time_zone,
+        location:      client_address ?? undefined,
+        description:   `Appointment with ${client_name ?? "client"}`,
+        attendeeEmail: client_email,
+        attendeeName:  client_name ?? undefined,
+        ccEmails:      cc_emails ?? [],
+      });
+    }
+
+    const meetLink = calendarEvent?.hangoutLink ?? "";
+
     // Fetch appointment type template
-    const { data: apptType } = await supabase
+    const { data: apptType } = await supabaseClient
       .from("appointment_types")
       .select("name, email_subject, email_body")
       .eq("id", appointment_type_id)
@@ -117,7 +229,7 @@ serve(async (req) => {
     const typeName = apptType?.name ?? "Appointment";
 
     // Check if this is the client's first appointment
-    const { count } = await supabase
+    const { count } = await supabaseClient
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("client_id", client_id);
@@ -132,7 +244,7 @@ serve(async (req) => {
       type:            typeName,
       address:         client_address ?? "",
       intake_form_url: intakeFormUrl,
-      meet_link:       meet_link ?? "",
+      meet_link:       meetLink,
     };
 
     const rawBody =
@@ -171,9 +283,15 @@ serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        calendar_event_id:  calendarEvent?.id ?? null,
+        google_meet_link:   calendarEvent?.hangoutLink ?? null,
+        calendar_html_link: calendarEvent?.htmlLink ?? null,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,

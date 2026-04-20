@@ -1,13 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { FileText, DollarSign, CheckCircle, XCircle, ExternalLink, Loader2 } from "lucide-react";
+import { FileText, DollarSign, CheckCircle, XCircle, ExternalLink, Loader2, Calendar } from "lucide-react";
 import { useState, useEffect } from "react";
-// import { Input } from "./ui/input";
-// import { Label } from "./ui/label";
-// import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-// import { toast } from "sonner";
+import { toast } from "sonner";
 import { projectId, publicAnonKey } from "utils/supabase/info";
+import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router";
 
 export function Integrations() {
@@ -15,6 +13,9 @@ export function Integrations() {
   const [docusignConnected, setDocusignConnected] = useState(false);
   const [docusignChecking, setDocusignChecking] = useState(true);
   const [quickbooksConnected] = useState(false);
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarChecking, setCalendarChecking] = useState(true);
+  const [calendarConnecting, setCalendarConnecting] = useState(false);
   // QuickBooks — uncomment when building QB integration
   // const [quickbooksDialogOpen, setQuickbooksDialogOpen] = useState(false);
   // const handleQuickbooksConnect = (e: React.FormEvent) => {
@@ -30,7 +31,39 @@ export function Integrations() {
 
   useEffect(() => {
     checkDocusignConnection();
+    checkCalendarConnection();
   }, []);
+
+  const checkCalendarConnection = async () => {
+    setCalendarChecking(true);
+    try {
+      const { data } = await supabase
+        .from("company_settings")
+        .select("google_calendar_refresh_token")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setCalendarConnected(!!data?.google_calendar_refresh_token);
+    } catch {
+      setCalendarConnected(false);
+    } finally {
+      setCalendarChecking(false);
+    }
+  };
+
+  const handleCalendarConnect = async () => {
+    setCalendarConnecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-auth");
+      if (error || !data?.url) throw new Error(error?.message ?? "Failed to get auth URL");
+      window.open(data.url, "_blank");
+      toast.info("Complete sign-in in the popup, then return here and refresh.");
+    } catch (err: any) {
+      toast.error(err.message ?? "Could not initiate Google Calendar connection.");
+    } finally {
+      setCalendarConnecting(false);
+    }
+  };
 
   const checkDocusignConnection = async () => {
     setDocusignChecking(true);
@@ -128,6 +161,80 @@ export function Integrations() {
                 </div>
                 <Button className="w-full" onClick={() => navigate("/settings")}>
                   Configure DocuSign
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Google Calendar Integration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <Calendar className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle>Google Calendar</CardTitle>
+                  <CardDescription>Appointment scheduling & sync</CardDescription>
+                </div>
+              </div>
+              {calendarChecking ? (
+                <Badge variant="secondary">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Checking...
+                </Badge>
+              ) : calendarConnected ? (
+                <Badge className="bg-green-500">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Connected
+                </Badge>
+              ) : (
+                <Badge variant="secondary">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Not Connected
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Automatically create Google Calendar events when appointments are scheduled.
+              Events sync to the company calendar with Google Meet links.
+            </p>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Features:</h4>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-4 list-disc">
+                <li>Auto-create calendar events on appointment scheduling</li>
+                <li>Google Meet link generated for every appointment</li>
+                <li>Client and team member invitations sent automatically</li>
+                <li>Syncs to info@butlerconstruction.co calendar</li>
+              </ul>
+            </div>
+
+            {calendarConnected ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-sm font-medium text-green-900">Integration Active</div>
+                  <div className="text-xs text-green-700 mt-1">Syncing to info@butlerconstruction.co</div>
+                </div>
+                <Button variant="outline" className="w-full" asChild>
+                  <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open Google Calendar
+                  </a>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                  One-time setup required. Sign in with info@butlerconstruction.co to enable automatic calendar sync.
+                </div>
+                <Button className="w-full" onClick={handleCalendarConnect} disabled={calendarConnecting}>
+                  {calendarConnecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Calendar className="h-4 w-4 mr-2" />}
+                  Connect Google Calendar
                 </Button>
               </div>
             )}
@@ -254,6 +361,18 @@ export function Integrations() {
               </div>
               <Badge className={docusignConnected ? "bg-green-500" : ""} variant={docusignConnected ? "default" : "secondary"}>
                 {docusignConnected ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                <Calendar className="h-5 w-5 text-blue-600" />
+                <div>
+                  <div className="font-medium">Google Calendar</div>
+                  <div className="text-sm text-muted-foreground">Appointment sync</div>
+                </div>
+              </div>
+              <Badge className={calendarConnected ? "bg-green-500" : ""} variant={calendarConnected ? "default" : "secondary"}>
+                {calendarConnected ? "Active" : "Inactive"}
               </Badge>
             </div>
             <div className="flex items-center justify-between p-4 border rounded-lg">

@@ -26,6 +26,7 @@ import { ListManagement } from "./components/admin/list-management";
 import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
 import { DocuSignLoadingPreview } from "./components/docusign-loading-preview";
+import { GoogleCalendarCallback } from "./components/google-calendar-callback";
 import { Payroll } from "./components/payroll";
 import { PayrollPMDetail } from "./components/payroll-pm-detail";
 import { PayrollCrewDetail } from "./components/payroll-crew-detail";
@@ -98,5 +99,6 @@ export const router = createBrowserRouter([
   { path: "/docusign-callback",        Component: DocuSignCallback },
   { path: "/login",                    Component: LoginPage },
   { path: "/set-password",             Component: SetPasswordPage },
-  { path: "/docusign-loading-preview", Component: DocuSignLoadingPreview },
+  { path: "/docusign-loading-preview",     Component: DocuSignLoadingPreview },
+  { path: "/google-calendar-callback",     Component: GoogleCalendarCallback },
 ]);
