@@ -57,6 +57,7 @@ export function DocuSignDialog({
   const [errorMessage, setErrorMessage] = useState("");
   const [envelopeId, setEnvelopeId] = useState("");
   const [manualTemplateId, setManualTemplateId] = useState("");
+  const [docusignConnected, setDocusignConnected] = useState<boolean | null>(null);
 
   // Auto-map CRM fields to DocuSign template fields
   const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
@@ -116,10 +117,17 @@ export function DocuSignDialog({
     "Contract Date": new Date().toLocaleDateString("en-US"),
   };
 
-  // Load templates on mount
+  // Load templates and check connection on open
   useEffect(() => {
     if (open) {
       loadTemplates();
+      fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/test-connection`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      )
+        .then((r) => r.json())
+        .then((d) => setDocusignConnected(d.success === true))
+        .catch(() => setDocusignConnected(false));
     }
   }, [open]);
 
@@ -329,6 +337,16 @@ export function DocuSignDialog({
         ) : (
           <>
           <DialogBody className="space-y-6">
+            {/* DocuSign not connected warning */}
+            {docusignConnected === false && (
+              <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
+                <div className="text-sm text-yellow-800">
+                  <strong>DocuSign is not connected.</strong> Go to <a href="/integrations" className="underline font-medium">Integrations</a> and configure DocuSign before sending documents.
+                </div>
+              </div>
+            )}
+
             {/* Blocking warning — no email */}
             {!client.email && (
               <div className="p-3 bg-red-50 border border-red-300 rounded-lg flex items-start gap-2">
@@ -532,7 +550,7 @@ export function DocuSignDialog({
             </Button>
             <Button
               onClick={sendEnvelope}
-              disabled={(!selectedTemplate && !manualTemplateId) || loading || !client.email}
+              disabled={(!selectedTemplate && !manualTemplateId) || loading || !client.email || docusignConnected === false}
             >
               {loading ? (
                 <>

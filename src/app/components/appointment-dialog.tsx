@@ -22,9 +22,8 @@ import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { toast } from "sonner";
-import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, LogOut, Video, Mail } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Loader2, Link as LinkIcon, Video, Mail } from "lucide-react";
 import { format } from "date-fns";
-import { useGoogleCalendar } from "../hooks/use-google-calendar";
 import { clientsAPI, appointmentsAPI, usersAPI, activityLogAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 
@@ -42,7 +41,6 @@ export function AppointmentDialog({
   client,
   onAppointmentScheduled,
 }: AppointmentDialogProps) {
-  const { isConnected, connect, disconnect, createEvent } = useGoogleCalendar();
 
   const [appointmentType, setAppointmentType] = useState("");
   const [selectedDate, setSelectedDate]       = useState<Date | undefined>();
@@ -57,11 +55,18 @@ export function AppointmentDialog({
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
   const [clientEmail, setClientEmail]           = useState(client?.email ?? "");
   const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
     usersAPI.getAll().then(setTeamMembers).catch(console.error);
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
+    supabase.from("company_settings")
+      .select("google_calendar_refresh_token")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setCalendarConnected(!!data?.google_calendar_refresh_token));
   }, []);
 
   useEffect(() => { setClientEmail(client?.email ?? ""); }, [client?.email]);
@@ -72,7 +77,13 @@ export function AppointmentDialog({
     const apptType = appointmentTypes.find((t) => t.id === appointmentType);
     const typeName = apptType?.name ?? "Appointment";
     const dateLabel = selectedDate ? format(selectedDate, "EEEE, MMMM d, yyyy") : "—";
-    const timeLabel = startTime && endTime ? `${startTime} – ${endTime}` : "—";
+    const fmt12 = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12  = h % 12 || 12;
+      return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+    };
+    const timeLabel = startTime && endTime ? `${fmt12(startTime)} – ${fmt12(endTime)}` : "—";
     const vars: Record<string, string> = {
       client_name: clientName,
       date: dateLabel,
@@ -117,12 +128,7 @@ export function AppointmentDialog({
 
   const handleSchedule = async () => {
     setTouched(true);
-    if (!appointmentType || !selectedDate || !startTime || !endTime) return;
-    if (!isConnected) {
-      toast.error("Please connect your Google Calendar first");
-      return;
-    }
-
+    if (!appointmentType || !selectedDate || !startTime) return;
     try {
       setScheduling(true);
 
@@ -149,31 +155,19 @@ export function AppointmentDialog({
       ];
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-      const createdEvent = await createEvent({
-        title: `${typeLabel} – ${clientName}`,
-        startDateTime: startDT.toISOString(),
-        endDateTime:   endDT.toISOString(),
-        location: clientAddress || undefined,
-        description: notes || `${typeLabel} with ${clientName}`,
-        attendeeEmail: client?.email || undefined,
-        attendeeName:  clientName,
-        ccEmails: ccList,
-        timeZone,
-      });
-
-      // Save to appointments table
+      // Save to appointments table first (calendar/meet link filled in after email send)
       await appointmentsAPI.create({
         client_id:                client.id,
         title:                    `${typeLabel} – ${clientName}`,
         appointment_type:         appointmentType,
-        appointment_date:         startDT.toISOString().split("T")[0], // date part
-        appointment_time:         startTime,                            // "HH:MM"
-        end_time:                 endTime,                              // "HH:MM"
+        appointment_date:         startDT.toISOString().split("T")[0],
+        appointment_time:         startTime,
+        end_time:                 endTime,
         notes:                    notes || null,
-        google_calendar_event_id: createdEvent.id,
-        google_meet_link:         createdEvent.hangoutLink ?? null,
-        google_event_html_link:   createdEvent.htmlLink ?? null,
-        email_notification_sent:  false, // set true only after successful send below
+        google_calendar_event_id: null,
+        google_meet_link:         null,
+        google_event_html_link:   null,
+        email_notification_sent:  false,
       });
 
       // Log appointment scheduled
@@ -208,6 +202,9 @@ export function AppointmentDialog({
       let emailSent        = false;
       let smsSent          = false;
       let emailFormatBad   = false;
+      let calendarEventId: string | null = null;
+      let googleMeetLink:  string | null = null;
+      let calendarHtmlLink: string | null = null;
       const emailRegex     = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
       if (clientEmail.trim()) {
@@ -230,6 +227,12 @@ export function AppointmentDialog({
                 client_address: clientAddress || null,
                 date:           dateLabel,
                 time:           timeLabel,
+                // Calendar params — edge function creates event + injects Meet link into email
+                title:          `${typeLabel} – ${clientName}`,
+                start_datetime: startDT.toISOString(),
+                end_datetime:   endDT.toISOString(),
+                time_zone:      timeZone,
+                cc_emails:      ccList,
               },
             }
           );
@@ -242,8 +245,17 @@ export function AppointmentDialog({
             }).catch(() => {});
           } else {
             emailSent = true;
+            calendarEventId  = emailData?.calendar_event_id ?? null;
+            googleMeetLink   = emailData?.google_meet_link ?? null;
+            calendarHtmlLink = emailData?.calendar_html_link ?? null;
+            // Back-fill calendar data returned from the edge function
             void supabase.from("appointments")
-              .update({ email_notification_sent: true })
+              .update({
+                email_notification_sent:  true,
+                google_calendar_event_id: calendarEventId,
+                google_meet_link:         googleMeetLink,
+                google_event_html_link:   calendarHtmlLink,
+              })
               .eq("client_id", client.id)
               .order("created_at", { ascending: false })
               .limit(1);
@@ -276,7 +288,7 @@ export function AppointmentDialog({
         }
       }
 
-      const meetLink = createdEvent.hangoutLink;
+      const meetLink = googleMeetLink;
 
       // Primary success toast
       toast.success(
@@ -348,6 +360,13 @@ export function AppointmentDialog({
         </DialogHeader>
 
         <DialogBody className="space-y-5">
+          {/* Google Calendar not connected warning */}
+          {calendarConnected === false && (
+            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+              <span className="font-semibold">Google Calendar is not connected.</span> Go to <a href="/integrations" className="underline font-medium">Integrations</a> and complete the one-time setup before scheduling appointments.
+            </div>
+          )}
+
           {/* Missing email/phone warnings */}
           {!client?.email && !client?.phone && (
             <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
@@ -364,36 +383,6 @@ export function AppointmentDialog({
               No email on this client — confirmation email will not be sent.
             </div>
           )}
-          {/* Google Calendar Connection */}
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/40">
-            <div className="flex items-center gap-2">
-              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Google Calendar</span>
-              {isConnected ? (
-                <Badge className="bg-green-500 text-white text-xs">Connected</Badge>
-              ) : (
-                <Badge variant="outline" className="text-xs">Not connected</Badge>
-              )}
-            </div>
-            {isConnected ? (
-              <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
-                <LogOut className="h-3 w-3 mr-1" />
-                Disconnect
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => connect()}>
-                <CalendarIcon className="h-3 w-3 mr-1" />
-                Connect Google Calendar
-              </Button>
-            )}
-          </div>
-
-          {!isConnected && (
-            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
-              Connect your Google Calendar to automatically create the event and send the invite to the client.
-            </p>
-          )}
-
           {/* Assigned To */}
           <div className="space-y-2">
             <Label>Assigned To *</Label>
@@ -500,39 +489,60 @@ export function AppointmentDialog({
           </div>
 
           {/* Time */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>
-                <Clock className="h-3 w-3 inline mr-1" />
-                Start Time <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setStartTime(val);
-                  if (val) {
-                    const [h, m] = val.split(":").map(Number);
-                    const total = h * 60 + m + 90;
-                    const eh = Math.floor(total / 60) % 24;
-                    const em = total % 60;
-                    setEndTime(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
-                  }
-                }}
-                className={touched && !startTime ? "border-red-500" : ""}
-              />
-              {touched && !startTime && <p className="text-xs text-red-500">Start time is required.</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>
-                <Clock className="h-3 w-3 inline mr-1" />
-                End Time <span className="text-destructive">*</span>
-              </Label>
-              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={touched && !endTime ? "border-red-500" : ""} />
-              {touched && !endTime && <p className="text-xs text-red-500">End time is required.</p>}
-            </div>
-          </div>
+          {(() => {
+            const timeSlots = Array.from({ length: 48 }, (_, i) => {
+              const h = Math.floor(i / 2);
+              const m = i % 2 === 0 ? "00" : "30";
+              const ampm = h >= 12 ? "PM" : "AM";
+              const h12 = h % 12 || 12;
+              return { value: `${String(h).padStart(2, "0")}:${m}`, label: `${h12}:${m} ${ampm}` };
+            });
+            const fmt12 = (t: string) => {
+              if (!t) return "";
+              const [h, m] = t.split(":").map(Number);
+              return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+            };
+            return (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>
+                    <Clock className="h-3 w-3 inline mr-1" />
+                    Start Time <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={startTime}
+                    onValueChange={(val) => {
+                      setStartTime(val);
+                      const [h, m] = val.split(":").map(Number);
+                      const total = h * 60 + m + 90;
+                      const eh = Math.floor(total / 60) % 24;
+                      const em = total % 60;
+                      setEndTime(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
+                    }}
+                  >
+                    <SelectTrigger className={touched && !startTime ? "border-red-500" : ""}>
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {timeSlots.map((slot) => (
+                        <SelectItem key={slot.value} value={slot.value}>{slot.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {touched && !startTime && <p className="text-xs text-red-500">Start time is required.</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <Clock className="h-3 w-3 inline mr-1" />
+                    End Time <span className="text-xs text-muted-foreground font-normal">(auto)</span>
+                  </Label>
+                  <div className={`flex h-9 w-full items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground`}>
+                    {endTime ? fmt12(endTime) : <span className="opacity-50">Auto-filled</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Notes */}
           <div className="space-y-2">
@@ -591,7 +601,7 @@ export function AppointmentDialog({
           </Button>
           <Button
             onClick={handleSchedule}
-            disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || !isConnected}
+            disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || calendarConnected === false}
           >
             {scheduling ? (
               <>

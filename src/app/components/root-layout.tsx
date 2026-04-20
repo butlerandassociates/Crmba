@@ -460,7 +460,16 @@ export function RootLayout() {
                 <div className="flex items-center justify-between px-4 py-3 border-b">
                   <span className="text-sm font-semibold">Notifications</span>
                   {(visibleAlerts.length + crewNotifications.length) > 0 && (
-                    <span className="text-xs text-muted-foreground">{visibleAlerts.length + crewNotifications.length} unread</span>
+                    <button
+                      className="text-xs text-primary hover:underline"
+                      onClick={async () => {
+                        await notificationsAPI.markAllRead();
+                        setCrewNotifications([]);
+                        setDismissedAlerts(new Set(navAlerts.map((a: any) => a.id ?? a.key ?? "")));
+                      }}
+                    >
+                      Mark all as read
+                    </button>
                   )}
                 </div>
                 <div className="max-h-[400px] overflow-y-auto">

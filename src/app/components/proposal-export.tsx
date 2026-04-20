@@ -140,7 +140,7 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
             </p>
             <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 14, color: B.black, margin: "0 0 3px 0" }}>Butler & Associates Construction, Inc.</p>
             <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 2px 0", opacity: 0.75 }}>6275 University Drive NW, Suite 37-314, Huntsville, AL 35806</p>
-            <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 2px 0", opacity: 0.75 }}>Phone: (256) 617-4691 &nbsp;·&nbsp; jonathan@butlerconstruction.co</p>
+            <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 2px 0", opacity: 0.75 }}>Phone: (256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co</p>
           </div>
 
           {/* Project title + description */}
@@ -368,8 +368,8 @@ export function ProposalExport({ proposal, client, reviews = [] }: ProposalExpor
           <div style={{ marginTop: 32, textAlign: "center" as const }}>
             <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.6, margin: "0 0 4px 0" }}>
               Questions? &nbsp;
-              <a href="mailto:jonathan@butlerconstruction.co" style={{ color: B.gold, textDecoration: "none" }}>
-                jonathan@butlerconstruction.co
+              <a href="mailto:info@butlerconstruction.co" style={{ color: B.gold, textDecoration: "none" }}>
+                info@butlerconstruction.co
               </a>
               &nbsp; · &nbsp;
               <a href="tel:2566174691" style={{ color: B.gold, textDecoration: "none" }}>(256) 617-4691</a>

@@ -273,8 +273,8 @@ export function PublicProposal() {
           <div style={{ borderTop: "1px solid #e8e4dc", paddingTop: 24, textAlign: "center" }}>
             <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", opacity: 0.6, margin: "0 0 4px 0" }}>
               Questions? Contact us at{" "}
-              <a href="mailto:jonathan@butlerconstruction.co" style={{ color: "#BB984D", textDecoration: "none" }}>
-                jonathan@butlerconstruction.co
+              <a href="mailto:info@butlerconstruction.co" style={{ color: "#BB984D", textDecoration: "none" }}>
+                info@butlerconstruction.co
               </a>{" "}
               or call{" "}
               <a href="tel:2566174691" style={{ color: "#BB984D", textDecoration: "none" }}>
