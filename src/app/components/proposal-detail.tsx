@@ -444,6 +444,14 @@ export function ProposalDetail() {
         status: "accepted",
         accepted_at: now,
       }).eq("id", proposal.id);
+
+      // Sync project financials from accepted proposal
+      await supabase.from("projects").update({
+        gross_profit:   proposal.gross_profit  ?? 0,
+        profit_margin:  proposal.profit_margin ?? 0,
+        total_value:    proposal.total         ?? 0,
+      }).eq("client_id", proposal.client_id).neq("status", "completed");
+
       activityLogAPI.create({
         client_id: proposal.client_id,
         action_type: "status_changed",
