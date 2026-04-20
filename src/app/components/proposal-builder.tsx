@@ -279,8 +279,9 @@ export function ProposalBuilder() {
     try {
       const subtotalVal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
       const totalCostVal = lineItems.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0);
-      const grossProfitVal = subtotalVal - totalCostVal;
-      const profitMarginVal = subtotalVal > 0 ? (grossProfitVal / subtotalVal) * 100 : 0;
+      const revenueVal = subtotalVal + (hasBad ? badPrice : 0);
+      const grossProfitVal = revenueVal - totalCostVal;
+      const profitMarginVal = revenueVal > 0 ? (grossProfitVal / revenueVal) * 100 : 0;
 
       const taxableVal = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
       const taxAmountVal = taxableVal * (taxRate / 100);

@@ -259,7 +259,7 @@ export function ClientDetail() {
   const [savingPayment, setSavingPayment] = useState(false);
   const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "" };
   const [newPayment, setNewPayment] = useState(EMPTY_PAYMENT);
-  const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "" });
+  const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "", paid_date: new Date().toISOString().split("T")[0] });
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [refreshingDocusign, setRefreshingDocusign] = useState(false);
@@ -2157,7 +2157,7 @@ export function ClientDetail() {
                                 if (!can("can_record_payments")) return;
                                 if (!payment.is_paid) {
                                   setMarkPaidOpen(payment);
-                                  setPaidForm({ payment_method: "", notes: payment.notes ?? "" });
+                                  setPaidForm({ payment_method: "", notes: payment.notes ?? "", paid_date: new Date().toISOString().split("T")[0] });
                                 } else {
                                   projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
                                   setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
@@ -2244,13 +2244,14 @@ export function ClientDetail() {
         </Dialog>
 
         {/* Mark as Paid Dialog */}
-        <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) { setMarkPaidOpen(null); setPaidForm({ payment_method: "", notes: "" }); } }}>
+        <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) { setMarkPaidOpen(null); setPaidForm({ payment_method: "", notes: "", paid_date: new Date().toISOString().split("T")[0] }); } }}>
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle>Mark as Paid</DialogTitle>
               <DialogDescription>{markPaidOpen?.label} — {formatCurrency(markPaidOpen?.amount ?? 0)}</DialogDescription>
             </DialogHeader>
             <div className="space-y-3 px-6 py-4">
+              <div className="space-y-1.5"><Label>Date Paid <span className="text-destructive">*</span></Label><Input type="date" value={paidForm.paid_date} onChange={(e) => setPaidForm((p) => ({ ...p, paid_date: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Payment Method</Label><Input placeholder="e.g. Check #1042, ACH #8829, Cash" value={paidForm.payment_method} onChange={(e) => setPaidForm((p) => ({ ...p, payment_method: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Notes (optional)</Label><Input placeholder="Any additional notes" value={paidForm.notes} onChange={(e) => setPaidForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             </div>
@@ -2260,7 +2261,7 @@ export function ClientDetail() {
                 if (!markPaidOpen) return;
                 setSavingPayment(true);
                 try {
-                  const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null });
+                  const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: paidForm.paid_date || new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null });
                   setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
                   setMarkPaidOpen(null);
                   activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});
