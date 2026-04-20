@@ -12,7 +12,7 @@ import {
 } from "./ui/dialog";
 import { Loader2, Check, FileText, AlertCircle, CheckCircle2, FileSignature } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { activityLogAPI, projectPaymentsAPI } from "../utils/api";
+import { activityLogAPI, projectPaymentsAPI, projectsAPI } from "../utils/api";
 import { photosAPI } from "../api/files";
 import { toast } from "sonner";
 
@@ -21,13 +21,14 @@ interface MoveToActiveModalProps {
   onOpenChange: (open: boolean) => void;
   client: any;
   project: any;
+  acceptedProposal?: any;
   onSuccess: () => void;
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-export function MoveToActiveModal({ open, onOpenChange, client, project, onSuccess }: MoveToActiveModalProps) {
+export function MoveToActiveModal({ open, onOpenChange, client, project, acceptedProposal, onSuccess }: MoveToActiveModalProps) {
   const [saving, setSaving] = useState(false);
 
   // Contract
@@ -76,8 +77,26 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, onSucce
         await photosAPI.upload(client.id, depositFile, "receipt").catch(() => {});
       }
 
-      // 3. Record deposit as a paid payment milestone
-      const projectId = project?.id;
+      // 3. Auto-create project if one doesn't exist yet
+      let resolvedProject = project;
+      if (!resolvedProject?.id) {
+        const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+        const projectName = acceptedProposal?.name ?? `${clientName} Project`;
+        const totalValue = acceptedProposal?.total ?? acceptedProposal?.total_value ?? 0;
+        resolvedProject = await projectsAPI.create({
+          client_id: client.id,
+          name: projectName,
+          status: "active",
+          total_value: totalValue,
+        });
+        // Link estimate to this project if we have one
+        if (acceptedProposal?.id && resolvedProject?.id) {
+          await supabase.from("estimates").update({ project_id: resolvedProject.id }).eq("id", acceptedProposal.id);
+        }
+      }
+
+      // 4. Record deposit as a paid payment milestone
+      const projectId = resolvedProject?.id;
       if (projectId && depositAmount) {
         const payment = await projectPaymentsAPI.create({
           project_id: projectId,
@@ -96,13 +115,8 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, onSucce
         }
       }
 
-      // 4. Update client status to active
+      // 5. Update client status to active
       await supabase.from("clients").update({ status: "active" }).eq("id", client.id);
-
-      // 5. Update project status if exists
-      if (projectId) {
-        await supabase.from("projects").update({ status: "active" }).eq("id", projectId);
-      }
 
       // 6. Build contract description for activity log
       let contractDesc = "contract confirmed";

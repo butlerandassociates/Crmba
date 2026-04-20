@@ -537,7 +537,8 @@ export function ClientsList() {
 
   const PAGE_SIZE = 15;
 
-  const ClientTable = ({ list }: { list: any[] }) => {
+  const CLIENT_REVENUE_STAGES = ["sold", "active", "completed"];
+  const ClientTable = ({ list, stage }: { list: any[]; stage?: string }) => {
     const [page, setPage] = useState(0);
     const visible = filterClients(list);
     const totalPages = Math.ceil(visible.length / PAGE_SIZE);
@@ -564,9 +565,10 @@ export function ClientsList() {
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Client</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date Received</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Appointment</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Forecast</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
                 </tr>
               </thead>
@@ -605,6 +607,16 @@ export function ClientsList() {
                           </div>
                         )}
                       </div>
+                    </td>
+                    <td className="p-3">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {client.created_at
+                          ? new Date(client.created_at).toLocaleString("en-US", {
+                              month: "short", day: "numeric", year: "numeric",
+                              hour: "numeric", minute: "2-digit", hour12: true,
+                            })
+                          : "—"}
+                      </span>
                     </td>
                     <td className="p-3">
                       <span className="text-sm text-muted-foreground">
@@ -764,7 +776,7 @@ export function ClientsList() {
               {stageClients.length} clients in <span className="capitalize">{stageFilter}</span>
             </p>
           )}
-          <ClientTable list={stageClients} />
+          <ClientTable list={stageClients} stage={stageFilter} />
         </>
       )}
 

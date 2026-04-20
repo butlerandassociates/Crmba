@@ -107,6 +107,7 @@ import { AppointmentDialog } from "./appointment-dialog";
 import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
 import { CostAttributionsSheet } from "./cost-attributions-sheet";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
+import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
 import { toast } from "sonner";
 import { PageLoader, SkeletonList, SkeletonInfoCard } from "./ui/page-loader";
@@ -267,6 +268,8 @@ export function ClientDetail() {
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
   const [fioOpen, setFioOpen] = useState(false);
+  const [editProjectOpen, setEditProjectOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<any>(null);
   const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState("");
@@ -1508,7 +1511,7 @@ export function ClientDetail() {
               const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
               const grossProfit = clientProjects[0] ? (clientProjects[0]?.grossProfit ?? 0) : 0;
-              const cost = clientProjects[0] ? (totalValue - grossProfit) : 0;
+              const cost = clientProjects[0]?.totalCosts ?? 0;
               const margin = clientProjects[0]?.profitMargin ?? 0;
               const commission = clientProjects[0]?.commission ?? 0;
               const donutData = totalValue > 0
@@ -1687,6 +1690,9 @@ export function ClientDetail() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
+              <button onClick={() => { setEditingProject(project); setEditProjectOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -2613,9 +2619,11 @@ export function ClientDetail() {
         onOpenChange={setActiveModalOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        acceptedProposal={clientProposals.find((p: any) => p.status === "accepted") ?? null}
         onSuccess={() => {
           setClient({ ...client, status: "active" });
           loadActivityLog();
+          projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id)));
           const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
           notificationsAPI.create({
             type: "project_active",
@@ -3271,6 +3279,16 @@ export function ClientDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Project Dialog */}
+      {editingProject && (
+        <EditProjectDialog
+          open={editProjectOpen}
+          onOpenChange={setEditProjectOpen}
+          project={editingProject}
+          onSaved={() => { setEditProjectOpen(false); projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))); }}
+        />
+      )}
 
       {/* Purchase Orders Sheet */}
       <PurchaseOrdersSheet
