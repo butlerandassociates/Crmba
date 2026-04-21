@@ -173,6 +173,12 @@ export function ProposalDetail() {
   );
   const activeBad = badOverride !== null ? badOverride : (proposal?.bad_amount ?? 0);
   const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0) + activeBad;
+  const computedTotalCost = editLineItems.reduce(
+    (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
+    0
+  );
+  const computedGrossProfit = computedTotal - computedTotalCost;
+  const computedProfitMargin = computedTotal > 0 ? (computedGrossProfit / computedTotal) * 100 : 0;
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
@@ -263,6 +269,9 @@ export function ProposalDetail() {
         description: editDescription,
         subtotal: computedSubtotal,
         total: computedTotal,
+        total_cost: computedTotalCost,
+        gross_profit: computedGrossProfit,
+        profit_margin: computedProfitMargin,
         ...(badOverride !== null ? { bad_amount: badOverride } : {}),
       });
       // Insert new items (added via picker/custom form during this session)
@@ -312,6 +321,9 @@ export function ProposalDetail() {
         description: editDescription,
         subtotal: computedSubtotal,
         total: computedTotal,
+        total_cost: computedTotalCost,
+        gross_profit: computedGrossProfit,
+        profit_margin: computedProfitMargin,
         line_items: editLineItems,
       }));
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});

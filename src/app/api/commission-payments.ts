@@ -83,6 +83,46 @@ export const commissionPaymentsAPI = {
     return data;
   },
 
+  /** Delete a specific commission payment by ID (admin correction) */
+  deleteById: async (id: string) => {
+    const { error } = await supabase
+      .from("commission_payments")
+      .delete()
+      .eq("id", id)
+      .eq("status", "pending");
+    if (error) throw new Error(error.message);
+  },
+
+  /** Manually record a cash payout to a PM (not tied to a milestone) */
+  createManualPayout: async (profile_id: string, amount: number, notes?: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("commission_payments")
+      .insert({
+        profile_id,
+        amount,
+        status: "processed",
+        payout_type: "manual_payout",
+        processed_date: new Date().toISOString().split("T")[0],
+        processed_by: user?.id ?? null,
+        notes: notes ?? null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  /** Delete a manual payout (admin correction) */
+  deleteManualPayout: async (id: string) => {
+    const { error } = await supabase
+      .from("commission_payments")
+      .delete()
+      .eq("id", id)
+      .eq("payout_type", "manual_payout");
+    if (error) throw new Error(error.message);
+  },
+
   /** Delete a commission payment (e.g. if progress payment toggled back to unpaid) */
   deleteByProgressPayment: async (progress_payment_id: string) => {
     const { error } = await supabase

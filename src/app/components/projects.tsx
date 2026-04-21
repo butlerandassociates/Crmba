@@ -9,6 +9,7 @@ import {
   FolderOpen, TrendingUp, Handshake, Hammer, CheckCircle2, ClipboardList,
 } from "lucide-react";
 import { projectsAPI } from "../utils/api";
+import { useAuth } from "../contexts/auth-context";
 import { Link, useNavigate } from "react-router";
 import { NewProjectDialog } from "./new-project-dialog";
 import { EditProjectDialog } from "./edit-project-dialog";
@@ -37,6 +38,8 @@ type Stage = (typeof STAGES)[number];
 
 export function Projects() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isPM = user?.profile?.role === "project_manager";
   const [searchQuery, setSearchQuery] = useState("");
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +64,7 @@ export function Projects() {
   useRealtimeRefetch(reload, ["projects", "clients"], "projects");
 
   const filteredProjects = projects.filter((p) => {
+    if (isPM && p.project_manager_id !== user?.id) return false;
     const q = searchQuery.toLowerCase();
     return (
       (p.name ?? "").toLowerCase().includes(q) ||
@@ -257,7 +261,7 @@ export function Projects() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage your construction projects</p>

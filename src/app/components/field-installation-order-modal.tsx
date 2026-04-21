@@ -11,6 +11,7 @@ import {
 } from "./ui/sheet";
 import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft } from "lucide-react";
 import { fioAPI, notificationsAPI, activityLogAPI } from "../utils/api";
+import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
@@ -25,6 +26,7 @@ interface FIOModalProps {
 type View = "view" | "edit" | "pay_crew";
 
 export function FieldInstallationOrderModal({ open, onOpenChange, project, onCrewPayment }: FIOModalProps) {
+  const { can } = usePermissions();
   const [view, setView] = useState<View>("view");
   const [fio, setFio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -493,14 +495,16 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
             {/* Action buttons */}
             {view === "view" && fio && (
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); }}>
-                  <Edit className="h-4 w-4 mr-1.5" /> Edit
-                </Button>
+                {can("can_approve_fio_payments") && (
+                  <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); }}>
+                    <Edit className="h-4 w-4 mr-1.5" /> Edit
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={exportPDF} disabled={exporting}>
                   {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
                   Export PDF
                 </Button>
-                {fio.status !== "paid" && (
+                {can("can_approve_fio_payments") && fio.status !== "paid" && (
                   <Button variant="outline" size="sm" disabled={markingComplete} onClick={async () => {
                     setMarkingComplete(true);
                     try {

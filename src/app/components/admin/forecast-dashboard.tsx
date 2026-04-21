@@ -90,11 +90,9 @@ export function ForecastDashboard() {
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3">
         <h2 className="text-xl font-bold">Revenue Forecasting</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Predictive analysis based on pipeline data
-        </p>
+        <p className="text-sm text-muted-foreground mt-0.5">Predictive analysis based on pipeline data</p>
       </div>
 
       {/* Forecast KPIs */}

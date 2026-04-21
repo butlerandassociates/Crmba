@@ -315,11 +315,11 @@ export function UserManagement() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Team Members</h2>
-          <p className="text-muted-foreground mt-1">Manage user access and permissions</p>
+          <h2 className="text-xl font-bold">Team Members</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Manage user access and permissions</p>
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setFormData({ firstName: "", lastName: "", email: "" }); setSelectedRole(""); setSelectedPermissions([]); setInviteTouched(false); } }}>

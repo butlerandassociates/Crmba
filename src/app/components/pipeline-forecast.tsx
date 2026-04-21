@@ -136,7 +136,7 @@ export function PipelineForecast() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4">
         <h1 className="text-2xl font-bold">Sales Pipeline & Forecast</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Track deals and company performance</p>
       </div>

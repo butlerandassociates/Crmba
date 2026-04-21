@@ -922,12 +922,12 @@ export function ClientDetail() {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>Client Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => setAppointmentDialogOpen(true)}
-            >
-              <Calendar className="h-4 w-4 mr-2" />
-              Schedule Appointment
-            </DropdownMenuItem>
+            {can("can_schedule_appointments") && (
+              <DropdownMenuItem onClick={() => setAppointmentDialogOpen(true)}>
+                <Calendar className="h-4 w-4 mr-2" />
+                Schedule Appointment
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => setEmailDialogOpen(true)}
             >
@@ -952,12 +952,14 @@ export function ClientDetail() {
                 Update Forecast
               </DropdownMenuItem>
             )}
-            <Link to={`/clients/${client.id}/create-proposal`}>
-              <DropdownMenuItem>
-                <FilePlus className="h-4 w-4 mr-2" />
-                Create Proposal
-              </DropdownMenuItem>
-            </Link>
+            {can("can_create_proposals") && (
+              <Link to={`/clients/${client.id}/create-proposal`}>
+                <DropdownMenuItem>
+                  <FilePlus className="h-4 w-4 mr-2" />
+                  Create Proposal
+                </DropdownMenuItem>
+              </Link>
+            )}
             {client.appointment_scheduled && !client.appointment_met && (
               <DropdownMenuItem onClick={handleMarkAsMet} disabled={updating}>
                 <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
@@ -989,13 +991,15 @@ export function ClientDetail() {
               </>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => setDiscardOpen(true)}
-              className="text-destructive focus:text-destructive"
-            >
-              <Archive className="h-4 w-4 mr-2" />
-              Discard Client
-            </DropdownMenuItem>
+            {can("can_discard_clients") && (
+              <DropdownMenuItem
+                onClick={() => setDiscardOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Archive className="h-4 w-4 mr-2" />
+                Discard Client
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1004,22 +1008,24 @@ export function ClientDetail() {
         <Card className="min-h-[300px] flex flex-col">
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Contact Information</CardTitle>
-            <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
-              setClientForm({
-                first_name: client.first_name ?? "",
-                last_name: client.last_name ?? "",
-                company: client.company ?? "",
-                email: client.email ?? "",
-                phone: client.phone ?? "",
-                address: client.address ?? "",
-                city: client.city ?? "",
-                state: client.state ?? "",
-                zip: client.zip ?? "",
-              });
-              setEditClientOpen(true);
-            }}>
-              Edit
-            </Button>
+            {can("can_edit_clients") && (
+              <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
+                setClientForm({
+                  first_name: client.first_name ?? "",
+                  last_name: client.last_name ?? "",
+                  company: client.company ?? "",
+                  email: client.email ?? "",
+                  phone: client.phone ?? "",
+                  address: client.address ?? "",
+                  city: client.city ?? "",
+                  state: client.state ?? "",
+                  zip: client.zip ?? "",
+                });
+                setEditClientOpen(true);
+              }}>
+                Edit
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-start gap-3">
@@ -1103,12 +1109,14 @@ export function ClientDetail() {
                 <div className="flex flex-col items-center justify-center py-5 gap-2 text-center rounded-lg border border-dashed">
                   <Calendar className="h-7 w-7 text-muted-foreground/40" />
                   <p className="text-xs text-muted-foreground">No appointment scheduled</p>
-                  <button
-                    onClick={() => setAppointmentDialogOpen(true)}
-                    className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
-                  >
-                    Schedule Appointment
-                  </button>
+                  {can("can_schedule_appointments") && (
+                    <button
+                      onClick={() => setAppointmentDialogOpen(true)}
+                      className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
+                    >
+                      Schedule Appointment
+                    </button>
+                  )}
                 </div>
               ) : (() => {
                 const latest = clientAppointments[0];
@@ -1676,9 +1684,11 @@ export function ClientDetail() {
                       </div>
                       <div className="text-right shrink-0 flex items-center gap-2">
                         <div className="text-sm font-semibold">{formatCurrency(proposal.total)}</div>
-                        <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.preventDefault(); setProposalToDelete(proposal); }}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {can("can_delete_proposals") && (
+                          <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.preventDefault(); setProposalToDelete(proposal); }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </Link>
                   ))
@@ -2002,9 +2012,11 @@ export function ClientDetail() {
                             {item.is_system_generated ? "System" : "Team"} · {ts}
                           </p>
                         </div>
-                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={async (e) => { e.stopPropagation(); await notesAPI.delete(item.id); loadNotes(); }}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {can("can_delete_notes") && (
+                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={async (e) => { e.stopPropagation(); await notesAPI.delete(item.id); loadNotes(); }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     );
                     const isImage = item.mime_type?.startsWith("image/");
@@ -2021,9 +2033,11 @@ export function ClientDetail() {
                             <p className="text-xs text-muted-foreground">{ts}</p>
                           </div>
                         </div>
-                        <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url, item.file_name ?? item.file_url.split("/").pop() ?? "file")}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {can("can_delete_files") && (
+                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url, item.file_name ?? item.file_url.split("/").pop() ?? "file")}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}

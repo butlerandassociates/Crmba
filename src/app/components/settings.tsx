@@ -131,11 +131,11 @@ export function Settings() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6 flex items-center gap-3">
         <SettingsIcon className="h-7 w-7" />
         <div>
-          <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Configure your integrations and preferences</p>
+          <h1 className="text-2xl font-bold">Settings</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Configure your integrations and preferences</p>
         </div>
       </div>
 

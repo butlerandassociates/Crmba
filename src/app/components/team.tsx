@@ -171,10 +171,10 @@ export function Team() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Team</h1>
-          <p className="text-muted-foreground mt-1">Manage your sales reps, project managers and crew</p>
+          <h1 className="text-2xl font-bold">Team</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Manage your sales reps, project managers and crew</p>
         </div>
         <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />

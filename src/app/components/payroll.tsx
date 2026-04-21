@@ -220,25 +220,13 @@ export function Payroll() {
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
 
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Payroll</h1>
-        <p className="text-muted-foreground text-sm mt-1">PM commissions and crew labor payments</p>
-      </div>
-
-      {loading && (
-        <div className="space-y-6">
-          <SkeletonCards count={4} />
-          <div className="space-y-3">
-            {Array.from({ length: 5 }).map((_, i) => <SkeletonPayrollRow key={i} />)}
-          </div>
-          <PageLoader title="Loading payroll data…" description="Fetching commissions, crew payments & payroll history" className="min-h-[6vh]" />
+      {/* Sticky: header + tabs together */}
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 -mt-6">
+        <div className="pb-3">
+          <h1 className="text-2xl font-bold">Payroll</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">PM commissions and crew labor payments</p>
         </div>
-      )}
-
-      {/* Tabs — always rendered so tests can find them */}
-      <div className="border-b">
-        <div className="flex gap-6">
+        <div className="flex gap-6 border-b">
           {[
             { key: "commissions", label: "PM Commissions" },
             { key: "crews", label: "Crew Payments" },
@@ -260,6 +248,16 @@ export function Payroll() {
           ))}
         </div>
       </div>
+
+      {loading && (
+        <div className="space-y-6 pt-4">
+          <SkeletonCards count={4} />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonPayrollRow key={i} />)}
+          </div>
+          <PageLoader title="Loading payroll data…" description="Fetching commissions, crew payments & payroll history" className="min-h-[6vh]" />
+        </div>
+      )}
 
       {!loading && (<>
 
@@ -311,8 +309,8 @@ export function Payroll() {
         </Card>
       </div>
 
-      {/* Search */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-2 -mx-px px-px">
+      {/* Search — sticks below the sticky header+tabs block */}
+      <div className="sticky top-[132px] z-10 bg-background/95 backdrop-blur py-2 -mx-6 px-6">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
