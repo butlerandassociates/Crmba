@@ -1,8 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
-const TWILIO_AUTH_TOKEN  = Deno.env.get("TWILIO_AUTH_TOKEN");
-const TWILIO_FROM_NUMBER = Deno.env.get("TWILIO_PHONE_NUMBER");
+const TWILIO_ACCOUNT_SID      = Deno.env.get("TWILIO_ACCOUNT_SID");
+const TWILIO_AUTH_TOKEN       = Deno.env.get("TWILIO_AUTH_TOKEN");
+const TWILIO_FROM_NUMBER      = Deno.env.get("TWILIO_PHONE_NUMBER");
+const TWILIO_MESSAGING_SID    = Deno.env.get("TWILIO_MESSAGING_SERVICE_SID");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,7 +78,11 @@ serve(async (req) => {
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
 
     const params = new URLSearchParams();
-    params.set("From", TWILIO_FROM_NUMBER);
+    if (TWILIO_MESSAGING_SID) {
+      params.set("MessagingServiceSid", TWILIO_MESSAGING_SID);
+    } else {
+      params.set("From", TWILIO_FROM_NUMBER!);
+    }
     params.set("To", toNumber);
     params.set("Body", body);
 

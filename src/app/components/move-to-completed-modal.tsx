@@ -110,7 +110,15 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
     if (!allPassed) return;
     setSaving(true);
     try {
-      await supabase.from("clients").update({ status: "completed" }).eq("id", client.id);
+      const { data: completedStage } = await supabase
+        .from("pipeline_stages")
+        .select("id")
+        .ilike("name", "completed")
+        .maybeSingle();
+      await supabase.from("clients").update({
+        status: "completed",
+        ...(completedStage?.id ? { pipeline_stage_id: completedStage.id } : {}),
+      }).eq("id", client.id);
       if (project?.id) {
         await supabase.from("projects").update({ status: "completed" }).eq("id", project.id);
       }

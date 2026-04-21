@@ -95,6 +95,24 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
         }
       }
 
+      // 3b. Sync GP/margin/total from accepted proposal if project has no GP yet
+      const projectWasSold = resolvedProject?.status === "sold" || !project?.id; // newly created counts too
+      if (resolvedProject?.id && acceptedProposal && projectWasSold) {
+        const currentGP = resolvedProject.gross_profit ?? 0;
+        if (!currentGP || currentGP === 0) {
+          const gpUpdate: Record<string, number> = {};
+          if (acceptedProposal.gross_profit) gpUpdate.gross_profit = acceptedProposal.gross_profit;
+          const tv = acceptedProposal.total ?? acceptedProposal.total_value;
+          if (tv) gpUpdate.total_value = tv;
+          if (acceptedProposal.gross_profit && tv && tv > 0) {
+            gpUpdate.profit_margin = parseFloat(((acceptedProposal.gross_profit / tv) * 100).toFixed(2));
+          }
+          if (Object.keys(gpUpdate).length > 0) {
+            await supabase.from("projects").update(gpUpdate).eq("id", resolvedProject.id);
+          }
+        }
+      }
+
       // 4. Record deposit as a paid payment milestone
       const projectId = resolvedProject?.id;
       if (projectId && depositAmount) {
@@ -115,8 +133,16 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
         }
       }
 
-      // 5. Update client status to active
-      await supabase.from("clients").update({ status: "active" }).eq("id", client.id);
+      // 5. Update client status + pipeline_stage_id to active
+      const { data: activeStage } = await supabase
+        .from("pipeline_stages")
+        .select("id")
+        .ilike("name", "active")
+        .maybeSingle();
+      await supabase.from("clients").update({
+        status: "active",
+        ...(activeStage?.id ? { pipeline_stage_id: activeStage.id } : {}),
+      }).eq("id", client.id);
 
       // 6. Build contract description for activity log
       let contractDesc = "contract confirmed";

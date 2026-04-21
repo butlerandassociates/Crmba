@@ -204,7 +204,22 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         projectId = newProject.id;
       }
 
-      // 4. Create FIO if labor items selected
+      // 4. Auto-create pending commission_payments row for PM
+      if (selectedPM && commissionRate > 0 && financials.commission > 0 && projectId) {
+        const { data: existingCp } = await supabase
+          .from("commission_payments")
+          .select("id")
+          .eq("project_id", projectId)
+          .is("progress_payment_id", null)
+          .maybeSingle();
+        if (existingCp) {
+          await supabase.from("commission_payments").update({ amount: financials.commission, profile_id: selectedPM }).eq("id", existingCp.id);
+        } else {
+          await supabase.from("commission_payments").insert({ project_id: projectId, profile_id: selectedPM, amount: financials.commission, status: "pending" });
+        }
+      }
+
+      // 6. Create FIO if labor items selected
       if (selectedItems.length > 0 && projectId) {
         await fioAPI.create(
           { project_id: projectId, foreman_id: selectedForeman || undefined },
@@ -218,7 +233,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         );
       }
 
-      // 5. Create payment milestones
+      // 7. Create payment milestones
       const validMilestones = paymentMilestones.filter((m) => m.label && m.amount);
       for (let i = 0; i < validMilestones.length; i++) {
         const m = validMilestones[i];
