@@ -104,9 +104,10 @@ export function PipelineForecast() {
     })),
   ].reduce((sum, { total, prob }) => sum + total * prob, 0);
 
-  // Company Stats — completed projects only (real earned revenue)
+  // Company Stats — active + completed projects
   const completedProjects = projects.filter((p) => p.status === "completed");
-  const totalRevenue    = completedProjects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
+  const revenueProjects = projects.filter((p) => p.status === "active" || p.status === "completed");
+  const totalRevenue    = revenueProjects.reduce((sum, p) => sum + (p.totalValue ?? 0), 0);
   const totalProjects   = projects.length;
   const activeProjects  = projects.filter((p) => p.status === "active").length;
   const totalTeamMembers = users.length;

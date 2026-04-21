@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Plus, Mail, Phone, FolderKanban, Loader2, X, Users } from "lucide-react";
 import { usersAPI, projectsAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 import {
   Dialog,
   DialogContent,
@@ -78,11 +79,41 @@ export function Team() {
     if (!editMember) return;
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = { ...editForm };
+      const payload: Record<string, unknown> = {
+        ...editForm,
+        insurance_expiration_date: editForm.insurance_expiration_date || null,
+      };
       if (editMember.role === "project_manager") {
         payload.commission_rate = editForm.commission_rate !== "" ? parseFloat(editForm.commission_rate) : null;
       }
       await usersAPI.update(editMember.id, payload);
+
+      // If PM commission_rate changed, recalculate commission on all their sold/active projects
+      if (editMember.role === "project_manager" && payload.commission_rate != null) {
+        const newRate = payload.commission_rate as number;
+        const { data: pmProjects } = await supabase
+          .from("projects")
+          .select("id, total_value")
+          .eq("project_manager_id", editMember.id)
+          .in("status", ["sold", "active"]);
+        for (const proj of pmProjects ?? []) {
+          const newCommission = (proj.total_value || 0) * (newRate / 100);
+          await supabase.from("projects").update({ commission: newCommission, commission_rate: newRate }).eq("id", proj.id);
+          // Upsert project-level commission_payments row (progress_payment_id = null)
+          const { data: existing } = await supabase
+            .from("commission_payments")
+            .select("id, status")
+            .eq("project_id", proj.id)
+            .is("progress_payment_id", null)
+            .maybeSingle();
+          if (existing && existing.status === "pending") {
+            await supabase.from("commission_payments").update({ amount: newCommission }).eq("id", existing.id);
+          } else if (!existing) {
+            await supabase.from("commission_payments").insert({ project_id: proj.id, profile_id: editMember.id, amount: newCommission, status: "pending" });
+          }
+        }
+      }
+
       toast.success("Team member updated.");
       setEditMember(null);
       setEditTouched(false);

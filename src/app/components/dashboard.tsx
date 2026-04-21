@@ -221,7 +221,7 @@ export function Dashboard() {
   // Calculate revenue based on selected date range (using project start_date)
   const periodRevenue = projects
     .filter((p) => {
-      if (p.status !== "completed") return false;
+      if (p.status !== "active" && p.status !== "completed") return false;
       if (!p.start_date) return false;
       const d = new Date(p.start_date);
       return d >= startDate && d <= endDate;
@@ -255,7 +255,7 @@ export function Dashboard() {
   const currentYear = currentDate.getFullYear();
   
   const currentMonthProjects = projects.filter((p) => {
-    if (p.status !== "completed") return false;
+    if (p.status !== "active" && p.status !== "completed") return false;
     if (!p.start_date) return false;
     const d = new Date(p.start_date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
