@@ -602,17 +602,18 @@ export function AppointmentDialog({
           <Button
             onClick={handleSchedule}
             disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || calendarConnected === false}
+            className="min-w-[180px]"
           >
             {scheduling ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Scheduling...
-              </>
+              </span>
             ) : (
-              <>
-                <CalendarIcon className="h-4 w-4 mr-2" />
+              <span className="flex items-center gap-2">
+                <CalendarIcon className="h-4 w-4" />
                 Schedule & Send Invite
-              </>
+              </span>
             )}
           </Button>
         </DialogFooter>

@@ -316,50 +316,37 @@ export function ProductManager() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      {/* Header — sticky below admin portal's title+tabs block (~120px) */}
+      <div className="sticky top-[120px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="shrink-0">
           <h2 className="text-xl font-bold">Product & Pricing Manager</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage all products, materials, and pricing
-          </p>
+          <p className="text-sm text-muted-foreground">Manage all products, materials, and pricing</p>
         </div>
-      </div>
-
-      {/* Global Markup */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Global Markup</CardTitle>
-          <p className="text-sm text-muted-foreground">Sets the markup percentage applied to all products. Saving will update every product in the catalog.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-3 max-w-xs">
-            <div className="relative flex-1">
-              <Input
-                type="number"
-                min="0"
-                max="999"
-                value={globalMarkup}
-                onChange={(e) => setGlobalMarkup(e.target.value)}
-                className="pr-8"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
-            </div>
-            <Button onClick={handleSaveGlobalMarkup} disabled={globalMarkupSaving}>
-              {globalMarkupSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Apply to All
-            </Button>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 w-56"
+            />
           </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center justify-between">
-        <div />
+          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) { setNewProduct(emptyForm); setAddTouched(false); } }}>
-
           <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
+            <Button size="sm">
+              <Plus className="h-4 w-4 mr-1.5" />
               Add Product
             </Button>
           </DialogTrigger>
@@ -575,35 +562,35 @@ export function ProductManager() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-2 -mx-px px-px">
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search products..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="All Categories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {categories.map((cat) => (
-              <SelectItem key={cat.id} value={cat.id}>
-                {cat.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      </div>
+      {/* Global Markup */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Global Markup</CardTitle>
+          <p className="text-sm text-muted-foreground">Sets the markup percentage applied to all products. Saving will update every product in the catalog.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 max-w-xs">
+            <div className="relative flex-1">
+              <Input
+                type="number"
+                min="0"
+                max="999"
+                value={globalMarkup}
+                onChange={(e) => setGlobalMarkup(e.target.value)}
+                className="pr-8"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+            </div>
+            <Button onClick={handleSaveGlobalMarkup} disabled={globalMarkupSaving}>
+              {globalMarkupSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Apply to All
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Products Table */}
       <Card>

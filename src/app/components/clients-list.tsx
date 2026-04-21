@@ -548,6 +548,8 @@ export function ClientsList() {
 
     useEffect(() => { setPage(0); }, [visible.length]);
 
+    const totalValue = visible.reduce((sum, c) => sum + clientProjectTotal(c), 0);
+
     return (
       <Card>
         <CardContent className="p-0">
@@ -675,6 +677,15 @@ export function ClientsList() {
               </tbody>
             </table>
           </div>
+          {visible.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30">
+              <span className="text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
+                <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
+              </div>
+            </div>
+          )}
           {visible.length > PAGE_SIZE && (
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
               <span className="text-xs text-muted-foreground">
@@ -704,20 +715,31 @@ export function ClientsList() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Clients</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Manage your client relationships</p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 -mt-4 pb-3">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h1 className="text-2xl font-bold">Clients</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage your client relationships</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => { setImportOpen(true); setImportRows([]); setImportDone(null); }}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import
+            </Button>
+            <Button onClick={() => setAddDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Client
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => { setImportOpen(true); setImportRows([]); setImportDone(null); }}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import
-          </Button>
-          <Button onClick={() => setAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Client
-          </Button>
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search clients..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
         </div>
       </div>
 
@@ -751,17 +773,6 @@ export function ClientsList() {
         </div>
       )}
 
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-2 -mx-px px-px">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search clients..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-      </div>
 
       {loading && <SkeletonList rows={8} />}
 

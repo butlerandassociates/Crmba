@@ -83,9 +83,9 @@ export function Integrations() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Integrations</h1>
-        <p className="text-muted-foreground mt-1">Connect your essential business tools</p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6">
+        <h1 className="text-2xl font-bold">Integrations</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Connect your essential business tools</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

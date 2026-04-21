@@ -9,11 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X } from "lucide-react";
+import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X, Plus, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
 import { toast } from "sonner";
+import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
@@ -28,6 +30,13 @@ export function PayrollPMDetail() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [processing, setProcessing] = useState<string | null>(null);
+
+  // Manual payout form
+  const [payoutOpen, setPayoutOpen] = useState(false);
+  const [payoutAmount, setPayoutAmount] = useState("");
+  const [payoutNotes, setPayoutNotes] = useState("");
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [deletingPayoutId, setDeletingPayoutId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -68,6 +77,19 @@ export function PayrollPMDetail() {
     }
   };
 
+  const handleDeleteInstallment = async (cpId: string) => {
+    setProcessing(cpId);
+    try {
+      await commissionPaymentsAPI.deleteById(cpId);
+      setInstallments(prev => prev.filter(i => i.id !== cpId));
+      toast.success("Commission installment removed");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete");
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   const handleSaveAmount = async (cpId: string) => {
     const amount = parseFloat(editAmount);
     if (isNaN(amount) || amount < 0) { toast.error("Please enter a valid amount greater than 0."); return; }
@@ -81,6 +103,37 @@ export function PayrollPMDetail() {
       toast.error(err.message || "Failed to update");
     } finally {
       setProcessing(null);
+    }
+  };
+
+  const handleRecordPayout = async () => {
+    const amount = parseFloat(payoutAmount);
+    if (isNaN(amount) || amount <= 0) { toast.error("Enter a valid amount greater than $0."); return; }
+    setPayoutSaving(true);
+    try {
+      await commissionPaymentsAPI.createManualPayout(id!, amount, payoutNotes.trim() || undefined);
+      toast.success(`${fmt(amount)} payout recorded`);
+      setPayoutAmount("");
+      setPayoutNotes("");
+      setPayoutOpen(false);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to record payout");
+    } finally {
+      setPayoutSaving(false);
+    }
+  };
+
+  const handleDeletePayout = async (cpId: string) => {
+    setDeletingPayoutId(cpId);
+    try {
+      await commissionPaymentsAPI.deleteManualPayout(cpId);
+      setInstallments(prev => prev.filter(i => i.id !== cpId));
+      toast.success("Payout removed");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove payout");
+    } finally {
+      setDeletingPayoutId(null);
     }
   };
 
@@ -113,14 +166,26 @@ export function PayrollPMDetail() {
   }
 
   const name = `${pm.first_name ?? ""} ${pm.last_name ?? ""}`.trim() || "—";
-  const pendingInstallments = installments.filter(i => i.status === "pending");
-  const processedInstallments = installments.filter(i => i.status === "processed");
+
+  // Project commission records (auto-created from move-to-sold or milestone payments)
+  const milestoneInstallments = installments.filter(i => i.payout_type !== "manual_payout");
+  // Manual cash payouts recorded by admin
+  const manualPayouts = installments.filter(i => i.payout_type === "manual_payout");
+
+  const pendingInstallments = milestoneInstallments.filter(i => i.status === "pending");
+  const processedInstallments = milestoneInstallments.filter(i => i.status === "processed");
   const totalPending = pendingInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const totalProcessed = processedInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
 
-  // Group by project
+  // Payout tracker: how much of the total owed has been paid in cash
+  const totalOwed = totalPending; // pending milestone commissions = what's owed
+  const totalPaidOut = manualPayouts.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const remaining = Math.max(0, totalOwed - totalPaidOut);
+  const paidPct = totalOwed > 0 ? Math.min(100, (totalPaidOut / totalOwed) * 100) : 0;
+
+  // Group by project (milestone installments only)
   const byProject: Record<string, any> = {};
-  installments.forEach((i: any) => {
+  milestoneInstallments.forEach((i: any) => {
     const pid = i.project?.id ?? "unknown";
     if (!byProject[pid]) {
       byProject[pid] = { project: i.project, items: [] };
@@ -177,7 +242,7 @@ export function PayrollPMDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Total Earned</p>
                 <p className="text-xl font-bold">{fmtShort(totalPending + totalProcessed)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{installments.length} total installment{installments.length !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{milestoneInstallments.length} total installment{milestoneInstallments.length !== 1 ? "s" : ""}</p>
               </div>
               <TrendingUp className="h-7 w-7 text-primary opacity-60" />
             </div>
@@ -185,8 +250,147 @@ export function PayrollPMDetail() {
         </Card>
       </div>
 
+      {/* Commission Payout Tracker */}
+      {totalOwed > 0 && (
+        <Card>
+          <CardContent className="pt-5 pb-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="text-sm font-semibold">Commission Payout Tracker</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Record cash installments paid to {pm.first_name} — use these amounts for your QuickBooks entries.</p>
+              </div>
+              <Button size="sm" onClick={() => setPayoutOpen((o) => !o)}>
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Record Payment
+              </Button>
+            </div>
+
+            {/* Progress bar */}
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{paidPct.toFixed(0)}% paid out</span>
+                <span>{fmtShort(remaining)} remaining</span>
+              </div>
+              <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${paidPct >= 100 ? "bg-green-500" : "bg-primary"}`}
+                  style={{ width: `${paidPct}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Total owed: <span className="font-semibold text-foreground">{fmtShort(totalOwed)}</span></span>
+                <span className="text-green-700 font-semibold">Paid: {fmtShort(totalPaidOut)}</span>
+              </div>
+            </div>
+
+            {/* Record payout form */}
+            {payoutOpen && (
+              <div className="border rounded-lg p-4 bg-muted/30 space-y-3 mb-4">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">New Payment Entry</p>
+                <div className="flex gap-2">
+                  {[25, 50, 75, 100].map((pct) => {
+                    const val = ((totalOwed * pct) / 100).toFixed(2);
+                    return (
+                      <Button
+                        key={pct}
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7"
+                        onClick={() => setPayoutAmount(val)}
+                      >
+                        {pct}% ({fmtShort(parseFloat(val))})
+                      </Button>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Amount ($)</Label>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={payoutAmount}
+                      onChange={(e) => setPayoutAmount(e.target.value)}
+                      className="h-8 text-sm"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Notes (optional)</Label>
+                    <Input
+                      placeholder="e.g. QuickBooks batch 04/22"
+                      value={payoutNotes}
+                      onChange={(e) => setPayoutNotes(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button size="sm" variant="outline" onClick={() => { setPayoutOpen(false); setPayoutAmount(""); setPayoutNotes(""); }}>Cancel</Button>
+                  <Button size="sm" disabled={payoutSaving} onClick={handleRecordPayout}>
+                    {payoutSaving ? "Saving..." : "Record Payment"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Payout history */}
+            {manualPayouts.length > 0 && (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 border-b">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
+                      <th className="py-2 px-3 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manualPayouts.map((p: any) => (
+                      <tr key={p.id} className="border-b last:border-0">
+                        <td className="py-2 px-3 text-xs text-muted-foreground">
+                          {p.processed_date
+                            ? new Date(p.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
+                        <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
+                        <td className="py-2 px-3">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            disabled={deletingPayoutId === p.id}
+                            onClick={() => handleDeletePayout(p.id)}
+                            title="Remove payout entry"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-muted/30 border-t">
+                      <td className="py-2 px-3 text-xs font-semibold">Total Paid Out</td>
+                      <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(totalPaidOut)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+
+            {manualPayouts.length === 0 && !payoutOpen && (
+              <p className="text-xs text-muted-foreground text-center py-2">No payouts recorded yet. Click "Record Payment" to log your first installment.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Commission Installments by Project */}
-      {installments.length === 0 ? (
+      {milestoneInstallments.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
             <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
@@ -326,6 +530,16 @@ export function PayrollPMDetail() {
                                           onClick={() => handleMarkProcessed(item.id)}
                                         >
                                           {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Mark Processed"}
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          disabled={isProcessing}
+                                          onClick={() => handleDeleteInstallment(item.id)}
+                                          title="Remove incorrect installment"
+                                        >
+                                          <X className="h-3 w-3" />
                                         </Button>
                                       </>
                                     )}

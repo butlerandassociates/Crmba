@@ -129,9 +129,20 @@ export function Dashboard() {
     }
   };
 
-  const activeClients = clients.filter((c) => c.pipeline_stage?.name?.toLowerCase() !== "completed").length;
+  // Active Clients = clients with at least one active project
+  const activeClientIds = new Set(projects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
+  const activeClients = activeClientIds.size;
   const activeProjects = projects.filter((p) => p.status === "active").length;
-  const revenueProjects = projects.filter((p) => p.status === "active" || p.status === "completed");
+
+  // Revenue/GP = current month only, sold + active + completed
+  const _now = new Date();
+  const _monthStart = new Date(_now.getFullYear(), _now.getMonth(), 1);
+  const _monthEnd = new Date(_now.getFullYear(), _now.getMonth() + 1, 0, 23, 59, 59);
+  const revenueProjects = projects.filter((p) => {
+    if (!["sold", "active", "completed"].includes(p.status)) return false;
+    const d = p.start_date ? new Date(p.start_date) : null;
+    return d && d >= _monthStart && d <= _monthEnd;
+  });
   const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
   const totalProfit = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const avgProfitMargin = revenueProjects.length > 0
@@ -166,7 +177,7 @@ export function Dashboard() {
       const y = d.getFullYear();
       const m = d.getMonth();
       const monthProjects = projects.filter((p) => {
-        if (p.status !== "active" && p.status !== "completed") return false;
+        if (!["sold", "active", "completed"].includes(p.status)) return false;
         const date = p.start_date ? new Date(p.start_date) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });
@@ -221,15 +232,26 @@ export function Dashboard() {
   // Calculate revenue based on selected date range (using project start_date)
   const periodRevenue = projects
     .filter((p) => {
-      if (p.status !== "active" && p.status !== "completed") return false;
+      if (!["sold", "active", "completed"].includes(p.status)) return false;
       if (!p.start_date) return false;
       const d = new Date(p.start_date);
       return d >= startDate && d <= endDate;
     })
     .reduce((sum, p) => sum + (p.totalValue || 0), 0);
   
-  const revenueProgress = (periodRevenue / MONTHLY_REVENUE_GOAL) * 100;
-  const remainingRevenue = MONTHLY_REVENUE_GOAL - periodRevenue;
+  const _curDate = new Date();
+  const _curMonth = _curDate.getMonth();
+  const _curYear = _curDate.getFullYear();
+  const currentMonthProjects = projects.filter((p) => {
+    if (!["sold", "active", "completed"].includes(p.status)) return false;
+    if (!p.start_date) return false;
+    const d = new Date(p.start_date);
+    return d.getMonth() === _curMonth && d.getFullYear() === _curYear;
+  });
+  const currentMonthRevenue = currentMonthProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+
+  const revenueProgress = (currentMonthRevenue / MONTHLY_REVENUE_GOAL) * 100;
+  const remainingRevenue = MONTHLY_REVENUE_GOAL - currentMonthRevenue;
   
   // Get date range label
   const getDateRangeLabel = () => {
@@ -249,19 +271,6 @@ export function Dashboard() {
     }
   };
   
-  // Calculate current month's revenue from sold contracts
-  const currentDate = new Date();
-  const currentMonth = currentDate.getMonth();
-  const currentYear = currentDate.getFullYear();
-  
-  const currentMonthProjects = projects.filter((p) => {
-    if (p.status !== "active" && p.status !== "completed") return false;
-    if (!p.start_date) return false;
-    const d = new Date(p.start_date);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  });
-
-  const currentMonthRevenue = currentMonthProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -273,7 +282,7 @@ export function Dashboard() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>

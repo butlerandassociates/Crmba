@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader } from "./ui/card";
+import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
@@ -120,13 +120,14 @@ export function Clients() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Clients</h1>
-          <p className="text-muted-foreground mt-1">Manage your client relationships</p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+    <div className="p-6 space-y-4">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-3 -mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h1 className="text-2xl font-bold">Clients</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage your client relationships</p>
+          </div>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -261,23 +262,22 @@ export function Clients() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
+        <div className="flex items-center gap-4 pb-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search clients by name, email, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <span className="text-sm text-muted-foreground whitespace-nowrap">{filteredClients.length} clients</span>
+        </div>
       </div>
 
       <Card>
-        <CardHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur rounded-t-lg">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search clients by name, email, or phone..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">{filteredClients.length} clients</span>
-          </div>
-        </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredClients.map((client) => {

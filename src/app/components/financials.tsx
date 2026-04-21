@@ -88,9 +88,9 @@ export function Financials() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Financial Overview</h1>
-        <p className="text-muted-foreground mt-1">Track revenue, costs, and profitability</p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6">
+        <h1 className="text-2xl font-bold">Financial Overview</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Track revenue, costs, and profitability</p>
       </div>
 
       {/* Financial Stats */}
