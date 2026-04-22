@@ -1,4 +1,5 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
+import { formatCurrency } from "@/app/utils/format";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect } from "react";
@@ -880,13 +881,6 @@ export function ClientDetail() {
     }
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "—";

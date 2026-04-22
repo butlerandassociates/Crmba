@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
@@ -87,8 +88,6 @@ export function Projects() {
     }
   };
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "—";

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/app/utils/format";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
@@ -404,7 +405,7 @@ export function ProposalDetail() {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(value);
   };
 

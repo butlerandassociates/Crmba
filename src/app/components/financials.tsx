@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { formatCurrency } from "@/app/utils/format";
 import { DollarSign, TrendingUp, TrendingDown, Percent, BarChart2, Award } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { useState, useEffect } from "react";
@@ -83,8 +84,6 @@ export function Financials() {
     margin: p.profitMargin || 0,
   }));
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   return (
     <div className="p-6 space-y-6">
