@@ -150,10 +150,12 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       // 2. Calculate financials from latest estimate
       let financials: Record<string, number> = {};
       let commissionRate = 0;
+      let estimateTitle = "";
       const { data: estimates } = await supabase
-        .from("estimates").select("id, total, subtotal, total_cost").eq("client_id", client.id)
+        .from("estimates").select("id, title, total, subtotal, total_cost").eq("client_id", client.id)
         .order("created_at", { ascending: false }).limit(1);
       if (estimates && estimates.length > 0) {
+        estimateTitle = estimates[0].title || "";
         const subtotalVal = Number(estimates[0].subtotal || 0);
         const totalValue = Number(estimates[0].total || subtotalVal);
         const totalCosts = Number(estimates[0].total_cost || 0);
@@ -189,10 +191,10 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       if (projectId) {
         await supabase.from("projects").update(projectPayload).eq("id", projectId);
       } else {
-        const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "Project";
+        const projectName = estimateTitle || `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "New Project";
         const { data: newProject, error } = await supabase
           .from("projects")
-          .insert({ client_id: client.id, name: clientName, ...projectPayload })
+          .insert({ client_id: client.id, name: projectName, ...projectPayload })
           .select().single();
         if (error) throw new Error(error.message);
         projectId = newProject.id;
