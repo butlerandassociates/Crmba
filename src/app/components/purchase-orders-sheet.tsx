@@ -6,9 +6,12 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { purchaseOrdersAPI } from "../api/purchase-orders";
 import { activityLogAPI } from "../api/activity-log";
 import { notificationsAPI } from "../utils/api";
+import { productsAPI } from "../api/products";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 interface PurchaseOrdersSheetProps {
@@ -29,55 +32,24 @@ const STATUS_CONFIG = {
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-700" },
 } as const;
 
-const UNIT_OPTIONS = ["SF", "LF", "EA", "Lump Sum"] as const;
-type UnitOption = typeof UNIT_OPTIONS[number];
-
-interface AvailableMaterial {
-  id: string;
-  name: string;
-  availableColors: string[];
-  defaultUnit: UnitOption;
-}
-
-const AVAILABLE_MATERIALS: AvailableMaterial[] = [
-  { id: "mat-001", name: "Concrete - 4000 PSI",              availableColors: ["Natural Gray", "Charcoal", "Beige"],         defaultUnit: "SF" },
-  { id: "mat-002", name: "Retaining Wall Block - Allan Block",availableColors: ["Gray", "Tan", "Brown", "Charcoal"],         defaultUnit: "SF" },
-  { id: "mat-003", name: "Wall Caps - Concrete",              availableColors: ["Gray", "Tan", "Brown"],                     defaultUnit: "EA" },
-  { id: "mat-004", name: "Rebar #4",                          availableColors: [],                                           defaultUnit: "LF" },
-  { id: "mat-005", name: "Gravel Base - 3/4 inch",            availableColors: [],                                           defaultUnit: "SF" },
-  { id: "mat-006", name: "Drainage Pipe - 4 inch perforated", availableColors: ["Black"],                                    defaultUnit: "LF" },
-  { id: "mat-007", name: "Geotextile Fabric",                 availableColors: [],                                           defaultUnit: "SF" },
-  { id: "mat-008", name: "Pavers - Concrete",                 availableColors: ["Gray", "Tan", "Red", "Charcoal"],           defaultUnit: "SF" },
-  { id: "mat-009", name: "Polymeric Sand",                    availableColors: ["Tan", "Gray"],                              defaultUnit: "Lump Sum" },
-  { id: "mat-010", name: "Landscape Fabric - Commercial Grade",availableColors: [],                                           defaultUnit: "SF" },
-  { id: "mat-011", name: "Deck Boards - Composite",           availableColors: ["Cedar", "Gray", "Walnut", "Weathered Wood"],defaultUnit: "LF" },
-  { id: "mat-012", name: "Deck Railing - Aluminum",           availableColors: ["Black", "Bronze", "White"],                 defaultUnit: "LF" },
-  { id: "mat-013", name: "Pressure Treated Lumber - 2x6",     availableColors: [],                                           defaultUnit: "LF" },
-  { id: "mat-014", name: "Pressure Treated Lumber - 4x4",     availableColors: [],                                           defaultUnit: "EA" },
-  { id: "mat-015", name: "Deck Screws - Stainless Steel",     availableColors: [],                                           defaultUnit: "Lump Sum" },
-  { id: "mat-016", name: "Sod - Bermuda",                     availableColors: [],                                           defaultUnit: "SF" },
-  { id: "mat-017", name: "Sod - Zoysia",                      availableColors: [],                                           defaultUnit: "SF" },
-  { id: "mat-018", name: "Mulch - Brown",                     availableColors: ["Brown", "Black", "Red"],                   defaultUnit: "Lump Sum" },
-  { id: "mat-019", name: "Edging - Steel",                    availableColors: ["Black"],                                    defaultUnit: "LF" },
-  { id: "mat-020", name: "Other",                             availableColors: [],                                           defaultUnit: "EA" },
-];
-
 interface MaterialLine {
   id: string;
   product_name: string;
   color: string;
   quantity: number;
-  unit: UnitOption;
+  unit: string;
   availableColors: string[];
+  isCustom?: boolean;
 }
 
 const emptyLine = (): MaterialLine => ({
   id: `line-${Date.now()}-${Math.random()}`,
   product_name: "",
   color: "",
-  quantity: 0,
-  unit: "SF",
+  quantity: 1,
+  unit: "EA",
   availableColors: [],
+  isCustom: false,
 });
 
 export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSave }: PurchaseOrdersSheetProps) {
@@ -100,6 +72,11 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const [notes, setNotes] = useState("");
   const [materials, setMaterials] = useState<MaterialLine[]>([emptyLine()]);
 
+  // Proposal-based materials + logged-in user email
+  const [proposalMaterials, setProposalMaterials] = useState<MaterialLine[]>([]);
+  const [userEmail, setUserEmail] = useState("");
+  const [dbUnits, setDbUnits] = useState<string[]>(["SF", "LF", "EA", "Lump Sum"]);
+
   // Send modal state
   const [showSendModal, setShowSendModal] = useState(false);
   const [recipientName, setRecipientName] = useState("");
@@ -112,8 +89,40 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     if (!client?.id) return;
     setLoading(true);
     try {
-      const data = await purchaseOrdersAPI.getByClient(client.id);
-      setPos(data);
+      const [posData, unitsData] = await Promise.all([
+        purchaseOrdersAPI.getByClient(client.id),
+        productsAPI.getUnits().catch(() => [] as any[]),
+      ]);
+      setPos(posData);
+      if (unitsData.length > 0) {
+        setDbUnits(unitsData.map((u: any) => u.name as string));
+      }
+
+      // Fetch accepted proposal line items for this client
+      const { data: prop } = await supabase
+        .from("estimates")
+        .select("id, line_items:estimate_line_items(id, product_name, quantity, unit, client_price, category)")
+        .eq("client_id", client.id)
+        .eq("status", "accepted")
+        .order("accepted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prop?.line_items?.length) {
+        const matLines: MaterialLine[] = prop.line_items.map((li: any) => ({
+          id: `line-${Date.now()}-${Math.random()}`,
+          product_name: li.product_name || "",
+          color: "",
+          quantity: Number(li.quantity) || 1,
+          unit: li.unit || "EA",
+          availableColors: [],
+        }));
+        setProposalMaterials(matLines);
+      }
+
+      // Get logged-in user email for Contact Email field
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) setUserEmail(user.email);
     } catch {
       toast.error("Failed to load purchase orders — please refresh.");
     } finally {
@@ -128,15 +137,15 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     }
   }, [open, client?.id]);
 
-  const resetForm = () => {
+  const resetForm = (editing = false) => {
     setSupplierName("");
     setContactName("");
     setContactPhone("");
-    setContactEmail(client?.email || "");
+    setContactEmail(userEmail || client?.email || "");
     setDeliveryDate("");
     setDeliveryTime("morning");
     setNotes("");
-    setMaterials([emptyLine()]);
+    setMaterials(!editing && proposalMaterials.length > 0 ? proposalMaterials.map(m => ({ ...m, id: `line-${Date.now()}-${Math.random()}` })) : [emptyLine()]);
     setShowSendModal(false);
     setRecipientName("");
     setRecipientEmail("");
@@ -156,14 +165,15 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     setMaterials(
       (po.items || []).length > 0
         ? po.items.map((item: any) => {
-            const mat = AVAILABLE_MATERIALS.find((m) => m.name === item.product_name);
+            const inProposal = proposalMaterials.some(m => m.product_name === item.product_name);
             return {
               id: `line-${Date.now()}-${Math.random()}`,
               product_name: item.product_name,
               color: item.color || "",
               quantity: item.quantity,
-              unit: item.unit as UnitOption,
-              availableColors: mat?.availableColors || [],
+              unit: item.unit || "EA",
+              availableColors: [],
+              isCustom: !inProposal && !!item.product_name,
             };
           })
         : [emptyLine()]
@@ -182,7 +192,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
         delivery_date: deliveryDate || undefined,
         notes: notes || undefined,
       });
-      const validItems = materials.filter((m) => m.product_name.trim());
+      const validItems = materials.filter((m) => m.product_name.trim() && m.product_name !== "__pick__");
       await purchaseOrdersAPI.updateItems(
         selectedPo.id,
         validItems.map((item, i) => ({
@@ -252,7 +262,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
 
     setSaving(true);
     try {
-      const validItems = materials.filter((m) => m.product_name.trim());
+      const validItems = materials.filter((m) => m.product_name.trim() && m.product_name !== "__pick__");
       await purchaseOrdersAPI.create(
         {
           project_id: project?.id,
@@ -321,16 +331,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const addMaterialLine = () => setMaterials((prev) => [...prev, emptyLine()]);
   const removeMaterialLine = (id: string) => setMaterials((prev) => prev.filter((m) => m.id !== id));
   const updateMaterial = (id: string, field: keyof MaterialLine, value: any) => {
-    setMaterials((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        if (field === "product_name") {
-          const mat = AVAILABLE_MATERIALS.find((am) => am.name === value);
-          return { ...m, product_name: value, unit: mat?.defaultUnit || m.unit, availableColors: mat?.availableColors || [], color: "" };
-        }
-        return { ...m, [field]: value };
-      })
-    );
+    setMaterials((prev) => prev.map((m) => m.id !== id ? m : { ...m, [field]: value }));
   };
 
   const formatDate = (d: string | null | undefined) => {
@@ -535,15 +536,16 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs font-semibold">Time of Day</Label>
-                        <select
-                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={deliveryTime}
-                          onChange={(e) => setDeliveryTime(e.target.value as any)}
-                        >
-                          <option value="morning">Morning (8am – 12pm)</option>
-                          <option value="afternoon">Afternoon (12pm – 4pm)</option>
-                          <option value="late afternoon">Late Afternoon (4pm – 6pm)</option>
-                        </select>
+                        <Select value={deliveryTime} onValueChange={(v) => setDeliveryTime(v as any)}>
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent side="bottom" align="start">
+                            <SelectItem value="morning">Morning (8am – 12pm)</SelectItem>
+                            <SelectItem value="afternoon">Afternoon (12pm – 4pm)</SelectItem>
+                            <SelectItem value="late afternoon">Late Afternoon (4pm – 6pm)</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </CardContent>
@@ -553,7 +555,12 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                 <Card>
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">Material Line Items</CardTitle>
+                      <div>
+                        <CardTitle className="text-base">Material Line Items</CardTitle>
+                        {!isEditing && proposalMaterials.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-0.5">Pre-filled from accepted proposal — edit qty as needed</p>
+                        )}
+                      </div>
                       <Button size="sm" className="bg-black hover:bg-gray-800 text-xs h-7" onClick={addMaterialLine}>
                         <Plus className="h-3 w-3 mr-1" />
                         Add Line
@@ -573,32 +580,59 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                     {materials.map((mat) => (
                       <div key={mat.id} className="grid grid-cols-12 gap-2 bg-muted/30 rounded-lg p-2 items-center">
                         <div className="col-span-4">
-                          <select
-                            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
-                            value={mat.product_name}
-                            onChange={(e) => updateMaterial(mat.id, "product_name", e.target.value)}
-                          >
-                            <option value="">Select material...</option>
-                            {AVAILABLE_MATERIALS.map((am) => (
-                              <option key={am.id} value={am.name}>{am.name}</option>
-                            ))}
-                          </select>
+                          {proposalMaterials.length > 0 && !mat.isCustom ? (
+                            <Select
+                              value={mat.product_name || "__pick__"}
+                              onValueChange={(v) => {
+                                if (v === "__other__") {
+                                  updateMaterial(mat.id, "isCustom", true);
+                                  updateMaterial(mat.id, "product_name", "");
+                                } else {
+                                  updateMaterial(mat.id, "product_name", v);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Select material…" />
+                              </SelectTrigger>
+                              <SelectContent side="bottom" align="start" className="max-h-52 overflow-y-auto">
+                                {proposalMaterials.map((pm) => (
+                                  <SelectItem key={pm.id} value={pm.product_name} className="text-xs">
+                                    {pm.product_name}
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value="__other__" className="text-xs text-muted-foreground italic">
+                                  Other (type manually)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="flex gap-1">
+                              <Input
+                                className="h-8 text-xs"
+                                placeholder="Material name..."
+                                value={mat.product_name}
+                                onChange={(e) => updateMaterial(mat.id, "product_name", e.target.value)}
+                              />
+                              {mat.isCustom && proposalMaterials.length > 0 && (
+                                <button
+                                  onClick={() => { updateMaterial(mat.id, "isCustom", false); updateMaterial(mat.id, "product_name", ""); }}
+                                  className="text-muted-foreground hover:text-foreground shrink-0"
+                                  title="Back to proposal list"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="col-span-3">
-                          {mat.availableColors.length > 0 ? (
-                            <select
-                              className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
-                              value={mat.color}
-                              onChange={(e) => updateMaterial(mat.id, "color", e.target.value)}
-                            >
-                              <option value="">Select color...</option>
-                              {mat.availableColors.map((c) => (
-                                <option key={c} value={c}>{c}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <Input value="N/A" disabled className="h-8 text-xs bg-muted/20" />
-                          )}
+                          <Input
+                            className="h-8 text-xs"
+                            placeholder="Color / spec"
+                            value={mat.color}
+                            onChange={(e) => updateMaterial(mat.id, "color", e.target.value)}
+                          />
                         </div>
                         <div className="col-span-2">
                           <Input
@@ -610,23 +644,25 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                           />
                         </div>
                         <div className="col-span-2">
-                          <select
-                            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
-                            value={mat.unit}
-                            onChange={(e) => updateMaterial(mat.id, "unit", e.target.value)}
-                          >
-                            {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                          </select>
+                          <Select value={mat.unit} onValueChange={(v) => updateMaterial(mat.id, "unit", v)}>
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent side="bottom" align="start" className="max-h-52 overflow-y-auto">
+                              {[...new Set([...dbUnits, mat.unit].filter(Boolean))].map((u) => (
+                                <SelectItem key={u} value={u} className="text-xs">{u}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="col-span-1 flex justify-center">
-                          {materials.length > 1 && (
-                            <button
-                              onClick={() => removeMaterialLine(mat.id)}
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => removeMaterialLine(mat.id)}
+                            className="text-muted-foreground hover:text-destructive disabled:opacity-30"
+                            disabled={materials.length === 1}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
                     ))}

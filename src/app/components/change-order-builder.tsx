@@ -27,7 +27,6 @@ const EMPTY_ITEM = () => ({
   total: 0,
 });
 
-const CATEGORIES = ["Materials", "Labor", "Equipment", "Permits", "Subcontractor", "Other"];
 
 export function ChangeOrderBuilder() {
   const { clientId, coId } = useParams<{ clientId: string; coId?: string }>();
@@ -338,7 +337,7 @@ export function ChangeOrderBuilder() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center h-full">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -356,9 +355,9 @@ export function ChangeOrderBuilder() {
   const canMerge = !!(proposal && approvalVerified && approvalFileUrl);
 
   return (
-    <div className="min-h-screen bg-muted/20">
+    <div className="h-full flex flex-col bg-muted/20">
       {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-background border-b px-6 py-3 flex items-center justify-between gap-4">
+      <div className="shrink-0 bg-background border-b px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/clients/${clientId}`)} className="shrink-0">
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
@@ -382,10 +381,12 @@ export function ChangeOrderBuilder() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="relative flex-1 min-h-0">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="h-full max-w-6xl mx-auto px-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
 
         {/* ── Left: CO Form ─────────────────────────────────────────────── */}
-        <div className="xl:col-span-2 space-y-6">
+        <div className="xl:col-span-2 h-full overflow-y-auto py-8 space-y-6">
 
           {/* CO Details */}
           <div className="bg-background border rounded-lg p-6 space-y-4">
@@ -430,18 +431,17 @@ export function ChangeOrderBuilder() {
 
             {/* Column headers */}
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground px-1 hidden sm:grid">
-              <div className="col-span-4">Description</div>
-              <div className="col-span-2">Category</div>
+              <div className="col-span-5">Description</div>
               <div className="col-span-2 text-center">Qty</div>
               <div className="col-span-2 text-right">Unit Price</div>
-              <div className="col-span-1 text-right">Total</div>
+              <div className="col-span-2 text-right">Total</div>
               <div className="col-span-1" />
             </div>
 
             <div className="space-y-3">
               {items.map((item, idx) => {
                 const catProducts = categories.length > 0 && pickerState[item.id]?.categoryId
-                  ? dbProducts.filter(p => p.service_category_id === pickerState[item.id].categoryId)
+                  ? dbProducts.filter(p => (p.category?.id ?? p.service_category_id) === pickerState[item.id].categoryId)
                   : [];
 
                 return (
@@ -456,7 +456,7 @@ export function ChangeOrderBuilder() {
                           <SelectTrigger className="h-8 text-xs flex-1 bg-blue-50 border-blue-200 text-blue-700">
                             <SelectValue placeholder="Browse by category…" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent side="bottom" align="start" className="max-h-52 overflow-y-auto">
                             {categories.map((c: any) => (
                               <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>
                             ))}
@@ -467,12 +467,15 @@ export function ChangeOrderBuilder() {
                             <SelectTrigger className="h-8 text-xs flex-1 bg-blue-50 border-blue-200 text-blue-700">
                               <SelectValue placeholder="Select product…" />
                             </SelectTrigger>
-                            <SelectContent>
-                              {catProducts.map((p: any) => (
-                                <SelectItem key={p.id} value={p.id} className="text-xs">
-                                  {p.name} — {fmt(p.unit_price || 0)}
-                                </SelectItem>
-                              ))}
+                            <SelectContent side="bottom" align="start" className="max-h-52 overflow-y-auto">
+                              {catProducts.map((p: any) => {
+                                const price = ((p.material_cost ?? 0) + (p.labor_cost ?? 0)) * (1 + (p.markup_percentage ?? 0) / 100);
+                                return (
+                                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                                    {p.name} — {fmt(price)}
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         )}
@@ -481,21 +484,13 @@ export function ChangeOrderBuilder() {
 
                     {/* Item fields */}
                     <div className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-12 sm:col-span-4">
+                      <div className="col-span-12 sm:col-span-5">
                         <Input
                           placeholder="Description *"
                           value={item.description}
                           onChange={e => updateItem(item.id, "description", e.target.value)}
                           className={`h-8 text-sm ${touched && !item.description.trim() ? "border-destructive" : ""}`}
                         />
-                      </div>
-                      <div className="col-span-6 sm:col-span-2">
-                        <Select value={item.category} onValueChange={v => updateItem(item.id, "category", v)}>
-                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
                       </div>
                       <div className="col-span-6 sm:col-span-2">
                         <Input
@@ -505,7 +500,7 @@ export function ChangeOrderBuilder() {
                           className="h-8 text-sm text-center"
                         />
                       </div>
-                      <div className="col-span-5 sm:col-span-2">
+                      <div className="col-span-6 sm:col-span-2">
                         <Input
                           type="number" min="0" step="0.01"
                           value={item.unit_price}
@@ -513,7 +508,7 @@ export function ChangeOrderBuilder() {
                           className="h-8 text-sm text-right"
                         />
                       </div>
-                      <div className="col-span-5 sm:col-span-1 text-right text-sm font-medium tabular-nums pr-1">
+                      <div className="col-span-10 sm:col-span-2 text-right text-sm font-medium tabular-nums pr-1">
                         {fmt(item.total)}
                       </div>
                       <div className="col-span-2 sm:col-span-1 flex justify-end">
@@ -608,8 +603,8 @@ export function ChangeOrderBuilder() {
         </div>
 
         {/* ── Right: Existing Proposal Reference ────────────────────────── */}
-        <div className="space-y-4">
-          <div className="bg-background border rounded-lg overflow-hidden sticky top-20">
+        <div className="h-full overflow-y-hidden py-8 flex flex-col">
+          <div className="bg-background border rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
             <button
               className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/40 transition-colors"
               onClick={() => setShowProposal(p => !p)}
@@ -627,14 +622,14 @@ export function ChangeOrderBuilder() {
             </button>
 
             {showProposal && (
-              <div className="border-t">
+              <div className="border-t flex flex-col min-h-0 flex-1">
                 {!proposal ? (
                   <div className="px-4 py-6 text-center">
                     <p className="text-sm text-muted-foreground">No accepted proposal found.</p>
                     <p className="text-xs text-muted-foreground mt-1">A proposal must be accepted before creating change orders.</p>
                   </div>
                 ) : (
-                  <div className="divide-y max-h-[60vh] overflow-y-auto">
+                  <div className="divide-y flex-1 overflow-y-auto">
                     {proposalGroups.length === 0 ? (
                       <p className="px-4 py-3 text-sm text-muted-foreground">No line items on proposal.</p>
                     ) : (
@@ -670,6 +665,8 @@ export function ChangeOrderBuilder() {
           </div>
         </div>
 
+      </div>
+        </div>
       </div>
     </div>
   );
