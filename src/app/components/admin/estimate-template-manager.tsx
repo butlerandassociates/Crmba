@@ -579,7 +579,7 @@ export function EstimateTemplateManager() {
 
       {/* ── Template Editor Dialog ── */}
       <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setEditorTouched(false); }}>
-        <DialogContent className="max-w-[98vw] w-screen h-[85vh] flex flex-col p-0">
+        <DialogContent className="max-w-[95vw] sm:max-w-[95vw] h-[85vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>{editingId ? "Edit Template" : "New Template"}</DialogTitle>
             <DialogDescription>
@@ -656,201 +656,142 @@ export function EstimateTemplateManager() {
 
             {/* ── STEPS / QUESTIONS TAB ── */}
             {activeTab === "steps" && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Each step is a screen the estimator sees. Add the questions you need answered to build the estimate.
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Each step is a screen the estimator sees. One row = one question. Choices: comma-separated (e.g. <code className="bg-muted px-1 rounded">4 inch, 5 inch, 6 inch</code>).
                 </p>
-                {editorSteps.map((step, stepIdx) => (
-                  <Card key={step.id} className="border-2">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground w-14 shrink-0">
-                          Step {stepIdx + 1}
-                        </span>
-                        <Input
-                          placeholder="Step title (e.g., Project Type)"
-                          value={step.title}
-                          onChange={(e) => updateStep(stepIdx, "title", e.target.value)}
-                          className="h-8"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => moveStep(stepIdx, -1)}
-                          disabled={stepIdx === 0}
-                          className="h-8 w-8 p-0 shrink-0"
-                        >
-                          <ChevronUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => moveStep(stepIdx, 1)}
-                          disabled={stepIdx === editorSteps.length - 1}
-                          className="h-8 w-8 p-0 shrink-0"
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeStep(stepIdx)}
-                          className="h-8 w-8 p-0 shrink-0 text-destructive hover:text-destructive"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {(step.fields ?? []).map((field: any, fieldIdx: number) => (
-                        <div
-                          key={fieldIdx}
-                          className="border rounded-lg p-3 bg-muted/30 space-y-3"
-                        >
-                          {/* Row 1: Question label — full width, prominent */}
-                          <div className="flex items-start gap-2">
-                            <div className="flex-1 space-y-1">
-                              <Label className="text-xs text-muted-foreground">Question / Label</Label>
-                              <Input
-                                placeholder="e.g., Square Footage"
-                                value={field.label}
-                                onChange={(e) =>
-                                  updateField(stepIdx, fieldIdx, "label", e.target.value)
-                                }
-                                className="text-base font-medium h-10"
-                              />
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeField(stepIdx, fieldIdx)}
-                              className="h-8 w-8 p-0 mt-5 shrink-0 text-destructive hover:text-destructive"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-
-                          {/* Row 2: Type + Required */}
-                          <div className="flex items-center gap-4">
-                            <div className="w-52 space-y-1">
-                              <Label className="text-xs text-muted-foreground">Answer Type</Label>
-                              <Select
-                                value={field.type}
-                                onValueChange={(v) =>
-                                  updateField(stepIdx, fieldIdx, "type", v)
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-sm">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {FIELD_TYPES.map((t) => (
-                                    <SelectItem key={t.value} value={t.value} className="text-sm">
-                                      {t.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center gap-2 mt-5">
-                              <Checkbox
-                                id={`req-${stepIdx}-${fieldIdx}`}
-                                checked={field.required}
-                                onCheckedChange={(v) =>
-                                  updateField(stepIdx, fieldIdx, "required", v)
-                                }
-                              />
-                              <Label
-                                htmlFor={`req-${stepIdx}-${fieldIdx}`}
-                                className="text-sm cursor-pointer"
-                              >
-                                Required
-                              </Label>
-                            </div>
-                          </div>
-
-                          {/* Options for radio/select — individual rows */}
-                          {(field.type === "radio" || field.type === "select") && (
-                            <div className="space-y-2">
-                              <Label className="text-xs">Choices</Label>
-                              <div className="space-y-1.5">
-                                {(Array.isArray(field.options) ? field.options : []).map((opt: string, optIdx: number) => (
-                                  <div key={optIdx} className="flex items-center gap-2">
-                                    <Input
-                                      placeholder={`Option ${optIdx + 1}`}
-                                      value={opt}
-                                      onChange={(e) => {
-                                        const updated = [...field.options];
-                                        updated[optIdx] = e.target.value;
-                                        updateField(stepIdx, fieldIdx, "options", updated);
-                                      }}
-                                      className="h-8 text-sm"
-                                    />
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = field.options.filter((_: string, i: number) => i !== optIdx);
-                                        updateField(stepIdx, fieldIdx, "options", updated);
-                                      }}
-                                      className="h-8 w-8 p-0 text-destructive hover:text-destructive shrink-0"
-                                    >
-                                      <X className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                ))}
+                <div className="border rounded-lg overflow-auto max-h-[50vh]">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-8">#</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 240}}>Question Label</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 110}}>Variable</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 170}}>Type</th>
+                        <th className="sticky top-0 z-10 bg-muted text-center px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-20">Required</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 280}}>Choices <span className="font-normal">(radio/select — comma separated)</span></th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 200}}>Hint Text</th>
+                        <th className="sticky top-0 z-10 bg-muted w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editorSteps.map((step, stepIdx) => (
+                        <>
+                          {/* Step header row */}
+                          <tr key={`step-${stepIdx}`} className="bg-muted/40 border-b border-t">
+                            <td colSpan={8} className="px-3 py-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-muted-foreground shrink-0">Step {stepIdx + 1}</span>
+                                <Input
+                                  placeholder="Step title (e.g., Project Details)"
+                                  value={step.title}
+                                  onChange={(e) => updateStep(stepIdx, "title", e.target.value)}
+                                  className="h-7 text-xs w-56 border-0 bg-transparent shadow-none focus-visible:ring-1 focus-visible:bg-background"
+                                />
+                                <div className="flex items-center gap-1 ml-auto">
+                                  <Button variant="ghost" size="sm" onClick={() => moveStep(stepIdx, -1)} disabled={stepIdx === 0} className="h-6 w-6 p-0">
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => moveStep(stepIdx, 1)} disabled={stepIdx === editorSteps.length - 1} className="h-6 w-6 p-0">
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => removeStep(stepIdx)} className="h-6 w-6 p-0 text-destructive hover:text-destructive">
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                type="button"
-                                onClick={() => updateField(stepIdx, fieldIdx, "options", [...(field.options ?? []), ""])}
-                                className="h-7 text-xs"
-                              >
-                                <Plus className="h-3 w-3 mr-1" />
-                                Add Option
+                            </td>
+                          </tr>
+
+                          {/* Field rows */}
+                          {(step.fields ?? []).map((field: any, fieldIdx: number) => (
+                            <tr key={`${stepIdx}-${fieldIdx}`} className="border-b hover:bg-muted/20 transition-colors">
+                              <td className="px-3 py-1.5 text-xs text-muted-foreground border-r text-center">{fieldIdx + 1}</td>
+                              <td className="px-1.5 py-1.5 border-r">
+                                <Input
+                                  value={field.label}
+                                  onChange={(e) => updateField(stepIdx, fieldIdx, "label", e.target.value)}
+                                  placeholder="e.g., Square Footage"
+                                  className="h-8 text-xs border-0 shadow-none focus-visible:ring-1"
+                                />
+                              </td>
+                              <td className="px-3 py-1.5 border-r">
+                                {field.id ? (
+                                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{field.id}</code>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-1.5 py-1.5 border-r">
+                                <Select value={field.type} onValueChange={(v) => updateField(stepIdx, fieldIdx, "type", v)}>
+                                  <SelectTrigger className="h-8 text-xs border-0 shadow-none focus:ring-1">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {FIELD_TYPES.map((t) => (
+                                      <SelectItem key={t.value} value={t.value} className="text-xs">{t.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-1.5 border-r text-center">
+                                <Checkbox
+                                  checked={field.required}
+                                  onCheckedChange={(v) => updateField(stepIdx, fieldIdx, "required", v)}
+                                />
+                              </td>
+                              <td className="px-1.5 py-1.5 border-r">
+                                {(field.type === "radio" || field.type === "select") ? (
+                                  <Input
+                                    value={Array.isArray(field.options) ? field.options.join(", ") : ""}
+                                    onChange={(e) =>
+                                      updateField(stepIdx, fieldIdx, "options",
+                                        e.target.value.split(",").map((s: string) => s.trimStart()).filter(Boolean)
+                                      )
+                                    }
+                                    placeholder="Option 1, Option 2, Option 3"
+                                    className="h-8 text-xs border-0 shadow-none focus-visible:ring-1"
+                                  />
+                                ) : (
+                                  <span className="px-3 text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-1.5 py-1.5 border-r">
+                                <Input
+                                  value={field.help_text ?? ""}
+                                  onChange={(e) => updateField(stepIdx, fieldIdx, "help_text", e.target.value)}
+                                  placeholder="Optional hint..."
+                                  className="h-8 text-xs border-0 shadow-none focus-visible:ring-1"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeField(stepIdx, fieldIdx)}
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+
+                          {/* Add question row */}
+                          <tr key={`add-${stepIdx}`} className="border-b bg-muted/10">
+                            <td colSpan={8} className="px-3 py-1.5">
+                              <Button variant="ghost" size="sm" onClick={() => addField(stepIdx)} className="h-7 text-xs text-muted-foreground hover:text-foreground">
+                                <Plus className="h-3 w-3 mr-1" /> Add Question to Step {stepIdx + 1}
                               </Button>
-                            </div>
-                          )}
-
-                          {/* Hint text + generated variable name */}
-                          <div className="flex items-end gap-2">
-                            <div className="flex-1 space-y-1">
-                              <Label className="text-xs">Hint Text (optional)</Label>
-                              <Input
-                                placeholder="Short note shown below the field"
-                                value={field.help_text ?? ""}
-                                onChange={(e) =>
-                                  updateField(stepIdx, fieldIdx, "help_text", e.target.value)
-                                }
-                                className="h-8 text-sm"
-                              />
-                            </div>
-                            {field.id && (
-                              <div className="text-xs text-muted-foreground pb-2 shrink-0">
-                                Variable:{" "}
-                                <code className="bg-muted px-1 py-0.5 rounded">{field.id}</code>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                            </td>
+                          </tr>
+                        </>
                       ))}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => addField(stepIdx)}
-                        className="h-7 text-xs"
-                      >
-                        <Plus className="h-3.5 w-3.5 mr-1" />
-                        Add Question
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-                <Button variant="outline" onClick={addStep}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Step
+                    </tbody>
+                  </table>
+                </div>
+                <Button variant="outline" size="sm" onClick={addStep}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Add Step
                 </Button>
               </div>
             )}
@@ -874,22 +815,22 @@ export function EstimateTemplateManager() {
                 )}
 
                 {/* Spreadsheet table */}
-                <div className="border rounded-lg overflow-auto">
+                <div className="border rounded-lg overflow-auto max-h-[50vh]">
                   <table className="w-full text-sm border-collapse">
                     <thead>
-                      <tr className="bg-muted/60 border-b">
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground w-8 border-r">#</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 200}}>Rule Name</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 180}}>Product</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 220}}>
+                      <tr className="border-b">
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground w-8 border-r">#</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 220}}>Rule Name</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 220}}>Product</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 280}}>
                           Formula
                           <span className="font-normal text-muted-foreground ml-1">(use field IDs above)</span>
                         </th>
-                        <th className="text-center px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-24">Round Up</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 110}}>Unit</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 140}}>Only when field</th>
-                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 120}}>= equals</th>
-                        <th className="w-10"></th>
+                        <th className="sticky top-0 z-10 bg-muted text-center px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-24">Round Up</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 130}}>Unit</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 180}}>Only when field</th>
+                        <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 160}}>= equals</th>
+                        <th className="sticky top-0 z-10 bg-muted w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
