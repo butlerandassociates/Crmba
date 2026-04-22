@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -56,6 +56,7 @@ import { PageLoader, SkeletonCards } from "./ui/page-loader";
 
 export function ProposalDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { can } = usePermissions();
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
@@ -131,6 +132,9 @@ export function ProposalDetail() {
   const [wizardCategory, setWizardCategory] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
 
+  const [isDirty, setIsDirty] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
   const [markingAccepted, setMarkingAccepted] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
 
@@ -158,6 +162,25 @@ export function ProposalDetail() {
       }
     }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!proposal) return;
+    const titleChanged = editTitle !== (proposal.title ?? "");
+    const descChanged = editDescription !== (proposal.description ?? "");
+    const originalItems = proposal.line_items ?? [];
+    const itemsChanged =
+      editLineItems.length !== originalItems.length ||
+      editLineItems.some((item) => item.id?.startsWith("new-")) ||
+      editLineItems.some((item, i) => {
+        const orig = originalItems[i];
+        if (!orig) return true;
+        return (
+          Number(item.quantity) !== Number(orig.quantity) ||
+          Number(item.client_price ?? item.price_per_unit) !== Number(orig.client_price ?? orig.price_per_unit)
+        );
+      });
+    setIsDirty(titleChanged || descChanged || itemsChanged);
+  }, [editTitle, editDescription, editLineItems, proposal]);
 
   useRealtimeRefetch(() => {
     if (!id) return;
@@ -583,14 +606,19 @@ export function ProposalDetail() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-20 flex items-center justify-between bg-background border-b px-4 py-3 -mx-4 -mt-4">
         <div className="flex items-center gap-4">
-          <Link to={`/clients/${proposal.client_id}`}>
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Client
-            </Button>
-          </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (isDirty) setShowUnsavedDialog(true);
+              else navigate(`/clients/${proposal.client_id}`);
+            }}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Client
+          </Button>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{proposal.title}</h1>
@@ -868,7 +896,7 @@ export function ProposalDetail() {
                                     </Button>
                                   </td>
                                   <td className="p-3">
-                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}>
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPendingDeleteIdx(idx)}>
                                       <Trash2 className="h-4 w-4 text-destructive" />
                                     </Button>
                                   </td>
@@ -1353,6 +1381,45 @@ export function ProposalDetail() {
               title="Email Preview"
               sandbox="allow-same-origin"
             />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unsaved changes guard */}
+      <Dialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>You have unsaved changes to this proposal. What would you like to do?</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 px-6 py-4">
+            <Button variant="outline" className="flex-1" onClick={() => { setShowUnsavedDialog(false); navigate(`/clients/${proposal.client_id}`); }}>Leave</Button>
+            <Button className="flex-1" onClick={() => { setShowUnsavedDialog(false); handleSave(); }}>Save</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove line item confirmation */}
+      <Dialog open={pendingDeleteIdx !== null} onOpenChange={(open) => { if (!open) setPendingDeleteIdx(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove item?</DialogTitle>
+            <DialogDescription>
+              {pendingDeleteIdx !== null && editLineItems[pendingDeleteIdx]
+                ? `Are you sure you want to remove "${editLineItems[pendingDeleteIdx].product_name || editLineItems[pendingDeleteIdx].name}" from this proposal?`
+                : "Are you sure you want to remove this item?"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 px-6 py-4">
+            <Button variant="outline" onClick={() => setPendingDeleteIdx(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => {
+              if (pendingDeleteIdx !== null) {
+                setEditLineItems((prev) => prev.filter((_, i) => i !== pendingDeleteIdx));
+                setPendingDeleteIdx(null);
+              }
+            }}>
+              Remove
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

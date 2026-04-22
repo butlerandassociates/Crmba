@@ -322,6 +322,15 @@ export function ClientDetail() {
     }
   }, [client?.status, clientProjects.length]);
 
+  // Auto-load live GP actuals for active/completed projects so the Project Financials card
+  // shows real costs (crew payments + receipts) instead of the stored move-to-sold snapshot
+  useEffect(() => {
+    if (!client || !["active", "completed"].includes(client.status)) return;
+    if (clientProjects.length === 0 || clientProposals.length === 0) return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    clientProjects.forEach((p) => loadGpHealth(p.id));
+  }, [clientProjects.length, clientProposals.length, client?.status]);
+
   // Load photos, notes and activity log when client loads
   useEffect(() => {
     if (client && id) {
@@ -679,7 +688,9 @@ export function ClientDetail() {
       const laborFromCrewPayments = crewPayments.reduce((s: number, cp: any) =>
         s + (parseFloat(cp.amount_paid) || 0), 0);
 
-      const laborActual = laborFromReceipts + laborFromCrewPayments;
+      // Use whichever is larger: committed FIO labor vs actual paid
+      // This matches the DB trigger logic in migration 050
+      const laborActual = laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments);
 
       setGpHealthData((prev) => ({
         ...prev,
@@ -1533,9 +1544,17 @@ export function ClientDetail() {
             {["active", "completed"].includes(client.status) ? (() => {
               const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
-              const grossProfit = clientProjects[0] ? (clientProjects[0]?.grossProfit ?? 0) : 0;
-              const cost = clientProjects[0]?.totalCosts ?? 0;
-              const margin = clientProjects[0]?.profitMargin ?? 0;
+              const liveGp = clientProjects[0] ? gpHealthData[clientProjects[0].id] : null;
+              // Only use live actuals when real spend has been recorded (prevents showing $0 cost before any entries)
+              const liveTotal = liveGp ? liveGp.materialActual + liveGp.laborActual : 0;
+              const hasActuals = liveTotal > 0;
+              const cost = hasActuals ? liveTotal : (clientProjects[0]?.totalCosts ?? 0);
+              const grossProfit = hasActuals
+                ? totalValue - cost
+                : (clientProjects[0] ? (clientProjects[0]?.grossProfit ?? 0) : 0);
+              const margin = totalValue > 0
+                ? (grossProfit / totalValue) * 100
+                : (clientProjects[0]?.profitMargin ?? 0);
               const commission = clientProjects[0]?.commission ?? 0;
               const donutData = totalValue > 0
                 ? [

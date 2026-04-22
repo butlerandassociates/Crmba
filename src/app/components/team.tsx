@@ -234,8 +234,8 @@ export function Team() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {members.map((member) => (
-                      <Card key={member.id}>
-                        <CardContent className="p-6 space-y-4">
+                      <Card key={member.id} className="flex flex-col">
+                        <CardContent className="p-6 flex flex-col flex-1 gap-4">
                           <div className="flex items-start justify-between">
                             <div>
                               <h3 className="font-semibold text-lg">
@@ -273,7 +273,7 @@ export function Team() {
                             )}
                           </div>
 
-                          <div className="pt-4 border-t flex gap-2">
+                          <div className="mt-auto pt-4 border-t flex gap-2">
                             <Button variant="outline" size="sm" className="flex-1" onClick={() => openViewProjects(member)}>
                               View Projects
                             </Button>

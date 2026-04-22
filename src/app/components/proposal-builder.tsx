@@ -120,6 +120,8 @@ export function ProposalBuilder() {
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Custom item form
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -382,12 +384,18 @@ export function ProposalBuilder() {
       <div className="sticky top-0 z-20 border-b p-4 bg-white shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link to={`/clients/${clientId}`}>
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "";
+                if (isDirty) setShowUnsavedDialog(true);
+                else navigate(`/clients/${clientId}`);
+              }}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
             <div>
               <h1 className="text-xl font-bold">New Proposal</h1>
               <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
@@ -738,7 +746,7 @@ export function ProposalBuilder() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => removeLineItem(item.id)}
+                                    onClick={() => setPendingDeleteId(item.id)}
                                     className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                                   >
                                     <X className="h-4 w-4" />
@@ -940,6 +948,41 @@ export function ProposalBuilder() {
           </div>
         )}
       </div>
+
+      {/* Unsaved changes guard */}
+      <Dialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>You have unsaved work on this proposal. What would you like to do?</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 px-6 py-4">
+            <Button variant="outline" className="flex-1" onClick={() => { setShowUnsavedDialog(false); navigate(`/clients/${clientId}`); }}>Leave</Button>
+            <Button className="flex-1" onClick={() => { setShowUnsavedDialog(false); handleSaveProposal(); }}>Save</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove line item confirmation */}
+      <Dialog open={!!pendingDeleteId} onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove item?</DialogTitle>
+            <DialogDescription>
+              {pendingDeleteId && (() => {
+                const item = lineItems.find((i) => i.id === pendingDeleteId);
+                return item ? `Are you sure you want to remove "${item.productName}" from this proposal?` : "Are you sure you want to remove this item?";
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 px-6 py-4">
+            <Button variant="outline" onClick={() => setPendingDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (pendingDeleteId) { removeLineItem(pendingDeleteId); setPendingDeleteId(null); } }}>
+              Remove
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={(open) => { setShowWizard(open); if (!open) { setSelectedCategory(""); setActiveTemplate(null); } }}>
