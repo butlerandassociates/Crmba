@@ -554,10 +554,21 @@ export function ClientsList() {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full table-fixed">
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-28" />
+                <col className="w-40" />
+                <col className="w-52" />
+                <col className="w-36" />
+                <col className="w-32" />
+                <col className="w-52" />
+                <col className="w-28" />
+                <col className="w-24" />
+              </colgroup>
               <thead className="border-b bg-muted/50">
                 <tr>
-                  <th className="p-3 w-10">
+                  <th className="p-3">
                     <Checkbox
                       checked={allSelected ? true : someSelected ? "indeterminate" : false}
                       onCheckedChange={() => toggleSelectAll(paged)}
@@ -688,17 +699,19 @@ export function ClientsList() {
                   </tr>
                 ))}
               </tbody>
+              {visible.length > 0 && (
+                <tfoot className="border-t bg-muted/30">
+                  <tr>
+                    <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                    <td className="p-3">
+                      <span className="text-xs text-muted-foreground block">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
+                      <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
-          {visible.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30">
-              <span className="text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
-                <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
-              </div>
-            </div>
-          )}
           {visible.length > PAGE_SIZE && (
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
               <span className="text-xs text-muted-foreground">
