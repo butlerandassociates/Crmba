@@ -661,16 +661,25 @@ export function ClientDetail() {
       const effectiveMaterialBudget = lineItemCostTotal > 0 ? materialBudget : estimateTotalCost * 0.7;
       const effectiveLaborBudget = lineItemCostTotal > 0 ? laborBudget : estimateTotalCost * 0.3;
 
-      // Actual spend from receipts
+      // Actual spend from cost attribution receipts
       const materialActual = receipts.filter((r: any) => r.category === "material")
         .reduce((s: number, r: any) => s + (r.amount || 0), 0);
-      const laborActual = receipts.filter((r: any) => r.category === "labor")
+      const laborFromReceipts = receipts.filter((r: any) => r.category === "labor")
         .reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
       // FIO assigned labor (crew payout scheduled in FIO)
       const fio = await fioAPI.getByProject(projectId).catch(() => null);
       const fioAssigned = (fio?.items ?? []).reduce((s: number, item: any) =>
         s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0);
+
+      // Actual labor paid via FIO crew payments
+      const crewPayments = fio?.id
+        ? await fioAPI.getCrewPayments(fio.id).catch(() => [] as any[])
+        : [];
+      const laborFromCrewPayments = crewPayments.reduce((s: number, cp: any) =>
+        s + (parseFloat(cp.amount_paid) || 0), 0);
+
+      const laborActual = laborFromReceipts + laborFromCrewPayments;
 
       setGpHealthData((prev) => ({
         ...prev,

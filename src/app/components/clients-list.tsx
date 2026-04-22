@@ -569,7 +569,7 @@ export function ClientsList() {
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date Received</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Appointment</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage === "sold" ? "Start Date" : "Appointment"}</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
                 </tr>
@@ -626,7 +626,20 @@ export function ClientsList() {
                       </span>
                     </td>
                     <td className="p-3">
-                      {client.appointment_met ? (
+                      {stage === "sold" ? (
+                        client.project_start_date ? (
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(client.project_start_date + "T00:00:00").toLocaleDateString("en-US", {
+                                month: "short", day: "numeric", year: "numeric",
+                              })}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )
+                      ) : client.appointment_met ? (
                         <div className="flex items-center gap-1.5">
                           <CalendarCheck className="h-3.5 w-3.5 text-green-600" />
                           <span className="text-xs font-medium text-green-700">Met</span>

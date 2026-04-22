@@ -14,7 +14,7 @@ export const clientsAPI = {
         *,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
-        projects(total_value),
+        projects(total_value, start_date),
         estimates(id, total, status, created_at)
       `)
       .eq("is_discarded", false)
@@ -25,12 +25,14 @@ export const clientsAPI = {
         (sum: number, p: any) => sum + (p.total_value ?? 0),
         0
       );
+      const project_start_date = (c.projects ?? [])[0]?.start_date ?? null;
       const latestProposal = (c.estimates ?? [])
         .filter((e: any) => e.status !== "declined")
         .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
       return {
         ...c,
         project_total,
+        project_start_date,
         proposal_forecast: latestProposal?.total ?? 0,
       };
     });
