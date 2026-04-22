@@ -1,4 +1,5 @@
 import { useParams, Link } from "react-router";
+import { formatCurrency } from "@/app/utils/format";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -186,7 +187,7 @@ export function ProjectDetail() {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(value);
   };
 

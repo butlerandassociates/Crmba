@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { formatCurrency } from "@/app/utils/format";
 import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2 } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { Link } from "react-router";
@@ -276,7 +277,7 @@ export function Dashboard() {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(value);
   };
 
@@ -668,7 +669,7 @@ export function Dashboard() {
         const activeList = collectionsTab === 'overdue' ? overdue : collectionsTab === 'today' ? dueToday : upcoming;
 
         const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        const formatCurrencyLocal = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
+        const formatCurrencyLocal = formatCurrency;
 
         return (
           <Card>

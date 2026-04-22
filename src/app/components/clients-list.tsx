@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Link, useLocation } from "react-router";
 import { Card, CardContent } from "./ui/card";
@@ -518,8 +519,6 @@ export function ClientsList() {
     }
   };
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   const formatDateTime = (startStr: string, endStr?: string | null) => {
     const s = new Date(startStr);

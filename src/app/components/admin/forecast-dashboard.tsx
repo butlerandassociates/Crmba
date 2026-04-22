@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { clientsAPI, projectsAPI } from "../../utils/api";
@@ -31,8 +32,6 @@ export function ForecastDashboard() {
   useEffect(() => { fetchData(); }, []);
   useRealtimeRefetch(fetchData, ["clients", "projects"], "forecast-dashboard");
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   if (loading) {
     return (

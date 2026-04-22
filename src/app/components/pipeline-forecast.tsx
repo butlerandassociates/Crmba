@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { formatCurrency } from "@/app/utils/format";
 import { Badge } from "./ui/badge";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
@@ -70,7 +71,7 @@ export function PipelineForecast() {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(value);
   };
 
