@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -271,6 +271,8 @@ export function EstimateTemplateManager() {
   const [editorSteps, setEditorSteps] = useState<any[]>([]);
   const [editorRules, setEditorRules] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"info" | "steps" | "rules">("info");
+  const stepsTableRef = useRef<HTMLDivElement>(null);
+  const rulesTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadAll();
@@ -374,6 +376,9 @@ export function EstimateTemplateManager() {
     const s = emptyStep();
     s.order_index = editorSteps.length;
     setEditorSteps([...editorSteps, s]);
+    setTimeout(() => {
+      stepsTableRef.current?.scrollTo({ top: stepsTableRef.current.scrollHeight, behavior: "smooth" });
+    }, 50);
   };
 
   const removeStep = (idx: number) => {
@@ -435,7 +440,12 @@ export function EstimateTemplateManager() {
   };
 
   // ── Rule helpers ──────────────────────────────────────────────
-  const addRule = () => setEditorRules([...editorRules, emptyRule()]);
+  const addRule = () => {
+    setEditorRules([...editorRules, emptyRule()]);
+    setTimeout(() => {
+      rulesTableRef.current?.scrollTo({ top: rulesTableRef.current.scrollHeight, behavior: "smooth" });
+    }, 50);
+  };
   const removeRule = (idx: number) => setEditorRules(editorRules.filter((_, i) => i !== idx));
   const updateRule = (idx: number, key: string, value: any) => {
     setEditorRules(editorRules.map((r, i) => (i === idx ? { ...r, [key]: value } : r)));
@@ -606,12 +616,34 @@ export function EstimateTemplateManager() {
             ))}
           </div>
 
+          {/* Contextual subheader — always visible, never scrolls */}
+          {activeTab === "steps" && (
+            <div className="shrink-0 border-b bg-muted/30 px-6 py-2.5">
+              <p className="text-xs text-muted-foreground">
+                Each step is a screen the estimator sees. One row = one question. Choices: comma-separated (e.g. <code className="bg-muted px-1 rounded">4 inch, 5 inch, 6 inch</code>).
+              </p>
+            </div>
+          )}
+          {activeTab === "rules" && allFields.length > 0 && (
+            <div className="shrink-0 border-b bg-muted/30 px-6 py-3">
+              <p className="text-xs font-semibold mb-2">Field variables you can use in formulas:</p>
+              <div className="flex flex-wrap gap-2">
+                {allFields.map((f) => (
+                  <div key={f.id} className="flex items-center gap-1 text-xs">
+                    <code className="bg-background border rounded px-1.5 py-0.5 font-mono">{f.id}</code>
+                    <span className="text-muted-foreground">= {f.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Tab content */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="flex-1 flex flex-col overflow-hidden px-6 py-4">
 
             {/* ── INFO TAB ── */}
             {activeTab === "info" && (
-              <div className="space-y-4 max-w-lg">
+              <div className="flex-1 overflow-y-auto space-y-4 max-w-lg">
                 <div className="space-y-1.5">
                   <Label>Template Name <span className="text-destructive">*</span></Label>
                   <Input
@@ -656,12 +688,9 @@ export function EstimateTemplateManager() {
 
             {/* ── STEPS / QUESTIONS TAB ── */}
             {activeTab === "steps" && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Each step is a screen the estimator sees. One row = one question. Choices: comma-separated (e.g. <code className="bg-muted px-1 rounded">4 inch, 5 inch, 6 inch</code>).
-                </p>
-                <div className="border rounded-lg overflow-auto max-h-[50vh]">
-                  <table className="w-full text-sm border-collapse">
+              <div className="flex-1 flex flex-col gap-3 min-h-0">
+                <div ref={stepsTableRef} className="flex-1 min-h-0 border rounded-lg overflow-auto">
+                  <table className="w-full min-w-max text-sm border-collapse">
                     <thead>
                       <tr className="border-b">
                         <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-8">#</th>
@@ -798,25 +827,10 @@ export function EstimateTemplateManager() {
 
             {/* ── CALCULATIONS TAB ── */}
             {activeTab === "rules" && (
-              <div className="space-y-3">
-                {/* Available field variables */}
-                {allFields.length > 0 && (
-                  <div className="p-3 bg-muted/50 rounded-lg border">
-                    <p className="text-xs font-semibold mb-2">Field variables you can use in formulas:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {allFields.map((f) => (
-                        <div key={f.id} className="flex items-center gap-1 text-xs">
-                          <code className="bg-background border rounded px-1.5 py-0.5 font-mono">{f.id}</code>
-                          <span className="text-muted-foreground">= {f.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
+              <div className="flex-1 flex flex-col gap-3 min-h-0">
                 {/* Spreadsheet table */}
-                <div className="border rounded-lg overflow-auto max-h-[50vh]">
-                  <table className="w-full text-sm border-collapse">
+                <div ref={rulesTableRef} className="flex-1 min-h-0 border rounded-lg overflow-auto">
+                  <table className="w-full min-w-max text-sm border-collapse">
                     <thead>
                       <tr className="border-b">
                         <th className="sticky top-0 z-10 bg-muted text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground w-8 border-r">#</th>
