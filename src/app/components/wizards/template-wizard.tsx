@@ -110,6 +110,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
       .map((rule: any) => {
         const deliveryOverride = parseFloat(formData.deliveryLoadsOverride as string) || 0;
         let qty = safeEval(rule.formula, vars);
+        if (rule.round_up) qty = Math.ceil(qty);
         if (deliveryOverride > 0 && rule.product_name === 'Wall Delivery' && qty > 0) {
           qty = deliveryOverride;
         }
@@ -148,6 +149,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
       }
 
       let qty = safeEval(rule.formula, vars);
+      if (rule.round_up) qty = Math.ceil(qty);
       if (deliveryOverride > 0 && rule.product_name === 'Wall Delivery' && qty > 0) {
         qty = deliveryOverride;
       }
