@@ -96,6 +96,7 @@ const emptyRule = () => ({
   unit: "",
   conditional_field_id: "",
   conditional_value: "",
+  round_up: false,
 });
 
 // ── Visual Formula Builder ─────────────────────────────────────────────────────
@@ -578,7 +579,7 @@ export function EstimateTemplateManager() {
 
       {/* ── Template Editor Dialog ── */}
       <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setEditorTouched(false); }}>
-        <DialogContent className="max-w-[95vw] w-[1300px] h-[92vh] flex flex-col p-0">
+        <DialogContent className="max-w-[98vw] w-screen h-[85vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle>{editingId ? "Edit Template" : "New Template"}</DialogTitle>
             <DialogDescription>
@@ -856,25 +857,15 @@ export function EstimateTemplateManager() {
 
             {/* ── CALCULATIONS TAB ── */}
             {activeTab === "rules" && (
-              <div className="space-y-4">
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex gap-2 text-sm text-blue-800">
-                  <Info className="h-4 w-4 mt-0.5 shrink-0" />
-                  <div>
-                    Each rule runs when the wizard finishes and adds a line item to the proposal.
-                    Use the variable names from your questions in the formula.
-                  </div>
-                </div>
-
-                {/* Available variables reference */}
+              <div className="space-y-3">
+                {/* Available field variables */}
                 {allFields.length > 0 && (
                   <div className="p-3 bg-muted/50 rounded-lg border">
-                    <p className="text-xs font-semibold mb-2">Available variables for formulas:</p>
+                    <p className="text-xs font-semibold mb-2">Field variables you can use in formulas:</p>
                     <div className="flex flex-wrap gap-2">
                       {allFields.map((f) => (
                         <div key={f.id} className="flex items-center gap-1 text-xs">
-                          <code className="bg-background border rounded px-1.5 py-0.5 font-mono">
-                            {f.id}
-                          </code>
+                          <code className="bg-background border rounded px-1.5 py-0.5 font-mono">{f.id}</code>
                           <span className="text-muted-foreground">= {f.label}</span>
                         </div>
                       ))}
@@ -882,136 +873,137 @@ export function EstimateTemplateManager() {
                   </div>
                 )}
 
-                {editorRules.map((rule, ruleIdx) => (
-                  <Card key={rule.id} className="border-2">
-                    <CardContent className="pt-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-muted-foreground">
-                          Rule {ruleIdx + 1}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeRule(ruleIdx)}
-                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {/* Description */}
-                      <div className="space-y-1">
-                        <Label className="text-xs">Rule Name / Description</Label>
-                        <Input
-                          placeholder="e.g., Calculate concrete cubic yards"
-                          value={rule.description}
-                          onChange={(e) => updateRule(ruleIdx, "description", e.target.value)}
-                          className="h-8 text-sm"
-                        />
-                      </div>
-
-                      {/* Product */}
-                      <div className="space-y-1">
-                        <Label className="text-xs">Product to Add</Label>
-                        <Select
-                          value={rule.product_name || "_none"}
-                          onValueChange={(v) =>
-                            updateRule(ruleIdx, "product_name", v === "_none" ? "" : v)
-                          }
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Select product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none" className="text-xs">— None —</SelectItem>
-                            {dbProducts.map((p: any) => (
-                              <SelectItem key={p.id} value={p.name} className="text-xs">{p.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Formula Builder */}
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Quantity Formula <span className="text-destructive">*</span></Label>
-                        <p className="text-xs text-muted-foreground">Result = quantity added to the proposal line item</p>
-                        <FormulaBuilder
-                          value={rule.formula}
-                          onChange={(v) => updateRule(ruleIdx, "formula", v)}
-                          variables={allFields}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* Unit dropdown */}
-                        <div className="space-y-1">
-                          <Label className="text-xs">Unit</Label>
-                          <Select
-                            value={rule.unit || "_none"}
-                            onValueChange={(v) => updateRule(ruleIdx, "unit", v === "_none" ? "" : v)}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Select unit" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none" className="text-xs">— Use product default —</SelectItem>
-                              {dbUnits.map((u: any) => (
-                                <SelectItem key={u.id} value={u.name} className="text-xs">{u.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Conditional field */}
-                        <div className="space-y-1">
-                          <Label className="text-xs">Only apply when…</Label>
-                          <Select
-                            value={rule.conditional_field_id || "_none"}
-                            onValueChange={(v) =>
-                              updateRule(
-                                ruleIdx,
-                                "conditional_field_id",
-                                v === "_none" ? "" : v
-                              )
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Always apply" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none" className="text-xs">
-                                Always apply
-                              </SelectItem>
-                              {allFields.map((f) => (
-                                <SelectItem key={f.id} value={f.id} className="text-xs">
-                                  {f.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Conditional value */}
-                        <div className="space-y-1">
-                          <Label className="text-xs">…equals</Label>
-                          <Input
-                            placeholder="e.g., Backyard"
-                            value={rule.conditional_value}
-                            onChange={(e) =>
-                              updateRule(ruleIdx, "conditional_value", e.target.value)
-                            }
-                            className="h-8 text-sm"
-                            disabled={!rule.conditional_field_id}
-                          />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                {/* Spreadsheet table */}
+                <div className="border rounded-lg overflow-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-muted/60 border-b">
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground w-8 border-r">#</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 200}}>Rule Name</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 180}}>Product</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 220}}>
+                          Formula
+                          <span className="font-normal text-muted-foreground ml-1">(use field IDs above)</span>
+                        </th>
+                        <th className="text-center px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r w-24">Round Up</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 110}}>Unit</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 140}}>Only when field</th>
+                        <th className="text-left px-3 py-2.5 text-xs font-semibold text-muted-foreground border-r" style={{minWidth: 120}}>= equals</th>
+                        <th className="w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editorRules.map((rule, ruleIdx) => (
+                        <tr key={rule.id} className="border-b hover:bg-muted/20 transition-colors">
+                          <td className="px-3 py-1.5 text-xs text-muted-foreground border-r">{ruleIdx + 1}</td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Input
+                              value={rule.description}
+                              onChange={(e) => updateRule(ruleIdx, "description", e.target.value)}
+                              placeholder="e.g. Mortar bags"
+                              className="h-8 text-xs border-0 shadow-none focus-visible:ring-1"
+                            />
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Select
+                              value={rule.product_name || "_none"}
+                              onValueChange={(v) => updateRule(ruleIdx, "product_name", v === "_none" ? "" : v)}
+                            >
+                              <SelectTrigger className="h-8 text-xs border-0 shadow-none focus-visible:ring-1">
+                                <SelectValue placeholder="Select product" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none" className="text-xs">— None —</SelectItem>
+                                {dbProducts.map((p: any) => (
+                                  <SelectItem key={p.id} value={p.name} className="text-xs">{p.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Input
+                              value={rule.formula}
+                              onChange={(e) => updateRule(ruleIdx, "formula", e.target.value)}
+                              placeholder="e.g. islandLF * 3"
+                              className="h-8 text-xs font-mono border-0 shadow-none focus-visible:ring-1"
+                            />
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r text-center">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <Checkbox
+                                checked={!!rule.round_up}
+                                onCheckedChange={(v) => updateRule(ruleIdx, "round_up", !!v)}
+                              />
+                              <span className="text-[10px] text-muted-foreground">whole #</span>
+                            </div>
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Select
+                              value={rule.unit || "_none"}
+                              onValueChange={(v) => updateRule(ruleIdx, "unit", v === "_none" ? "" : v)}
+                            >
+                              <SelectTrigger className="h-8 text-xs border-0 shadow-none focus-visible:ring-1">
+                                <SelectValue placeholder="Default" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none" className="text-xs">— Default —</SelectItem>
+                                {dbUnits.map((u: any) => (
+                                  <SelectItem key={u.id} value={u.name} className="text-xs">{u.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Select
+                              value={rule.conditional_field_id || "_none"}
+                              onValueChange={(v) => updateRule(ruleIdx, "conditional_field_id", v === "_none" ? "" : v)}
+                            >
+                              <SelectTrigger className="h-8 text-xs border-0 shadow-none focus-visible:ring-1">
+                                <SelectValue placeholder="Always" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none" className="text-xs">Always apply</SelectItem>
+                                {allFields.map((f) => (
+                                  <SelectItem key={f.id} value={f.id} className="text-xs">{f.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-1.5 py-1.5 border-r">
+                            <Input
+                              value={rule.conditional_value}
+                              onChange={(e) => updateRule(ruleIdx, "conditional_value", e.target.value)}
+                              placeholder="e.g. Brick Veneer"
+                              className="h-8 text-xs border-0 shadow-none focus-visible:ring-1"
+                              disabled={!rule.conditional_field_id}
+                            />
+                          </td>
+                          <td className="px-1.5 py-1.5 text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeRule(ruleIdx)}
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {editorRules.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                            No calculation rules yet. Click "Add Row" to get started.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
                 <Button variant="outline" onClick={addRule}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Calculation Rule
+                  Add Row
                 </Button>
               </div>
             )}
