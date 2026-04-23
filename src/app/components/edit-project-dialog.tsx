@@ -21,6 +21,7 @@ import {
 } from "./ui/select";
 import { Loader2 } from "lucide-react";
 import { projectsAPI, clientsAPI, usersAPI, activityLogAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -101,6 +102,42 @@ export function EditProjectDialog({
     try {
       const newValue = form.total_value ? parseFloat(form.total_value) : 0;
       const oldValue = project.total_value ?? 0;
+
+      const newPmId = (form.project_manager_id && form.project_manager_id !== "none") ? form.project_manager_id : null;
+      const oldPmId = project.project_manager_id ?? null;
+      const pmChanged = newPmId !== oldPmId;
+
+      // Recalculate commission when PM changes
+      let commissionUpdates: Record<string, number> = {};
+      if (pmChanged) {
+        if (!newPmId) {
+          // PM removed — zero out commission
+          commissionUpdates = { commission: 0, commission_rate: 0 };
+          // Delete any pending commission_payments for this project
+          await supabase
+            .from("commission_payments")
+            .delete()
+            .eq("project_id", project.id)
+            .eq("status", "pending");
+        } else {
+          // PM changed — look up new PM's commission_rate and recalculate
+          const { data: pmProfile } = await supabase
+            .from("profiles")
+            .select("commission_rate")
+            .eq("id", newPmId)
+            .maybeSingle();
+          const rate = Number(pmProfile?.commission_rate ?? 0);
+          const base = newValue || oldValue;
+          commissionUpdates = { commission: base * (rate / 100), commission_rate: rate };
+          // Update existing pending commission_payments to the new PM
+          await supabase
+            .from("commission_payments")
+            .update({ profile_id: newPmId, amount: base * (rate / 100) })
+            .eq("project_id", project.id)
+            .eq("status", "pending");
+        }
+      }
+
       await projectsAPI.update(project.id, {
         name:               form.name.trim(),
         client_id:          form.client_id,
@@ -109,9 +146,10 @@ export function EditProjectDialog({
         start_date:         form.start_date || null,
         end_date:           form.end_date || null,
         total_value:        newValue,
-        project_manager_id: (form.project_manager_id && form.project_manager_id !== "none") ? form.project_manager_id : null,
+        project_manager_id: newPmId,
         foreman_id:         (form.foreman_id && form.foreman_id !== "none") ? form.foreman_id : null,
         sales_rep_id:       (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null,
+        ...commissionUpdates,
       });
       if (newValue !== oldValue) {
         activityLogAPI.create({ client_id: form.client_id, action_type: "project_value_updated", description: `Project value updated: $${oldValue.toLocaleString()} → $${newValue.toLocaleString()} — "${form.name.trim()}"` }).catch(() => {});

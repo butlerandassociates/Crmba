@@ -7,6 +7,7 @@ import { DollarSign, TrendingUp, Users, Search, ChevronRight, Clock, History } f
 import { PageLoader, SkeletonCards, SkeletonPayrollRow } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
+import { commissionPaymentsAPI } from "../utils/api";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
@@ -27,6 +28,9 @@ export function Payroll() {
     setLoading(true);
     try {
       await Promise.all([fetchPMCommissions(), fetchCrewByForeman(), fetchHistory()]);
+      // Reconcile stale projects.commission values for all active PMs
+      const { data: pms } = await supabase.from("profiles").select("id").eq("role", "project_manager").eq("is_active", true);
+      (pms ?? []).forEach((pm: any) => commissionPaymentsAPI.reconcileForPM(pm.id).catch(() => {}));
     } finally {
       setLoading(false);
     }
