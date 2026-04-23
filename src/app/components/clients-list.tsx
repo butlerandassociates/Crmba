@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
 import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -537,7 +537,12 @@ export function ClientsList() {
   const PAGE_SIZE = 15;
 
   const CLIENT_REVENUE_STAGES = ["sold", "active", "completed"];
+
+  const fmtDate = (val: string | null | undefined) =>
+    val ? new Date(val + (val.includes("T") ? "" : "T00:00:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+
   const ClientTable = ({ list, stage }: { list: any[]; stage?: string }) => {
+    const navigate = useNavigate();
     const [page, setPage] = useState(0);
     const visible = filterClients(list);
     const totalPages = Math.ceil(visible.length / PAGE_SIZE);
@@ -549,22 +554,60 @@ export function ClientsList() {
 
     const totalValue = visible.reduce((sum, c) => sum + clientProjectTotal(c), 0);
 
+    const isActive       = stage === "active";
+    const isCompleted    = stage === "completed";
+    const isProjectStage = isActive || isCompleted;
+
+    const gpColor = (pct: number | null) => {
+      if (pct == null) return "text-muted-foreground";
+      if (pct >= 30)   return "text-green-700";
+      if (pct >= 15)   return "text-yellow-700";
+      return "text-red-600";
+    };
+
     return (
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full table-fixed">
-              <colgroup>
-                <col className="w-10" />
-                <col className="w-28" />
-                <col className="w-40" />
-                <col className="w-52" />
-                <col className="w-36" />
-                <col className="w-32" />
-                <col className="w-52" />
-                <col className="w-28" />
-                <col className="w-24" />
-              </colgroup>
+              {isActive ? (
+                <colgroup>
+                  <col className="w-10" />
+                  <col className="w-24" />
+                  <col className="w-40" />
+                  <col className="w-44" />
+                  <col className="w-32" />
+                  <col className="w-28" />
+                  <col className="w-28" />
+                  <col className="w-20" />
+                  <col className="w-28" />
+                  <col className="w-32" />
+                </colgroup>
+              ) : isCompleted ? (
+                <colgroup>
+                  <col className="w-10" />
+                  <col className="w-24" />
+                  <col className="w-40" />
+                  <col className="w-44" />
+                  <col className="w-32" />
+                  <col className="w-28" />
+                  <col className="w-20" />
+                  <col className="w-28" />
+                  <col className="w-32" />
+                </colgroup>
+              ) : (
+                <colgroup>
+                  <col className="w-10" />
+                  <col className="w-28" />
+                  <col className="w-40" />
+                  <col className="w-52" />
+                  <col className="w-36" />
+                  <col className="w-32" />
+                  <col className="w-52" />
+                  <col className="w-28" />
+                  <col className="w-24" />
+                </colgroup>
+              )}
               <thead className="border-b bg-muted/50">
                 <tr>
                   <th className="p-3">
@@ -576,18 +619,59 @@ export function ClientsList() {
                   </th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Client</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date Received</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage === "sold" ? "Start Date" : "Appointment"}</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage === "sold" ? "Contract Value" : stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
+
+                  {isProjectStage ? (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">PM / Foreman</th>
+                  ) : (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
+                  )}
+
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
+                    {isProjectStage ? "Lead Source" : "Date Received"}
+                  </th>
+
+                  {!isProjectStage && (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
+                  )}
+
+                  {isActive && (
+                    <>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Start Date</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">End Date</th>
+                    </>
+                  )}
+                  {isCompleted && (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Completed On</th>
+                  )}
+                  {!isProjectStage && (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
+                      {stage === "sold" ? "Start Date" : "Appointment"}
+                    </th>
+                  )}
+
+                  {isProjectStage && (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">GP%</th>
+                  )}
+
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
+                    {stage === "sold" ? "Contract Value" : stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}
+                  </th>
+
+                  {isProjectStage ? (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Progress</th>
+                  ) : (
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {paged.map((client) => (
-                  <tr key={client.id} className={`hover:bg-accent/50 transition-colors ${selectedIds.has(client.id) ? "bg-primary/5" : ""}`}>
-                    <td className="p-3">
+                  <tr
+                    key={client.id}
+                    className={`hover:bg-accent/50 transition-colors ${isProjectStage ? "cursor-pointer" : ""} ${selectedIds.has(client.id) ? "bg-primary/5" : ""}`}
+                    onClick={isProjectStage ? () => navigate(`/clients/${client.id}`) : undefined}
+                  >
+                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={selectedIds.has(client.id)}
                         onCheckedChange={() => toggleSelect(client.id)}
@@ -600,72 +684,146 @@ export function ClientsList() {
                       </Badge>
                     </td>
                     <td className="p-3">
-                      <Link to={`/clients/${client.id}`} className="font-semibold text-sm hover:text-primary no-underline">
-                        {client.first_name} {client.last_name}
-                      </Link>
+                      {isProjectStage ? (
+                        <span className="font-semibold text-sm">{client.first_name} {client.last_name}</span>
+                      ) : (
+                        <Link to={`/clients/${client.id}`} className="font-semibold text-sm hover:text-primary no-underline">
+                          {client.first_name} {client.last_name}
+                        </Link>
+                      )}
                     </td>
-                    <td className="p-3">
-                      <div className="space-y-1">
-                        {client.email && (
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Mail className="h-3 w-3" />
-                            <span>{client.email}</span>
-                          </div>
-                        )}
-                        {client.phone && (
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Phone className="h-3 w-3" />
-                            <span>{client.phone}</span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {client.created_at
-                          ? new Date(client.created_at).toLocaleString("en-US", {
-                              month: "short", day: "numeric", year: "numeric",
-                              hour: "numeric", minute: "2-digit", hour12: true,
-                            })
-                          : "—"}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className="text-sm text-muted-foreground">
-                        {client.lead_source?.name ?? "—"}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      {stage === "sold" ? (
-                        client.project_start_date ? (
+
+                    {/* Col 4 — Contact (default) or PM/Foreman (project stages) */}
+                    {isProjectStage ? (
+                      <td className="p-3">
+                        <span className="text-xs text-muted-foreground">
+                          {client.project_staff_label ?? "—"}
+                        </span>
+                      </td>
+                    ) : (
+                      <td className="p-3">
+                        <div className="space-y-1">
+                          {client.email && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Mail className="h-3 w-3" />
+                              <span>{client.email}</span>
+                            </div>
+                          )}
+                          {client.phone && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Phone className="h-3 w-3" />
+                              <span>{client.phone}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Col 5 — Lead Source (project stages) or Date Received (default) */}
+                    {isProjectStage ? (
+                      <td className="p-3">
+                        <span className="text-sm text-muted-foreground">{client.lead_source?.name ?? "—"}</span>
+                      </td>
+                    ) : (
+                      <td className="p-3">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {client.created_at
+                            ? new Date(client.created_at).toLocaleString("en-US", {
+                                month: "short", day: "numeric", year: "numeric",
+                                hour: "numeric", minute: "2-digit", hour12: true,
+                              })
+                            : "—"}
+                        </span>
+                      </td>
+                    )}
+
+                    {/* Col 6 — Lead Source (default only; project stages already showed it in col 5) */}
+                    {!isProjectStage && (
+                      <td className="p-3">
+                        <span className="text-sm text-muted-foreground">{client.lead_source?.name ?? "—"}</span>
+                      </td>
+                    )}
+
+                    {/* Active: Start Date + End Date */}
+                    {isActive && (
+                      <>
+                        <td className="p-3">
+                          {client.project_start_date ? (
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-xs text-muted-foreground">{fmtDate(client.project_start_date)}</span>
+                            </div>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        <td className="p-3">
+                          {client.project_end_date ? (
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-xs text-muted-foreground">{fmtDate(client.project_end_date)}</span>
+                            </div>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                      </>
+                    )}
+
+                    {/* Completed: Completed On */}
+                    {isCompleted && (
+                      <td className="p-3">
+                        {client.updated_at ? (
                           <div className="flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(client.project_start_date + "T00:00:00").toLocaleDateString("en-US", {
-                                month: "short", day: "numeric", year: "numeric",
-                              })}
-                            </span>
+                            <span className="text-xs text-muted-foreground">{fmtDate(client.updated_at)}</span>
+                          </div>
+                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                      </td>
+                    )}
+
+                    {/* Default stages: Appointment / Start Date col */}
+                    {!isProjectStage && (
+                      <td className="p-3">
+                        {stage === "sold" ? (
+                          client.project_start_date ? (
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-xs text-muted-foreground">{fmtDate(client.project_start_date)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )
+                        ) : client.appointment_met ? (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarCheck className="h-3.5 w-3.5 text-green-600" />
+                            <span className="text-xs font-medium text-green-700">Met</span>
+                          </div>
+                        ) : client.appointment_scheduled && client.appointment_date ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                              <span className="text-xs font-medium text-blue-700">Scheduled</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">{formatDateTime(client.appointment_date, client.appointment_end_date)}</div>
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
-                        )
-                      ) : client.appointment_met ? (
-                        <div className="flex items-center gap-1.5">
-                          <CalendarCheck className="h-3.5 w-3.5 text-green-600" />
-                          <span className="text-xs font-medium text-green-700">Met</span>
-                        </div>
-                      ) : client.appointment_scheduled && client.appointment_date ? (
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5 text-blue-500" />
-                            <span className="text-xs font-medium text-blue-700">Scheduled</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* GP% — project stages only */}
+                    {isProjectStage && (
+                      <td className="p-3">
+                        {client.project_profit_margin != null ? (
+                          <div className={`flex items-center gap-1 text-xs font-medium ${gpColor(client.project_profit_margin)}`}>
+                            <TrendingUp className="h-3 w-3" />
+                            {client.project_profit_margin.toFixed(1)}%
                           </div>
-                          <div className="text-xs text-muted-foreground">{formatDateTime(client.appointment_date, client.appointment_end_date)}</div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Revenue / Forecast */}
                     <td className="p-3">
                       {(() => {
                         const total = clientProjectTotal(client);
@@ -690,22 +848,66 @@ export function ClientsList() {
                         return <span className="text-xs text-muted-foreground">—</span>;
                       })()}
                     </td>
-                    <td className="p-3">
-                      <Link to={`/clients/${client.id}`}>
-                        <Button variant="outline" size="sm">View</Button>
-                      </Link>
-                    </td>
+
+                    {/* Progress% (project stages) or Actions (default) */}
+                    {isProjectStage ? (
+                      <td className="p-3">
+                        {client.payment_progress_pct != null ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${client.payment_progress_pct === 100 ? "bg-green-500" : "bg-blue-500"}`}
+                                  style={{ width: `${client.payment_progress_pct}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-muted-foreground tabular-nums">{client.payment_progress_pct}%</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    ) : (
+                      <td className="p-3">
+                        <Link to={`/clients/${client.id}`}>
+                          <Button variant="outline" size="sm">View</Button>
+                        </Link>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
               {visible.length > 0 && (
                 <tfoot className="border-t bg-muted/30">
                   <tr>
-                    <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
-                    <td className="p-3">
-                      <span className="text-xs text-muted-foreground block">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
-                      <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
-                    </td>
+                    {isActive ? (
+                      <>
+                        <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td className="p-3">
+                          <span className="text-xs text-muted-foreground block">Total Revenue</span>
+                          <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
+                        </td>
+                        <td />
+                      </>
+                    ) : isCompleted ? (
+                      <>
+                        <td colSpan={7} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td className="p-3">
+                          <span className="text-xs text-muted-foreground block">Total Revenue</span>
+                          <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
+                        </td>
+                        <td />
+                      </>
+                    ) : (
+                      <>
+                        <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td className="p-3">
+                          <span className="text-xs text-muted-foreground block">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
+                          <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 </tfoot>
               )}
