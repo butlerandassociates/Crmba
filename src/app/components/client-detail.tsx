@@ -323,14 +323,8 @@ export function ClientDetail() {
     }
   }, [client?.status, clientProjects.length]);
 
-  // Auto-load live GP actuals for active/completed projects so the Project Financials card
-  // shows real costs (crew payments + receipts) instead of the stored move-to-sold snapshot
-  useEffect(() => {
-    if (!client || !["active", "completed"].includes(client.status)) return;
-    if (clientProjects.length === 0 || clientProposals.length === 0) return;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    clientProjects.forEach((p) => loadGpHealth(p.id));
-  }, [clientProjects.length, clientProposals.length, client?.status]);
+  // DB triggers (migrations 049+050) keep total_costs/gross_profit/profit_margin current.
+  // No need to auto-fetch live GP on load — stored values are already correct.
 
   // Load photos, notes and activity log when client loads
   useEffect(() => {
@@ -1538,17 +1532,10 @@ export function ClientDetail() {
             {["active", "completed"].includes(client.status) ? (() => {
               const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
-              const liveGp = clientProjects[0] ? gpHealthData[clientProjects[0].id] : null;
-              // Only use live actuals when real spend has been recorded (prevents showing $0 cost before any entries)
-              const liveTotal = liveGp ? liveGp.materialActual + liveGp.laborActual : 0;
-              const hasActuals = liveTotal > 0;
-              const cost = hasActuals ? liveTotal : (clientProjects[0]?.totalCosts ?? 0);
-              const grossProfit = hasActuals
-                ? totalValue - cost
-                : (clientProjects[0] ? (clientProjects[0]?.grossProfit ?? 0) : 0);
-              const margin = totalValue > 0
-                ? (grossProfit / totalValue) * 100
-                : (clientProjects[0]?.profitMargin ?? 0);
+              // DB triggers keep these columns current — read directly, no secondary fetch needed
+              const cost = clientProjects[0]?.totalCosts ?? 0;
+              const grossProfit = clientProjects[0]?.grossProfit ?? 0;
+              const margin = clientProjects[0]?.profitMargin ?? 0;
               const commission = clientProjects[0]?.commission ?? 0;
               const donutData = totalValue > 0
                 ? [
@@ -2241,7 +2228,14 @@ export function ClientDetail() {
                       </div>
                       <div className="flex justify-between gap-16 text-sm text-muted-foreground">
                         <span>Total Milestones</span>
-                        <span>{formatCurrency(totalAmount)}</span>
+                        <span className={Math.abs(totalAmount - (clientProjects[0]?.totalValue ?? 0)) > 0.01 ? "text-amber-600 font-medium" : ""}>
+                          {formatCurrency(totalAmount)}
+                          {Math.abs(totalAmount - (clientProjects[0]?.totalValue ?? 0)) > 0.01 && (
+                            <span className="ml-1.5 text-xs">
+                              ({totalAmount < (clientProjects[0]?.totalValue ?? 0) ? "-" : "+"}{formatCurrency(Math.abs(totalAmount - (clientProjects[0]?.totalValue ?? 0)))})
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </div>
                     <Button size="sm" onClick={() => { setNewPayment(EMPTY_PAYMENT); setAddPaymentOpen(true); }}>

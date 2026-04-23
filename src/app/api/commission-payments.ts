@@ -85,12 +85,32 @@ export const commissionPaymentsAPI = {
 
   /** Delete a specific commission payment by ID (admin correction) */
   deleteById: async (id: string) => {
+    const { data: cp } = await supabase
+      .from("commission_payments")
+      .select("project_id")
+      .eq("id", id)
+      .maybeSingle();
+
     const { error } = await supabase
       .from("commission_payments")
       .delete()
       .eq("id", id)
       .eq("status", "pending");
     if (error) throw new Error(error.message);
+
+    // Sync projects.commission — zero if no pending installments remain
+    if (cp?.project_id) {
+      const { data: remaining } = await supabase
+        .from("commission_payments")
+        .select("amount")
+        .eq("project_id", cp.project_id)
+        .eq("status", "pending");
+      const newCommission = (remaining ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      await supabase
+        .from("projects")
+        .update({ commission: newCommission, updated_at: new Date().toISOString() })
+        .eq("id", cp.project_id);
+    }
   },
 
   /** Manually record a cash payout to a PM (not tied to a milestone) */
@@ -121,6 +141,40 @@ export const commissionPaymentsAPI = {
       .eq("id", id)
       .eq("payout_type", "manual_payout");
     if (error) throw new Error(error.message);
+  },
+
+  /**
+   * Reconcile projects.commission for a given PM.
+   * For every project where this PM is project_manager, re-sum pending
+   * commission_payments and write the correct value back. Fixes stale data
+   * left by prior bug where deleteById didn't sync the projects table.
+   */
+  reconcileForPM: async (profile_id: string) => {
+    // Get all projects managed by this PM that still have commission > 0
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id, commission")
+      .eq("project_manager_id", profile_id)
+      .gt("commission", 0);
+    if (!projects?.length) return;
+
+    // For each stale project, recalculate from pending installments
+    await Promise.all(
+      projects.map(async (proj) => {
+        const { data: pending } = await supabase
+          .from("commission_payments")
+          .select("amount")
+          .eq("project_id", proj.id)
+          .eq("status", "pending");
+        const correct = (pending ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        if (Math.abs(correct - Number(proj.commission)) > 0.01) {
+          await supabase
+            .from("projects")
+            .update({ commission: correct, updated_at: new Date().toISOString() })
+            .eq("id", proj.id);
+        }
+      })
+    );
   },
 
   /** Delete a commission payment (e.g. if progress payment toggled back to unpaid) */

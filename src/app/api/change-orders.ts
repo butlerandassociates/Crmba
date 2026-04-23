@@ -144,15 +144,17 @@ export const changeOrdersAPI = {
     if (co.project_id) {
       const { data: proj } = await supabase
         .from("projects")
-        .select("total_value, gross_profit, profit_margin, commission")
+        .select("total_value, total_costs, gross_profit, profit_margin, commission")
         .eq("id", co.project_id)
         .maybeSingle();
       if (proj) {
-        const projNewTotal = (proj.total_value || 0) + costImpact;
-        const projNewGrossProfit = (proj.gross_profit || 0) + costImpact; // revenue side increases
+        // Use the recalculated proposal total directly — this accounts for any discount % or tax rate
+        // on the proposal so project.total_value always stays in sync with proposal.total
+        const projNewTotal = newTotal;
+        const projNewGrossProfit = projNewTotal - (proj.total_costs || 0);
         const projNewMargin = projNewTotal > 0 ? (projNewGrossProfit / projNewTotal) * 100 : 0;
         // Recalculate commission proportionally if it was set
-        const commissionRate = proj.total_value > 0 && proj.commission
+        const commissionRate = (proj.total_value || 0) > 0 && proj.commission
           ? (proj.commission / proj.total_value)
           : 0;
         const projNewCommission = commissionRate > 0 ? projNewTotal * commissionRate : (proj.commission || 0);

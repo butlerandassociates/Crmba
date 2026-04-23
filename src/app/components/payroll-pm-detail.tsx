@@ -57,6 +57,9 @@ export function PayrollPMDetail() {
       // Load all commission payments for this PM
       const data = await commissionPaymentsAPI.getAll({ profile_id: id! });
       setInstallments(data);
+
+      // Silently fix any stale projects.commission values for this PM
+      commissionPaymentsAPI.reconcileForPM(id!).catch(() => {});
     } finally {
       setLoading(false);
     }
