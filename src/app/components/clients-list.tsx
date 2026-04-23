@@ -580,7 +580,7 @@ export function ClientsList() {
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date Received</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage === "sold" ? "Start Date" : "Appointment"}</th>
-                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}</th>
+                  <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">{stage === "sold" ? "Contract Value" : stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Revenue" : "Forecast"}</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
                 </tr>
               </thead>
