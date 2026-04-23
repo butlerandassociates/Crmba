@@ -53,21 +53,21 @@ export function Financials() {
     );
   }
 
-  const revenueProjects = projects.filter((p) => p.status === "active" || p.status === "completed");
+  const revenueProjects = projects.filter((p) => ["sold", "active", "completed"].includes(p.status));
   const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0), 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
-  // Monthly financial trends — active + completed projects by start_date (last 6 months)
+  // Monthly financial trends — sold + active + completed projects by created_at (last 6 months)
   const now = new Date();
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     const y = d.getFullYear();
     const m = d.getMonth();
     const monthProjects = revenueProjects.filter((p) => {
-      const date = p.start_date ? new Date(p.start_date) : null;
+      const date = p.created_at ? new Date(p.created_at) : null;
       return date && date.getFullYear() === y && date.getMonth() === m;
     });
     return {
@@ -101,7 +101,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">All clients</p>
+            <p className="text-xs text-muted-foreground mt-1">Sold + Active + Completed</p>
           </CardContent>
         </Card>
 

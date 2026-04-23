@@ -179,7 +179,7 @@ export function PipelineForecast() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{formatCurrency(soldValue + activeValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Closing + Active</p>
+            <p className="text-xs text-muted-foreground mt-1">Sold + Active</p>
           </CardContent>
         </Card>
 

@@ -206,9 +206,18 @@ export function ClientDetail() {
 
   useEffect(() => {
     if (!id) return;
-    projectsAPI.getAll().then((all) =>
-      setClientProjects(all.filter((p: any) => p.client_id === id))
-    ).catch(console.error);
+    projectsAPI.getAll().then((all) => {
+      const filtered = all.filter((p: any) => p.client_id === id);
+      setClientProjects(filtered);
+      // If a project has commission > 0 but no PM, zero it out (stale data guard)
+      filtered.forEach((p: any) => {
+        if ((p.commission ?? 0) > 0 && !p.project_manager_id) {
+          supabase.from("projects").update({ commission: 0, commission_rate: 0 }).eq("id", p.id).then(() => {
+            setClientProjects((prev) => prev.map((proj) => proj.id === p.id ? { ...proj, commission: 0, commissionRate: 0 } : proj));
+          });
+        }
+      });
+    }).catch(console.error);
     estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
     appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
     leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);

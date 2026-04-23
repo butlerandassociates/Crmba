@@ -150,11 +150,17 @@ export const commissionPaymentsAPI = {
    * left by prior bug where deleteById didn't sync the projects table.
    */
   reconcileForPM: async (profile_id: string) => {
-    // Get all projects managed by this PM that still have commission > 0
+    // Get all projects tied to this PM via commission_payments OR still managed by them
+    const { data: cpProjects } = await supabase
+      .from("commission_payments")
+      .select("project_id")
+      .eq("profile_id", profile_id);
+    const cpProjectIds = (cpProjects ?? []).map((r: any) => r.project_id).filter(Boolean);
+
     const { data: projects } = await supabase
       .from("projects")
       .select("id, commission")
-      .eq("project_manager_id", profile_id)
+      .or(`project_manager_id.eq.${profile_id}${cpProjectIds.length ? `,id.in.(${cpProjectIds.join(",")})` : ""}`)
       .gt("commission", 0);
     if (!projects?.length) return;
 

@@ -114,7 +114,7 @@ export function Pipeline() {
   // Company Stats
   const totalRevenue = soldValue + activeValue + completedValue;
   const totalProjects = projects.length;
-  const activeProjects = projects.filter(p => p.status === 'in_progress' || p.status === 'planning').length;
+  const activeProjects = projects.filter(p => p.status === 'active').length;
   const totalTeamMembers = users.length;
 
   // Commission Calculations
@@ -239,8 +239,8 @@ export function Pipeline() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(activeValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Active jobs in progress</p>
+            <div className="text-2xl font-bold">{formatCurrency(soldValue + activeValue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">Sold + Active</p>
           </CardContent>
         </Card>
 

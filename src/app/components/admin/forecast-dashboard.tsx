@@ -44,16 +44,18 @@ export function ForecastDashboard() {
   }
 
   // Pipeline stats from real data
-  const activeProjects  = projects.filter((p) => ["active", "selling"].includes(p.status));
-  const soldProjects    = projects.filter((p) => p.status === "sold");
+  const activeProjects    = projects.filter((p) => p.status === "active");
+  const sellingProjects   = projects.filter((p) => p.status === "selling");
+  const soldProjects      = projects.filter((p) => p.status === "sold");
   const completedProjects = projects.filter((p) => p.status === "completed");
 
   const activeRevenue    = activeProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
+  const sellingRevenue   = sellingProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const totalCommissions = projects.reduce((s, p) => s + (p.commission || 0), 0);
 
-  // Monthly revenue — last 6 months from project start_date
+  // Monthly revenue — last 6 months by created_at
   const now = new Date();
   const monthlyForecast = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
@@ -61,7 +63,7 @@ export function ForecastDashboard() {
     const m = d.getMonth();
     const monthRevenue = projects
       .filter((p) => {
-        const date = p.start_date ? new Date(p.start_date) : null;
+        const date = p.created_at ? new Date(p.created_at) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       })
       .reduce((s, p) => s + (p.totalValue || 0), 0);
@@ -73,8 +75,9 @@ export function ForecastDashboard() {
 
   // Revenue by status breakdown
   const revenueByStatus = [
-    { status: "Selling", value: activeRevenue },
-    { status: "Sold",    value: soldRevenue },
+    { status: "Selling",   value: sellingRevenue },
+    { status: "Sold",      value: soldRevenue },
+    { status: "Active",    value: activeRevenue },
     { status: "Completed", value: completedRevenue },
   ];
 
@@ -105,7 +108,7 @@ export function ForecastDashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-2xl font-bold text-blue-600">{formatCurrency(activeRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{activeProjects.length} active projects</p>
+            <p className="text-xs text-muted-foreground mt-1">{activeProjects.length} active project{activeProjects.length !== 1 ? "s" : ""}</p>
           </CardContent>
         </Card>
 

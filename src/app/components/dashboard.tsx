@@ -135,13 +135,13 @@ export function Dashboard() {
   const activeClients = activeClientIds.size;
   const activeProjects = projects.filter((p) => p.status === "active").length;
 
-  // Revenue/GP = current month only, sold + active + completed
+  // Revenue/GP = current month only, sold + active + completed (use created_at — when the sale was made)
   const _now = new Date();
   const _monthStart = new Date(_now.getFullYear(), _now.getMonth(), 1);
   const _monthEnd = new Date(_now.getFullYear(), _now.getMonth() + 1, 0, 23, 59, 59);
   const revenueProjects = projects.filter((p) => {
     if (!["sold", "active", "completed"].includes(p.status)) return false;
-    const d = p.start_date ? new Date(p.start_date) : null;
+    const d = p.created_at ? new Date(p.created_at) : null;
     return d && d >= _monthStart && d <= _monthEnd;
   });
   const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
@@ -179,7 +179,7 @@ export function Dashboard() {
       const m = d.getMonth();
       const monthProjects = projects.filter((p) => {
         if (!["sold", "active", "completed"].includes(p.status)) return false;
-        const date = p.start_date ? new Date(p.start_date) : null;
+        const date = p.created_at ? new Date(p.created_at) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });
       return {
@@ -230,29 +230,28 @@ export function Dashboard() {
   
   const { startDate, endDate } = getDateRange();
   
-  // Calculate revenue based on selected date range (using project start_date)
-  const periodRevenue = projects
-    .filter((p) => {
-      if (!["sold", "active", "completed"].includes(p.status)) return false;
-      if (!p.start_date) return false;
-      const d = new Date(p.start_date);
-      return d >= startDate && d <= endDate;
-    })
-    .reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  
+  // Calculate revenue based on selected date range (using project created_at — when the sale was made)
+  const periodProjects = projects.filter((p) => {
+    if (!["sold", "active", "completed"].includes(p.status)) return false;
+    const d = p.created_at ? new Date(p.created_at) : null;
+    if (!d) return false;
+    return d >= startDate && d <= endDate;
+  });
+  const periodRevenue = periodProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+
   const _curDate = new Date();
   const _curMonth = _curDate.getMonth();
   const _curYear = _curDate.getFullYear();
   const currentMonthProjects = projects.filter((p) => {
     if (!["sold", "active", "completed"].includes(p.status)) return false;
-    if (!p.start_date) return false;
-    const d = new Date(p.start_date);
+    const d = p.created_at ? new Date(p.created_at) : null;
+    if (!d) return false;
     return d.getMonth() === _curMonth && d.getFullYear() === _curYear;
   });
   const currentMonthRevenue = currentMonthProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
 
-  const revenueProgress = (currentMonthRevenue / MONTHLY_REVENUE_GOAL) * 100;
-  const remainingRevenue = MONTHLY_REVENUE_GOAL - currentMonthRevenue;
+  const revenueProgress = (periodRevenue / MONTHLY_REVENUE_GOAL) * 100;
+  const remainingRevenue = MONTHLY_REVENUE_GOAL - periodRevenue;
   
   // Get date range label
   const getDateRangeLabel = () => {
