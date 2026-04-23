@@ -1004,8 +1004,9 @@ app.get("/make-server-9d56a30d/docusign/oauth/authorize", async (c) => {
   try {
     const config = docusign.getDocuSignConfig();
     
-    // Build the OAuth authorization URL
-    const authUrl = new URL(`${config.basePath}/oauth/auth`);
+    // OAuth lives on account domain, not the REST API basePath
+    const oauthBase = config.basePath.includes("demo") ? "https://account-d.docusign.com" : "https://account.docusign.com";
+    const authUrl = new URL(`${oauthBase}/oauth/auth`);
     authUrl.searchParams.append("response_type", "code");
     authUrl.searchParams.append("scope", "signature impersonation");
     authUrl.searchParams.append("client_id", config.integrationKey);
@@ -1036,9 +1037,10 @@ app.post("/make-server-9d56a30d/docusign/oauth/token", async (c) => {
     }
     
     const config = docusign.getDocuSignConfig();
-    
-    // Exchange code for token
-    const tokenUrl = `${config.basePath}/oauth/token`;
+
+    // OAuth lives on account domain, not the REST API basePath
+    const oauthBase = config.basePath.includes("demo") ? "https://account-d.docusign.com" : "https://account.docusign.com";
+    const tokenUrl = `${oauthBase}/oauth/token`;
     const credentials = btoa(`${config.integrationKey}:${config.secretKey}`);
     
     const tokenResponse = await fetch(tokenUrl, {
