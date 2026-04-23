@@ -14,18 +14,40 @@ export const clientsAPI = {
         *,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
-        projects(total_value, start_date),
+        projects(
+          total_value, start_date, end_date, profit_margin,
+          project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name),
+          foreman:profiles!projects_foreman_id_fkey(first_name, last_name)
+        ),
+        project_payments(id, is_paid, amount),
         estimates(id, total, status, created_at)
       `)
       .eq("is_discarded", false)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return (data ?? []).map((c: any) => {
+      const firstProject = (c.projects ?? [])[0];
       const project_total = (c.projects ?? []).reduce(
         (sum: number, p: any) => sum + (p.total_value ?? 0),
         0
       );
-      const project_start_date = (c.projects ?? [])[0]?.start_date ?? null;
+      const project_start_date  = firstProject?.start_date  ?? null;
+      const project_end_date    = firstProject?.end_date    ?? null;
+      const project_profit_margin = firstProject?.profit_margin != null ? Number(firstProject.profit_margin) : null;
+
+      const pmName = firstProject?.project_manager
+        ? `${firstProject.project_manager.first_name ?? ""} ${firstProject.project_manager.last_name ?? ""}`.trim()
+        : null;
+      const foremanName = firstProject?.foreman
+        ? `${firstProject.foreman.first_name ?? ""} ${firstProject.foreman.last_name ?? ""}`.trim()
+        : null;
+      const project_staff_label = [pmName, foremanName].filter(Boolean).join(" / ") || null;
+
+      const payments = c.project_payments ?? [];
+      const totalPayments = payments.length;
+      const paidPayments  = payments.filter((p: any) => p.is_paid).length;
+      const payment_progress_pct = totalPayments > 0 ? Math.round((paidPayments / totalPayments) * 100) : null;
+
       const latestProposal = (c.estimates ?? [])
         .filter((e: any) => e.status !== "declined")
         .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
@@ -33,6 +55,10 @@ export const clientsAPI = {
         ...c,
         project_total,
         project_start_date,
+        project_end_date,
+        project_profit_margin,
+        project_staff_label,
+        payment_progress_pct,
         proposal_forecast: latestProposal?.total ?? 0,
       };
     });
