@@ -200,7 +200,7 @@ export function PayrollPMDetail() {
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
       {/* Back + Header */}
-      <div>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6">
         <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
