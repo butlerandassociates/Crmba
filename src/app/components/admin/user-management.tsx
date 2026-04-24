@@ -5,7 +5,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound } from "lucide-react";
+import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound, Pencil } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
@@ -40,19 +40,41 @@ import { toast } from "sonner";
 import { SkeletonCards } from "../ui/page-loader";
 
 
-function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resending, getRoleBadgeColor, getRoleLabel, getUserPermissions }: {
+function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpdateUser, resending, updatingUser, getRoleBadgeColor, getRoleLabel, getUserPermissions }: {
   user: any;
   onClose: () => void;
   onToggleActive: (u: any) => void;
   onResendInvite: (u: any) => void;
+  onUpdateUser: (u: any, changes: { first_name: string; last_name: string; email: string; phone: string }) => Promise<void>;
   resending: string | null;
+  updatingUser: string | null;
   getRoleBadgeColor: (r: string) => string;
   getRoleLabel: (r: string) => string;
   getUserPermissions: (u: any) => string[];
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ first_name: "", last_name: "", email: "", phone: "" });
   const perms = user ? getUserPermissions(user) : [];
+
+  const startEdit = () => {
+    setDraft({
+      first_name: user.first_name ?? "",
+      last_name:  user.last_name  ?? "",
+      email:      user.email      ?? "",
+      phone:      user.phone      ?? "",
+    });
+    setEditing(true);
+  };
+
+  const cancelEdit = () => setEditing(false);
+
+  const saveEdit = async () => {
+    await onUpdateUser(user, draft);
+    setEditing(false);
+  };
+
   return (
-    <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={!!user} onOpenChange={(open) => { if (!open) { cancelEdit(); onClose(); } }}>
       <DialogContent style={{ maxWidth: 480 }}>
         {user && (
           <>
@@ -73,66 +95,113 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, resend
             </DialogHeader>
 
             <div className="space-y-5 px-6 py-5">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Contact</p>
-                <div className="space-y-2 text-sm">
-                  {user.email && (
-                    <div className="flex items-center gap-2.5 text-muted-foreground">
-                      <Mail className="h-4 w-4 shrink-0" />
-                      <a href={`mailto:${user.email}`} className="hover:text-primary truncate">{user.email}</a>
+              {editing ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Edit Contact Info</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">First Name</Label>
+                      <Input value={draft.first_name} onChange={(e) => setDraft((d) => ({ ...d, first_name: e.target.value }))} />
                     </div>
-                  )}
-                  {user.phone && (
-                    <div className="flex items-center gap-2.5 text-muted-foreground">
-                      <Phone className="h-4 w-4 shrink-0" />
-                      <a href={`tel:${user.phone}`} className="hover:text-primary">{user.phone}</a>
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Last Name</Label>
+                      <Input value={draft.last_name} onChange={(e) => setDraft((d) => ({ ...d, last_name: e.target.value }))} />
                     </div>
-                  )}
-                  {!user.email && !user.phone && (
-                    <span className="text-muted-foreground text-sm">No contact info</span>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Email</Label>
+                    <Input type="email" value={draft.email} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Phone</Label>
+                    <Input type="tel" value={draft.phone} onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))} />
+                  </div>
+                  {draft.email && draft.email !== user.email && (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                      Email changed — a new invite will be sent to {draft.email}
+                    </p>
                   )}
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Contact</p>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5" onClick={startEdit}>
+                        <Pencil className="h-3 w-3" /> Edit
+                      </Button>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {user.email && (
+                        <div className="flex items-center gap-2.5 text-muted-foreground">
+                          <Mail className="h-4 w-4 shrink-0" />
+                          <a href={`mailto:${user.email}`} className="hover:text-primary truncate">{user.email}</a>
+                        </div>
+                      )}
+                      {user.phone && (
+                        <div className="flex items-center gap-2.5 text-muted-foreground">
+                          <Phone className="h-4 w-4 shrink-0" />
+                          <a href={`tel:${user.phone}`} className="hover:text-primary">{user.phone}</a>
+                        </div>
+                      )}
+                      {!user.email && !user.phone && (
+                        <span className="text-muted-foreground text-sm">No contact info</span>
+                      )}
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Status</p>
-                <div className="flex items-center gap-2 text-sm">
-                  {user.is_active
-                    ? <><CheckCircle className="h-4 w-4 text-green-500" /><span className="font-medium">Active</span></>
-                    : <><XCircle className="h-4 w-4 text-red-500" /><span className="font-medium text-red-500">Deactivated</span></>
-                  }
-                </div>
-              </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Status</p>
+                    <div className="flex items-center gap-2 text-sm">
+                      {user.is_active
+                        ? <><CheckCircle className="h-4 w-4 text-green-500" /><span className="font-medium">Active</span></>
+                        : <><XCircle className="h-4 w-4 text-red-500" /><span className="font-medium text-red-500">Deactivated</span></>
+                      }
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
-                  Permissions ({perms.length})
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {perms.length > 0 ? perms.map((perm) => (
-                    <Badge key={perm} variant="outline" className="text-xs">
-                      {perm.replace(/can_/g, "").replace(/_/g, " ")}
-                    </Badge>
-                  )) : (
-                    <span className="text-sm text-muted-foreground">No permissions assigned</span>
-                  )}
-                </div>
-              </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
+                      Permissions ({perms.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {perms.length > 0 ? perms.map((perm) => (
+                        <Badge key={perm} variant="outline" className="text-xs">
+                          {perm.replace(/can_/g, "").replace(/_/g, " ")}
+                        </Badge>
+                      )) : (
+                        <span className="text-sm text-muted-foreground">No permissions assigned</span>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => onResendInvite(user)} disabled={resending === user.id}>
-                {resending === user.id
-                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  : <KeyRound className="h-4 w-4 mr-2" />}
-                Reset Password
-              </Button>
-              <Button
-                variant={user.is_active ? "destructive" : "default"}
-                onClick={() => onToggleActive(user)}
-              >
-                {user.is_active ? "Deactivate" : "Reactivate"}
-              </Button>
+              {editing ? (
+                <>
+                  <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
+                  <Button onClick={saveEdit} disabled={updatingUser === user.id}>
+                    {updatingUser === user.id ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => onResendInvite(user)} disabled={resending === user.id}>
+                    {resending === user.id
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <KeyRound className="h-4 w-4 mr-2" />}
+                    Reset Password
+                  </Button>
+                  <Button
+                    variant={user.is_active ? "destructive" : "default"}
+                    onClick={() => onToggleActive(user)}
+                  >
+                    {user.is_active ? "Deactivate" : "Reactivate"}
+                  </Button>
+                </>
+              )}
             </DialogFooter>
           </>
         )}
@@ -239,6 +308,7 @@ export function UserManagement() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [confirmUser, setConfirmUser] = useState<any | null>(null);
   const [resending, setResending] = useState<string | null>(null);
+  const [updatingEmail, setUpdatingEmail] = useState<string | null>(null);
 
   const handleResendInvite = async (user: any) => {
     setResending(user.id);
@@ -268,6 +338,64 @@ export function UserManagement() {
       toast.error(err.message);
     } finally {
       setResending(null);
+    }
+  };
+
+  const handleUpdateUser = async (user: any, changes: { first_name: string; last_name: string; email: string; phone: string }) => {
+    setUpdatingEmail(user.id);
+    try {
+      const emailChanged = changes.email.trim() && changes.email.trim() !== user.email;
+
+      // If email changed, update auth.users via edge function
+      if (emailChanged) {
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/update-user-email`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+            body: JSON.stringify({ user_id: user.id, new_email: changes.email.trim() }),
+          }
+        );
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || "Failed to update email");
+      }
+
+      // Update profile fields (name, phone, and email if changed)
+      await usersAPI.update(user.id, {
+        first_name: changes.first_name.trim() || null,
+        last_name:  changes.last_name.trim()  || null,
+        email:      changes.email.trim()      || null,
+        phone:      changes.phone.trim()      || null,
+      });
+
+      // If email changed, resend invite to new address
+      if (emailChanged) {
+        await fetch(
+          `https://${projectId}.supabase.co/functions/v1/invite-user`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+            body: JSON.stringify({
+              email:       changes.email.trim(),
+              first_name:  changes.first_name.trim(),
+              last_name:   changes.last_name.trim(),
+              role:        user.role,
+              permissions: user.permissions ?? {},
+              redirect_to: `${window.location.origin}/set-password`,
+            }),
+          }
+        );
+        toast.success(`Contact updated — invite sent to ${changes.email.trim()}`, { duration: 5000 });
+      } else {
+        toast.success("Contact info updated.");
+      }
+
+      loadUsers();
+      setSelectedUser((prev: any) => prev ? { ...prev, ...changes } : prev);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setUpdatingEmail(null);
     }
   };
 
@@ -552,7 +680,9 @@ export function UserManagement() {
         onClose={() => setSelectedUser(null)}
         onToggleActive={(u) => { if (u.is_active) { setSelectedUser(null); setConfirmUser(u); } else { handleToggleActive(u); setSelectedUser(null); } }}
         onResendInvite={(u) => { handleResendInvite(u); setSelectedUser(null); }}
+        onUpdateUser={handleUpdateUser}
         resending={resending}
+        updatingUser={updatingEmail}
         getRoleBadgeColor={getRoleBadgeColor}
         getRoleLabel={getRoleLabel}
         getUserPermissions={getUserPermissions}

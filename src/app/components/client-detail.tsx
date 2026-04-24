@@ -544,7 +544,7 @@ export function ClientDetail() {
         setBackwardReason("");
         setBackwardConfirmOpen(true);
       } else {
-        toast.error("This stage cannot be reversed. Once a contract is signed the pipeline can only move forward.");
+        toast.error(`Cannot move back to ${target}. The pipeline can only move forward from ${client?.status ?? "this stage"}.`);
       }
     } else {
       forwardAction();
