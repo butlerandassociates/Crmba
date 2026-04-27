@@ -48,17 +48,20 @@ export function AppointmentDialog({
   const [endTime, setEndTime]                 = useState("");
   const [notes, setNotes]                     = useState("");
   const [ccEmails, setCcEmails]               = useState("");
+  const [ccEmailsError, setCcEmailsError]     = useState("");
   const [scheduling, setScheduling]           = useState(false);
   const [touched, setTouched]                 = useState(false);
   const [teamMembers, setTeamMembers]           = useState<any[]>([]);
   const [assignedUserId, setAssignedUserId]     = useState("");
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
-  const [clientEmail, setClientEmail]           = useState(client?.email ?? "");
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
-    usersAPI.getAll().then(setTeamMembers).catch(console.error);
+    Promise.all([
+      usersAPI.getByRole("sales_rep"),
+      usersAPI.getByRole("admin"),
+    ]).then(([reps, admins]) => setTeamMembers([...reps, ...admins])).catch(console.error);
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
     supabase.from("company_settings")
@@ -68,8 +71,6 @@ export function AppointmentDialog({
       .maybeSingle()
       .then(({ data }) => setCalendarConnected(!!data?.google_calendar_refresh_token));
   }, []);
-
-  useEffect(() => { setClientEmail(client?.email ?? ""); }, [client?.email]);
 
   const INTAKE_FORM_URL = `https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?entry.1284149011=${encodeURIComponent(client?.id ?? "")}`;
 
@@ -164,6 +165,7 @@ export function AppointmentDialog({
         appointment_time:         startTime,
         end_time:                 endTime,
         notes:                    notes || null,
+        assigned_to:              assignedUserId || null,
         google_calendar_event_id: null,
         google_meet_link:         null,
         google_event_html_link:   null,
@@ -201,66 +203,51 @@ export function AppointmentDialog({
       const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
       let emailSent        = false;
       let smsSent          = false;
-      let emailFormatBad   = false;
       let calendarEventId: string | null = null;
       let googleMeetLink:  string | null = null;
       let calendarHtmlLink: string | null = null;
-      const emailRegex     = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-      if (clientEmail.trim()) {
-        if (!emailRegex.test(clientEmail.trim())) {
-          emailFormatBad = true;
-          activityLogAPI.create({
-            client_id:   client.id,
-            action_type: "email_failed",
-            description: `Appointment confirmation email skipped — invalid email format: "${clientEmail.trim()}"`,
-          }).catch(() => {});
-        } else {
-          const { data: emailData, error: emailErr } = await supabase.functions.invoke(
-            "send-appointment-email",
-            {
-              body: {
-                appointment_type_id: appointmentType,
-                client_id:      client.id,
-                client_name:    clientName,
-                client_email:   clientEmail.trim(),
-                client_address: clientAddress || null,
-                date:           dateLabel,
-                time:           timeLabel,
-                // Calendar params — edge function creates event + injects Meet link into email
-                title:          `${typeLabel} – ${clientName}`,
-                start_datetime: startDT.toISOString(),
-                end_datetime:   endDT.toISOString(),
-                time_zone:      timeZone,
-                cc_emails:      ccList,
-              },
-            }
-          );
-          if (emailErr || emailData?.error) {
-            const reason = emailErr?.message ?? emailData?.error ?? "Unknown error";
-            activityLogAPI.create({
-              client_id:    client.id,
-              action_type:  "email_failed",
-              description:  `Appointment confirmation email failed to deliver to ${clientEmail.trim()}: ${reason}`,
-            }).catch(() => {});
-          } else {
-            emailSent = true;
-            calendarEventId  = emailData?.calendar_event_id ?? null;
-            googleMeetLink   = emailData?.google_meet_link ?? null;
-            calendarHtmlLink = emailData?.calendar_html_link ?? null;
-            // Back-fill calendar data returned from the edge function
-            void supabase.from("appointments")
-              .update({
-                email_notification_sent:  true,
-                google_calendar_event_id: calendarEventId,
-                google_meet_link:         googleMeetLink,
-                google_event_html_link:   calendarHtmlLink,
-              })
-              .eq("client_id", client.id)
-              .order("created_at", { ascending: false })
-              .limit(1);
-          }
+      const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+        "send-appointment-email",
+        {
+          body: {
+            appointment_type_id: appointmentType,
+            client_id:      client.id,
+            client_name:    clientName,
+            client_email:   client.email,
+            client_address: clientAddress || null,
+            date:           dateLabel,
+            time:           timeLabel,
+            title:          `${typeLabel} – ${clientName}`,
+            start_datetime: startDT.toISOString(),
+            end_datetime:   endDT.toISOString(),
+            time_zone:      timeZone,
+            cc_emails:      ccList,
+          },
         }
+      );
+      if (emailErr || emailData?.error) {
+        const reason = emailErr?.message ?? emailData?.error ?? "Unknown error";
+        activityLogAPI.create({
+          client_id:    client.id,
+          action_type:  "email_failed",
+          description:  `Appointment confirmation email failed to deliver to ${client.email}: ${reason}`,
+        }).catch(() => {});
+      } else {
+        emailSent = true;
+        calendarEventId  = emailData?.calendar_event_id ?? null;
+        googleMeetLink   = emailData?.google_meet_link ?? null;
+        calendarHtmlLink = emailData?.calendar_html_link ?? null;
+        void supabase.from("appointments")
+          .update({
+            email_notification_sent:  true,
+            google_calendar_event_id: calendarEventId,
+            google_meet_link:         googleMeetLink,
+            google_event_html_link:   calendarHtmlLink,
+          })
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
       }
 
       // Send SMS confirmation via Twilio
@@ -292,19 +279,14 @@ export function AppointmentDialog({
 
       // Primary success toast
       toast.success(
-        `Appointment scheduled!${emailSent ? ` Invite sent to ${clientEmail.trim()}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
+        `Appointment scheduled!${emailSent ? ` Invite sent to ${client.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
         { duration: 6000 }
       );
 
       // Failure toasts (shown after success so they appear on top)
-      if (emailFormatBad) {
+      if (!emailSent) {
         toast.error(
-          `"${clientEmail.trim()}" is not a valid email address — confirmation email was not sent. Update the client's email and resend manually.`,
-          { duration: 10000 }
-        );
-      } else if (clientEmail.trim() && !emailSent) {
-        toast.error(
-          `Confirmation email could not be sent to ${clientEmail.trim()}. Check the address is correct.`,
+          `Confirmation email could not be sent to ${client.email}. Check the address is correct.`,
           { duration: 8000 }
         );
       }
@@ -344,8 +326,8 @@ export function AppointmentDialog({
     setEndTime("");
     setNotes("");
     setCcEmails("");
+    setCcEmailsError("");
     setAssignedUserId("");
-    setClientEmail(client?.email ?? "");
     setTouched(false);
   };
 
@@ -359,30 +341,30 @@ export function AppointmentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-5">
-          {/* Google Calendar not connected warning */}
-          {calendarConnected === false && (
-            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+        {/* Sticky banners — outside DialogBody so they don't scroll away */}
+        {calendarConnected === false && (
+          <div className="pb-2">
+            <div className="px-6 py-3 bg-yellow-50 border border-yellow-300 text-xs text-yellow-800">
               <span className="font-semibold">Google Calendar is not connected.</span> Go to <a href="/integrations" className="underline font-medium">Integrations</a> and complete the one-time setup before scheduling appointments.
             </div>
-          )}
-
-          {/* Missing email/phone warnings */}
-          {!client?.email && !client?.phone && (
-            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
-              No email or phone on this client — confirmation email and SMS will not be sent.
+          </div>
+        )}
+        {!client?.email && (
+          <div className="pb-2">
+            <div className="px-6 py-3 bg-red-50 border border-red-300 text-xs text-red-800">
+              <span className="font-semibold">No email on file.</span> Go to <a href={`/clients/${client?.id}`} className="underline font-medium">Edit Client</a> and add an email address before scheduling.
             </div>
-          )}
-          {client?.email && !client?.phone && (
-            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+          </div>
+        )}
+        {!client?.phone && (
+          <div className="pb-2">
+            <div className="px-6 py-3 bg-yellow-50 border border-yellow-300 text-xs text-yellow-800">
               No phone number on this client — SMS confirmation will not be sent.
             </div>
-          )}
-          {!client?.email && client?.phone && (
-            <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
-              No email on this client — confirmation email will not be sent.
-            </div>
-          )}
+          </div>
+        )}
+
+        <DialogBody className="space-y-5">
           {/* Assigned To */}
           <div className="space-y-2">
             <Label>Assigned To *</Label>
@@ -402,11 +384,11 @@ export function AppointmentDialog({
             <p className="text-xs text-muted-foreground">They will receive the calendar invite alongside the client.</p>
           </div>
 
-          {/* Client Email */}
+          {/* Client Email — read only, sourced from client record */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Client Email</Label>
-              {appointmentType && (
+              {appointmentType && client?.email && (
                 <Button
                   type="button"
                   variant="outline"
@@ -419,13 +401,11 @@ export function AppointmentDialog({
                 </Button>
               )}
             </div>
-            <Input
-              type="email"
-              value={clientEmail}
-              onChange={(e) => setClientEmail(e.target.value)}
-              placeholder="client@email.com"
-            />
-            <p className="text-xs text-muted-foreground">Pre-filled from client record — edit here if a different address is needed for this appointment.</p>
+            <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50 text-sm text-muted-foreground">
+              <Mail className="h-3.5 w-3.5 shrink-0" />
+              {client?.email ?? <span className="italic">No email on file</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">Pulled from client record — update it there to change.</p>
           </div>
 
           {/* Appointment Type */}
@@ -559,11 +539,22 @@ export function AppointmentDialog({
           <div className="space-y-2">
             <Label>CC Emails (Optional)</Label>
             <Input
+              type="text"
               value={ccEmails}
-              onChange={(e) => setCcEmails(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCcEmails(val);
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                const invalid = val.split(",").map((e) => e.trim()).filter((e) => e && !emailRegex.test(e));
+                setCcEmailsError(invalid.length > 0 ? `Invalid: ${invalid.join(", ")}` : "");
+              }}
               placeholder="email1@example.com, email2@example.com"
+              className={ccEmailsError ? "border-red-500" : ""}
             />
-            <p className="text-xs text-muted-foreground">Additional attendees — separate multiple with commas</p>
+            {ccEmailsError
+              ? <p className="text-xs text-red-500">{ccEmailsError}</p>
+              : <p className="text-xs text-muted-foreground">Additional attendees — separate multiple with commas</p>
+            }
           </div>
 
           {/* Preview */}
@@ -601,7 +592,7 @@ export function AppointmentDialog({
           </Button>
           <Button
             onClick={handleSchedule}
-            disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || calendarConnected === false}
+            disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || calendarConnected === false || !client?.email || !!ccEmailsError}
             className="min-w-[180px]"
           >
             {scheduling ? (
@@ -628,7 +619,7 @@ export function AppointmentDialog({
               Email Preview — {appointmentTypes.find((t) => t.id === appointmentType)?.name ?? "Appointment"}
             </DialogTitle>
             <DialogDescription>
-              This is exactly what {clientEmail || clientName} will receive.
+              This is exactly what {client?.email || clientName} will receive.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">

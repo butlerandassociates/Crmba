@@ -8,7 +8,7 @@ import { useParams, Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { ArrowLeft, CheckCircle2, Clock, Wrench, ClipboardList } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, Wrench, ClipboardList, Loader2 } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonFIOCard } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { fioAPI, activityLogAPI } from "../utils/api";
@@ -267,12 +267,12 @@ export function PayrollCrewDetail() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {fio.project?.id && (
+                      {fio.project?.client?.id && (
                         <Link
-                          to={`/projects/${fio.project.id}`}
+                          to={`/clients/${fio.project.client.id}`}
                           className="text-xs text-primary hover:opacity-80 no-underline"
                         >
-                          View Project →
+                          View Client →
                         </Link>
                       )}
                       {fio.status === "pending" && (
@@ -356,7 +356,7 @@ export function PayrollCrewDetail() {
                         {fio.payments.map((p: any) => (
                           <div key={p.id} className="flex justify-between text-xs">
                             <span className="text-muted-foreground">
-                              Week ending {new Date(p.week_ending_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              Week ending {new Date(p.week_ending_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                               {p.completion_pct != null && <> · {p.completion_pct}% complete</>}
                             </span>
                             <span className="font-semibold text-green-600">${parseFloat(p.amount_paid).toFixed(2)}</span>

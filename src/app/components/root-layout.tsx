@@ -26,6 +26,7 @@ import {
   UserCheck,
   CalendarClock,
   Banknote,
+  Briefcase,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { usePermissions } from "../hooks/usePermissions";
@@ -53,14 +54,14 @@ import {
 } from "./ui/dialog";
 
 const ALL_NAVIGATION = [
-  { name: "Dashboard", href: "/",                         icon: LayoutDashboard, permission: null },
-  { name: "Stats",     href: "/pipeline",                 icon: Workflow,        permission: "can_view_pipeline" },
-  { name: "Prospect",  href: "/clients?stage=prospect",   icon: UserRoundSearch, permission: null },
-  { name: "Scheduled", href: "/clients?stage=scheduled",  icon: CalendarClock,   permission: null },
-  { name: "Selling",   href: "/clients?stage=selling",    icon: UserRoundCog,    permission: null },
-  { name: "Sold",      href: "/clients?stage=sold",       icon: UserRoundCheck,  permission: null },
-  { name: "Active",    href: "/clients?stage=active",     icon: UserRoundPlus,   permission: null },
-  { name: "Completed", href: "/clients?stage=completed",  icon: UserCheck,       permission: null },
+  { name: "Dashboard", href: "/",                         icon: LayoutDashboard, permission: null, roles: null },
+  { name: "Stats",     href: "/pipeline",                 icon: Workflow,        permission: "can_view_pipeline", roles: null },
+  { name: "Prospect",  href: "/clients?stage=prospect",   icon: UserRoundSearch, permission: null, roles: ["admin"] },
+  { name: "Scheduled", href: "/clients?stage=scheduled",  icon: CalendarClock,   permission: null, roles: ["admin", "sales_rep"] },
+  { name: "Selling",   href: "/clients?stage=selling",    icon: UserRoundCog,    permission: null, roles: ["admin", "sales_rep"] },
+  { name: "Sold",      href: "/clients?stage=sold",       icon: UserRoundCheck,  permission: null, roles: null },
+  { name: "Active",    href: "/clients?stage=active",     icon: UserRoundPlus,   permission: null, roles: null },
+  { name: "Completed", href: "/clients?stage=completed",  icon: UserCheck,       permission: null, roles: null },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -72,8 +73,11 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function RootLayout() {
   const location = useLocation();
-  const { can } = usePermissions();
-  const navigation = ALL_NAVIGATION.filter(item => !item.permission || can(item.permission));
+  const { can, role } = usePermissions();
+  const navigation = ALL_NAVIGATION.filter(item =>
+    (!item.permission || can(item.permission)) &&
+    (!item.roles || item.roles.includes(role ?? ""))
+  );
   const navigate = useNavigate();
   const { user, loading, isInviteFlow, signOut, refreshProfile } = useAuth();
 
@@ -132,8 +136,21 @@ export function RootLayout() {
       const today = new Date().toISOString().split("T")[0];
       const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const cutoff3days = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      // For PM/Sales Rep: fetch only their assigned client IDs so alerts are scoped
+      let scopedClientIds: Set<string> | null = null;
+      if ((role === "project_manager" || role === "sales_rep") && user?.profile?.id) {
+        const field = role === "project_manager" ? "project_manager_id" : "sales_rep_id";
+        const { data: assigned } = await supabase
+          .from("projects")
+          .select("client_id")
+          .eq(field, user.profile.id)
+          .not("client_id", "is", null);
+        scopedClientIds = new Set((assigned ?? []).map((p: any) => p.client_id));
+      }
+
       const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes, docusignRes, budgetRes] = await Promise.all([
-        supabase.from("clients").select("id, first_name, last_name, status, expected_close_date").eq("is_discarded", false),
+        supabase.from("clients").select("id, first_name, last_name, status, expected_close_date, created_at, appointment_scheduled").eq("is_discarded", false),
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
           .select("id, label, due_date, project:projects(id, client_id, client:clients(first_name, last_name, is_discarded))")
@@ -174,7 +191,7 @@ export function RootLayout() {
           const daysLeft = Math.ceil((expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
           const name = `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "Foreman";
           alerts.push({
-            id: `insurance-expiry-${f.id}`,
+            id: `insurance-expiry-${f.id}-${today}`,
             clientId: "",
             clientName: name,
             label: "Insurance Expiring",
@@ -186,7 +203,15 @@ export function RootLayout() {
         }
       });
 
-      clients.filter((c: any) => c.status === "selling" && !proposalClientIds.has(c.id)).forEach((c: any) => {
+      // Only alert if appointment was 24h+ ago (or no appointment scheduled at all)
+      const apptPastClientIds = new Set(
+        (apptRes.data ?? []).map((a: any) => a.client?.id).filter(Boolean)
+      );
+      clients.filter((c: any) =>
+        c.status === "selling" &&
+        !proposalClientIds.has(c.id) &&
+        (!c.appointment_scheduled || apptPastClientIds.has(c.id))
+      ).forEach((c: any) => {
         alerts.push({
           id: `no-proposal-${c.id}`, clientId: c.id,
           clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
@@ -212,7 +237,7 @@ export function RootLayout() {
       (paymentsRes.data ?? []).filter((p: any) => !p.project?.client?.is_discarded).forEach((p: any) => {
         const client = p.project?.client;
         alerts.push({
-          id: `overdue-${p.id}`, clientId: p.project?.client_id ?? "",
+          id: `overdue-${p.id}-${today}`, clientId: p.project?.client_id ?? "",
           clientName: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "—",
           label: "Payment Overdue",
           description: `${p.label ?? "Payment"} — due ${new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
@@ -228,7 +253,7 @@ export function RootLayout() {
           const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
           const apptDate = new Date(a.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
           alerts.push({
-            id: `appt-followup-${a.id}`,
+            id: `appt-followup-${a.id}-${today}`,
             clientId: c.id,
             clientName,
             label: "Update Lead Status",
@@ -237,12 +262,50 @@ export function RootLayout() {
           });
         });
 
+      // Appointment passed 24h+ ago, client still in Scheduled — needs follow up
+      (apptRes.data ?? [])
+        .filter((a: any) => a.client && !a.client.is_discarded && a.client.status === "scheduled")
+        .forEach((a: any) => {
+          const c = a.client;
+          const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
+          const apptDate = new Date(a.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          alerts.push({
+            id: `appt-scheduled-followup-${a.id}-${today}`,
+            clientId: c.id,
+            clientName,
+            label: "Follow Up After Visit",
+            description: `Appointment on ${apptDate} — still in Scheduled. Move to Selling or discard.`,
+            severity: "amber",
+          });
+        });
+
       // DocuSign sent but not signed after 3 days
+      // Prospect with no appointment booked after 24h — admin only
+      if (role === "admin") {
+        clients
+          .filter((c: any) => {
+            if (c.status !== "prospect" || c.appointment_scheduled) return false;
+            return new Date(c.created_at) < new Date(Date.now() - 24 * 60 * 60 * 1000);
+          })
+          .forEach((c: any) => {
+            const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
+            const daysIn = Math.floor((Date.now() - new Date(c.created_at).getTime()) / (1000 * 60 * 60 * 24));
+            alerts.push({
+              id: `no-appt-prospect-${c.id}-${today}`,
+              clientId: c.id,
+              clientName,
+              label: "No Appointment Booked",
+              description: `In Prospect for ${daysIn} day${daysIn === 1 ? "" : "s"} — no appointment scheduled yet`,
+              severity: "amber",
+            });
+          });
+      }
+
       (docusignRes.data ?? []).forEach((c: any) => {
         const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
         const sentDate = new Date(c.docusign_sent_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
         alerts.push({
-          id: `docusign-unsigned-${c.id}`,
+          id: `docusign-unsigned-${c.id}-${today}`,
           clientId: c.id,
           clientName: name,
           label: "Contract Not Signed",
@@ -272,13 +335,18 @@ export function RootLayout() {
           }
         });
 
-      setNavAlerts(alerts);
+      // Scope alerts to assigned clients for PM and Sales Rep
+      const finalAlerts = scopedClientIds
+        ? alerts.filter((a) => a.clientId && scopedClientIds!.has(a.clientId))
+        : alerts;
+
+      setNavAlerts(finalAlerts);
 
       // Prune dismissed rows whose underlying issue is now resolved
       // If an alert_id no longer exists in current active alerts, the dismiss record is stale — delete it
       // This ensures if the same condition returns later, it shows up again as a fresh alert
-      if (user?.profile?.id && alerts.length >= 0) {
-        const activeAlertIds = alerts.map((a) => a.id);
+      if (user?.profile?.id && finalAlerts.length >= 0) {
+        const activeAlertIds = finalAlerts.map((a) => a.id);
         supabase
           .from("user_dismissed_alerts")
           .select("alert_id")
@@ -465,7 +533,13 @@ export function RootLayout() {
                       onClick={async () => {
                         await notificationsAPI.markAllRead();
                         setCrewNotifications([]);
-                        setDismissedAlerts(new Set(navAlerts.map((a: any) => a.id ?? a.key ?? "")));
+                        const allIds = navAlerts.map((a: any) => a.id ?? a.key ?? "").filter(Boolean);
+                        setDismissedAlerts(new Set(allIds));
+                        if (user?.profile?.id && allIds.length > 0) {
+                          supabase.from("user_dismissed_alerts").insert(
+                            allIds.map((alert_id: string) => ({ user_id: user.profile.id, alert_id }))
+                          ).then(() => {});
+                        }
                       }}
                     >
                       Mark all as read
@@ -568,6 +642,12 @@ export function RootLayout() {
                   <UserCircle className="mr-2 h-4 w-4" />
                   My Profile
                 </DropdownMenuItem>
+                {(role === "project_manager" || role === "sales_rep") && (
+                  <DropdownMenuItem className="cursor-pointer no-underline" onClick={() => navigate("/my-portal")}>
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    My Portal
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {can("can_view_financials") && (
                   <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/financials")}>

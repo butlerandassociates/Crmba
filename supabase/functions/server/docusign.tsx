@@ -321,31 +321,37 @@ export async function createEmbeddedEnvelope(
   templateId: string,
   clientEmail: string,
   clientName: string,
+  adminEmail: string,
+  adminName: string,
   emailSubject: string,
   emailBlurb: string,
-  returnUrl: string,
   tabs: any
-): Promise<{ envelopeId: string; signingUrl: string }> {
+): Promise<{ envelopeId: string }> {
   const accessToken = await getAccessToken(config);
 
-  // Step 1: Create envelope as draft
-  // Jonathan (Sender) fills payment schedule fields in the sender view
-  // Client receives email to sign (routing order 1 — only recipient)
+  // Dual-sign flow: Admin (routing 1) receives email first → signs → DocuSign forwards to Client (routing 2)
   const envelopeDefinition = {
     templateId,
     templateRoles: [
       {
+        email: adminEmail,
+        name: adminName,
+        roleName: "Admin",
+        recipientId: "1",
+        routingOrder: "1",
+      },
+      {
         email: clientEmail,
         name: clientName,
         roleName: "Client",
-        recipientId: "1",
-        routingOrder: "1",
+        recipientId: "2",
+        routingOrder: "2",
         tabs,
       },
     ],
     emailSubject,
     emailBlurb,
-    status: "created",
+    status: "sent",
   };
 
   const createResponse = await fetch(
@@ -366,32 +372,7 @@ export async function createEmbeddedEnvelope(
   }
 
   const envelopeData = await createResponse.json();
-  const envelopeId = envelopeData.envelopeId;
-
-  // Step 2: Get sender view URL
-  const senderViewResponse = await fetch(
-    `${config.basePath}/restapi/v2.1/accounts/${config.accountId}/envelopes/${envelopeId}/views/sender`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ returnUrl }),
-    }
-  );
-
-  if (!senderViewResponse.ok) {
-    const error = await senderViewResponse.text();
-    throw new Error(`Failed to get sender view: ${senderViewResponse.status} - ${error}`);
-  }
-
-  const senderViewData = await senderViewResponse.json();
-
-  return {
-    envelopeId,
-    signingUrl: senderViewData.url,
-  };
+  return { envelopeId: envelopeData.envelopeId };
 }
 
 export async function getSenderViewUrl(

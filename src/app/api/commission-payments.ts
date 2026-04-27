@@ -13,7 +13,7 @@ export const commissionPaymentsAPI = {
       .from("commission_payments")
       .select(`
         *,
-        project:projects(id, name, commission, gross_profit, client:clients(first_name, last_name)),
+        project:projects(id, name, commission, gross_profit, total_value, client_id, client:clients(id, first_name, last_name)),
         profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate),
         progress_payment:project_payments!commission_payments_progress_payment_id_fkey(id, label, amount, percentage),
         processed_by_profile:profiles!commission_payments_processed_by_fkey(id, first_name, last_name)
@@ -34,7 +34,7 @@ export const commissionPaymentsAPI = {
       .from("commission_payments")
       .select(`
         *,
-        project:projects(id, name, commission, gross_profit, client:clients(first_name, last_name)),
+        project:projects(id, name, commission, gross_profit, total_value, client_id, client:clients(id, first_name, last_name)),
         profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate),
         progress_payment:project_payments!commission_payments_progress_payment_id_fkey(id, label, amount, percentage)
       `)
@@ -114,7 +114,7 @@ export const commissionPaymentsAPI = {
   },
 
   /** Manually record a cash payout to a PM (not tied to a milestone) */
-  createManualPayout: async (profile_id: string, amount: number, notes?: string) => {
+  createManualPayout: async (profile_id: string, amount: number, notes?: string, project_id?: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("commission_payments")
@@ -126,6 +126,7 @@ export const commissionPaymentsAPI = {
         processed_date: new Date().toISOString().split("T")[0],
         processed_by: user?.id ?? null,
         notes: notes ?? null,
+        project_id: project_id ?? null,
       })
       .select()
       .single();
@@ -177,6 +178,41 @@ export const commissionPaymentsAPI = {
           await supabase
             .from("projects")
             .update({ commission: correct, updated_at: new Date().toISOString() })
+            .eq("id", proj.id);
+        }
+      })
+    );
+  },
+
+  /** Same as reconcileForPM but writes to projects.sales_rep_commission for a sales rep. */
+  reconcileForSalesRep: async (profile_id: string) => {
+    const { data: cpProjects } = await supabase
+      .from("commission_payments")
+      .select("project_id")
+      .eq("profile_id", profile_id);
+    const cpProjectIds = (cpProjects ?? []).map((r: any) => r.project_id).filter(Boolean);
+    if (!cpProjectIds.length) return;
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id, sales_rep_commission")
+      .in("id", cpProjectIds)
+      .eq("sales_rep_id", profile_id);
+    if (!projects?.length) return;
+
+    await Promise.all(
+      projects.map(async (proj) => {
+        const { data: pending } = await supabase
+          .from("commission_payments")
+          .select("amount")
+          .eq("project_id", proj.id)
+          .eq("profile_id", profile_id)
+          .eq("status", "pending");
+        const correct = (pending ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        if (Math.abs(correct - Number(proj.sales_rep_commission)) > 0.01) {
+          await supabase
+            .from("projects")
+            .update({ sales_rep_commission: correct, updated_at: new Date().toISOString() })
             .eq("id", proj.id);
         }
       })

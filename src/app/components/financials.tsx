@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { formatCurrency } from "@/app/utils/format";
-import { DollarSign, TrendingUp, TrendingDown, Percent, BarChart2, Award } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Percent, BarChart2, Award, AlertCircle, Clock, Calendar, CreditCard } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { useState, useEffect } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
@@ -18,6 +18,9 @@ import {
 import { Badge } from "./ui/badge";
 import { Link } from "react-router";
 import { projectsAPI } from "../utils/api";
+import { supabase } from "@/lib/supabase";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Input } from "./ui/input";
 
 const STATUS_COLORS: Record<string, string> = {
   active:    "bg-green-500",
@@ -32,12 +35,37 @@ const STATUS_COLORS: Record<string, string> = {
 export function Financials() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [paidPayments, setPaidPayments] = useState<any[]>([]);
+  const [collectionView, setCollectionView] = useState<"outstanding" | "collected">("outstanding");
 
-  const fetchData = () => {
-    projectsAPI.getAll()
-      .then(setProjects)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+  const toDateStr = (d: Date) => d.toISOString().split("T")[0];
+  const todayDate = new Date();
+  const [fromDate, setFromDate] = useState(toDateStr(new Date(todayDate.getTime() - 30 * 86400000)));
+  const [toDate,   setToDate]   = useState(toDateStr(new Date(todayDate.getTime() + 30 * 86400000)));
+
+  const PAYMENT_SELECT = `id, label, amount, due_date, paid_date, payment_method, project_id, client_id, projects(id, name), clients(id, first_name, last_name)`;
+
+  const fetchData = async () => {
+    const [projectsResult, unpaidResult, paidResult] = await Promise.all([
+      projectsAPI.getAll(),
+      supabase
+        .from("project_payments")
+        .select(PAYMENT_SELECT)
+        .eq("is_paid", false)
+        .not("due_date", "is", null)
+        .order("due_date", { ascending: true }),
+      supabase
+        .from("project_payments")
+        .select(PAYMENT_SELECT)
+        .eq("is_paid", true)
+        .not("paid_date", "is", null)
+        .order("paid_date", { ascending: false }),
+    ]);
+    setProjects(projectsResult);
+    setPayments(unpaidResult.data ?? []);
+    setPaidPayments(paidResult.data ?? []);
+    setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -57,7 +85,7 @@ export function Financials() {
   const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0), 0);
+  const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0) + (p.salesRepCommission || 0), 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   // Monthly financial trends — sold + active + completed projects by created_at (last 6 months)
@@ -199,7 +227,7 @@ export function Financials() {
               <p className="text-xs mt-1">Commission data is generated when clients are moved to sold.</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
               {projects.map((project) => (
                 <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex-1">
@@ -228,6 +256,185 @@ export function Financials() {
         </CardContent>
       </Card>
 
+      {/* Payment Collections */}
+      {(() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const from  = fromDate ? new Date(fromDate + "T00:00:00") : null;
+        const to    = toDate   ? new Date(toDate   + "T00:00:00") : null;
+
+        // Outstanding (unpaid) — filter by due_date within range
+        const outstanding = payments.filter((p) => {
+          const due = new Date(p.due_date); due.setHours(0,0,0,0);
+          if (from && due < from) return false;
+          if (to   && due > to)   return false;
+          return true;
+        });
+        const overdue  = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d < today; });
+        const dueToday = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d.getTime() === today.getTime(); });
+        const upcoming = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d > today; });
+
+        // Collected (paid) — filter by paid_date within range
+        const collected = paidPayments.filter((p) => {
+          const paid = new Date(p.paid_date); paid.setHours(0,0,0,0);
+          if (from && paid < from) return false;
+          if (to   && paid > to)   return false;
+          return true;
+        });
+
+        const clientName = (p: any) => p.clients ? `${p.clients.first_name ?? ""} ${p.clients.last_name ?? ""}`.trim() : "—";
+        const clientId   = (p: any) => p.client_id;
+        const fmtDate    = (d: string) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+        return (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Payment Collections</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {collectionView === "outstanding" ? "Unpaid milestones with a due date" : "Paid milestones received in this period"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={collectionView} onValueChange={(v) => setCollectionView(v as "outstanding" | "collected")}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="outstanding">Outstanding</SelectItem>
+                      <SelectItem value="collected">Collected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-2 border rounded-md px-3 py-1.5 bg-background">
+                    <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <Input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="border-0 p-0 h-auto text-sm w-32 focus-visible:ring-0 shadow-none"
+                    />
+                    <span className="text-muted-foreground text-sm">—</span>
+                    <Input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="border-0 p-0 h-auto text-sm w-32 focus-visible:ring-0 shadow-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+
+              {collectionView === "outstanding" ? (
+                <>
+                  <div className="flex gap-3 mb-4">
+                    {overdue.length  > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 px-2.5 py-1 rounded-full"><AlertCircle className="h-3.5 w-3.5" />{overdue.length} Overdue</span>}
+                    {dueToday.length > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full"><Clock className="h-3.5 w-3.5" />{dueToday.length} Due Today</span>}
+                    {upcoming.length > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full"><Calendar className="h-3.5 w-3.5" />{upcoming.length} Upcoming</span>}
+                  </div>
+                  {outstanding.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                      <CreditCard className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No outstanding payments</p>
+                      <p className="text-xs mt-1">All milestones in this range are paid.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="sticky top-0 bg-background z-10">
+                          <tr className="border-b">
+                            <th className="text-left p-3 font-medium w-[30%]">Client</th>
+                            <th className="text-left p-3 font-medium w-[25%]">Payment</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Due Date</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Status</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {outstanding.map((p) => {
+                            const due = new Date(p.due_date); due.setHours(0,0,0,0);
+                            const isOverdue  = due < today;
+                            const isDueToday = due.getTime() === today.getTime();
+                            const diffDays   = Math.round((due.getTime() - today.getTime()) / 86400000);
+                            return (
+                              <tr key={p.id} className="border-b hover:bg-accent">
+                                <td className="p-3"><Link to={`/clients/${clientId(p)}`} className="font-medium hover:text-primary no-underline">{clientName(p)}</Link></td>
+                                <td className="p-3 text-sm text-muted-foreground">{p.label}</td>
+                                <td className="p-3 text-right text-sm">{fmtDate(p.due_date)}</td>
+                                <td className="p-3 text-right">
+                                  {isOverdue  && <Badge className="bg-red-100 text-red-700 border-red-200">Overdue {Math.abs(diffDays)}d</Badge>}
+                                  {isDueToday && <Badge className="bg-amber-100 text-amber-700 border-amber-200">Due Today</Badge>}
+                                  {!isOverdue && !isDueToday && <Badge className="bg-blue-100 text-blue-700 border-blue-200">In {diffDays}d</Badge>}
+                                </td>
+                                <td className="p-3 text-right font-medium">{formatCurrency(p.amount)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="border-t-2">
+                          <tr className="font-bold">
+                            <td className="p-3" colSpan={3}>Total Outstanding</td>
+                            <td />
+                            <td className="p-3 text-right">{formatCurrency(outstanding.reduce((s, p) => s + (p.amount || 0), 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex gap-3 mb-4">
+                    {collected.length > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full"><TrendingUp className="h-3.5 w-3.5" />{collected.length} Received</span>}
+                  </div>
+                  {collected.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                      <DollarSign className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No collected payments in this range</p>
+                      <p className="text-xs mt-1">Paid milestones will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="sticky top-0 bg-background z-10">
+                          <tr className="border-b">
+                            <th className="text-left p-3 font-medium w-[30%]">Client</th>
+                            <th className="text-left p-3 font-medium w-[25%]">Payment</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Paid Date</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Method</th>
+                            <th className="text-right p-3 font-medium w-[15%]">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {collected.map((p) => (
+                            <tr key={p.id} className="border-b hover:bg-accent">
+                              <td className="p-3"><Link to={`/clients/${clientId(p)}`} className="font-medium hover:text-primary no-underline">{clientName(p)}</Link></td>
+                              <td className="p-3 text-sm text-muted-foreground">{p.label}</td>
+                              <td className="p-3 text-right text-sm">{fmtDate(p.paid_date)}</td>
+                              <td className="p-3 text-right text-sm text-muted-foreground">{p.payment_method || "—"}</td>
+                              <td className="p-3 text-right font-medium text-emerald-600">{formatCurrency(p.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t-2">
+                          <tr className="font-bold">
+                            <td className="p-3" colSpan={3}>Total Collected</td>
+                            <td />
+                            <td className="p-3 text-right text-emerald-600">{formatCurrency(collected.reduce((s, p) => s + (p.amount || 0), 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Client Financial Details Table */}
       <Card>
         <CardHeader>
@@ -241,9 +448,9 @@ export function Financials() {
               <p className="text-xs mt-1">Financial details will appear here once clients are moved to sold.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full">
-                <thead>
+                <thead className="sticky top-0 bg-background z-10">
                   <tr className="border-b">
                     <th className="text-left p-3 font-medium">Client</th>
                     <th className="text-left p-3 font-medium">Status</th>

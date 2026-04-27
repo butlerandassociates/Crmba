@@ -3,6 +3,9 @@ import { formatCurrency } from "@/app/utils/format";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect } from "react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import { PaymentStatementExport } from "./payment-receipt-export";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -118,7 +121,7 @@ export function ClientDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
   const [client, setClient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,9 +133,11 @@ export function ClientDetail() {
   const [activeModalOpen, setActiveModalOpen] = useState(false);
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [sellingGateOpen, setSellingGateOpen] = useState(false);
+  const [scheduledGateOpen, setScheduledGateOpen] = useState(false);
   const [backwardConfirmOpen, setBackwardConfirmOpen] = useState(false);
   const [backwardTargetStatus, setBackwardTargetStatus] = useState("");
   const [backwardReason, setBackwardReason] = useState("");
+  const [backwardReasonError, setBackwardReasonError] = useState(false);
   const [editClientOpen, setEditClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState<any>({});
   const [savingClient, setSavingClient] = useState(false);
@@ -209,11 +214,21 @@ export function ClientDetail() {
     projectsAPI.getAll().then((all) => {
       const filtered = all.filter((p: any) => p.client_id === id);
       setClientProjects(filtered);
-      // If a project has commission > 0 but no PM, zero it out (stale data guard)
+      // Stale data guard — zero out commission if assigned person was removed
       filtered.forEach((p: any) => {
+        const dbUpdates: Record<string, number> = {};
+        const stateUpdates: Record<string, any> = {};
         if ((p.commission ?? 0) > 0 && !p.project_manager_id) {
-          supabase.from("projects").update({ commission: 0, commission_rate: 0 }).eq("id", p.id).then(() => {
-            setClientProjects((prev) => prev.map((proj) => proj.id === p.id ? { ...proj, commission: 0, commissionRate: 0 } : proj));
+          dbUpdates.commission = 0; dbUpdates.commission_rate = 0;
+          stateUpdates.commission = 0; stateUpdates.commissionRate = 0;
+        }
+        if ((p.salesRepCommission ?? 0) > 0 && !p.sales_rep_id) {
+          dbUpdates.sales_rep_commission = 0; dbUpdates.sales_rep_commission_rate = 0;
+          stateUpdates.salesRepCommission = 0; stateUpdates.salesRepCommissionRate = 0;
+        }
+        if (Object.keys(dbUpdates).length > 0) {
+          supabase.from("projects").update(dbUpdates).eq("id", p.id).then(() => {
+            setClientProjects((prev) => prev.map((proj) => proj.id === p.id ? { ...proj, ...stateUpdates } : proj));
           });
         }
       });
@@ -270,6 +285,13 @@ export function ClientDetail() {
   const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "" };
   const [newPayment, setNewPayment] = useState(EMPTY_PAYMENT);
   const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "", paid_date: new Date().toISOString().split("T")[0] });
+  const [downloadingStatement, setDownloadingStatement] = useState(false);
+  const [pendingDeletePayment, setPendingDeletePayment] = useState<{ id: string; label: string } | null>(null);
+  const [pendingDeleteNote, setPendingDeleteNote] = useState<string | null>(null);
+  const [pendingDeleteFile, setPendingDeleteFile] = useState<{ id: string; url: string; name: string } | null>(null);
+  const [statementPreviewOpen, setStatementPreviewOpen] = useState(false);
+  const [previewRendering, setPreviewRendering] = useState(false);
+  const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [refreshingDocusign, setRefreshingDocusign] = useState(false);
@@ -434,6 +456,155 @@ export function ClientDetail() {
     }
   };
 
+  const buildStatementPages = async (): Promise<{ pageImages: string[]; pdf: jsPDF } | null> => {
+    const SCALE = 2;
+    const baseOpts = { scale: SCALE, useCORS: true, allowTaint: false, logging: false };
+    const headerEl = document.getElementById("payment-stmt-header");
+    const bodyEl   = document.getElementById("payment-stmt-body");
+    const footerEl = document.getElementById("payment-stmt-footer");
+    const theadEl  = document.getElementById("payment-stmt-thead");
+    if (!headerEl || !bodyEl || !footerEl) return null;
+
+    const [headerCanvas, bodyCanvas, footerCanvas, theadCanvas] = await Promise.all([
+      html2canvas(headerEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+      html2canvas(bodyEl   as HTMLElement, { ...baseOpts, backgroundColor: "#F5F3EF" }),
+      html2canvas(footerEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+      theadEl ? html2canvas(theadEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }) : Promise.resolve(null),
+    ]);
+
+    const pageW = 595.28; // A4 pt
+    const pageH = 841.89;
+    // All canvases share the same px/pt ratio based on body (794px component width)
+    const pxPerPt = bodyCanvas.width / pageW;
+    const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
+
+    const headerH = toPt(headerCanvas);
+    const footerH = toPt(footerCanvas);
+    const bodyH   = toPt(bodyCanvas);
+
+    // thead is narrower (table has 48px padding each side inside 794px container)
+    // place it with matching x-offset so it aligns with the table on page 1
+    const theadW  = theadCanvas ? theadCanvas.width  / pxPerPt : pageW;
+    const theadH  = theadCanvas ? theadCanvas.height / pxPerPt : 0;
+    const theadX  = (pageW - theadW) / 2; // matches the 48px table padding
+    const THEAD_GAP = 6; // pt gap above repeated column header
+
+    const slotH = pageH - headerH - footerH;
+    // Page 1 can use full slot; page 2+ must fit thead + gap inside slot
+    const slotP1   = slotH;
+    const slotP2   = slotH - theadH - THEAD_GAP;
+    const p1Body   = Math.min(slotP1, bodyH);
+    const remaining = Math.max(0, bodyH - p1Body);
+    const extraPages = remaining > 0 ? Math.ceil(remaining / Math.max(1, slotP2)) : 0;
+    const totalPages = 1 + extraPages;
+
+    const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageImages: string[] = [];
+    let bodyConsumedPt = 0;
+
+    const hImg  = headerCanvas.toDataURL("image/jpeg", 0.93);
+    const fImg  = footerCanvas.toDataURL("image/jpeg", 0.93);
+    const thImg = theadCanvas  ? theadCanvas.toDataURL("image/jpeg", 0.93) : null;
+
+    for (let page = 0; page < totalPages; page++) {
+      if (page > 0) pdf.addPage();
+
+      const availSlot = page === 0 ? slotP1 : slotP2;
+      const sliceHpt  = Math.min(availSlot, bodyH - bodyConsumedPt);
+      const srcYpx    = Math.round(bodyConsumedPt * pxPerPt);
+      const sliceHpx  = Math.round(sliceHpt * pxPerPt);
+
+      // ── Compose preview page canvas ──────────────────────────────────
+      const pgW = headerCanvas.width;
+      const pgH = Math.round(pgW * (pageH / pageW));
+      const pc  = document.createElement("canvas");
+      pc.width  = pgW;
+      pc.height = pgH;
+      const ctx = pc.getContext("2d")!;
+      ctx.fillStyle = "#F5F3EF";
+      ctx.fillRect(0, 0, pgW, pgH);
+
+      const hHpx   = Math.round(headerH * pxPerPt);
+      const fHpx   = Math.round(footerH * pxPerPt);
+      const thHpx  = theadCanvas ? theadCanvas.height : 0;    // natural height (no scaling)
+      const thXpx  = theadCanvas ? Math.round((pgW - theadCanvas.width) / 2) : 0; // x = 48px*SCALE padding
+      const gapPx  = Math.round(THEAD_GAP * pxPerPt);
+
+      // Header
+      ctx.drawImage(headerCanvas, 0, 0, pgW, hHpx);
+      let curY = hHpx;
+
+      // Repeated column header on page 2+ — placed with same padding as table
+      if (page > 0 && theadCanvas) {
+        curY += gapPx;
+        ctx.drawImage(theadCanvas, thXpx, curY);  // draw at natural size with x-offset
+        curY += thHpx;
+      }
+
+      // Body slice
+      const sliceC = document.createElement("canvas");
+      sliceC.width  = bodyCanvas.width;
+      sliceC.height = sliceHpx;
+      sliceC.getContext("2d")!.drawImage(bodyCanvas, 0, srcYpx, bodyCanvas.width, sliceHpx, 0, 0, bodyCanvas.width, sliceHpx);
+      ctx.drawImage(sliceC, 0, curY, pgW, sliceHpx);
+
+      // Footer
+      ctx.drawImage(footerCanvas, 0, pgH - fHpx, pgW, fHpx);
+      pageImages.push(pc.toDataURL("image/jpeg", 0.90));
+
+      // ── PDF page ─────────────────────────────────────────────────────
+      pdf.addImage(hImg, "JPEG", 0, 0, pageW, headerH);
+      let pdfY = headerH;
+
+      if (page > 0 && thImg && theadCanvas) {
+        pdfY += THEAD_GAP;
+        pdf.addImage(thImg, "JPEG", theadX, pdfY, theadW, theadH); // x-offset matches table padding
+        pdfY += theadH;
+      }
+
+      const sliceDataUrl = sliceC.toDataURL("image/jpeg", 0.93);
+      pdf.addImage(sliceDataUrl, "JPEG", 0, pdfY, pageW, sliceHpt);
+      pdfY += sliceHpt;
+
+      const gapH = pageH - footerH - pdfY;
+      if (gapH > 0) { pdf.setFillColor(245, 243, 239); pdf.rect(0, pdfY, pageW, gapH, "F"); }
+
+      pdf.addImage(fImg, "JPEG", 0, pageH - footerH, pageW, footerH);
+      bodyConsumedPt += sliceHpt;
+    }
+
+    return { pageImages, pdf };
+  };
+
+  const handleDownloadStatement = async () => {
+    setDownloadingStatement(true);
+    await new Promise((r) => setTimeout(r, 80));
+    try {
+      const result = await buildStatementPages();
+      if (!result) return;
+      const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim().replace(/\s+/g, "-");
+      result.pdf.save(`Payment-Statement-${clientName}.pdf`);
+      activityLogAPI.create({ client_id: id!, action_type: "payment_receipt_exported", description: `Payment statement downloaded` }).catch(() => {});
+    } catch {
+      toast.error("Failed to generate statement — please try again.");
+    } finally {
+      setDownloadingStatement(false);
+    }
+  };
+
+  const handleOpenPreview = async () => {
+    setStatementPreviewOpen(true);
+    setPreviewRendering(true);
+    setPreviewPages([]);
+    await new Promise((r) => setTimeout(r, 80));
+    try {
+      const result = await buildStatementPages();
+      if (result) setPreviewPages(result.pageImages);
+    } catch { /* fallback to component view */ } finally {
+      setPreviewRendering(false);
+    }
+  };
+
   const loadActivityLog = async () => {
     if (!id) return;
     try {
@@ -537,12 +708,19 @@ export function ClientDetail() {
   };
   const handleStageClick = (target: string, forwardAction: () => void) => {
     if (isBackwardMove(target)) {
-      // Only Selling → Prospect is allowed backward. All others are blocked.
       const current = client?.status?.toLowerCase() ?? "";
-      if (current === "selling" && target.toLowerCase() === "prospect") {
-        setBackwardTargetStatus(target);
-        setBackwardReason("");
-        setBackwardConfirmOpen(true);
+      const hasSignedContract = client?.docusign_status === "completed";
+
+      if (current === "selling" && (target.toLowerCase() === "prospect" || target.toLowerCase() === "scheduled")) {
+        if (hasSignedContract) {
+          toast.error("Cannot move backward — a signed contract is present.");
+        } else {
+          setBackwardTargetStatus(target);
+          setBackwardReason("");
+          setBackwardConfirmOpen(true);
+        }
+      } else if (current === "scheduled" && target.toLowerCase() === "prospect") {
+        forwardAction();
       } else {
         toast.error(`Cannot move back to ${target}. The pipeline can only move forward from ${client?.status ?? "this stage"}.`);
       }
@@ -990,6 +1168,17 @@ export function ClientDetail() {
                 <DropdownMenuItem onClick={() => handleStageClick('prospect', () => handleStatusChange('prospect'))}>
                   <MoveRight className="h-4 w-4 mr-2" />Prospect
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStageClick('scheduled', () => {
+                  const missing = [];
+                  if (!client.first_name?.trim()) missing.push("first name");
+                  if (!client.phone?.trim()) missing.push("phone");
+                  if (!client.email?.trim()) missing.push("email");
+                  if (!client.address?.trim()) missing.push("address");
+                  if (missing.length > 0) { setScheduledGateOpen(true); return; }
+                  handleStatusChange('scheduled');
+                })}>
+                  <MoveRight className="h-4 w-4 mr-2" />Scheduled
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleStageClick('selling', () => {
                   if (clientAppointments.length === 0) { setSellingGateOpen(true); return; }
                   setSellingProbability(""); setSellingCloseDate(""); setSellingModalOpen(true);
@@ -1113,7 +1302,7 @@ export function ClientDetail() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-sm font-medium">Appointment</div>
-                {clientAppointments.length > 0 && (
+                {clientAppointments.length > 0 && can("can_schedule_appointments") && (
                   <button
                     onClick={() => setAppointmentDialogOpen(true)}
                     className="px-2 py-0.5 bg-black text-white text-[11px] font-medium rounded hover:bg-black/80 transition-colors"
@@ -1546,6 +1735,8 @@ export function ClientDetail() {
               const grossProfit = clientProjects[0]?.grossProfit ?? 0;
               const margin = clientProjects[0]?.profitMargin ?? 0;
               const commission = clientProjects[0]?.commission ?? 0;
+              const salesRepCommission = clientProjects[0]?.salesRepCommission ?? 0;
+              const salesRepName = clientProjects[0]?.salesRepName ?? "";
               const donutData = totalValue > 0
                 ? [
                     { name: "Cost", value: cost < 0 ? 0 : cost },
@@ -1595,7 +1786,10 @@ export function ClientDetail() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Gross Profit</div>
-                        <div className="text-sm font-semibold text-green-600">{formatCurrency(grossProfit)}</div>
+                        {role === "project_manager"
+                          ? <div className="text-sm font-semibold text-green-600">{(margin ?? 0).toFixed(1)}% GP</div>
+                          : <div className="text-sm font-semibold text-green-600">{formatCurrency(grossProfit)}</div>
+                        }
                       </div>
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Total Cost</div>
@@ -1604,8 +1798,14 @@ export function ClientDetail() {
                     </div>
                     {commission > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Commission</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">PM Commission</div>
                         <div className="text-sm font-semibold text-blue-600">{formatCurrency(commission)}</div>
+                      </div>
+                    )}
+                    {salesRepCommission > 0 && salesRepName && role !== "project_manager" && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Sales Rep Commission</div>
+                        <div className="text-sm font-semibold text-purple-600">{formatCurrency(salesRepCommission)}</div>
                       </div>
                     )}
                   </div>
@@ -1737,7 +1937,10 @@ export function ClientDetail() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Gross Profit</p>
-                <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+                {role === "project_manager"
+                  ? <p className="font-semibold text-base text-green-600">{(project.profitMargin ?? 0).toFixed(1)}% GP</p>
+                  : <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
+                }
               </div>
               <div>
                 <button
@@ -1754,9 +1957,15 @@ export function ClientDetail() {
                 </button>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Commission</p>
+                <p className="text-xs text-muted-foreground">PM Commission</p>
                 <p className="font-semibold text-base text-blue-600">{formatCurrency(project.commission ?? 0)}</p>
               </div>
+              {project.salesRepName && project.salesRepCommission > 0 && role !== "project_manager" && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Sales Rep Commission</p>
+                  <p className="font-semibold text-base text-purple-600">{formatCurrency(project.salesRepCommission)}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground">Start Date</p>
                 <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
@@ -2031,7 +2240,7 @@ export function ClientDetail() {
                           </p>
                         </div>
                         {can("can_delete_notes") && (
-                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={async (e) => { e.stopPropagation(); await notesAPI.delete(item.id); loadNotes(); }}>
+                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )}
@@ -2052,7 +2261,7 @@ export function ClientDetail() {
                           </div>
                         </div>
                         {can("can_delete_files") && (
-                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeletePhoto(item.id, item.file_url, item.file_name ?? item.file_url.split("/").pop() ?? "file")}>
+                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setPendingDeleteFile({ id: item.id, url: item.file_url, name: item.file_name ?? item.file_url.split("/").pop() ?? "file" })}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )}
@@ -2153,83 +2362,114 @@ export function ClientDetail() {
 
         {/* ── Payment Tracking Modal ── */}
         <Dialog open={paymentTrackingOpen} onOpenChange={setPaymentTrackingOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Payment Tracking
-              </DialogTitle>
-              <DialogDescription>Monitor collections for {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</DialogDescription>
-            </DialogHeader>
+          <DialogContent className="max-w-2xl flex flex-col max-h-[85vh] p-0 gap-0">
+            {/* Fixed header */}
+            <div className="px-6 pt-6 pb-4 border-b shrink-0">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  <DollarSign className="h-5 w-5" />
+                  Payment Tracking
+                </h2>
+                {clientPayments.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleOpenPreview}
+                      disabled={previewRendering}
+                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                      title="Preview Payment Statement"
+                    >
+                      {previewRendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                      <span>{previewRendering ? "Building…" : "Preview"}</span>
+                    </button>
+                    <button
+                      onClick={handleDownloadStatement}
+                      disabled={downloadingStatement}
+                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                      title="Download Payment Statement PDF"
+                    >
+                      {downloadingStatement
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <FileDown className="h-3.5 w-3.5" />}
+                      <span>{downloadingStatement ? "Generating…" : "Download"}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">Monitor collections for {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</p>
+            </div>
+
+            {/* Scrollable body */}
             {(() => {
               const totalAmount = clientPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
               const totalPaid   = clientPayments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
               const pct = totalAmount > 0 ? Math.round((totalPaid / totalAmount) * 100) : 0;
               return (
-                <div className="space-y-4 px-6 py-4">
-                  {/* Progress bar */}
-                  <div className="bg-muted/40 rounded-lg p-4 space-y-2">
-                    <div className="flex items-center justify-between text-sm font-medium">
-                      <span>Payment Progress</span>
-                      <span>{pct}%</span>
+                <>
+                  <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                    {/* Progress bar */}
+                    <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                      <div className="flex items-center justify-between text-sm font-medium">
+                        <span>Payment Progress</span>
+                        <span>{pct}%</span>
+                      </div>
+                      <Progress value={pct} className="h-2" />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Received: {formatCurrency(totalPaid)}</span>
+                        <span>Remaining: {formatCurrency(totalAmount - totalPaid)}</span>
+                      </div>
                     </div>
-                    <Progress value={pct} className="h-2" />
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Received: {formatCurrency(totalPaid)}</span>
-                      <span>Remaining: {formatCurrency(totalAmount - totalPaid)}</span>
-                    </div>
+
+                    {/* Milestones */}
+                    {clientPayments.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                        <Calendar className="h-9 w-9 mb-2 opacity-20" />
+                        <p className="text-sm font-medium">No milestones added yet</p>
+                        <p className="text-xs mt-1">Add payment milestones to track project progress.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {clientPayments.map((payment) => {
+                          const pctOfTotal = totalAmount > 0 ? Math.round((payment.amount / totalAmount) * 100) : 0;
+                          return (
+                            <div key={payment.id} className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}`}>
+                              <Checkbox
+                                checked={payment.is_paid}
+                                disabled={!can("can_record_payments")}
+                                onCheckedChange={() => {
+                                  if (!can("can_record_payments")) return;
+                                  if (!payment.is_paid) {
+                                    setMarkPaidOpen(payment);
+                                    setPaidForm({ payment_method: "", notes: payment.notes ?? "", paid_date: new Date().toISOString().split("T")[0] });
+                                  } else {
+                                    projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
+                                    setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
+                                  }
+                                }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className={`font-semibold text-sm ${payment.is_paid ? "line-through text-muted-foreground" : ""}`}>{payment.label}</p>
+                                <p className="text-xs text-muted-foreground">{pctOfTotal}% · {formatCurrency(payment.amount)}{payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}</p>
+                                {payment.is_paid && payment.payment_method && (
+                                  <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => { setEditPayment({ ...payment, amount: String(payment.amount), due_date: payment.due_date ?? "" }); setEditPaymentOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button onClick={() => setPendingDeletePayment({ id: payment.id, label: payment.label })} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-destructive">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Milestones */}
-                  {clientPayments.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-                      <Calendar className="h-9 w-9 mb-2 opacity-20" />
-                      <p className="text-sm font-medium">No milestones added yet</p>
-                      <p className="text-xs mt-1">Add payment milestones to track project progress.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {clientPayments.map((payment) => {
-                        const pctOfTotal = totalAmount > 0 ? Math.round((payment.amount / totalAmount) * 100) : 0;
-                        return (
-                          <div key={payment.id} className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}`}>
-                            <Checkbox
-                              checked={payment.is_paid}
-                              disabled={!can("can_record_payments")}
-                              onCheckedChange={() => {
-                                if (!can("can_record_payments")) return;
-                                if (!payment.is_paid) {
-                                  setMarkPaidOpen(payment);
-                                  setPaidForm({ payment_method: "", notes: payment.notes ?? "", paid_date: new Date().toISOString().split("T")[0] });
-                                } else {
-                                  projectPaymentsAPI.update(payment.id, { is_paid: false, paid_date: null, payment_method: null });
-                                  setClientPayments((prev) => prev.map((p) => p.id === payment.id ? { ...p, is_paid: false, paid_date: null, payment_method: null } : p));
-                                }
-                              }}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className={`font-semibold text-sm ${payment.is_paid ? "line-through text-muted-foreground" : ""}`}>{payment.label}</p>
-                              <p className="text-xs text-muted-foreground">{pctOfTotal}% · {formatCurrency(payment.amount)}{payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}</p>
-                              {payment.is_paid && payment.payment_method && (
-                                <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button onClick={() => { setEditPayment({ ...payment, amount: String(payment.amount), due_date: payment.due_date ?? "" }); setEditPaymentOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground">
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button onClick={async () => { await projectPaymentsAPI.delete(payment.id); setClientPayments((prev) => prev.filter((p) => p.id !== payment.id)); toast.success("Milestone removed"); }} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-destructive">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Footer */}
-                  <div className="flex items-center justify-between pt-2 border-t">
+                  {/* Fixed footer */}
+                  <div className="px-6 py-4 border-t bg-background shrink-0 flex items-center justify-between">
                     <div className="space-y-1">
                       <div className="flex justify-between gap-16 text-sm font-semibold">
                         <span>Total Contract Value</span>
@@ -2252,9 +2492,111 @@ export function ClientDetail() {
                       Add Milestone
                     </Button>
                   </div>
-                </div>
+                </>
               );
             })()}
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Milestone Confirmation */}
+        <AlertDialog open={!!pendingDeletePayment} onOpenChange={(o) => { if (!o) setPendingDeletePayment(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Milestone?</AlertDialogTitle>
+              <AlertDialogDescription>
+                "{pendingDeletePayment?.label}" will be permanently removed. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={async () => {
+                  if (!pendingDeletePayment) return;
+                  await projectPaymentsAPI.delete(pendingDeletePayment.id);
+                  setClientPayments((prev) => prev.filter((p) => p.id !== pendingDeletePayment.id));
+                  toast.success("Milestone removed");
+                  setPendingDeletePayment(null);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete Note Confirmation */}
+        <AlertDialog open={!!pendingDeleteNote} onOpenChange={(o) => { if (!o) setPendingDeleteNote(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Note?</AlertDialogTitle>
+              <AlertDialogDescription>This note will be permanently removed. This cannot be undone.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={async () => { if (!pendingDeleteNote) return; await notesAPI.delete(pendingDeleteNote); setPendingDeleteNote(null); loadNotes(); }}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete File Confirmation */}
+        <AlertDialog open={!!pendingDeleteFile} onOpenChange={(o) => { if (!o) setPendingDeleteFile(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete File?</AlertDialogTitle>
+              <AlertDialogDescription>"{pendingDeleteFile?.name}" will be permanently removed. This cannot be undone.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={async () => { if (!pendingDeleteFile) return; await handleDeletePhoto(pendingDeleteFile.id, pendingDeleteFile.url, pendingDeleteFile.name); setPendingDeleteFile(null); }}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Payment Statement Preview Dialog */}
+        <Dialog open={statementPreviewOpen} onOpenChange={setStatementPreviewOpen}>
+          <DialogContent className="flex flex-col p-0 gap-0" style={{ width: 700, maxWidth: "95vw", height: "90vh" }}>
+            {/* Header */}
+            <div className="px-5 py-3 border-b shrink-0">
+              <h2 className="text-sm font-semibold">Payment Statement Preview</h2>
+              <p className="text-xs text-muted-foreground">{`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</p>
+            </div>
+            {/* Scrollable preview — shows real page images */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden bg-[#525659] p-4">
+              {previewRendering ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-white/70">
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                  <span className="text-sm">Generating preview…</span>
+                </div>
+              ) : previewPages.length > 0 ? (
+                <div className="flex flex-col items-center gap-4">
+                  {previewPages.map((src, i) => (
+                    <div key={i} className="w-full" style={{ maxWidth: 560 }}>
+                      {previewPages.length > 1 && (
+                        <p className="text-xs text-white/50 mb-1 text-center">Page {i + 1} of {previewPages.length}</p>
+                      )}
+                      <img src={src} alt={`Page ${i + 1}`} style={{ width: "100%", display: "block", boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-white/50 text-sm">
+                  Failed to generate preview.
+                </div>
+              )}
+            </div>
+            {/* Footer actions */}
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0">
+              <Button variant="outline" size="sm" onClick={() => setStatementPreviewOpen(false)}>Close</Button>
+              <Button
+                size="sm"
+                disabled={downloadingStatement}
+                onClick={handleDownloadStatement}
+              >
+                {downloadingStatement ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
+                Download PDF
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -2292,6 +2634,17 @@ export function ClientDetail() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Hidden statement export — always rendered while payment modal is open for instant capture */}
+        {paymentTrackingOpen && (
+          <div style={{ position: "absolute", left: -9999, top: 0, pointerEvents: "none", opacity: 0 }}>
+            <PaymentStatementExport
+              payments={clientPayments}
+              client={client}
+              project={clientProjects[0] ?? null}
+            />
+          </div>
+        )}
 
         {/* Mark as Paid Dialog */}
         <Dialog open={!!markPaidOpen} onOpenChange={(o) => { if (!o) { setMarkPaidOpen(null); setPaidForm({ payment_method: "", notes: "", paid_date: new Date().toISOString().split("T")[0] }); } }}>
@@ -2563,6 +2916,39 @@ export function ClientDetail() {
       </Sheet>
 
 
+      {/* Scheduled Gate — missing contact info */}
+      <Dialog open={scheduledGateOpen} onOpenChange={setScheduledGateOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Contact Info Required</DialogTitle>
+            <DialogDescription>
+              All contact information must be on file before moving a lead to Scheduled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-2">
+            <p className="text-sm text-muted-foreground">The following fields are required:</p>
+            <ul className="text-sm space-y-1">
+              {[
+                { label: "First Name", value: client?.first_name },
+                { label: "Phone",      value: client?.phone },
+                { label: "Email",      value: client?.email },
+                { label: "Address",    value: client?.address },
+              ].map(({ label, value }) => (
+                <li key={label} className={`flex items-center gap-2 ${value?.trim() ? "text-green-700" : "text-red-600"}`}>
+                  {value?.trim() ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                  {label}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground pt-1">Edit the client's profile to fill in the missing fields, then move to Scheduled.</p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setScheduledGateOpen(false)}>Close</Button>
+            <Button size="sm" onClick={() => { setScheduledGateOpen(false); setEditClientOpen(true); }}>Edit Client</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Selling Gate — no appointment warning */}
       <Dialog open={sellingGateOpen} onOpenChange={setSellingGateOpen}>
         <DialogContent className="max-w-sm">
@@ -2620,29 +3006,30 @@ export function ClientDetail() {
           </DialogHeader>
           <DialogBody>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Reason <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <label className="text-sm font-medium">Reason <span className="text-destructive">*</span></label>
               <input
-                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className={`w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${backwardReasonError ? "border-red-500" : ""}`}
                 placeholder="e.g. Client requested more time, proposal revision needed…"
                 value={backwardReason}
-                onChange={(e) => setBackwardReason(e.target.value)}
+                onChange={(e) => { setBackwardReason(e.target.value); if (e.target.value.trim()) setBackwardReasonError(false); }}
               />
+              {backwardReasonError && <p className="text-xs text-red-500">A reason is required.</p>}
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setBackwardConfirmOpen(false)}>
+            <Button variant="outline" size="sm" onClick={() => { setBackwardConfirmOpen(false); setBackwardReasonError(false); }}>
               Cancel
             </Button>
             <Button size="sm" onClick={async () => {
+              if (!backwardReason.trim()) { setBackwardReasonError(true); return; }
               setBackwardConfirmOpen(false);
+              setBackwardReasonError(false);
               await handleStatusChange(backwardTargetStatus);
-              if (backwardReason.trim()) {
-                activityLogAPI.create({
-                  client_id: client.id,
-                  action_type: "note_added",
-                  description: `Stage moved back to ${backwardTargetStatus}: ${backwardReason.trim()}`,
-                }).catch(() => {});
-              }
+              activityLogAPI.create({
+                client_id: client.id,
+                action_type: "note_added",
+                description: `Stage moved back to ${backwardTargetStatus}: ${backwardReason.trim()}`,
+              }).catch(() => {});
               setBackwardReason("");
             }}>
               Yes, Move Back
@@ -2692,10 +3079,11 @@ export function ClientDetail() {
         const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
         const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
         const fnErr    = !(ec.first_name ?? "").trim() && !(ec.company ?? "").trim() ? "First name or company is required." : (ec.first_name ?? "").trim().length > 0 && (ec.first_name ?? "").trim().length < 2 ? "Min 2 characters." : "";
-        const emailErr = (ec.email ?? "").trim() && !isValidEmail((ec.email ?? "").trim()) ? "Enter a valid email address." : "";
-        const phoneErr = (ec.phone ?? "").trim() && !isValidPhone(ec.phone ?? "") ? "Enter a valid phone number (min 7 digits)." : "";
-        const zipErr   = (ec.zip ?? "").trim() && (ec.zip ?? "").trim().length < 4 ? "ZIP must be at least 4 characters." : "";
-        const hasErr = !!fnErr || !!emailErr || !!phoneErr || !!zipErr;
+        const emailErr   = !(ec.email ?? "").trim() ? "Email is required." : !isValidEmail((ec.email ?? "").trim()) ? "Enter a valid email address." : "";
+        const phoneErr   = !(ec.phone ?? "").trim() ? "Phone is required." : !isValidPhone(ec.phone ?? "") ? "Enter a valid phone number (min 7 digits)." : "";
+        const addressErr = !(ec.address ?? "").trim() ? "Address is required." : (ec.address ?? "").trim().length < 5 ? "Address must be at least 5 characters." : "";
+        const zipErr     = (ec.zip ?? "").trim() && (ec.zip ?? "").trim().length < 4 ? "ZIP must be at least 4 characters." : "";
+        const hasErr = !!fnErr || !!emailErr || !!phoneErr || !!addressErr || !!zipErr;
         const t = editClientTouched;
         return (
           <Dialog open={editClientOpen} onOpenChange={(open) => { setEditClientOpen(open); if (!open) { setEditClientTouched(false); setClientForm({}); } }}>
@@ -2721,18 +3109,19 @@ export function ClientDetail() {
                   <Input value={ec.company ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, company: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Email</Label>
-                  <Input type="email" value={ec.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} className={t && emailErr ? "border-red-500" : ""} />
+                  <Label>Email <span className="text-destructive">*</span></Label>
+                  <Input type="text" value={ec.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} className={t && emailErr ? "border-red-500" : ""} />
                   {t && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Phone</Label>
+                  <Label>Phone <span className="text-destructive">*</span></Label>
                   <Input type="tel" value={ec.phone ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, phone: e.target.value }))} className={t && phoneErr ? "border-red-500" : ""} placeholder="(555) 123-4567" />
                   {t && phoneErr && <p className="text-xs text-red-500">{phoneErr}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Street Address</Label>
-                  <Input value={ec.address ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, address: e.target.value }))} />
+                  <Label>Street Address <span className="text-destructive">*</span></Label>
+                  <Input value={ec.address ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, address: e.target.value }))} className={t && addressErr ? "border-red-500" : ""} />
+                  {t && addressErr && <p className="text-xs text-red-500">{addressErr}</p>}
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
@@ -2752,7 +3141,7 @@ export function ClientDetail() {
               </DialogBody>
               <DialogFooter>
                 <Button variant="outline" onClick={() => { setEditClientOpen(false); setEditClientTouched(false); }}>Cancel</Button>
-                <Button disabled={savingClient} onClick={async () => {
+                <Button disabled={savingClient || (editClientTouched && hasErr)} onClick={async () => {
                   setEditClientTouched(true);
                   if (hasErr) return;
                   setSavingClient(true);
@@ -3337,7 +3726,7 @@ export function ClientDetail() {
           open={editProjectOpen}
           onOpenChange={setEditProjectOpen}
           project={editingProject}
-          onSaved={() => { setEditProjectOpen(false); projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))); }}
+          onSaved={() => { setEditProjectOpen(false); projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))); clientsAPI.getById(id!).then(setClient).catch(() => {}); }}
         />
       )}
 

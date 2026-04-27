@@ -24,8 +24,13 @@ import { Calendar } from "./ui/calendar";
 import { Label } from "./ui/label";
 import { clientsAPI, projectsAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
+import { usePermissions } from "../hooks/usePermissions";
+import { useAuth } from "../contexts/auth-context";
 
 export function Dashboard() {
+  const { can, role } = usePermissions();
+  const { user } = useAuth();
+  const currentProfileId = user?.profile?.id ?? null;
   const [weather, setWeather] = useState({ temp: 72, condition: 'Sunny' });
   const [firstName, setFirstName] = useState("");
   const [clients, setClients] = useState<any[]>([]);
@@ -130,16 +135,34 @@ export function Dashboard() {
     }
   };
 
+  const visibleProjects =
+    role === "sales_rep" && currentProfileId
+      ? projects.filter((p) => p.sales_rep_id === currentProfileId)
+      : role === "project_manager" && currentProfileId
+        ? projects.filter((p) => p.project_manager_id === currentProfileId)
+        : projects;
+
+  const visibleProjectIds = new Set(visibleProjects.map((p: any) => p.id));
+  const totalScopedClients = role === "admin"
+    ? clients.length
+    : role === "sales_rep" && currentProfileId
+      ? clients.filter((c: any) => c.salesRepId === currentProfileId).length
+      : new Set(visibleProjects.map((p: any) => p.client_id).filter(Boolean)).size;
+  const visibleCollections =
+    (role === "project_manager" || role === "sales_rep") && currentProfileId
+      ? collections.filter((p: any) => visibleProjectIds.has(p.project?.id))
+      : collections;
+
   // Active Clients = clients with at least one active project
-  const activeClientIds = new Set(projects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
+  const activeClientIds = new Set(visibleProjects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
   const activeClients = activeClientIds.size;
-  const activeProjects = projects.filter((p) => p.status === "active").length;
+  const activeProjects = visibleProjects.filter((p) => p.status === "active").length;
 
   // Revenue/GP = current month only, sold + active + completed (use created_at — when the sale was made)
   const _now = new Date();
   const _monthStart = new Date(_now.getFullYear(), _now.getMonth(), 1);
   const _monthEnd = new Date(_now.getFullYear(), _now.getMonth() + 1, 0, 23, 59, 59);
-  const revenueProjects = projects.filter((p) => {
+  const revenueProjects = visibleProjects.filter((p) => {
     if (!["sold", "active", "completed"].includes(p.status)) return false;
     const d = p.created_at ? new Date(p.created_at) : null;
     return d && d >= _monthStart && d <= _monthEnd;
@@ -177,7 +200,7 @@ export function Dashboard() {
       const month = d.toLocaleString("en-US", { month: "short" });
       const y = d.getFullYear();
       const m = d.getMonth();
-      const monthProjects = projects.filter((p) => {
+      const monthProjects = visibleProjects.filter((p) => {
         if (!["sold", "active", "completed"].includes(p.status)) return false;
         const date = p.created_at ? new Date(p.created_at) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
@@ -231,7 +254,7 @@ export function Dashboard() {
   const { startDate, endDate } = getDateRange();
   
   // Calculate revenue based on selected date range (using project created_at — when the sale was made)
-  const periodProjects = projects.filter((p) => {
+  const periodProjects = visibleProjects.filter((p) => {
     if (!["sold", "active", "completed"].includes(p.status)) return false;
     const d = p.created_at ? new Date(p.created_at) : null;
     if (!d) return false;
@@ -242,7 +265,7 @@ export function Dashboard() {
   const _curDate = new Date();
   const _curMonth = _curDate.getMonth();
   const _curYear = _curDate.getFullYear();
-  const currentMonthProjects = projects.filter((p) => {
+  const currentMonthProjects = visibleProjects.filter((p) => {
     if (!["sold", "active", "completed"].includes(p.status)) return false;
     const d = p.created_at ? new Date(p.created_at) : null;
     if (!d) return false;
@@ -304,7 +327,7 @@ export function Dashboard() {
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{activeClients}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {clients.length} total clients
+              {totalScopedClients} total clients
             </p>
           </CardContent>
         </Card>
@@ -317,7 +340,7 @@ export function Dashboard() {
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{activeProjects}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {projects.length} total projects
+              {visibleProjects.length} total projects
             </p>
           </CardContent>
         </Card>
@@ -342,14 +365,13 @@ export function Dashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{formatCurrency(totalProfit)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {avgProfitMargin.toFixed(1)}% avg margin
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{avgProfitMargin.toFixed(1)}% avg margin</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts Row */}
+      {/* Charts Row — hidden for sales reps and PMs (company-wide data) */}
+      {role !== "sales_rep" && role !== "project_manager" && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -440,8 +462,10 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
 
-      {/* Monthly Revenue Goal Tracker */}
+      {/* Monthly Revenue Goal Tracker — hidden for sales reps and PMs */}
+      {role !== "sales_rep" && role !== "project_manager" && (
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
@@ -658,13 +682,14 @@ export function Dashboard() {
           </div>
         </CardContent>
       </Card>
+      )}
 
-      {/* Collections */}
-      {(() => {
+      {/* Collections — hidden for sales reps; PM sees only their assigned projects */}
+      {role !== "sales_rep" && (() => {
         const today = new Date().toISOString().split('T')[0];
-        const overdue = collections.filter(p => p.due_date < today);
-        const dueToday = collections.filter(p => p.due_date === today);
-        const upcoming = collections.filter(p => p.due_date > today);
+        const overdue = visibleCollections.filter(p => p.due_date < today);
+        const dueToday = visibleCollections.filter(p => p.due_date === today);
+        const upcoming = visibleCollections.filter(p => p.due_date > today);
         const activeList = collectionsTab === 'overdue' ? overdue : collectionsTab === 'today' ? dueToday : upcoming;
 
         const formatDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -749,8 +774,8 @@ export function Dashboard() {
               )}
               {(overdue.length > 0 || dueToday.length > 0 || upcoming.length > 0) && (
                 <div className="pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Total outstanding: <strong>{formatCurrencyLocal(collections.reduce((s, p) => s + p.amount, 0))}</strong></span>
-                  <span>{collections.length} payment{collections.length !== 1 ? 's' : ''}</span>
+                  <span>Total outstanding: <strong>{formatCurrencyLocal(visibleCollections.reduce((s, p) => s + p.amount, 0))}</strong></span>
+                  <span>{visibleCollections.length} payment{visibleCollections.length !== 1 ? 's' : ''}</span>
                 </div>
               )}
             </CardContent>

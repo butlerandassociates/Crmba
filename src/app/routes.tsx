@@ -30,6 +30,7 @@ import { GoogleCalendarCallback } from "./components/google-calendar-callback";
 import { Payroll } from "./components/payroll";
 import { PayrollPMDetail } from "./components/payroll-pm-detail";
 import { PayrollCrewDetail } from "./components/payroll-crew-detail";
+import { MyPortal } from "./components/my-portal";
 import { ForemanLayout } from "./components/foreman/foreman-layout";
 import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
 import { ForemanJobDetail } from "./components/foreman/foreman-job-detail";
@@ -77,6 +78,7 @@ export const router = createBrowserRouter([
       { path: "payroll",                              Component: G("can_view_payroll", Payroll) },
       { path: "payroll/pm/:id",                       Component: G("can_view_payroll", PayrollPMDetail) },
       { path: "payroll/crew/:id",                     Component: G("can_view_payroll", PayrollCrewDetail) },
+      { path: "my-portal",                            Component: MyPortal },
       { path: "*",                                    Component: NotFound },
     ],
   },

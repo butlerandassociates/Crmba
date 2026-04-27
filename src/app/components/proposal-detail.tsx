@@ -161,7 +161,9 @@ export function ProposalDetail() {
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
       }
-    }).catch(console.error).finally(() => setLoading(false));
+    }).catch((err) => {
+      console.error("proposal-detail getById error:", err);
+    }).finally(() => setLoading(false));
   }, [id]);
 
   useEffect(() => {
@@ -191,12 +193,13 @@ export function ProposalDetail() {
     }).catch(console.error);
   }, ["estimates", "estimate_line_items"], "proposal-detail");
 
-  const computedSubtotal = editLineItems.reduce(
-    (sum, item) => sum + (Number(item.quantity) * Number(item.client_price)),
-    0
-  );
+  const computedSubtotal = isDirty
+    ? editLineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.client_price)), 0)
+    : (proposal?.subtotal ?? 0);
   const activeBad = badOverride !== null ? badOverride : (proposal?.bad_amount ?? 0);
-  const computedTotal = computedSubtotal + (proposal?.tax_amount ?? 0) + activeBad;
+  const computedTotal = isDirty
+    ? computedSubtotal + (proposal?.tax_amount ?? 0) + activeBad
+    : (proposal?.total ?? 0);
   const computedTotalCost = editLineItems.reduce(
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
@@ -206,7 +209,7 @@ export function ProposalDetail() {
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
-      prev.map((item, i) => i === idx ? { ...item, quantity: qty } : item)
+      prev.map((item, i) => i === idx ? { ...item, quantity: qty, fio_qty: qty } : item)
     );
   };
 
@@ -241,12 +244,13 @@ export function ProposalDetail() {
       product_name: item.productName,
       description: item.description ?? null,
       quantity: item.quantity,
+      fio_qty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
       unit: item.unit,
       material_cost: item.materialCost ?? 0,
       labor_cost: item.laborCost ?? 0,
       markup_percent: item.markupPercent ?? 0,
-      client_price: item.pricePerUnit ?? 0,
-      total_price: (item.quantity ?? 0) * (item.pricePerUnit ?? 0),
+      client_price: Math.round((item.pricePerUnit ?? 0) * 100) / 100,
+      total_price: Math.round((item.quantity ?? 0) * (item.pricePerUnit ?? 0) * 100) / 100,
       sort_order: i,
     }));
     const { data: inserted, error: insertError } = await supabase
@@ -1160,6 +1164,7 @@ export function ProposalDetail() {
                                   product_name: product.name,
                                   category: product.category?.name ?? pickerCategory,
                                   quantity: 1,
+                                  fio_qty: (product.labor_cost ?? 0) > 0 ? 1 : 0,
                                   unit: product.unit ?? "",
                                   client_price: price,
                                   price_per_unit: price,
@@ -1413,8 +1418,12 @@ export function ProposalDetail() {
           </DialogHeader>
           <div className="flex justify-end gap-3 px-6 py-4">
             <Button variant="outline" onClick={() => setPendingDeleteIdx(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => {
+            <Button variant="destructive" onClick={async () => {
               if (pendingDeleteIdx !== null) {
+                const item = editLineItems[pendingDeleteIdx];
+                if (item.id && !String(item.id).startsWith("new-")) {
+                  await supabase.from("estimate_line_items").delete().eq("id", item.id);
+                }
                 setEditLineItems((prev) => prev.filter((_, i) => i !== pendingDeleteIdx));
                 setPendingDeleteIdx(null);
               }

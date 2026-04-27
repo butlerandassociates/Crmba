@@ -83,7 +83,7 @@ export function Team() {
         ...editForm,
         insurance_expiration_date: editForm.insurance_expiration_date || null,
       };
-      if (editMember.role === "project_manager") {
+      if (editMember.role === "project_manager" || editMember.role === "sales_rep") {
         payload.commission_rate = editForm.commission_rate !== "" ? parseFloat(editForm.commission_rate) : null;
       }
       await usersAPI.update(editMember.id, payload);
@@ -99,11 +99,37 @@ export function Team() {
         for (const proj of pmProjects ?? []) {
           const newCommission = (proj.total_value || 0) * (newRate / 100);
           await supabase.from("projects").update({ commission: newCommission, commission_rate: newRate }).eq("id", proj.id);
-          // Upsert project-level commission_payments row (progress_payment_id = null)
           const { data: existing } = await supabase
             .from("commission_payments")
             .select("id, status")
             .eq("project_id", proj.id)
+            .eq("profile_id", editMember.id)
+            .is("progress_payment_id", null)
+            .maybeSingle();
+          if (existing && existing.status === "pending") {
+            await supabase.from("commission_payments").update({ amount: newCommission }).eq("id", existing.id);
+          } else if (!existing) {
+            await supabase.from("commission_payments").insert({ project_id: proj.id, profile_id: editMember.id, amount: newCommission, status: "pending" });
+          }
+        }
+      }
+
+      // If Sales Rep commission_rate changed, recalculate on all their sold/active projects
+      if (editMember.role === "sales_rep" && payload.commission_rate != null) {
+        const newRate = payload.commission_rate as number;
+        const { data: repProjects } = await supabase
+          .from("projects")
+          .select("id, gross_profit")
+          .eq("sales_rep_id", editMember.id)
+          .in("status", ["sold", "active"]);
+        for (const proj of repProjects ?? []) {
+          const newCommission = (proj.gross_profit || 0) * (newRate / 100);
+          await supabase.from("projects").update({ sales_rep_commission: newCommission, sales_rep_commission_rate: newRate }).eq("id", proj.id);
+          const { data: existing } = await supabase
+            .from("commission_payments")
+            .select("id, status")
+            .eq("project_id", proj.id)
+            .eq("profile_id", editMember.id)
             .is("progress_payment_id", null)
             .maybeSingle();
           if (existing && existing.status === "pending") {
@@ -266,9 +292,9 @@ export function Team() {
                               <FolderKanban className="h-4 w-4" />
                               <span>{member.activeProjects ?? 0} active projects</span>
                             </div>
-                            {member.role === "project_manager" && member.commission_rate != null && (
+                            {(member.role === "project_manager" || member.role === "sales_rep") && member.commission_rate != null && (
                               <div className="flex items-center gap-2 text-muted-foreground">
-                                <span className="text-xs">Commission: {member.commission_rate}%</span>
+                                <span className="text-xs">Commission: {member.commission_rate}%{member.role === "sales_rep" ? " of GP" : ""}</span>
                               </div>
                             )}
                           </div>
@@ -338,7 +364,7 @@ export function Team() {
                   <p className="text-xs text-muted-foreground">You will receive a bell notification 30 days before expiration.</p>
                 </div>
               )}
-              {editMember?.role === "project_manager" && (
+              {(editMember?.role === "project_manager" || editMember?.role === "sales_rep") && (
                 <div className="grid gap-2">
                   <Label>Commission Rate (%)</Label>
                   <Input
@@ -346,11 +372,15 @@ export function Team() {
                     min="0"
                     max="100"
                     step="0.01"
-                    placeholder="e.g. 3"
+                    placeholder="e.g. 7"
                     value={editForm.commission_rate}
                     onChange={(e) => setEditForm({ ...editForm, commission_rate: e.target.value })}
                   />
-                  <p className="text-xs text-muted-foreground">Percentage of project subtotal awarded as commission.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {editMember?.role === "sales_rep"
+                      ? "Percentage of Gross Profit awarded as commission."
+                      : "Percentage of project subtotal awarded as commission."}
+                  </p>
                 </div>
               )}
             </div>

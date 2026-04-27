@@ -9,6 +9,13 @@ build/
 
 CLAUDE.md
 session-notes.md
+TEST_CHECKLIST_APR25.md
+TEST-CHECKLIST-APR25.md
+
+
+CRM_Test_Guide_Apr2026.docx
+generate_test_doc.py
+
 
 # Tests — ignored until verified
 tests/

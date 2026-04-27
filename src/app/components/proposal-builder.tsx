@@ -202,8 +202,8 @@ export function ProposalBuilder() {
       const materialCost = product.material_cost ?? 0;
       const laborCost = product.labor_cost ?? 0;
       const markup = product.markup_percentage ?? 0;
-      const costPerUnit = materialCost + laborCost;
-      const pricePerUnit = costPerUnit * (1 + markup / 100);
+      const costPerUnit = Math.round((materialCost + laborCost) * 100) / 100;
+      const pricePerUnit = Math.round(costPerUnit * (1 + markup / 100) * 100) / 100;
 
       addLineItem({
         category: selectedCategory,
@@ -224,11 +224,10 @@ export function ProposalBuilder() {
   };
 
   const addLineItem = (item: Omit<LineItem, "id" | "totalPrice">) => {
-    const isLabor = ["labor", "installation"].includes((item.category ?? "").toLowerCase());
     const newItem: LineItem = {
       ...item,
       id: `item-${Date.now()}-${Math.random()}`,
-      fioQty: item.fioQty ?? (isLabor ? item.quantity : 0),
+      fioQty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
       totalPrice: item.quantity * item.pricePerUnit,
     };
     setLineItems([...lineItems, newItem]);
@@ -236,11 +235,10 @@ export function ProposalBuilder() {
 
   const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[], formData?: Record<string, any>) => {
     const newItems = items.map((item) => {
-      const isLabor = ["labor", "installation"].includes((item.category ?? "").toLowerCase());
       return {
         ...item,
         id: `item-${Date.now()}-${Math.random()}`,
-        fioQty: item.fioQty ?? (isLabor ? item.quantity : 0),
+        fioQty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
         totalPrice: item.quantity * item.pricePerUnit,
       };
     });
@@ -257,7 +255,7 @@ export function ProposalBuilder() {
       lineItems.map((item) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          // Recalculate total price
+          if (field === "quantity") updated.fioQty = value;
           updated.totalPrice = updated.quantity * updated.pricePerUnit;
           return updated;
         }
@@ -313,6 +311,7 @@ export function ProposalBuilder() {
         product_name: item.productName,
         description: item.description || null,
         quantity: item.quantity,
+        fio_qty: item.fioQty ?? null,
         unit: item.unit,
         material_cost: item.materialCost,
         labor_cost: item.laborCost,
@@ -707,7 +706,7 @@ export function ProposalBuilder() {
                                     type="number"
                                     value={item.fioQty ?? 0}
                                     onChange={(e) => updateLineItem(item.id, "fioQty" as any, parseFloat(e.target.value) || null)}
-                                    className="h-9 text-sm text-center w-20 mx-auto"
+                                    className="h-9 text-sm text-center w-28 mx-auto"
                                   />
                                 </td>
                                 <td className="px-4 py-4 text-center">
@@ -715,7 +714,7 @@ export function ProposalBuilder() {
                                     type="number"
                                     value={item.quantity}
                                     onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                                    className="h-9 text-sm text-center w-24 mx-auto"
+                                    className="h-9 text-sm text-center w-28 mx-auto"
                                   />
                                 </td>
                                 <td className="px-4 py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
@@ -915,7 +914,7 @@ export function ProposalBuilder() {
                       step={0.01}
                       value={taxRate}
                       onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
-                      className="h-6 w-16 text-xs text-right"
+                      className="h-7 w-24 text-sm text-right"
                     />
                     <span className="text-xs text-muted-foreground">%</span>
                   </div>
@@ -941,6 +940,10 @@ export function ProposalBuilder() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Projected GP %</span>
                     <span className="font-semibold text-green-700">{profitMargin.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Projected Commission (7% of GP)</span>
+                    <span className="font-semibold text-blue-600">{formatCurrency(grossProfit * 0.07)}</span>
                   </div>
                 </div>
               </div>

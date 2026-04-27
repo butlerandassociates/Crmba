@@ -22,6 +22,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { projectsAPI, clientsAPI, usersAPI, activityLogAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -107,34 +108,55 @@ export function EditProjectDialog({
       const oldPmId = project.project_manager_id ?? null;
       const pmChanged = newPmId !== oldPmId;
 
+      const newRepId = (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null;
+      const oldRepId = project.sales_rep_id ?? null;
+      const repChanged = newRepId !== oldRepId;
+
       // Recalculate commission when PM changes
       let commissionUpdates: Record<string, number> = {};
       if (pmChanged) {
         if (!newPmId) {
-          // PM removed — zero out commission
           commissionUpdates = { commission: 0, commission_rate: 0 };
-          // Delete any pending commission_payments for this project
-          await supabase
-            .from("commission_payments")
-            .delete()
-            .eq("project_id", project.id)
-            .eq("status", "pending");
+          await supabase.from("commission_payments").delete().eq("project_id", project.id).eq("profile_id", oldPmId).eq("status", "pending");
         } else {
-          // PM changed — look up new PM's commission_rate and recalculate
-          const { data: pmProfile } = await supabase
-            .from("profiles")
-            .select("commission_rate")
-            .eq("id", newPmId)
-            .maybeSingle();
+          const { data: pmProfile } = await supabase.from("profiles").select("commission_rate").eq("id", newPmId).maybeSingle();
           const rate = Number(pmProfile?.commission_rate ?? 0);
           const base = newValue || oldValue;
           commissionUpdates = { commission: base * (rate / 100), commission_rate: rate };
-          // Update existing pending commission_payments to the new PM
-          await supabase
-            .from("commission_payments")
-            .update({ profile_id: newPmId, amount: base * (rate / 100) })
-            .eq("project_id", project.id)
-            .eq("status", "pending");
+          const { data: existingCp } = await supabase.from("commission_payments").select("id").eq("project_id", project.id).eq("profile_id", oldPmId ?? newPmId).eq("status", "pending").maybeSingle();
+          if (existingCp) {
+            await supabase.from("commission_payments").update({ profile_id: newPmId, amount: base * (rate / 100) }).eq("id", existingCp.id);
+          } else {
+            await supabase.from("commission_payments").insert({ project_id: project.id, profile_id: newPmId, amount: base * (rate / 100), status: "pending" });
+          }
+        }
+      }
+
+      // Recalculate sales rep commission when sales rep changes (base = gross_profit)
+      let repCommissionUpdates: Record<string, number> = {};
+      const gpBase = project.gross_profit ?? 0;
+      if (repChanged) {
+        if (!newRepId) {
+          repCommissionUpdates = { sales_rep_commission: 0, sales_rep_commission_rate: 0 };
+          if (oldRepId) {
+            await supabase.from("commission_payments").delete().eq("project_id", project.id).eq("profile_id", oldRepId).eq("status", "pending");
+          }
+        } else {
+          const { data: repProfile } = await supabase.from("profiles").select("commission_rate").eq("id", newRepId).maybeSingle();
+          const rate = Number(repProfile?.commission_rate ?? 0);
+          const newRepCommission = gpBase * (rate / 100);
+          repCommissionUpdates = { sales_rep_commission: newRepCommission, sales_rep_commission_rate: rate };
+          // Remove old rep's pending row first
+          if (oldRepId && oldRepId !== newRepId) {
+            await supabase.from("commission_payments").delete().eq("project_id", project.id).eq("profile_id", oldRepId).eq("status", "pending");
+          }
+          // Upsert new rep's row
+          const { data: existingRepCp } = await supabase.from("commission_payments").select("id").eq("project_id", project.id).eq("profile_id", newRepId).eq("status", "pending").maybeSingle();
+          if (existingRepCp) {
+            await supabase.from("commission_payments").update({ amount: newRepCommission }).eq("id", existingRepCp.id);
+          } else if (rate > 0) {
+            await supabase.from("commission_payments").insert({ project_id: project.id, profile_id: newRepId, amount: newRepCommission, status: "pending" });
+          }
         }
       }
 
@@ -148,14 +170,48 @@ export function EditProjectDialog({
         total_value:        newValue,
         project_manager_id: newPmId,
         foreman_id:         (form.foreman_id && form.foreman_id !== "none") ? form.foreman_id : null,
-        sales_rep_id:       (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null,
+        sales_rep_id:       newRepId,
         ...commissionUpdates,
+        ...repCommissionUpdates,
       });
       if (newValue !== oldValue) {
         activityLogAPI.create({ client_id: form.client_id, action_type: "project_value_updated", description: `Project value updated: $${oldValue.toLocaleString()} → $${newValue.toLocaleString()} — "${form.name.trim()}"` }).catch(() => {});
       } else {
         activityLogAPI.create({ client_id: form.client_id, action_type: "project_updated", description: `Project details updated: "${form.name.trim()}"` }).catch(() => {});
       }
+
+      // If start date was set to a future date and client is currently Active → move back to Sold
+      if (form.start_date) {
+        const today = new Date().toISOString().split("T")[0];
+        if (form.start_date > today) {
+          const { data: clientData } = await supabase
+            .from("clients")
+            .select("status")
+            .eq("id", form.client_id)
+            .single();
+          if (clientData?.status === "active") {
+            const { data: soldStage } = await supabase
+              .from("pipeline_stages")
+              .select("id")
+              .ilike("name", "sold")
+              .maybeSingle();
+            if (soldStage) {
+              await supabase
+                .from("clients")
+                .update({ status: "sold", pipeline_stage_id: soldStage.id })
+                .eq("id", form.client_id);
+              await projectsAPI.update(project.id, { status: "sold" });
+              activityLogAPI.create({
+                client_id: form.client_id,
+                action_type: "status_changed",
+                description: `Moved back to Sold — start date updated to ${form.start_date} (future date)`,
+              }).catch(() => {});
+              toast.success("Start date is in the future — client moved back to Sold.");
+            }
+          }
+        }
+      }
+
       onOpenChange(false);
       onSaved();
     } catch (err: any) {

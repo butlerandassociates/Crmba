@@ -16,6 +16,7 @@ import { commissionPaymentsAPI } from "../utils/api";
 import { toast } from "sonner";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
@@ -35,8 +36,10 @@ export function PayrollPMDetail() {
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [payoutAmount, setPayoutAmount] = useState("");
   const [payoutNotes, setPayoutNotes] = useState("");
+  const [payoutProjectId, setPayoutProjectId] = useState<string>("");
   const [payoutSaving, setPayoutSaving] = useState(false);
   const [deletingPayoutId, setDeletingPayoutId] = useState<string | null>(null);
+  const [pmProjects, setPmProjects] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -54,12 +57,26 @@ export function PayrollPMDetail() {
         .single();
       setPm(profile);
 
+      // Load projects for this PM/Sales Rep (for project selector in payout form)
+      const pmCol = profile?.role === "sales_rep" ? "sales_rep_id" : "project_manager_id";
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id, name, client:clients(first_name, last_name)")
+        .eq(pmCol, id!)
+        .in("status", ["sold", "active", "completed"])
+        .order("name");
+      setPmProjects(projects ?? []);
+
       // Load all commission payments for this PM
       const data = await commissionPaymentsAPI.getAll({ profile_id: id! });
       setInstallments(data);
 
-      // Silently fix any stale projects.commission values for this PM
-      commissionPaymentsAPI.reconcileForPM(id!).catch(() => {});
+      // Silently fix stale commission values — route to correct column by role
+      if (profile?.role === "sales_rep") {
+        commissionPaymentsAPI.reconcileForSalesRep(id!).catch(() => {});
+      } else {
+        commissionPaymentsAPI.reconcileForPM(id!).catch(() => {});
+      }
     } finally {
       setLoading(false);
     }
@@ -114,10 +131,16 @@ export function PayrollPMDetail() {
     if (isNaN(amount) || amount <= 0) { toast.error("Enter a valid amount greater than $0."); return; }
     setPayoutSaving(true);
     try {
-      await commissionPaymentsAPI.createManualPayout(id!, amount, payoutNotes.trim() || undefined);
+      await commissionPaymentsAPI.createManualPayout(
+        id!,
+        amount,
+        payoutNotes.trim() || undefined,
+        payoutProjectId || undefined,
+      );
       toast.success(`${fmt(amount)} payout recorded`);
       setPayoutAmount("");
       setPayoutNotes("");
+      setPayoutProjectId("");
       setPayoutOpen(false);
       loadData();
     } catch (err: any) {
@@ -306,7 +329,25 @@ export function PayrollPMDetail() {
                     );
                   })}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Project (optional)</Label>
+                    <Select value={payoutProjectId} onValueChange={setPayoutProjectId}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="All projects" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pmProjects.map((p) => {
+                          const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "";
+                          return (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}{clientName ? ` — ${clientName}` : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Amount ($)</Label>
                     <Input
@@ -329,7 +370,7 @@ export function PayrollPMDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <Button size="sm" variant="outline" onClick={() => { setPayoutOpen(false); setPayoutAmount(""); setPayoutNotes(""); }}>Cancel</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setPayoutOpen(false); setPayoutAmount(""); setPayoutNotes(""); setPayoutProjectId(""); }}>Cancel</Button>
                   <Button size="sm" disabled={payoutSaving} onClick={handleRecordPayout}>
                     {payoutSaving ? "Saving..." : "Record Payment"}
                   </Button>
@@ -344,6 +385,7 @@ export function PayrollPMDetail() {
                   <thead>
                     <tr className="bg-muted/50 border-b">
                       <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Project</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
                       <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
                       <th className="py-2 px-3 w-8"></th>
@@ -356,6 +398,9 @@ export function PayrollPMDetail() {
                           {p.processed_date
                             ? new Date(p.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                             : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-xs text-muted-foreground">
+                          {p.project?.name ?? <span className="italic">—</span>}
                         </td>
                         <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
                         <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
@@ -377,6 +422,7 @@ export function PayrollPMDetail() {
                   <tfoot>
                     <tr className="bg-muted/30 border-t">
                       <td className="py-2 px-3 text-xs font-semibold">Total Paid Out</td>
+                      <td className="py-2 px-3" />
                       <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(totalPaidOut)}</td>
                       <td colSpan={2} />
                     </tr>
@@ -421,12 +467,12 @@ export function PayrollPMDetail() {
                       {gpTotal > 0 && <> &nbsp;·&nbsp; GP: {fmtShort(gpTotal)} &nbsp;·&nbsp; Total Commission: {fmtShort(commissionTotal)}</>}
                     </p>
                   </div>
-                  {proj?.id && (
+                  {proj?.client_id && (
                     <Link
-                      to={`/projects/${proj.id}`}
+                      to={`/clients/${proj.client_id}`}
                       className="text-xs text-primary hover:opacity-80 no-underline"
                     >
-                      View Project →
+                      View Client →
                     </Link>
                   )}
                 </div>
@@ -437,7 +483,7 @@ export function PayrollPMDetail() {
                     <thead>
                       <tr className="bg-muted/50 border-b">
                         <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Milestone</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Progress Amt</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Source</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Commission</th>
                         <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
@@ -455,8 +501,16 @@ export function PayrollPMDetail() {
                               {pp?.label ?? `Installment ${idx + 1}`}
                               {pp?.percentage && <span className="text-xs text-muted-foreground ml-1">({pp.percentage}%)</span>}
                             </td>
-                            <td className="py-2.5 px-3 text-right text-muted-foreground">
-                              {pp?.amount ? fmtShort(parseFloat(pp.amount)) : "—"}
+                            <td className="py-2.5 px-3 text-xs">
+                              {pp ? (
+                                <span className="text-amber-600">
+                                  {pp.label ?? "Milestone"} · {fmtShort(parseFloat(pp.amount) || 0)}
+                                </span>
+                              ) : (
+                                <span className="text-blue-600">
+                                  Contract Signed · {fmtShort(parseFloat(proj?.total_value) || 0)}
+                                </span>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 text-right font-semibold">
                               {isEditing ? (

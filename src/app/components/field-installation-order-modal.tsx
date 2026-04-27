@@ -160,15 +160,18 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
     if (!estimates || estimates.length === 0) return [];
     const { data: items } = await supabase
       .from("estimate_line_items").select("*").eq("estimate_id", estimates[0].id).gt("labor_cost", 0);
-    return (items || []).map((item: any, i: number) => ({
-      id: `new-${i}`,
-      product_name: item.product_name,
-      unit: item.unit,
-      quantity: item.quantity,
-      labor_cost_per_unit: item.labor_cost,
-      total_labor: item.quantity * item.labor_cost,
-      notes: "",
-    }));
+    return (items || []).map((item: any, i: number) => {
+      const fieldQty = item.fio_qty || item.quantity;
+      return {
+        id: `new-${i}`,
+        product_name: item.product_name,
+        unit: item.unit,
+        quantity: fieldQty,
+        labor_cost_per_unit: item.labor_cost,
+        total_labor: fieldQty * item.labor_cost,
+        notes: "",
+      };
+    });
   };
 
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({});

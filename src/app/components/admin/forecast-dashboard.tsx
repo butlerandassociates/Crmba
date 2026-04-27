@@ -53,7 +53,7 @@ export function ForecastDashboard() {
   const sellingRevenue   = sellingProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
-  const totalCommissions = projects.reduce((s, p) => s + (p.commission || 0), 0);
+  const totalCommissions = projects.reduce((s, p) => s + (p.commission || 0) + (p.salesRepCommission || 0), 0);
 
   // Monthly revenue — last 6 months by created_at
   const now = new Date();

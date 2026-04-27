@@ -406,15 +406,36 @@ export function PipelineForecast() {
                         <span className="text-sm font-medium">{clientDisplayName(client)}</span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {proposalClientIds.has(client.id)
-                          ? "Proposal exists — follow up and move to Selling"
-                          : "No proposal yet — send proposal and schedule meeting"}
+                        No appointment booked — schedule a visit to advance
                       </p>
                     </div>
                     <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
                   </div>
                 </Link>
               ))}
+
+              {scheduledClients
+                .filter((c) => c.appointment_date && new Date(c.appointment_date) < new Date())
+                .map((client) => (
+                  <Link
+                    key={client.id}
+                    to={`/clients/${client.id}`}
+                    className="block p-3 border rounded-lg hover:bg-accent transition-colors no-underline"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Follow Up</Badge>
+                          <span className="text-sm font-medium">{clientDisplayName(client)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Appointment passed — move to Selling or discard
+                        </p>
+                      </div>
+                      <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+                    </div>
+                  </Link>
+                ))}
 
               {sellingClients.map((client) => (
                 <Link
@@ -469,11 +490,11 @@ export function PipelineForecast() {
                 );
               })}
 
-              {prospectClients.length === 0 && scheduledClients.length === 0 && sellingClients.length === 0 && soldClients.length === 0 && (
+              {prospectClients.length === 0 && scheduledClients.filter((c) => c.appointment_date && new Date(c.appointment_date) < new Date()).length === 0 && sellingClients.length === 0 && soldClients.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8">
                   <ListTodo className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No pending tasks</p>
-                  <p className="text-xs mt-1 text-muted-foreground">Tasks appear when clients are in prospect, selling, or sold stages.</p>
+                  <p className="text-xs mt-1 text-muted-foreground">Tasks appear when clients need follow-up action.</p>
                 </div>
               )}
             </div>
@@ -489,7 +510,7 @@ export function PipelineForecast() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[300px] overflow-y-auto">
 
               {/* New clients this week */}
               {(() => {

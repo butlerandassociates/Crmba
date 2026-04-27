@@ -11,6 +11,8 @@ import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Tra
 import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
+import { usePermissions } from "../hooks/usePermissions";
+import { useAuth } from "../contexts/auth-context";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +32,15 @@ import {
 import { Textarea } from "./ui/textarea";
 import { toast } from "sonner";
 
+const PM_STAGES = ["sold", "active", "completed"];
+const SALES_REP_STAGES = ["scheduled", "selling", "sold", "active", "completed"];
+
 export function ClientsList() {
+  const { role } = usePermissions();
+  const { user } = useAuth();
+  const currentProfileId = user?.profile?.id ?? null;
+  const navigate = useNavigate();
+
   const location = useLocation();
   const stageFilter = new URLSearchParams(location.search).get("stage") ?? "";
 
@@ -54,7 +64,15 @@ export function ClientsList() {
   // Bulk move dialog
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [bulkMoveStageId, setBulkMoveStageId] = useState("");
-  const [bulkMoveSkipped, setBulkMoveSkipped] = useState<any[]>([]);
+  const [bulkMoveReason, setBulkMoveReason] = useState("");
+
+  // Bulk move results dialog
+  const [bulkMoveResultOpen, setBulkMoveResultOpen] = useState(false);
+  const [bulkMoveResult, setBulkMoveResult] = useState<{
+    moved: any[];
+    skipped: { client: any; reason: string }[];
+    stageName: string;
+  } | null>(null);
 
   // Bulk merge dialog
   const [bulkMergeOpen, setBulkMergeOpen] = useState(false);
@@ -261,6 +279,8 @@ export function ClientsList() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newClient.email.trim())) errors.email = "Enter a valid email address.";
     if (!newClient.phone.trim()) errors.phone = "Phone is required.";
     else { const d = newClient.phone.replace(/\D/g, ""); if (d.length < 7 || d.length > 15) errors.phone = "Phone must be 7–15 digits."; }
+    if (!newClient.address.trim()) errors.address = "Address is required.";
+    else if (newClient.address.trim().length < 5) errors.address = "Address must be at least 5 characters.";
     if (newClient.zip.trim() && !/^[A-Za-z0-9\s\-]{3,10}$/.test(newClient.zip.trim())) errors.zip = "Enter a valid postal code.";
     if (!newClient.lead_source_id) errors.lead_source_id = "Lead source is required.";
     return errors;
@@ -271,6 +291,22 @@ export function ClientsList() {
     fetchLeadSources();
     pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
   }, []);
+
+  useEffect(() => { clearSelection(); }, [stageFilter]);
+
+  // Redirect PM/Sales Rep away from stages they cannot see
+  useEffect(() => {
+    if (!role) return;
+    if (role === "project_manager") {
+      if (!stageFilter || !PM_STAGES.includes(stageFilter)) {
+        navigate("/clients?stage=sold", { replace: true });
+      }
+    } else if (role === "sales_rep") {
+      if (!stageFilter || !SALES_REP_STAGES.includes(stageFilter)) {
+        navigate("/clients?stage=scheduled", { replace: true });
+      }
+    }
+  }, [role, stageFilter]);
 
   const fetchClients = async () => {
     try {
@@ -388,62 +424,81 @@ export function ClientsList() {
     if (!bulkMoveStageId) return;
     const stage = pipelineStages.find((s) => s.id === bulkMoveStageId);
     const stageName = stage?.name?.toLowerCase() ?? "";
+    const targetIdx = STAGE_ORDER.indexOf(stageName);
 
-    // Block gated stages
+    // Block completely gated stages (Sold/Active/Completed — require individual setup)
     const gateReason = stageGateReason(stageName);
     if (gateReason) {
       toast.error(gateReason, { duration: 6000 });
       return;
     }
 
-    // Block backward moves — compare against each client's current stage
-    const ids = Array.from(selectedIds);
-    const targetIdx = STAGE_ORDER.indexOf(stageName);
-    const blockedBackward = clients.filter((c) => {
-      const currentIdx = STAGE_ORDER.indexOf(c.status?.toLowerCase() ?? "");
-      return selectedIds.has(c.id) && currentIdx > targetIdx && currentIdx >= STAGE_ORDER.indexOf("sold");
-    });
-    if (blockedBackward.length > 0) {
-      toast.error(`${blockedBackward.length} client${blockedBackward.length > 1 ? "s" : ""} cannot be moved backward once past the Sold stage.`);
-      return;
-    }
-
     setBulkActioning(true);
     try {
-      let eligibleIds = ids;
-      const skipped: any[] = [];
+      const selected = visibleClients.filter((c) => selectedIds.has(c.id));
+      let eligibleIds: string[] = selected.map((c) => c.id);
+      const skipped: { client: any; reason: string }[] = [];
 
-      // Selling gate: must have at least one appointment
-      if (stageName === "selling") {
-        const { data: appts } = await supabase
-          .from("appointments")
-          .select("client_id")
-          .in("client_id", ids);
-        const withAppt = new Set((appts ?? []).map((a: any) => a.client_id));
-        const noAppt = clients.filter((c) => ids.includes(c.id) && !withAppt.has(c.id));
-        if (noAppt.length === ids.length) {
-          toast.error("None of the selected clients have an appointment scheduled. An appointment is required before moving to Selling.");
-          setBulkActioning(false);
-          return;
+      // ── Backward move checks ──────────────────────────────
+      for (const c of selected) {
+        const currentIdx = STAGE_ORDER.indexOf(c.status?.toLowerCase() ?? "");
+        if (currentIdx <= targetIdx) continue; // forward move — handled below
+        // Past Sold — can never go backward
+        if (currentIdx >= STAGE_ORDER.indexOf("sold")) {
+          skipped.push({ client: c, reason: `Cannot move backward from ${c.status}` });
+          eligibleIds = eligibleIds.filter((id) => id !== c.id);
+          continue;
         }
-        noAppt.forEach((c) => skipped.push(c));
-        eligibleIds = ids.filter((id) => withAppt.has(id));
+        // Selling backward — block if signed contract exists
+        if (c.status?.toLowerCase() === "selling" && c.docusign_status === "completed") {
+          skipped.push({ client: c, reason: "Signed contract present — cannot move backward" });
+          eligibleIds = eligibleIds.filter((id) => id !== c.id);
+        }
       }
 
-      await supabase
-        .from("clients")
-        .update({ pipeline_stage_id: bulkMoveStageId, status: stageName })
-        .in("id", eligibleIds);
-
-      if (skipped.length > 0) {
-        setBulkMoveSkipped(skipped);
-        toast.warning(`${eligibleIds.length} client${eligibleIds.length > 1 ? "s" : ""} moved to ${stage?.name}. ${skipped.length} skipped — no appointment scheduled.`, { duration: 6000 });
-      } else {
-        toast.success(`${eligibleIds.length} client${eligibleIds.length > 1 ? "s" : ""} moved to ${stage?.name}`);
+      // ── Forward move: Scheduled gate (4 required fields) ──
+      if (stageName === "scheduled") {
+        for (const c of selected.filter((c) => eligibleIds.includes(c.id))) {
+          const currentIdx = STAGE_ORDER.indexOf(c.status?.toLowerCase() ?? "");
+          if (currentIdx >= targetIdx) continue; // only check forward moves
+          const missing: string[] = [];
+          if (!c.first_name?.trim()) missing.push("First Name");
+          if (!c.phone?.trim()) missing.push("Phone");
+          if (!c.email?.trim()) missing.push("Email");
+          if (!c.address?.trim()) missing.push("Address");
+          if (missing.length > 0) {
+            skipped.push({ client: c, reason: `Missing: ${missing.join(", ")}` });
+            eligibleIds = eligibleIds.filter((id) => id !== c.id);
+          }
+        }
       }
 
+      // ── Forward move: Selling gate (appointment required) ──
+      if (stageName === "selling") {
+        const forwardEligible = selected.filter((c) => eligibleIds.includes(c.id) && STAGE_ORDER.indexOf(c.status?.toLowerCase() ?? "") < targetIdx);
+        if (forwardEligible.length > 0) {
+          const { data: appts } = await supabase.from("appointments").select("client_id").in("client_id", forwardEligible.map((c) => c.id));
+          const withAppt = new Set((appts ?? []).map((a: any) => a.client_id));
+          for (const c of forwardEligible) {
+            if (!withAppt.has(c.id)) {
+              skipped.push({ client: c, reason: "No appointment scheduled" });
+              eligibleIds = eligibleIds.filter((id) => id !== c.id);
+            }
+          }
+        }
+      }
+
+      // ── Execute move ──────────────────────────────────────
+      if (eligibleIds.length > 0) {
+        await supabase.from("clients").update({ pipeline_stage_id: bulkMoveStageId, status: stageName }).in("id", eligibleIds);
+      }
+
+      const movedClients = selected.filter((c) => eligibleIds.includes(c.id));
+      setBulkMoveResult({ moved: movedClients, skipped, stageName: stage?.name ?? stageName });
+      setBulkMoveResultOpen(true);
       setBulkMoveOpen(false);
       setBulkMoveStageId("");
+      setBulkMoveReason("");
       clearSelection();
       fetchClients();
     } catch (err: any) {
@@ -461,7 +516,7 @@ export function ClientsList() {
       return;
     }
     const secondaryIds = Array.from(selectedIds).filter((id) => id !== mergePrimaryId);
-    const primary = clients.find((c) => c.id === mergePrimaryId);
+    const primary = visibleClients.find((c) => c.id === mergePrimaryId);
     const primaryName = `${primary?.first_name ?? ""} ${primary?.last_name ?? ""}`.trim();
     setBulkActioning(true);
     try {
@@ -496,9 +551,16 @@ export function ClientsList() {
   };
 
   // ── Filtering ──────────────────────────────────────────────
+  const visibleClients =
+    role === "sales_rep" && currentProfileId
+      ? clients.filter((c) => c.salesRepId === currentProfileId)
+      : role === "project_manager" && currentProfileId
+        ? clients.filter((c) => c.pmId === currentProfileId)
+        : clients;
+
   const stageClients = stageFilter
-    ? clients.filter((c) => c.status === stageFilter)
-    : clients;
+    ? visibleClients.filter((c) => c.status === stageFilter)
+    : visibleClients;
 
   const filterClients = (list: any[]) =>
     list.filter((c) => {
@@ -572,7 +634,7 @@ export function ClientsList() {
             <table className="w-full table-fixed">
               {isActive ? (
                 <colgroup>
-                  <col className="w-10" />
+                  {role === "admin" && <col className="w-10" />}
                   <col className="w-24" />
                   <col className="w-40" />
                   <col className="w-44" />
@@ -585,7 +647,7 @@ export function ClientsList() {
                 </colgroup>
               ) : isCompleted ? (
                 <colgroup>
-                  <col className="w-10" />
+                  {role === "admin" && <col className="w-10" />}
                   <col className="w-24" />
                   <col className="w-40" />
                   <col className="w-44" />
@@ -597,31 +659,34 @@ export function ClientsList() {
                 </colgroup>
               ) : (
                 <colgroup>
-                  <col className="w-10" />
+                  {role === "admin" && <col className="w-10" />}
                   <col className="w-28" />
                   <col className="w-40" />
-                  <col className="w-52" />
-                  <col className="w-36" />
+                  <col className="w-44" />
                   <col className="w-32" />
-                  <col className="w-52" />
+                  <col className="w-32" />
+                  <col className="w-32" />
+                  <col className="w-44" />
                   <col className="w-28" />
                   <col className="w-24" />
                 </colgroup>
               )}
               <thead className="border-b bg-muted/50">
                 <tr>
-                  <th className="p-3">
-                    <Checkbox
-                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                      onCheckedChange={() => toggleSelectAll(paged)}
-                      aria-label="Select all"
-                    />
-                  </th>
+                  {role === "admin" && (
+                    <th className="p-3">
+                      <Checkbox
+                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                        onCheckedChange={() => toggleSelectAll(paged)}
+                        aria-label="Select all"
+                      />
+                    </th>
+                  )}
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Client</th>
 
                   {isProjectStage ? (
-                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">PM / Foreman</th>
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Sales Rep / PM</th>
                   ) : (
                     <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Contact</th>
                   )}
@@ -631,7 +696,10 @@ export function ClientsList() {
                   </th>
 
                   {!isProjectStage && (
-                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
+                    <>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Sales Rep</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Lead Source</th>
+                    </>
                   )}
 
                   {isActive && (
@@ -671,13 +739,15 @@ export function ClientsList() {
                     className={`hover:bg-accent/50 transition-colors ${isProjectStage ? "cursor-pointer" : ""} ${selectedIds.has(client.id) ? "bg-primary/5" : ""}`}
                     onClick={isProjectStage ? () => navigate(`/clients/${client.id}`) : undefined}
                   >
-                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selectedIds.has(client.id)}
-                        onCheckedChange={() => toggleSelect(client.id)}
-                        aria-label={`Select ${client.first_name} ${client.last_name}`}
-                      />
-                    </td>
+                    {role === "admin" && (
+                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(client.id)}
+                          onCheckedChange={() => toggleSelect(client.id)}
+                          aria-label={`Select ${client.first_name} ${client.last_name}`}
+                        />
+                      </td>
+                    )}
                     <td className="p-3">
                       <Badge className={`${getStatusColor(client.status)} text-xs text-white`}>
                         {client.status}
@@ -737,7 +807,14 @@ export function ClientsList() {
                       </td>
                     )}
 
-                    {/* Col 6 — Lead Source (default only; project stages already showed it in col 5) */}
+                    {/* Col 6 — Sales Rep (default only) */}
+                    {!isProjectStage && (
+                      <td className="p-3">
+                        <span className="text-sm text-muted-foreground">{client.salesRepName ?? "—"}</span>
+                      </td>
+                    )}
+
+                    {/* Col 7 — Lead Source (default only) */}
                     {!isProjectStage && (
                       <td className="p-3">
                         <span className="text-sm text-muted-foreground">{client.lead_source?.name ?? "—"}</span>
@@ -883,7 +960,7 @@ export function ClientsList() {
                   <tr>
                     {isActive ? (
                       <>
-                        <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td colSpan={role === "admin" ? 8 : 7} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
                         <td className="p-3">
                           <span className="text-xs text-muted-foreground block">Total Revenue</span>
                           <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
@@ -892,7 +969,7 @@ export function ClientsList() {
                       </>
                     ) : isCompleted ? (
                       <>
-                        <td colSpan={7} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td colSpan={role === "admin" ? 7 : 6} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
                         <td className="p-3">
                           <span className="text-xs text-muted-foreground block">Total Revenue</span>
                           <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
@@ -901,7 +978,7 @@ export function ClientsList() {
                       </>
                     ) : (
                       <>
-                        <td colSpan={8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
+                        <td colSpan={role === "admin" ? 9 : 8} className="p-3 text-xs text-muted-foreground">{visible.length} client{visible.length !== 1 ? "s" : ""}</td>
                         <td className="p-3">
                           <span className="text-xs text-muted-foreground block">{stage && CLIENT_REVENUE_STAGES.includes(stage) ? "Total Revenue" : "Total"}</span>
                           <span className="text-sm font-bold">{formatCurrency(totalValue)}</span>
@@ -938,7 +1015,7 @@ export function ClientsList() {
     );
   };
 
-  const selectedClients = clients.filter((c) => selectedIds.has(c.id));
+  const selectedClients = visibleClients.filter((c) => selectedIds.has(c.id));
 
   return (
     <div className="p-4 space-y-4">
@@ -948,57 +1025,56 @@ export function ClientsList() {
             <h1 className="text-2xl font-bold">Clients</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Manage your client relationships</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => { setImportOpen(true); setImportRows([]); setImportDone(null); }}>
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
-            <Button onClick={() => setAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Client
-            </Button>
-          </div>
+          {role !== "project_manager" && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => { setImportOpen(true); setImportRows([]); setImportDone(null); }}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button onClick={() => setAddDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Client
+              </Button>
+            </div>
+          )}
         </div>
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search clients..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search clients..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {selectedIds.size > 0 && role === "admin" && (
+            <div className="flex items-center gap-1 ml-2">
+              <span className="text-sm font-medium text-primary mr-1">{selectedIds.size} selected</span>
+              <Button size="sm" variant="ghost" onClick={() => setBulkDiscardOpen(true)}>
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Discard
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setBulkMoveOpen(true)}>
+                <MoveRight className="h-3.5 w-3.5 mr-1.5" /> Move to...
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => {
+                const ineligible = selectedClients.filter(c => !["prospect", "scheduled"].includes(c.status?.toLowerCase() ?? ""));
+                if (ineligible.length > 0) {
+                  toast.error(`Merge is only available for Prospect and Scheduled clients. ${ineligible.map(c => `${c.first_name} ${c.last_name}`).join(", ")} cannot be merged.`);
+                  return;
+                }
+                setMergePrimaryId(Array.from(selectedIds)[0]);
+                setBulkMergeOpen(true);
+              }} disabled={selectedIds.size < 2}>
+                <GitMerge className="h-3.5 w-3.5 mr-1.5" /> Merge
+              </Button>
+              <button className="p-1 text-muted-foreground hover:text-foreground" onClick={clearSelection}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Bulk action toolbar */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-lg">
-          <span className="text-sm font-medium text-primary">
-            {selectedIds.size} selected
-          </span>
-          <div className="h-4 w-px bg-border" />
-          <Button size="sm" variant="outline" onClick={() => setBulkDiscardOpen(true)}>
-            <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Discard
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setBulkMoveOpen(true)}>
-            <MoveRight className="h-3.5 w-3.5 mr-1.5" /> Move to...
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => {
-            const ineligible = selectedClients.filter(c => !["prospect", "scheduled"].includes(c.status?.toLowerCase() ?? ""));
-            if (ineligible.length > 0) {
-              toast.error(`Merge is only available for Prospect and Scheduled clients. ${ineligible.map(c => `${c.first_name} ${c.last_name}`).join(", ")} cannot be merged.`);
-              return;
-            }
-            setMergePrimaryId(Array.from(selectedIds)[0]);
-            setBulkMergeOpen(true);
-          }} disabled={selectedIds.size < 2}>
-            <GitMerge className="h-3.5 w-3.5 mr-1.5" /> Merge
-          </Button>
-          <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={clearSelection}>
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
 
       {loading && <SkeletonList rows={8} />}
@@ -1059,43 +1135,67 @@ export function ClientsList() {
       </Dialog>
 
       {/* ── Bulk Move Dialog ── */}
-      <Dialog open={bulkMoveOpen} onOpenChange={setBulkMoveOpen}>
-        <DialogContent className="sm:max-w-[380px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MoveRight className="h-4 w-4" />
-              Move {selectedIds.size} Client{selectedIds.size > 1 ? "s" : ""} to Stage
-            </DialogTitle>
-            <DialogDescription>
-              Select the pipeline stage to move all selected clients to.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="px-6 pb-2 space-y-3">
-            <Select value={bulkMoveStageId} onValueChange={setBulkMoveStageId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a stage..." />
-              </SelectTrigger>
-              <SelectContent>
-                {pipelineStages.map((s) => {
-                  const gated = stageGateReason(s.name);
-                  return (
-                    <SelectItem key={s.id} value={s.id} disabled={!!gated}>
-                      <span className={gated ? "text-muted-foreground" : ""}>{s.name}</span>
-                      {gated && <span className="ml-2 text-xs text-muted-foreground">(requires individual setup)</span>}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkMoveOpen(false)}>Cancel</Button>
-            <Button disabled={!bulkMoveStageId || bulkActioning} onClick={handleBulkMove}>
-              {bulkActioning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Move"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {(() => {
+        const targetStageName = pipelineStages.find((s) => s.id === bulkMoveStageId)?.name?.toLowerCase() ?? "";
+        const targetIdx = STAGE_ORDER.indexOf(targetStageName);
+        const isAnyBackward = bulkMoveStageId
+          ? selectedClients.some((c) => STAGE_ORDER.indexOf(c.status?.toLowerCase() ?? "") > targetIdx)
+          : false;
+        return (
+          <Dialog open={bulkMoveOpen} onOpenChange={(o) => { setBulkMoveOpen(o); if (!o) { setBulkMoveStageId(""); setBulkMoveReason(""); } }}>
+            <DialogContent className="sm:max-w-[400px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <MoveRight className="h-4 w-4" />
+                  Move {selectedIds.size} Client{selectedIds.size > 1 ? "s" : ""} to Stage
+                </DialogTitle>
+                <DialogDescription>
+                  Select the pipeline stage to move all selected clients to.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="px-6 pb-2 space-y-3">
+                <Select value={bulkMoveStageId} onValueChange={(v) => { setBulkMoveStageId(v); setBulkMoveReason(""); }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a stage..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pipelineStages.map((s) => {
+                      const gated = stageGateReason(s.name);
+                      return (
+                        <SelectItem key={s.id} value={s.id} disabled={!!gated}>
+                          <span className={gated ? "text-muted-foreground" : ""}>{s.name}</span>
+                          {gated && <span className="ml-2 text-xs text-muted-foreground">(requires individual setup)</span>}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+                {isAnyBackward && (
+                  <div className="space-y-1.5">
+                    <Label>Reason for moving backward <span className="text-destructive">*</span></Label>
+                    <Textarea
+                      placeholder="e.g. Client requested reschedule, missed appointment..."
+                      value={bulkMoveReason}
+                      onChange={(e) => setBulkMoveReason(e.target.value)}
+                      rows={2}
+                      className="resize-none"
+                    />
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setBulkMoveOpen(false); setBulkMoveStageId(""); setBulkMoveReason(""); }}>Cancel</Button>
+                <Button
+                  disabled={!bulkMoveStageId || bulkActioning || (isAnyBackward && !bulkMoveReason.trim())}
+                  onClick={handleBulkMove}
+                >
+                  {bulkActioning ? <Loader2 className="h-4 w-4 animate-spin" /> : "Move"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Bulk Merge Dialog ── */}
       <Dialog open={bulkMergeOpen} onOpenChange={setBulkMergeOpen}>
@@ -1229,6 +1329,72 @@ export function ClientsList() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Bulk Move Results Dialog ── */}
+      <Dialog open={bulkMoveResultOpen} onOpenChange={setBulkMoveResultOpen}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MoveRight className="h-4 w-4" />
+              Move Results
+            </DialogTitle>
+            <DialogDescription>
+              Summary of the bulk move to {bulkMoveResult?.stageName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2 space-y-3 max-h-80 overflow-y-auto">
+            {/* Moved */}
+            {(bulkMoveResult?.moved.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-green-700 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {bulkMoveResult!.moved.length} client{bulkMoveResult!.moved.length !== 1 ? "s" : ""} moved to {bulkMoveResult!.stageName}
+                </p>
+                <div className="space-y-1">
+                  {bulkMoveResult!.moved.map((c) => (
+                    <p key={c.id} className="text-sm text-green-700 pl-5">
+                      {c.first_name} {c.last_name}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+            {bulkMoveResult?.moved.length === 0 && (
+              <p className="text-sm text-muted-foreground">No clients were moved.</p>
+            )}
+            {/* Skipped */}
+            {(bulkMoveResult?.skipped.length ?? 0) > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <p className="text-sm font-semibold text-amber-700 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4" />
+                  {bulkMoveResult!.skipped.length} client{bulkMoveResult!.skipped.length !== 1 ? "s" : ""} skipped
+                </p>
+                <div className="space-y-2">
+                  {bulkMoveResult!.skipped.map(({ client: c, reason }) => (
+                    <div key={c.id} className="flex items-start justify-between gap-3 rounded-md bg-amber-50 border border-amber-100 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-amber-800">{c.first_name} {c.last_name}</p>
+                        <p className="text-xs text-amber-600 mt-0.5">{reason}</p>
+                      </div>
+                      <a
+                        href={`/clients/${c.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary font-medium shrink-0 no-underline hover:underline"
+                      >
+                        View
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setBulkMoveResultOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Add Client Dialog ── */}
       <Dialog open={addDialogOpen} onOpenChange={(open) => { setAddDialogOpen(open); if (!open) { setNewClient(EMPTY_CLIENT); setFormErrors({}); } }}>
         <DialogContent className="sm:max-w-[480px]">
@@ -1264,7 +1430,7 @@ export function ClientsList() {
                 <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
                 <Input
                   id="email"
-                  type="email"
+                  type="text"
                   placeholder="john.doe@example.com"
                   value={newClient.email}
                   onChange={(e) => setField("email", e.target.value)}
@@ -1284,13 +1450,15 @@ export function ClientsList() {
                 {formErrors.phone && <p className="text-xs text-red-500">{formErrors.phone}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="address">Street Address</Label>
+                <Label htmlFor="address">Street Address <span className="text-destructive">*</span></Label>
                 <Input
                   id="address"
                   placeholder="123 Main St"
                   value={newClient.address}
                   onChange={(e) => setField("address", e.target.value)}
+                  className={formErrors.address ? "border-red-500" : ""}
                 />
+                {formErrors.address && <p className="text-xs text-red-500">{formErrors.address}</p>}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5 col-span-1">
@@ -1368,7 +1536,7 @@ export function ClientsList() {
               <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || Object.keys(formErrors).length > 0}>
                 {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Adding...</> : "Add Client"}
               </Button>
             </DialogFooter>

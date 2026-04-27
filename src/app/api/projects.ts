@@ -13,8 +13,10 @@ const mapProject = (p: any) => ({
   totalCosts:         Number(p.total_costs      ?? 0),
   grossProfit:        Number(p.gross_profit     ?? 0),
   profitMargin:       Number(p.profit_margin    ?? 0),
-  commission:         Number(p.commission       ?? 0),
-  commissionRate:     Number(p.commission_rate  ?? 0),
+  commission:            Number(p.commission                ?? 0),
+  commissionRate:        Number(p.commission_rate           ?? 0),
+  salesRepCommission:    Number(p.sales_rep_commission      ?? 0),
+  salesRepCommissionRate:Number(p.sales_rep_commission_rate ?? 0),
   clientName: p.client
     ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() || p.client.company
     : "",

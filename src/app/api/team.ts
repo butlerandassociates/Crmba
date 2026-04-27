@@ -30,7 +30,7 @@ export const usersAPI = {
   },
 
   /** Team members filtered by role — for assignment dropdowns */
-  getByRole: async (role: "project_manager" | "foreman" | "sales_rep") => {
+  getByRole: async (role: "project_manager" | "foreman" | "sales_rep" | "admin") => {
     const { data, error } = await supabase
       .from("profiles")
       .select("id, first_name, last_name, phone, email")

@@ -15,10 +15,12 @@ export const clientsAPI = {
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
         projects(
-          total_value, start_date, end_date, profit_margin,
+          total_value, start_date, end_date, profit_margin, sales_rep_id, project_manager_id,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name),
-          foreman:profiles!projects_foreman_id_fkey(first_name, last_name)
+          foreman:profiles!projects_foreman_id_fkey(first_name, last_name),
+          sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name)
         ),
+        appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name)),
         project_payments(id, is_paid, amount),
         estimates(id, total, status, created_at)
       `)
@@ -35,13 +37,22 @@ export const clientsAPI = {
       const project_end_date    = firstProject?.end_date    ?? null;
       const project_profit_margin = firstProject?.profit_margin != null ? Number(firstProject.profit_margin) : null;
 
+      const projectSalesRepName = firstProject?.sales_rep
+        ? `${firstProject.sales_rep.first_name ?? ""} ${firstProject.sales_rep.last_name ?? ""}`.trim()
+        : null;
+      const firstAppt = (c.appointments ?? [])
+        .slice()
+        .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+      const apptSalesRepName = firstAppt?.assigned_to_profile
+        ? `${firstAppt.assigned_to_profile.first_name ?? ""} ${firstAppt.assigned_to_profile.last_name ?? ""}`.trim()
+        : null;
+      const salesRepName = projectSalesRepName || apptSalesRepName || null;
+      const salesRepId: string | null = firstProject?.sales_rep_id ?? firstAppt?.assigned_to ?? null;
+      const pmId: string | null = firstProject?.project_manager_id ?? null;
       const pmName = firstProject?.project_manager
         ? `${firstProject.project_manager.first_name ?? ""} ${firstProject.project_manager.last_name ?? ""}`.trim()
         : null;
-      const foremanName = firstProject?.foreman
-        ? `${firstProject.foreman.first_name ?? ""} ${firstProject.foreman.last_name ?? ""}`.trim()
-        : null;
-      const project_staff_label = [pmName, foremanName].filter(Boolean).join(" / ") || null;
+      const project_staff_label = `${salesRepName || "—"} / ${pmName || "—"}`;
 
       const payments = c.project_payments ?? [];
       const totalPayments = payments.length;
@@ -58,6 +69,9 @@ export const clientsAPI = {
         project_end_date,
         project_profit_margin,
         project_staff_label,
+        salesRepName,
+        salesRepId,
+        pmId,
         payment_progress_pct,
         proposal_forecast: latestProposal?.total ?? 0,
       };

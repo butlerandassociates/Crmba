@@ -18,25 +18,43 @@ export function SetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [error, setError] = useState("");
 
-  // Wait for Supabase to exchange the invite token from the URL hash
+  const isRecovery = window.location.hash.includes("type=recovery");
+
   useEffect(() => {
+    const hash = window.location.hash;
+    const hasToken = hash.includes("access_token");
+
+    if (!hasToken) {
+      // No token in URL — block direct access
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          // Logged-in user trying to navigate here directly → send home
+          navigate("/", { replace: true });
+        } else {
+          // No session, no token → show invalid link
+          setCheckingSession(false);
+        }
+      });
+      return;
+    }
+
+    // Token present — wait for Supabase to exchange it
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === "SIGNED_IN" || event === "USER_UPDATED") && session) {
+      if ((event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "USER_UPDATED") && session) {
         setSessionReady(true);
         setCheckingSession(false);
       }
     });
 
-    // Also check if already has session (e.g. page refresh)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setSessionReady(true);
+    // Fallback timeout in case event fires before listener attaches
+    setTimeout(() => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          setSessionReady(true);
+        }
         setCheckingSession(false);
-      } else {
-        // Give Supabase a moment to process the hash
-        setTimeout(() => setCheckingSession(false), 2000);
-      }
-    });
+      });
+    }, 3000);
 
     return () => subscription.unsubscribe();
   }, []);
@@ -50,7 +68,7 @@ export function SetPasswordPage() {
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      toast.success("Password set! Welcome to the team.");
+      toast.success(isRecovery ? "Password updated successfully!" : "Password set! Welcome to the team.");
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(err.message || "Failed to set password. Please request a new invite link.");
@@ -99,10 +117,12 @@ export function SetPasswordPage() {
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-500" />
-              <CardTitle>Set Your Password</CardTitle>
+              <CardTitle>{isRecovery ? "Reset Your Password" : "Set Your Password"}</CardTitle>
             </div>
             <CardDescription>
-              Welcome! Create a password to secure your account and access the portal.
+              {isRecovery
+                ? "Enter a new password for your account."
+                : "Welcome! Create a password to secure your account and access the portal."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -117,7 +137,6 @@ export function SetPasswordPage() {
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(""); }}
                     autoComplete="new-password"
-                    required
                   />
                   <button
                     type="button"
@@ -139,16 +158,15 @@ export function SetPasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
                   autoComplete="new-password"
-                  required
                 />
               </div>
 
               {error && <p className="text-sm text-red-600">{error}</p>}
 
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full" disabled={loading || !password || !confirmPassword}>
                 {loading
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Setting password...</>
-                  : "Set Password & Enter Portal"
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{isRecovery ? "Updating password..." : "Setting password..."}</>
+                  : isRecovery ? "Update Password" : "Set Password & Enter Portal"
                 }
               </Button>
             </form>

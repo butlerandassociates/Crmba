@@ -839,9 +839,9 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
     console.log("Creating embedded DocuSign envelope with request:", JSON.stringify(body, null, 2));
 
     // Validate required fields
-    if (!body.templateId || !body.clientEmail || !body.clientName || !body.returnUrl) {
+    if (!body.templateId || !body.clientEmail || !body.clientName) {
       return c.json(
-        { error: "Missing required fields: templateId, clientEmail, clientName, returnUrl" },
+        { error: "Missing required fields: templateId, clientEmail, clientName" },
         400
       );
     }
@@ -851,18 +851,16 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       body.templateId,
       body.clientEmail,
       body.clientName,
+      body.adminEmail || "info@butlerconstruction.co",
+      body.adminName || "Butler & Associates Construction",
       body.emailSubject || "Please sign this document",
       body.emailBlurb || "",
-      body.returnUrl,
       body.tabs || {}
     );
-    
-    console.log("DocuSign embedded envelope created successfully with signing URL");
 
-    return c.json({
-      envelopeId: result.envelopeId,
-      signingUrl: result.signingUrl,
-    });
+    console.log("DocuSign dual-sign envelope sent successfully:", result.envelopeId);
+
+    return c.json({ envelopeId: result.envelopeId });
   } catch (error: any) {
     console.error("Error creating embedded DocuSign envelope:", error);
     return c.json(

@@ -52,7 +52,6 @@ export function EmailTemplatesDialog({
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [to, setTo] = useState(client.email ?? "");
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +86,7 @@ export function EmailTemplatesDialog({
 
   const [sending, setSending] = useState(false);
   const [sendTouched, setSendTouched] = useState(false);
+  const [fieldTouched, setFieldTouched] = useState({ subject: false, body: false });
   const [showPreview, setShowPreview] = useState(false);
 
   const buildEmailHtml = () => `
@@ -138,34 +138,28 @@ export function EmailTemplatesDialog({
     </body>
     </html>`;
 
-  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-  const toErr      = !to.trim() ? "Recipient email is required." : !isValidEmail(to.trim()) ? "Enter a valid email address." : "";
   const subjectErr = !subject.trim() ? "Subject is required." : "";
   const bodyErr    = !body.trim() ? "Message is required." : "";
 
   const handleSend = async () => {
     setSendTouched(true);
-    if (toErr || subjectErr || bodyErr) return;
+    if (subjectErr || bodyErr) return;
     setSending(true);
     try {
       const html = buildEmailHtml();
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to, subject, html, from_name: "Butler & Associates Construction" },
+        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction" },
       });
       if (error) throw error;
       await activityLogAPI.create({
         client_id: client.id,
         action_type: "email_sent",
-        description: `Email sent to ${to}: "${subject}"`,
+        description: `Email sent to ${client.email}: "${subject}"`,
       }).catch(() => {});
-      toast.success(`Email sent to ${to}`);
+      toast.success(`Email sent to ${client.email}`);
       onSent?.();
       onOpenChange(false);
-      setSelectedTemplate("");
-      setSubject("");
-      setBody("");
-      setTo(client.email ?? "");
-      setSendTouched(false);
+      resetForm();
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");
     } finally {
@@ -173,19 +167,36 @@ export function EmailTemplatesDialog({
     }
   };
 
+  const resetForm = () => {
+    setSelectedTemplate("");
+    setSubject("");
+    setBody("");
+    setSendTouched(false);
+    setFieldTouched({ subject: false, body: false });
+  };
+
   return (
     <>
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setSelectedTemplate(""); setSubject(""); setBody(""); setTo(client.email ?? ""); } onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Send Email to {client.name}
+            {client.first_name || client.name ? `Send Email to ${client.first_name ?? client.name}` : "Send Email"}
           </DialogTitle>
           <DialogDescription>
             Choose a template or compose a custom email message
           </DialogDescription>
         </DialogHeader>
+
+        {/* Sticky banner — no email on file */}
+        {!client.email && (
+          <div className="pb-2">
+            <div className="px-6 py-3 bg-red-50 border border-red-300 text-xs text-red-800">
+              <span className="font-semibold">No email on file.</span> Go to <a href={`/clients/${client.id}`} className="underline font-medium">Edit Client</a> and add an email address before sending.
+            </div>
+          </div>
+        )}
 
         <DialogBody className="space-y-4">
           {/* Template Selector */}
@@ -211,18 +222,13 @@ export function EmailTemplatesDialog({
             </Select>
           </div>
 
-          {/* To Field */}
+          {/* To — read only, sourced from client record */}
           <div className="space-y-1.5">
-            <Label htmlFor="to">To <span className="text-destructive">*</span></Label>
-            <Input
-              id="to"
-              type="email"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="recipient@email.com"
-              className={sendTouched && toErr ? "border-red-500" : ""}
-            />
-            {sendTouched && toErr && <p className="text-xs text-red-500">{toErr}</p>}
+            <Label>To</Label>
+            <div className="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50 text-sm text-muted-foreground">
+              <Mail className="h-3.5 w-3.5 shrink-0" />
+              {client.email ?? <span className="italic">No email on file</span>}
+            </div>
           </div>
 
           {/* Subject Field */}
@@ -232,10 +238,11 @@ export function EmailTemplatesDialog({
               id="subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
+              onBlur={() => setFieldTouched((p) => ({ ...p, subject: true }))}
               placeholder="Email subject"
-              className={sendTouched && subjectErr ? "border-red-500" : ""}
+              className={(sendTouched || fieldTouched.subject) && subjectErr ? "border-red-500" : ""}
             />
-            {sendTouched && subjectErr && <p className="text-xs text-red-500">{subjectErr}</p>}
+            {(sendTouched || fieldTouched.subject) && subjectErr && <p className="text-xs text-red-500">{subjectErr}</p>}
           </div>
 
           {/* Body Field */}
@@ -245,11 +252,12 @@ export function EmailTemplatesDialog({
               id="body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onBlur={() => setFieldTouched((p) => ({ ...p, body: true }))}
               placeholder="Email message..."
               rows={12}
-              className={`font-['Lato',sans-serif] text-sm${sendTouched && bodyErr ? " border-red-500" : ""}`}
+              className={`font-['Lato',sans-serif] text-sm${(sendTouched || fieldTouched.body) && bodyErr ? " border-red-500" : ""}`}
             />
-            {sendTouched && bodyErr && <p className="text-xs text-red-500">{bodyErr}</p>}
+            {(sendTouched || fieldTouched.body) && bodyErr && <p className="text-xs text-red-500">{bodyErr}</p>}
           </div>
 
           {/* Template Preview Info */}
@@ -273,7 +281,7 @@ export function EmailTemplatesDialog({
             <Eye className="h-4 w-4 mr-2" />
             Preview
           </Button>
-          <Button onClick={handleSend} disabled={sending}>
+          <Button onClick={handleSend} disabled={sending || !client.email}>
             {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
             {sending ? "Sending..." : "Send Email"}
           </Button>

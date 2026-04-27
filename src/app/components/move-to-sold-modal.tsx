@@ -89,7 +89,28 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
     }
     usersAPI.getByRole("foreman").then(setForemen).catch(console.error);
     usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
-    usersAPI.getByRole("sales_rep").then(setSalesReps).catch(console.error);
+    usersAPI.getByRole("sales_rep").then((reps) => {
+      setSalesReps(reps);
+      // Pre-fill from existing project.sales_rep_id, or fall back to first appointment's assigned_to (if they're a sales rep)
+      if (project?.sales_rep_id) {
+        setSelectedSalesRep(project.sales_rep_id);
+      } else if (client?.id) {
+        supabase
+          .from("appointments")
+          .select("assigned_to, assigned_to_profile:profiles!assigned_to(id, role)")
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle()
+          .then(({ data }) => {
+            const assignedId = data?.assigned_to;
+            const assignedRole = (data?.assigned_to_profile as any)?.role;
+            if (assignedId && assignedRole === "sales_rep") {
+              setSelectedSalesRep(assignedId);
+            }
+          });
+      }
+    }).catch(console.error);
     fetchLaborItems();
   }, [open]);
 
@@ -150,6 +171,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       // 2. Calculate financials from latest estimate
       let financials: Record<string, number> = {};
       let commissionRate = 0;
+      let salesRepCommissionRate = 0;
       let estimateTitle = "";
       const { data: estimates } = await supabase
         .from("estimates").select("id, title, total, subtotal, total_cost").eq("client_id", client.id)
@@ -166,8 +188,17 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           const { data: pmProfile } = await supabase.from("profiles").select("commission_rate").eq("id", selectedPM).maybeSingle();
           commissionRate = Number(pmProfile?.commission_rate ?? 0);
         }
+        if (selectedSalesRep) {
+          const { data: repProfile } = await supabase.from("profiles").select("commission_rate").eq("id", selectedSalesRep).maybeSingle();
+          salesRepCommissionRate = Number(repProfile?.commission_rate ?? 0);
+        }
         const commissionBase = subtotalVal || totalValue;
-        financials = { total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin, commission: commissionBase * (commissionRate / 100), commission_rate: commissionRate };
+        financials = {
+          total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin,
+          commission: commissionBase * (commissionRate / 100), commission_rate: commissionRate,
+          sales_rep_commission: grossProfit * (salesRepCommissionRate / 100),
+          sales_rep_commission_rate: salesRepCommissionRate,
+        };
       }
 
       // 3. Create or update project — check for existing to prevent duplicates
@@ -200,18 +231,33 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         projectId = newProject.id;
       }
 
-      // 4. Auto-create pending commission_payments row for PM
+      // 4. Auto-create pending commission_payments rows for PM and Sales Rep
       if (selectedPM && commissionRate > 0 && financials.commission > 0 && projectId) {
         const { data: existingCp } = await supabase
           .from("commission_payments")
           .select("id")
           .eq("project_id", projectId)
+          .eq("profile_id", selectedPM)
           .is("progress_payment_id", null)
           .maybeSingle();
         if (existingCp) {
-          await supabase.from("commission_payments").update({ amount: financials.commission, profile_id: selectedPM }).eq("id", existingCp.id);
+          await supabase.from("commission_payments").update({ amount: financials.commission }).eq("id", existingCp.id);
         } else {
           await supabase.from("commission_payments").insert({ project_id: projectId, profile_id: selectedPM, amount: financials.commission, status: "pending" });
+        }
+      }
+      if (selectedSalesRep && salesRepCommissionRate > 0 && financials.sales_rep_commission > 0 && projectId) {
+        const { data: existingRepCp } = await supabase
+          .from("commission_payments")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("profile_id", selectedSalesRep)
+          .is("progress_payment_id", null)
+          .maybeSingle();
+        if (existingRepCp) {
+          await supabase.from("commission_payments").update({ amount: financials.sales_rep_commission }).eq("id", existingRepCp.id);
+        } else {
+          await supabase.from("commission_payments").insert({ project_id: projectId, profile_id: selectedSalesRep, amount: financials.sales_rep_commission, status: "pending" });
         }
       }
 

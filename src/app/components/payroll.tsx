@@ -14,6 +14,7 @@ const fmt = (v: number) =>
 
 export function Payroll() {
   const [activeTab, setActiveTab] = useState<"commissions" | "crews" | "history">("commissions");
+  const [commissionSubTab, setCommissionSubTab] = useState<"pm" | "sales_rep">("pm");
   const [search, setSearch] = useState("");
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,9 +29,15 @@ export function Payroll() {
     setLoading(true);
     try {
       await Promise.all([fetchPMCommissions(), fetchCrewByForeman(), fetchHistory()]);
-      // Reconcile stale projects.commission values for all active PMs
-      const { data: pms } = await supabase.from("profiles").select("id").eq("role", "project_manager").eq("is_active", true);
-      (pms ?? []).forEach((pm: any) => commissionPaymentsAPI.reconcileForPM(pm.id).catch(() => {}));
+      // Reconcile stale commission values — PM → projects.commission, Rep → projects.sales_rep_commission
+      const { data: staff } = await supabase.from("profiles").select("id, role").in("role", ["project_manager", "sales_rep"]).eq("is_active", true);
+      (staff ?? []).forEach((person: any) => {
+        if (person.role === "sales_rep") {
+          commissionPaymentsAPI.reconcileForSalesRep(person.id).catch(() => {});
+        } else {
+          commissionPaymentsAPI.reconcileForPM(person.id).catch(() => {});
+        }
+      });
     } finally {
       setLoading(false);
     }
@@ -111,7 +118,7 @@ export function Payroll() {
       .select(`
         id, amount, status, created_at,
         project:projects(id, name, gross_profit, commission, client:clients(first_name, last_name, is_discarded)),
-        profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate),
+        profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate, role),
         progress_payment:project_payments!commission_payments_progress_payment_id_fkey(id, label, amount, percentage)
       `)
       .order("created_at", { ascending: false });
@@ -135,13 +142,13 @@ export function Payroll() {
       if (cp.status === "processed") byPM[pmId].totalProcessed += parseFloat(cp.amount) || 0;
     });
 
-    // Also include PMs with no commission_payments yet (role=project_manager)
-    const { data: pms } = await supabase
+    // Also include PMs + Sales Reps with no commission_payments yet
+    const { data: commissionProfiles } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, commission_rate")
-      .eq("role", "project_manager")
+      .select("id, first_name, last_name, commission_rate, role")
+      .in("role", ["project_manager", "sales_rep"])
       .eq("is_active", true);
-    (pms ?? []).forEach((pm: any) => {
+    (commissionProfiles ?? []).forEach((pm: any) => {
       if (!byPM[pm.id]) {
         byPM[pm.id] = { ...pm, installments: [], totalPending: 0, totalProcessed: 0 };
       }
@@ -203,9 +210,11 @@ export function Payroll() {
   const totalCrewPending = foremanData.reduce((s, f) => s + Math.max(0, f.totalLabor - f.totalPaid), 0);
   const totalCrewPaid = foremanData.reduce((s, f) => s + f.totalPaid, 0);
 
-  const filteredPMs = pmData.filter((pm) =>
-    `${pm.first_name} ${pm.last_name}`.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredPMs = pmData.filter((pm) => {
+    const roleMatch = commissionSubTab === "pm" ? pm.role === "project_manager" : pm.role === "sales_rep";
+    const nameMatch = `${pm.first_name} ${pm.last_name}`.toLowerCase().includes(search.toLowerCase());
+    return roleMatch && nameMatch;
+  });
 
   const filteredForemen = foremanData.filter((f) => {
     if (!f.foreman) return "unassigned".includes(search.toLowerCase());
@@ -228,11 +237,11 @@ export function Payroll() {
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 -mt-6">
         <div className="pb-3">
           <h1 className="text-2xl font-bold">Payroll</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">PM commissions and crew labor payments</p>
+          <p className="text-sm text-muted-foreground mt-0.5">PM and Sales Rep commissions and crew labor payments</p>
         </div>
         <div className="flex gap-6 border-b">
           {[
-            { key: "commissions", label: "PM Commissions" },
+            { key: "commissions", label: "Commissions" },
             { key: "crews", label: "Crew Payments" },
             { key: "history", label: "Payroll History" },
           ].map((tab) => (
@@ -319,7 +328,8 @@ export function Payroll() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={
-              activeTab === "commissions" ? "Search PMs…"
+              activeTab === "commissions" && commissionSubTab === "pm" ? "Search project managers…"
+              : activeTab === "commissions" && commissionSubTab === "sales_rep" ? "Search sales reps…"
               : activeTab === "crews" ? "Search foreman…"
               : "Search name, client, or project…"
             }
@@ -333,15 +343,39 @@ export function Payroll() {
       {/* ── PM COMMISSIONS TAB ── */}
       {activeTab === "commissions" && (
         <div className="space-y-3">
+          {/* Sub-tabs: Project Managers / Sales Reps */}
+          <div className="flex gap-1 bg-muted/40 rounded-lg p-1 w-fit">
+            {[
+              { key: "pm", label: "Project Managers" },
+              { key: "sales_rep", label: "Sales Reps" },
+            ].map((sub) => (
+              <button
+                key={sub.key}
+                onClick={() => { setCommissionSubTab(sub.key as any); setSearch(""); }}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  commissionSubTab === sub.key
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {sub.label}
+              </button>
+            ))}
+          </div>
+
           {filteredPMs.length === 0 && (
             <Card>
               <CardContent className="py-14 flex flex-col items-center justify-center text-muted-foreground">
                 <Users className="h-10 w-10 mb-3 opacity-20" />
                 <p className="text-sm font-medium">
-                  {pmData.length === 0 ? "No project managers found" : "No results match your search"}
+                  {pmData.filter((p) => commissionSubTab === "pm" ? p.role === "project_manager" : p.role === "sales_rep").length === 0
+                    ? `No ${commissionSubTab === "pm" ? "project managers" : "sales reps"} found`
+                    : "No results match your search"}
                 </p>
                 <p className="text-xs mt-1">
-                  {pmData.length === 0 ? "Assign the Project Manager role in Team settings." : "Try a different search term."}
+                  {pmData.filter((p) => commissionSubTab === "pm" ? p.role === "project_manager" : p.role === "sales_rep").length === 0
+                    ? `Assign the ${commissionSubTab === "pm" ? "Project Manager" : "Sales Rep"} role in Team settings.`
+                    : "Try a different search term."}
                 </p>
               </CardContent>
             </Card>

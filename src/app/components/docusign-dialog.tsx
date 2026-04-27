@@ -206,27 +206,7 @@ export function DocuSignDialog({
     setStatus("sending");
     setErrorMessage("");
 
-    // Open window immediately on user click — avoids popup blocker
-    const docusignWindow = window.open('', '_blank');
-    if (docusignWindow) {
-      docusignWindow.document.write(`
-        <html>
-        <head><style>@keyframes spin { to { transform: rotate(360deg); } }</style></head>
-        <body style="font-family:Inter,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;background:#F5F3EF">
-          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-blacktext-logo-cropped.png" alt="Butler & Associates Construction" style="height:40px;width:auto;object-fit:contain;margin-bottom:24px;mix-blend-mode:multiply"/>
-          <div style="width:32px;height:32px;border:3px solid #E8E4DC;border-top:3px solid #BB984D;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px"></div>
-          <p style="color:#3A3A38;font-size:15px;margin:0;opacity:0.7">Loading DocuSign, please wait...</p>
-        </body></html>
-      `);
-    } else {
-      setErrorMessage("Popups are blocked. Please allow popups for this site and try again.");
-      setStatus("error");
-      setLoading(false);
-      return;
-    }
-
     try {
-      // Build template tabs from field mapping
       const textTabs = Object.entries(fieldMapping).map(([tabLabel, value]) => ({
         tabLabel,
         value: value || "",
@@ -240,12 +220,10 @@ export function DocuSignDialog({
         emailBlurb: `Hi ${fullName.split(" ")[0] || "there"}, please review and sign the attached contract.`,
         clientEmail: client.email,
         clientName: fullName || client.email || "Client",
-        returnUrl: `${window.location.origin}/clients/${client.id}?docusign=sent`,
-        tabs: {
-          textTabs,
-        },
+        adminEmail: "info@butlerconstruction.co",
+        adminName: "Butler & Associates Construction",
+        tabs: { textTabs },
       };
-
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/create-embedded-envelope`,
@@ -261,22 +239,14 @@ export function DocuSignDialog({
 
       if (!response.ok) {
         const error = await response.json();
-        if (docusignWindow) docusignWindow.close();
         throw new Error(error.details || error.error || "Failed to create envelope");
       }
 
       const data = await response.json();
-
-      // Navigate the already-open window to DocuSign URL
-      if (docusignWindow) {
-        docusignWindow.location.href = data.signingUrl;
-      }
-
-      // Store envelope ID and close dialog
       setEnvelopeId(data.envelopeId);
-      onOpenChange(false);
+      setStatus("success");
       onSent?.(data.envelopeId);
-      
+
     } catch (error: any) {
       console.error("Error creating DocuSign envelope:", error);
       setErrorMessage(error.message || "Failed to create document");
@@ -319,7 +289,7 @@ export function DocuSignDialog({
                 <div>
                   <h3 className="text-lg font-semibold">Document Sent Successfully!</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {client.name} will receive an email with the document to sign.
+                    A signing request has been sent to <strong>info@butlerconstruction.co</strong>. Once signed, it will automatically forward to the client.
                   </p>
                 </div>
                 {envelopeId && (
@@ -336,35 +306,47 @@ export function DocuSignDialog({
           </>
         ) : (
           <>
-          <DialogBody className="space-y-6">
-            {/* DocuSign not connected warning */}
+            {/* Sticky banners — outside DialogBody so they don't scroll away */}
             {docusignConnected === false && (
-              <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
-                <div className="text-sm text-yellow-800">
-                  <strong>DocuSign is not connected.</strong> Go to <a href="/integrations" className="underline font-medium">Integrations</a> and configure DocuSign before sending documents.
+              <div className="pb-2">
+                <div className="px-6 py-3 bg-yellow-50 border border-yellow-300 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-yellow-800">
+                    <strong>DocuSign is not connected.</strong> Go to <a href="/integrations" className="underline font-medium">Integrations</a> and configure DocuSign before sending documents.
+                  </div>
+                </div>
+              </div>
+            )}
+            {!client.email && (
+              <div className="pb-2">
+                <div className="px-6 py-3 bg-red-50 border border-red-300 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-red-800">
+                    <strong>Cannot send DocuSign —</strong> this client has no email address on record. Go to <a href={`/clients/${client.id}`} className="underline font-medium">Edit Client</a> and add an email first.
+                  </div>
+                </div>
+              </div>
+            )}
+            {client.email && !client.address && (
+              <div className="pb-2">
+                <div className="px-6 py-3 bg-yellow-50 border border-yellow-300 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-yellow-800">
+                    Client address is missing — the address field in the contract will be blank.
+                  </div>
+                </div>
+              </div>
+            )}
+            {status === "error" && errorMessage && (
+              <div className="pb-2">
+                <div className="px-6 py-3 bg-red-50 border border-red-200 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-red-800">{errorMessage}</div>
                 </div>
               </div>
             )}
 
-            {/* Blocking warning — no email */}
-            {!client.email && (
-              <div className="p-3 bg-red-50 border border-red-300 rounded-lg flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-                <div className="text-sm text-red-800">
-                  <strong>Cannot send DocuSign —</strong> this client has no email address on record. Add an email to the client profile first.
-                </div>
-              </div>
-            )}
-            {/* Warning — missing address */}
-            {client.email && !client.address && (
-              <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
-                <div className="text-sm text-yellow-800">
-                  Client address is missing — the address field in the contract will be blank.
-                </div>
-              </div>
-            )}
+          <DialogBody className="space-y-6">
             {/* Recipient Info */}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="text-sm font-semibold text-blue-900 mb-2">Recipient</div>
@@ -529,16 +511,6 @@ export function DocuSignDialog({
                 <p className="text-xs text-muted-foreground">
                   These fields will be automatically populated in your DocuSign template
                 </p>
-              </div>
-            )}
-
-            {/* Error Message */}
-            {status === "error" && errorMessage && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
-                  <div className="text-sm text-red-800">{errorMessage}</div>
-                </div>
               </div>
             )}
 
