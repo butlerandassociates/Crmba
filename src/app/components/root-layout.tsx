@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck, FileSignature } from "lucide-react";
+import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck, FileSignature, XCircle, FileCheck2, FileX2 } from "lucide-react";
 import { notificationsAPI } from "../utils/api";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
@@ -116,6 +116,13 @@ export function RootLayout() {
     if (!user?.profile?.id) return;
     setDismissedAlerts((prev) => new Set([...prev, id]));
     supabase.from("user_dismissed_alerts").insert({ user_id: user.profile.id, alert_id: id }).then(() => {});
+  };
+
+  const dismissNotification = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await notificationsAPI.markRead(id);
+    setCrewNotifications((prev) => prev.filter((x) => x.id !== id));
   };
 
   const clearAllAlerts = (targetUserId?: string) => {
@@ -566,20 +573,39 @@ export function RootLayout() {
                             setCrewNotifications((prev) => prev.filter((x) => x.id !== n.id));
                           }}
                         >
-                          {n.type === "docusign_completed"
+                          {n.type === "proposal_accepted"
+                            ? <FileCheck2 className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
+                            : n.type === "proposal_declined"
+                            ? <FileX2 className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
+                            : n.type === "docusign_completed"
                             ? <FileSignature className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
                             : <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
                           }
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${n.type === "docusign_completed" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                n.type === "proposal_accepted" || n.type === "docusign_completed" ? "bg-green-100 text-green-700"
+                                : n.type === "proposal_declined" ? "bg-red-100 text-red-700"
+                                : "bg-blue-100 text-blue-700"
+                              }`}>
                                 {n.title}
                               </span>
+                              {n.metadata?.client_name && (
+                                <span className="text-xs font-medium truncate">{n.metadata.client_name}</span>
+                              )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">
-                              {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                            </p>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <p className="text-[10px] text-muted-foreground">
+                                {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                              <button
+                                onClick={(e) => dismissNotification(n.id, e)}
+                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
                           </div>
                         </Link>
                       ))}

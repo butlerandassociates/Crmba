@@ -6,17 +6,15 @@
 import { supabase } from "@/lib/supabase";
 
 export const fioAPI = {
-  /** Get FIO for a project (one per project) */
+  /** Get all FIOs for a project (multiple crews supported) */
   getByProject: async (project_id: string) => {
     const { data, error } = await supabase
       .from("field_installation_orders")
       .select(`*, items:field_installation_order_items(*), foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name, phone)`)
       .eq("project_id", project_id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    return data;
+    return data ?? [];
   },
 
   /** Create a new FIO with items */
@@ -53,17 +51,59 @@ export const fioAPI = {
     return data;
   },
 
-  /** Replace all items on an FIO */
+  /** Update items on an FIO — preserves existing item IDs so fio_crew_payments history stays linked */
   updateItems: async (
     fio_id: string,
-    items: { product_name: string; unit: string; quantity: number; labor_cost_per_unit: number; notes?: string }[]
+    items: { id?: string; product_name: string; unit: string; quantity: number; labor_cost_per_unit: number; notes?: string }[]
   ) => {
-    await supabase.from("field_installation_order_items").delete().eq("fio_id", fio_id);
-    if (items.length > 0) {
-      const { error } = await supabase
-        .from("field_installation_order_items")
-        .insert(items.map((item, i) => ({ ...item, fio_id, sort_order: i })));
+    // Separate existing (real UUID) from new (temp "new-*" IDs)
+    const existing = items.filter((i) => i.id && !String(i.id).startsWith("new-"));
+    const added    = items.filter((i) => !i.id || String(i.id).startsWith("new-"));
+
+    // Find items that were removed so we can delete them
+    const { data: dbItems } = await supabase
+      .from("field_installation_order_items")
+      .select("id")
+      .eq("fio_id", fio_id);
+    const keptIds  = new Set(existing.map((i) => i.id));
+    const toDelete = (dbItems ?? []).filter((d: any) => !keptIds.has(d.id)).map((d: any) => d.id);
+
+    // UPDATE existing items in-place — preserves UUIDs so crew payment history stays valid
+    await Promise.all(
+      existing.map((item) =>
+        supabase
+          .from("field_installation_order_items")
+          .update({
+            product_name: item.product_name,
+            unit: item.unit,
+            quantity: item.quantity,
+            labor_cost_per_unit: item.labor_cost_per_unit,
+            notes: item.notes || "",
+            sort_order: items.indexOf(item),
+          })
+          .eq("id", item.id)
+      )
+    );
+
+    // INSERT new items
+    if (added.length > 0) {
+      const { error } = await supabase.from("field_installation_order_items").insert(
+        added.map((item) => ({
+          fio_id,
+          product_name: item.product_name,
+          unit: item.unit,
+          quantity: item.quantity,
+          labor_cost_per_unit: item.labor_cost_per_unit,
+          notes: item.notes || "",
+          sort_order: items.indexOf(item),
+        }))
+      );
       if (error) throw new Error(error.message);
+    }
+
+    // DELETE removed items
+    if (toDelete.length > 0) {
+      await supabase.from("field_installation_order_items").delete().in("id", toDelete);
     }
   },
 

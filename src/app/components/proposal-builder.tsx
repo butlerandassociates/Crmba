@@ -92,7 +92,7 @@ export function ProposalBuilder() {
   };
 
   useEffect(() => { loadProducts(); }, []);
-  useRealtimeRefetch(loadProducts, ["products", "product_categories", "estimate_templates"], "proposal-builder");
+  useRealtimeRefetch(loadProducts, ["products_services", "service_categories", "estimate_templates"], "proposal-builder");
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");

@@ -793,6 +793,57 @@ app.get("/make-server-9d56a30d/docusign/template/:templateId", async (c) => {
 });
 
 /**
+ * Debug: list all required tabs in a template across all recipients
+ */
+app.get("/make-server-9d56a30d/docusign/debug-required-tabs/:templateId", async (c) => {
+  try {
+    const templateId = c.req.param("templateId");
+    const config = docusign.getDocuSignConfig();
+    const recipients = await docusign.getTemplateRecipientsWithTabs(config, templateId);
+
+    const requiredTabs: any[] = [];
+    const allTabs: any[] = [];
+
+    const tabTypes = [
+      "textTabs","fullNameTabs","emailTabs","dateSignedTabs","signHereTabs",
+      "initialHereTabs","numberTabs","checkboxTabs","radioGroupTabs","listTabs",
+      "titleTabs","companyTabs","noteTabs","formulaTabs","approveTabs","declineTabs",
+    ];
+
+    for (const [recipientType, recipientList] of Object.entries(recipients)) {
+      if (!Array.isArray(recipientList)) continue;
+      for (const recipient of recipientList as any[]) {
+        const tabs = (recipient as any).tabs ?? {};
+        for (const tabType of tabTypes) {
+          const tabList = tabs[tabType] ?? [];
+          for (const tab of tabList) {
+            const entry = {
+              recipientType,
+              recipientId: (recipient as any).recipientId,
+              roleName: (recipient as any).roleName,
+              tabType,
+              tabLabel: tab.tabLabel,
+              tabId: tab.tabId,
+              required: tab.required,
+              value: tab.value,
+              name: tab.name,
+            };
+            allTabs.push(entry);
+            if (tab.required === "true" || tab.required === true) {
+              requiredTabs.push(entry);
+            }
+          }
+        }
+      }
+    }
+
+    return c.json({ requiredTabs, totalTabs: allTabs.length, allTabs });
+  } catch (error: any) {
+    return c.json({ error: "Failed to debug template", details: error.message }, 500);
+  }
+});
+
+/**
  * Send envelope from template with auto-filled fields
  */
 app.post("/make-server-9d56a30d/docusign/send-envelope", async (c) => {
@@ -852,15 +903,16 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       body.clientEmail,
       body.clientName,
       body.adminEmail || "info@butlerconstruction.co",
-      body.adminName || "Butler & Associates Construction",
+      body.adminName || "Jonathan Butler",
       body.emailSubject || "Please sign this document",
       body.emailBlurb || "",
-      body.tabs || {}
+      body.tabs || {},
+      body.returnUrl || "https://controller.butlerconstruction.co"
     );
 
-    console.log("DocuSign dual-sign envelope sent successfully:", result.envelopeId);
+    console.log("DocuSign envelope created, sender view URL generated:", result.envelopeId);
 
-    return c.json({ envelopeId: result.envelopeId });
+    return c.json({ envelopeId: result.envelopeId, senderViewUrl: result.senderViewUrl });
   } catch (error: any) {
     console.error("Error creating embedded DocuSign envelope:", error);
     return c.json(
@@ -906,15 +958,53 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
       const updateData: Record<string, string> = { docusign_status: clientStatus };
       if (completedDate) updateData.docusign_completed_date = completedDate;
 
-      const { error } = await supabase
+      const { data: clientRow, error } = await supabase
         .from("clients")
         .update(updateData)
-        .eq("docusign_envelope_id", envelopeId);
+        .eq("docusign_envelope_id", envelopeId)
+        .select("id, first_name, last_name")
+        .single();
 
       if (error) {
         console.error("Failed to update client DocuSign status:", error);
       } else {
         console.log(`Client updated to ${clientStatus} for envelope ${envelopeId}`);
+      }
+
+      // Auto-upload signed PDF to client files when contract is completed
+      if (clientStatus === "completed" && clientRow?.id) {
+        try {
+          const config = docusign.getDocuSignConfig();
+          const pdfBuffer = await docusign.getEnvelopeDocuments(config, envelopeId);
+
+          const clientName = `${clientRow.first_name ?? ""} ${clientRow.last_name ?? ""}`.trim() || "Client";
+          const timestamp = Date.now();
+          const filePath = `${clientRow.id}/${timestamp}-signed-contract.pdf`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("client-files")
+            .upload(filePath, pdfBuffer, { contentType: "application/pdf" });
+
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage
+              .from("client-files")
+              .getPublicUrl(filePath);
+
+            await supabase.from("client_files").insert({
+              client_id: clientRow.id,
+              file_name: `Signed Contract — ${clientName}.pdf`,
+              file_url: publicUrl,
+              file_type: "contract",
+              mime_type: "application/pdf",
+            });
+
+            console.log(`Signed contract PDF auto-uploaded for client ${clientRow.id}`);
+          } else {
+            console.error("Failed to upload signed PDF to storage:", uploadError);
+          }
+        } catch (pdfErr: any) {
+          console.error("Error auto-uploading signed PDF:", pdfErr.message);
+        }
       }
     }
 

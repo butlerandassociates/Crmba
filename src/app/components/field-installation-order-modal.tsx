@@ -28,6 +28,7 @@ type View = "view" | "edit" | "pay_crew";
 export function FieldInstallationOrderModal({ open, onOpenChange, project, onCrewPayment }: FIOModalProps) {
   const { can } = usePermissions();
   const [view, setView] = useState<View>("view");
+  const [fioList, setFioList] = useState<any[]>([]);
   const [fio, setFio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +37,10 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const [suggestedItems, setSuggestedItems] = useState<any[]>([]);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [units, setUnits] = useState<string[]>([]);
+  const [foremen, setForemen] = useState<any[]>([]);
+  const [addingCrew, setAddingCrew] = useState(false);
+  const [newCrewForemanId, setNewCrewForemanId] = useState("");
+  const [reassignForemanId, setReassignForemanId] = useState("");
 
   const [editWorkDate, setEditWorkDate] = useState("");
   const [markingComplete, setMarkingComplete] = useState(false);
@@ -59,6 +64,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   useEffect(() => {
     supabase.from("units").select("name").eq("is_active", true).order("sort_order")
       .then(({ data }) => setUnits((data ?? []).map((u: any) => u.name)));
+    supabase.from("profiles").select("id, first_name, last_name").eq("role", "foreman").eq("is_active", true).order("first_name")
+      .then(({ data }) => setForemen(data ?? []));
   }, []);
 
   useEffect(() => {
@@ -123,17 +130,20 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
     }
   };
 
-  const loadFIO = async () => {
+  const loadFIO = async (selectFioId?: string) => {
     setLoading(true);
     try {
-      const existing = await fioAPI.getByProject(project.id);
-      if (existing) {
-        setFio(existing);
-        setEditItems(existing.items || []);
-        setEditWorkDate(existing.work_date || "");
-        // Init completion pct to 0
+      const list = await fioAPI.getByProject(project.id);
+      setFioList(list);
+      setAddingCrew(false);
+      setNewCrewForemanId("");
+      if (list.length > 0) {
+        const selected = selectFioId ? list.find((f: any) => f.id === selectFioId) ?? list[0] : list[0];
+        setFio(selected);
+        setEditItems(selected.items || []);
+        setEditWorkDate(selected.work_date || "");
         const init: Record<string, number> = {};
-        (existing.items || []).forEach((item: any) => { init[item.id] = 0; });
+        (selected.items || []).forEach((item: any) => { init[item.id] = 0; });
         setCompletionPct(init);
         setView("view");
       } else {
@@ -177,12 +187,13 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const [itemErrors, setItemErrors] = useState<Record<number, string>>({});
 
   const handleSave = async () => {
-    if (!project?.foreman?.id && !fio) {
-      toast.error("No foreman assigned to this project — assign a foreman before creating an FIO.");
+    // Foreman required for new FIO — can be from project default or explicitly selected
+    const foremanId = fio ? fio.foreman_id : (newCrewForemanId || project?.foreman?.id || null);
+    if (!fio && !foremanId) {
+      toast.error("Select a foreman for this crew before creating the FIO.");
       return;
     }
     if (editItems.length === 0) { toast.error("At least one labor item is required."); return; }
-    // Per-row validation
     const errs: Record<number, string> = {};
     editItems.forEach((item, idx) => {
       if (!item.product_name.trim()) errs[idx] = "Product name is required";
@@ -194,6 +205,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
     setSaving(true);
     try {
       const items = editItems.map((item) => ({
+        id: item.id,
         product_name: item.product_name,
         unit: item.unit,
         quantity: parseFloat(item.quantity) || 0,
@@ -201,13 +213,16 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         notes: item.notes || "",
       }));
       if (fio) {
-        await fioAPI.update(fio.id, { work_date: editWorkDate || null });
+        const updatePayload: any = { work_date: editWorkDate || null };
+        if (!fio.foreman_id && reassignForemanId) updatePayload.foreman_id = reassignForemanId;
+        await fioAPI.update(fio.id, updatePayload);
         await fioAPI.updateItems(fio.id, items);
         activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `Field Installation Order updated — project: ${project.name ?? ""}` }).catch(() => {});
         toast.success("Field Installation Order updated");
+        loadFIO(fio.id);
       } else {
-        await fioAPI.create(
-          { project_id: project.id, foreman_id: project.foreman?.id || undefined, work_date: editWorkDate || undefined },
+        const created = await fioAPI.create(
+          { project_id: project.id, foreman_id: foremanId, work_date: editWorkDate || undefined },
           items
         );
         activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_created", description: `Field Installation Order created — project: ${project.name ?? ""}` }).catch(() => {});
@@ -219,9 +234,9 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
           metadata: { project_id: project.id },
         }).catch(() => {});
         toast.success("Field Installation Order created");
+        loadFIO(created.id);
       }
       setView("view");
-      loadFIO();
     } catch (err: any) {
       toast.error(err.message || "Failed to save");
     } finally {
@@ -470,7 +485,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   }, 0);
 
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) { setView("view"); setEditItems([]); setEditWorkDate(""); setCompletionPct({}); setWeekEndingDate(""); setPayNotes(""); } onOpenChange(o); }}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) { setView("view"); setEditItems([]); setEditWorkDate(""); setCompletionPct({}); setWeekEndingDate(""); setPayNotes(""); setReassignForemanId(""); } onOpenChange(o); }}>
       <SheetContent side="right" className="w-full sm:max-w-3xl flex flex-col p-0 gap-0">
 
         {/* Header */}
@@ -489,7 +504,11 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 <SheetDescription asChild>
                   <div className="mt-0.5">
                     <p className="text-sm text-muted-foreground">{project?.name ?? "—"}</p>
-                    {project?.foremanName && <p className="text-xs text-muted-foreground">{project.foremanName}</p>}
+                    {fio?.foreman && (
+                      <p className="text-xs text-muted-foreground">
+                        {`${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim()}
+                      </p>
+                    )}
                   </div>
                 </SheetDescription>
               </div>
@@ -540,9 +559,105 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
 
-          ) : view === "edit" ? (
+          ) : (
+          <>
+          {/* Crew Tabs — shown when 1+ FIOs exist or when adding a new crew, hidden during Pay Crew */}
+          {view !== "pay_crew" && (fioList.length > 0 || addingCrew) && (
+            <div className="flex items-center gap-2 flex-wrap mb-4 pb-4 border-b">
+              {fioList.map((f: any, i: number) => {
+                const foremanName = f.foreman
+                  ? `${f.foreman.first_name ?? ""} ${f.foreman.last_name ?? ""}`.trim()
+                  : `Crew ${i + 1}`;
+                const isSelected = !addingCrew && fio?.id === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => {
+                      setAddingCrew(false);
+                      setFio(f);
+                      setEditItems(f.items || []);
+                      setEditWorkDate(f.work_date || "");
+                      setReassignForemanId("");
+                      const init: Record<string, number> = {};
+                      (f.items || []).forEach((item: any) => { init[item.id] = 0; });
+                      setCompletionPct(init);
+                      setView("view");
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-primary hover:text-foreground"
+                    }`}
+                  >
+                    {foremanName}
+                    {f.status === "paid" && <span className="ml-1.5 text-[10px] opacity-70">✓ Paid</span>}
+                  </button>
+                );
+              })}
+              {can("can_approve_fio_payments") && (
+                <button
+                  onClick={() => {
+                    setAddingCrew(true);
+                    setFio(null);
+                    setNewCrewForemanId("");
+                    setEditItems([]);
+                    setEditWorkDate("");
+                    setCheckedIds(new Set());
+                    fetchLaborFromEstimate().then(setSuggestedItems);
+                    setView("edit");
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                    addingCrew
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-dashed border-border text-muted-foreground hover:border-primary hover:text-foreground"
+                  }`}
+                >
+                  + Add Crew
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Foreman picker for new crew */}
+          {addingCrew && view === "edit" && (
+            <div className="flex items-center gap-3 mb-4">
+              <label className="text-sm font-medium shrink-0">Assign Foreman <span className="text-destructive">*</span></label>
+              <select
+                value={newCrewForemanId}
+                onChange={(e) => setNewCrewForemanId(e.target.value)}
+                className={`h-8 rounded-md border bg-background px-2 text-sm flex-1 ${!newCrewForemanId ? "border-amber-400" : "border-input"}`}
+              >
+                <option value="">— select foreman —</option>
+                {foremen.map((f: any) => (
+                  <option key={f.id} value={f.id}>
+                    {f.first_name} {f.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {view === "edit" ? (
             /* ── Edit / Create Mode ── */
             <div className="space-y-4">
+              {/* Reassign foreman — only shown when existing FIO has no foreman (e.g. after foreman was deleted) */}
+              {fio && !fio.foreman_id && (
+                <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <label className="text-sm font-medium shrink-0 text-amber-800">Assign Foreman <span className="text-destructive">*</span></label>
+                  <select
+                    value={reassignForemanId}
+                    onChange={(e) => setReassignForemanId(e.target.value)}
+                    className="h-8 rounded-md border border-amber-300 bg-background px-2 text-sm flex-1"
+                  >
+                    <option value="">— select foreman —</option>
+                    {foremen.map((f: any) => (
+                      <option key={f.id} value={f.id}>{f.first_name} {f.last_name}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-amber-700">Previous foreman was removed</span>
+                </div>
+              )}
+
               {/* Work Date */}
               <div className="flex items-center gap-3">
                 <label className="text-sm font-medium shrink-0">Work Date</label>
@@ -737,6 +852,30 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 })}
               </div>
 
+              {/* Crew Balance Summary */}
+              {(() => {
+                const totalCommitted = (fio?.items || []).reduce((s: number, item: any) =>
+                  s + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0), 0);
+                const totalPaid = crewPayments.reduce((s: number, p: any) => s + (p.amount_paid || 0), 0);
+                const remaining = Math.max(0, totalCommitted - totalPaid);
+                return totalCommitted > 0 ? (
+                  <div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/30 text-center">
+                    <div className="px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Committed</p>
+                      <p className="text-sm font-semibold">{formatCurrency(totalCommitted)}</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Paid to Date</p>
+                      <p className="text-sm font-semibold text-green-600">{formatCurrency(totalPaid)}</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Remaining</p>
+                      <p className="text-sm font-semibold text-amber-600">{formatCurrency(remaining)}</p>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
               {/* Notes */}
               <div>
                 <input
@@ -897,6 +1036,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 </div>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       </SheetContent>

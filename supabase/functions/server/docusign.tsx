@@ -156,8 +156,8 @@ async function getAccessTokenViaJWT(config: DocuSignConfig): Promise<string> {
     const error = await response.text();
     throw new Error(
       `JWT Grant failed (${response.status}): ${error}\n` +
-      "If this is the first time, Jonathan needs to grant consent once:\n" +
-      `Go to: https://account-d.docusign.com/oauth/auth?response_type=code&scope=signature+impersonation&client_id=${config.integrationKey}&redirect_uri=https://www.docusign.com`
+      "If this is the first time, the admin needs to grant consent once:\n" +
+      `Go to: https://account.docusign.com/oauth/auth?response_type=code&scope=signature+impersonation&client_id=${config.integrationKey}&redirect_uri=https://www.docusign.com`
     );
   }
 
@@ -191,6 +191,27 @@ async function getAccessToken(config: DocuSignConfig): Promise<string> {
 // ============================================================
 // API Methods
 // ============================================================
+
+export async function getTemplateRecipientsWithTabs(
+  config: DocuSignConfig,
+  templateId: string
+): Promise<any> {
+  const accessToken = await getAccessToken(config);
+  const response = await fetch(
+    `${config.basePath}/restapi/v2.1/accounts/${config.accountId}/templates/${templateId}/recipients?include_tabs=true`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`DocuSign API error: ${response.status} - ${error}`);
+  }
+  return await response.json();
+}
 
 export async function listTemplates(config: DocuSignConfig): Promise<any> {
   const accessToken = await getAccessToken(config);
@@ -316,6 +337,33 @@ export async function getEnvelopeDocuments(
   return await response.arrayBuffer();
 }
 
+async function getEnvelopePrefillTabs(config: DocuSignConfig, envelopeId: string): Promise<any> {
+  const accessToken = await getAccessToken(config);
+  const response = await fetch(
+    `${config.basePath}/restapi/v2.1/accounts/${config.accountId}/envelopes/${envelopeId}/prefillTabs`,
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } }
+  );
+  if (!response.ok) return null;
+  return await response.json();
+}
+
+async function updateEnvelopePrefillTabs(
+  config: DocuSignConfig,
+  envelopeId: string,
+  textTabs: { tabId: string; value: string }[]
+): Promise<void> {
+  if (!textTabs.length) return;
+  const accessToken = await getAccessToken(config);
+  await fetch(
+    `${config.basePath}/restapi/v2.1/accounts/${config.accountId}/envelopes/${envelopeId}/prefillTabs`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefillTabs: { textTabs } }),
+    }
+  );
+}
+
 export async function createEmbeddedEnvelope(
   config: DocuSignConfig,
   templateId: string,
@@ -325,11 +373,12 @@ export async function createEmbeddedEnvelope(
   adminName: string,
   emailSubject: string,
   emailBlurb: string,
-  tabs: any
-): Promise<{ envelopeId: string }> {
+  tabs: any,
+  returnUrl: string
+): Promise<{ envelopeId: string; senderViewUrl: string }> {
   const accessToken = await getAccessToken(config);
 
-  // Dual-sign flow: Admin (routing 1) receives email first → signs → DocuSign forwards to Client (routing 2)
+  // Create as draft — sender fills fields in DocuSign UI before routing to signers
   const envelopeDefinition = {
     templateId,
     templateRoles: [
@@ -339,6 +388,10 @@ export async function createEmbeddedEnvelope(
         roleName: "Admin",
         recipientId: "1",
         routingOrder: "1",
+        emailNotification: {
+          emailSubject,
+          emailBody: emailBlurb,
+        },
       },
       {
         email: clientEmail,
@@ -347,11 +400,15 @@ export async function createEmbeddedEnvelope(
         recipientId: "2",
         routingOrder: "2",
         tabs,
+        emailNotification: {
+          emailSubject,
+          emailBody: emailBlurb,
+        },
       },
     ],
     emailSubject,
     emailBlurb,
-    status: "sent",
+    status: "created",
   };
 
   const createResponse = await fetch(
@@ -372,7 +429,36 @@ export async function createEmbeddedEnvelope(
   }
 
   const envelopeData = await createResponse.json();
-  return { envelopeId: envelopeData.envelopeId };
+  const envelopeId = envelopeData.envelopeId;
+
+  // Auto-fill client data into sender prefill fields
+  try {
+    const prefillData = await getEnvelopePrefillTabs(config, envelopeId);
+    const textTabs = prefillData?.prefillTabs?.textTabs || [];
+    console.log("Sender prefill tabs:", JSON.stringify(textTabs.map((t: any) => ({ id: t.tabId, label: t.tabLabel }))));
+
+    const updates: { tabId: string; value: string }[] = [];
+    for (const tab of textTabs) {
+      const label = (tab.tabLabel || "").toLowerCase();
+      if ((label.includes("owner") || label.includes("name")) && clientName) {
+        updates.push({ tabId: tab.tabId, value: clientName });
+      } else if (label.includes("email") && clientEmail) {
+        updates.push({ tabId: tab.tabId, value: clientEmail });
+      }
+    }
+
+    if (updates.length) {
+      await updateEnvelopePrefillTabs(config, envelopeId, updates);
+      console.log(`Pre-filled ${updates.length} sender prefill tab(s)`);
+    }
+  } catch (e: any) {
+    console.log("Prefill attempt (non-fatal):", e.message);
+  }
+
+  // Get sender view URL so the admin can fill remaining fields and send from DocuSign UI
+  const senderViewUrl = await getSenderViewUrl(config, envelopeId, returnUrl);
+
+  return { envelopeId, senderViewUrl };
 }
 
 export async function getSenderViewUrl(
@@ -440,17 +526,12 @@ export async function getContractorSigningUrl(
 }
 
 export function getDocuSignConfig(): DocuSignConfig {
-  const environment = Deno.env.get("DOCUSIGN_ENVIRONMENT") || "demo";
-  const basePath = environment === "production"
-    ? "https://na4.docusign.net"
-    : "https://demo.docusign.net";
-
   return {
     integrationKey: Deno.env.get("DOCUSIGN_INTEGRATION_KEY") || "",
     secretKey: Deno.env.get("DOCUSIGN_SECRET_KEY") || "",
     accountId: Deno.env.get("DOCUSIGN_ACCOUNT_ID") || "",
     userId: Deno.env.get("DOCUSIGN_USER_ID") || "",
     privateKey: Deno.env.get("DOCUSIGN_PRIVATE_KEY") || "",
-    basePath,
+    basePath: "https://na4.docusign.net",
   };
 }

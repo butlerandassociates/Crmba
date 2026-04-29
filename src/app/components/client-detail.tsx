@@ -59,6 +59,9 @@ import {
   MailX,
   PhoneMissed,
   ClipboardList,
+  FileCheck2,
+  FileX2,
+  UserCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -81,7 +84,7 @@ import {
 } from "./ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI, usersAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
@@ -209,6 +212,22 @@ export function ClientDetail() {
     fetchClient();
   }, [id]);
 
+  // Handle return from DocuSign sender view — event=Send means sender clicked Send
+  useEffect(() => {
+    if (!id) return;
+    const params = new URLSearchParams(window.location.search);
+    const event = params.get("event");
+    const envelopeId = params.get("envelopeId");
+    if (event === "Send" && envelopeId) {
+      supabase.from("clients").update({ docusign_status: "sent_to_client" }).eq("id", id).then(() => {
+        setClient((prev: any) => prev ? { ...prev, docusign_status: "sent_to_client" } : prev);
+      });
+      // Clean URL params without reloading
+      const clean = window.location.pathname;
+      window.history.replaceState({}, "", clean);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     projectsAPI.getAll().then((all) => {
@@ -303,6 +322,10 @@ export function ClientDetail() {
   const [editProjectOpen, setEditProjectOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
   const [costAttributionsOpen, setCostAttributionsOpen] = useState(false);
+  const [assignRepOpen, setAssignRepOpen] = useState(false);
+  const [assignRepId, setAssignRepId] = useState<string>("");
+  const [assignRepList, setAssignRepList] = useState<any[]>([]);
+  const [savingRep, setSavingRep] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesErr, setNotesErr] = useState("");
@@ -583,7 +606,7 @@ export function ClientDetail() {
       const result = await buildStatementPages();
       if (!result) return;
       const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim().replace(/\s+/g, "-");
-      result.pdf.save(`Payment-Statement-${clientName}.pdf`);
+      result.pdf.save(`Investment-Statement-${clientName}.pdf`);
       activityLogAPI.create({ client_id: id!, action_type: "payment_receipt_exported", description: `Payment statement downloaded` }).catch(() => {});
     } catch {
       toast.error("Failed to generate statement — please try again.");
@@ -720,7 +743,9 @@ export function ClientDetail() {
           setBackwardConfirmOpen(true);
         }
       } else if (current === "scheduled" && target.toLowerCase() === "prospect") {
-        forwardAction();
+        setBackwardTargetStatus(target);
+        setBackwardReason("");
+        setBackwardConfirmOpen(true);
       } else {
         toast.error(`Cannot move back to ${target}. The pipeline can only move forward from ${client?.status ?? "this stage"}.`);
       }
@@ -858,16 +883,18 @@ export function ClientDetail() {
       const laborFromReceipts = receipts.filter((r: any) => r.category === "labor")
         .reduce((s: number, r: any) => s + (r.amount || 0), 0);
 
-      // FIO assigned labor (crew payout scheduled in FIO)
-      const fio = await fioAPI.getByProject(projectId).catch(() => null);
-      const fioAssigned = (fio?.items ?? []).reduce((s: number, item: any) =>
-        s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0);
+      // FIO assigned labor — sum across all FIOs for this project (one per foreman)
+      const fios = await fioAPI.getByProject(projectId).catch(() => [] as any[]);
+      const fioAssigned = fios.reduce((total: number, f: any) =>
+        total + (f.items ?? []).reduce((s: number, item: any) =>
+          s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0), 0);
 
-      // Actual labor paid via FIO crew payments
-      const crewPayments = fio?.id
-        ? await fioAPI.getCrewPayments(fio.id).catch(() => [] as any[])
-        : [];
-      const laborFromCrewPayments = crewPayments.reduce((s: number, cp: any) =>
+      // Actual labor paid via FIO crew payments — aggregate across all FIOs
+      const crewPaymentArrays = await Promise.all(
+        fios.filter((f: any) => f.id).map((f: any) => fioAPI.getCrewPayments(f.id).catch(() => [] as any[]))
+      );
+      const allCrewPayments = crewPaymentArrays.flat();
+      const laborFromCrewPayments = allCrewPayments.reduce((s: number, cp: any) =>
         s + (parseFloat(cp.amount_paid) || 0), 0);
 
       // Use whichever is larger: committed FIO labor vs actual paid
@@ -882,6 +909,7 @@ export function ClientDetail() {
           materialActual,
           laborActual,
           fioAssigned,
+          crewPaid: laborFromCrewPayments,
           receipts,
           isFallbackBudget: lineItemCostTotal === 0 && estimateTotalCost > 0,
         },
@@ -966,6 +994,12 @@ export function ClientDetail() {
       setClientAppointments((prev) =>
         prev.map((a) => a.id === apptId ? { ...a, is_met: true, met_at: new Date().toISOString() } : a)
       );
+      // If this appointment matches the client's current scheduled appointment, sync the client flag too
+      const appt = clientAppointments.find((a) => a.id === apptId);
+      if (appt && client && appt.appointment_date?.split("T")[0] === client.appointment_date?.split("T")[0]) {
+        await clientsAPI.update(client.id, { appointment_met: true });
+        setClient((prev: any) => prev ? { ...prev, appointment_met: true } : prev);
+      }
       activityLogAPI.create({ client_id: client!.id, action_type: "appointment_met", description: "Appointment marked as met" }).then(loadActivityLog).catch(() => {});
       toast.success("Appointment marked as met!");
     } catch (err: any) {
@@ -1155,6 +1189,16 @@ export function ClientDetail() {
                 </DropdownMenuItem>
               </Link>
             )}
+            {["prospect", "scheduled", "selling"].includes(client.status) && can("can_manage_users") && (
+              <DropdownMenuItem onClick={() => {
+                setAssignRepId(client.sales_rep_id ?? clientProjects[0]?.sales_rep_id ?? "");
+                usersAPI.getByRole("sales_rep").then(setAssignRepList).catch(() => {});
+                setAssignRepOpen(true);
+              }}>
+                <UserCheck className="h-4 w-4 mr-2" />
+                Assign Sales Rep
+              </DropdownMenuItem>
+            )}
             {client.appointment_scheduled && !client.appointment_met && (
               <DropdownMenuItem onClick={handleMarkAsMet} disabled={updating}>
                 <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
@@ -1299,6 +1343,29 @@ export function ClientDetail() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Website inquiry details — populated from Formspree/website form */}
+            {client.lead_form_data && Object.keys(client.lead_form_data).length > 0 && (() => {
+              const lfd = client.lead_form_data as Record<string, any>;
+              const rows: { label: string; value: string }[] = [];
+              if (lfd.services?.length)  rows.push({ label: "Interested In",   value: Array.isArray(lfd.services) ? lfd.services.join(", ") : lfd.services });
+              if (lfd.budget)            rows.push({ label: "Budget",           value: lfd.budget });
+              if (lfd.timeline)          rows.push({ label: "Timeline",         value: lfd.timeline });
+              if (lfd.referral)          rows.push({ label: "Heard About Us",   value: lfd.referral });
+              if (lfd.sms_consent)       rows.push({ label: "SMS Consent",      value: lfd.sms_consent });
+              if (lfd.details)           rows.push({ label: "Project Details",  value: lfd.details });
+              if (rows.length === 0) return null;
+              return (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-2">
+                  <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Website Inquiry</div>
+                  {rows.map(({ label, value }) => (
+                    <div key={label}>
+                      <div className="text-xs text-muted-foreground">{label}</div>
+                      <div className="text-sm font-medium text-foreground leading-snug">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-sm font-medium">Appointment</div>
@@ -1890,13 +1957,23 @@ export function ClientDetail() {
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((proposal) => (
                     <Link key={proposal.id} to={`/proposals/${proposal.id}`} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/40 hover:bg-accent/70 transition-colors group">
-                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {proposal.status === "accepted"
+                        ? <FileCheck2 className="h-4 w-4 shrink-0 text-green-500" />
+                        : proposal.status === "declined"
+                        ? <FileX2 className="h-4 w-4 shrink-0 text-red-400" />
+                        : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      }
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-medium truncate block">
                           {proposal.title ?? `Estimate #${proposal.estimate_number}`}
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{proposal.status}</Badge>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold capitalize border ${
+                            proposal.status === "accepted" ? "bg-green-50 text-green-700 border-green-200"
+                            : proposal.status === "declined" ? "bg-red-50 text-red-700 border-red-200"
+                            : proposal.status === "sent"    ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-gray-50 text-gray-500 border-gray-200"
+                          }`}>{proposal.status}</span>
                           <span className="text-xs text-muted-foreground">{formatDate(proposal.created_at)}</span>
                         </div>
                       </div>
@@ -2076,8 +2153,19 @@ export function ClientDetail() {
                       <span>Actual: <span className={`font-semibold ${health(d.laborActual, d.laborBudget)}`}>{formatCurrency(d.laborActual)}</span></span>
                     </div>
                     {(d.fioAssigned ?? 0) > 0 && (
-                      <div className="text-xs text-muted-foreground">
-                        Assigned (FIO): <span className="font-medium text-foreground">{formatCurrency(d.fioAssigned)}</span>
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Committed (FIO):</span>
+                          <span className="font-medium text-foreground">{formatCurrency(d.fioAssigned)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Paid to Crew:</span>
+                          <span className="font-medium text-foreground">{formatCurrency(d.crewPaid ?? 0)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Remaining Crew Balance:</span>
+                          <span className="font-semibold text-amber-600">{formatCurrency(Math.max(0, (d.fioAssigned ?? 0) - (d.crewPaid ?? 0)))}</span>
+                        </div>
                       </div>
                     )}
                     {d.laborBudget > 0 && (
@@ -2321,8 +2409,8 @@ export function ClientDetail() {
                     : type === "fio_created"             ? <HardHat className="h-3.5 w-3.5 text-stone-500" />
                     : type === "project_created"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
                     : type === "proposal_created"        ? <FileText className="h-3.5 w-3.5 text-blue-400" />
-                    : type === "proposal_accepted"       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    : type === "proposal_rejected"       ? <XCircle className="h-3.5 w-3.5 text-red-400" />
+                    : type === "proposal_accepted"       ? <FileCheck2 className="h-3.5 w-3.5 text-green-500" />
+                    : type === "proposal_rejected"       ? <FileX2 className="h-3.5 w-3.5 text-red-400" />
                     : type === "proposal_deleted"        ? <Trash2 className="h-3.5 w-3.5 text-red-500" />
                     : type === "email_bounced"           ? <MailX className="h-3.5 w-3.5 text-red-500" />
                     : type === "sms_failed"              ? <PhoneMissed className="h-3.5 w-3.5 text-red-500" />
@@ -2364,7 +2452,7 @@ export function ClientDetail() {
         <Dialog open={paymentTrackingOpen} onOpenChange={setPaymentTrackingOpen}>
           <DialogContent className="max-w-2xl flex flex-col max-h-[85vh] p-0 gap-0">
             {/* Fixed header */}
-            <div className="px-6 pt-6 pb-4 border-b shrink-0">
+            <div className="px-6 pt-6 pb-4 border-b shrink-0 pr-12">
               <div className="flex items-center justify-between mb-1">
                 <h2 className="flex items-center gap-2 text-lg font-semibold">
                   <DollarSign className="h-5 w-5" />
@@ -2553,12 +2641,12 @@ export function ClientDetail() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Payment Statement Preview Dialog */}
+        {/* Investment Statement Preview Dialog */}
         <Dialog open={statementPreviewOpen} onOpenChange={setStatementPreviewOpen}>
           <DialogContent className="flex flex-col p-0 gap-0" style={{ width: 700, maxWidth: "95vw", height: "90vh" }}>
             {/* Header */}
             <div className="px-5 py-3 border-b shrink-0">
-              <h2 className="text-sm font-semibold">Payment Statement Preview</h2>
+              <h2 className="text-sm font-semibold">Investment Statement Preview</h2>
               <p className="text-xs text-muted-foreground">{`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</p>
             </div>
             {/* Scrollable preview — shows real page images */}
@@ -2720,6 +2808,7 @@ export function ClientDetail() {
         open={emailDialogOpen}
         onOpenChange={setEmailDialogOpen}
         client={client}
+        proposals={clientProposals}
         onSent={loadActivityLog}
       />
       <DocuSignDialog
@@ -3715,6 +3804,67 @@ export function ClientDetail() {
             >
               {saving811 ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <CheckCircle2 className="h-4 w-4 mr-1.5" />}
               Confirm & Notify Team
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Sales Rep Dialog */}
+      <Dialog open={assignRepOpen} onOpenChange={setAssignRepOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCheck className="h-4 w-4" />
+              Assign Sales Rep
+            </DialogTitle>
+            <DialogDescription>
+              Select the sales rep responsible for this client.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4 space-y-3">
+            <Select value={assignRepId || "none"} onValueChange={setAssignRepId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select sales rep..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Unassigned —</SelectItem>
+                {assignRepList.map((rep: any) => (
+                  <SelectItem key={rep.id} value={rep.id}>
+                    {rep.first_name} {rep.last_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignRepOpen(false)} disabled={savingRep}>Cancel</Button>
+            <Button
+              disabled={savingRep}
+              onClick={async () => {
+                setSavingRep(true);
+                try {
+                  const repId = assignRepId === "none" ? null : assignRepId;
+                  const repName = assignRepList.find((r: any) => r.id === repId);
+                  const repLabel = repName ? `${repName.first_name} ${repName.last_name}` : "Unassigned";
+                  if (clientProjects.length > 0) {
+                    await projectsAPI.update(clientProjects[0].id, { sales_rep_id: repId });
+                  } else {
+                    await clientsAPI.assignSalesRep(client.id, repId);
+                  }
+                  activityLogAPI.create({ client_id: client.id, action_type: "client_updated", description: `Sales rep assigned: ${repLabel}` }).catch(() => {});
+                  setClient({ ...client, sales_rep_id: repId });
+                  clientsAPI.getById(id!).then(setClient).catch(() => {});
+                  toast.success(`Sales rep assigned: ${repLabel}`);
+                  setAssignRepOpen(false);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to assign sales rep");
+                } finally {
+                  setSavingRep(false);
+                }
+              }}
+            >
+              {savingRep ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

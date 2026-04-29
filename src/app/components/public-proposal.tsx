@@ -44,12 +44,20 @@ export function PublicProposal() {
     supabase.from("notifications").insert({
       type: "proposal_accepted",
       title: "Proposal Accepted",
-      message: `${clientName} accepted the proposal${proposal?.title ? ` "${proposal.title}"` : ""}.`,
+      message: `Accepted the proposal${proposal?.title ? ` "${proposal.title}"` : ""}.`,
       link: `/proposals/${id}`,
       is_read: false,
       created_by: null,
-      metadata: { proposal_id: id, client_id: proposal?.client_id },
+      metadata: { proposal_id: id, client_id: proposal?.client_id, client_name: clientName },
     }).then(() => {});
+    if (proposal?.client_id) {
+      supabase.from("activity_log").insert({
+        client_id: proposal.client_id,
+        action_type: "proposal_accepted",
+        description: `Client accepted proposal: "${proposal.title}"`,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
     setDone("accepted");
     setSubmitting(false);
     setAction(null);
@@ -66,12 +74,20 @@ export function PublicProposal() {
     supabase.from("notifications").insert({
       type: "proposal_declined",
       title: "Proposal Declined",
-      message: `${clientName} declined the proposal${proposal?.title ? ` "${proposal.title}"` : ""}${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}.`,
+      message: `Declined the proposal${proposal?.title ? ` "${proposal.title}"` : ""}${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}.`,
       link: `/proposals/${id}`,
       is_read: false,
       created_by: null,
-      metadata: { proposal_id: id, client_id: proposal?.client_id },
+      metadata: { proposal_id: id, client_id: proposal?.client_id, client_name: clientName },
     }).then(() => {});
+    if (proposal?.client_id) {
+      supabase.from("activity_log").insert({
+        client_id: proposal.client_id,
+        action_type: "proposal_rejected",
+        description: `Client declined proposal: "${proposal.title}"${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}`,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
     setDone("declined");
     setSubmitting(false);
     setAction(null);
@@ -95,29 +111,51 @@ export function PublicProposal() {
 
   const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
 
+  // Group line items by category (same pattern as proposal PDF)
+  type LineGroup = { category: string | null; items: any[] };
+  const groupedItems = (() => {
+    const map: Record<string, LineGroup> = {};
+    const flat: LineGroup = { category: null, items: [] };
+    for (const item of (proposal?.line_items ?? [])) {
+      const cat = item.category ?? null;
+      if (cat) {
+        if (!map[cat]) map[cat] = { category: cat, items: [] };
+        map[cat].items.push(item);
+      } else {
+        flat.items.push(item);
+      }
+    }
+    const result: LineGroup[] = Object.values(map);
+    if (flat.items.length > 0) result.push(flat);
+    return result;
+  })();
+
+  const subtotal       = proposal?.subtotal ?? (proposal?.line_items ?? []).reduce((s: number, i: any) => s + (i.total_price ?? (Number(i.quantity || 1) * Number(i.client_price || i.price_per_unit || 0))), 0);
+  const discountAmount = proposal?.discount_amount ?? 0;
+  const badAmount      = proposal?.bad_amount ?? 0;
+  const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
+  const taxAmount      = proposal?.tax_amount ?? 0;
+  const taxLabel       = proposal?.tax_label ?? "Tax";
+  const total          = subtotal + badAmount + taxAmount - discountAmount;
+
   return (
     <>
-      {/* Load brand fonts */}
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
 
       <div style={{ minHeight: "100vh", background: "#F5F3EF", fontFamily: "Inter, sans-serif" }}>
 
-        {/* Header */}
-        <div style={{ background: "#0A0A0A", padding: "0" }}>
-          <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <p style={{ color: "#BB984D", fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", margin: "0 0 6px 0" }}>
-                Butler & Associates Construction, Inc.
-              </p>
-              <p style={{ color: "#FFFFFF", fontFamily: "Cormorant Garamond, serif", fontSize: 20, fontStyle: "italic", fontWeight: 300, margin: 0, lineHeight: 1.3 }}>
-                Crafted with intention.<br />Built to last.
-              </p>
-            </div>
+        {/* Header — centered logo + company name, matching proposal PDF */}
+        <div style={{ background: "#0A0A0A" }}>
+          <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 32px", textAlign: "center" }}>
             <img
               src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
               alt="Butler & Associates Construction"
-              style={{ height: 56, width: "auto", objectFit: "contain" }}
+              style={{ height: 56, width: "auto", display: "block", margin: "0 auto 14px auto" }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
+            <p style={{ color: "#BB984D", fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", margin: 0 }}>
+              Butler & Associates Construction, Inc.
+            </p>
           </div>
         </div>
 
@@ -181,28 +219,80 @@ export function PublicProposal() {
             </div>
           )}
 
-          {/* Line items */}
+          {/* Line items — grouped by category */}
           <div style={{ background: "#fff", borderRadius: 10, overflow: "hidden", border: "1px solid #e8e4dc", marginBottom: 28 }}>
-            <div style={{ background: "#0A0A0A", padding: "14px 24px", display: "flex", justifyContent: "space-between" }}>
+            {/* Column header */}
+            <div style={{ background: "#0A0A0A", padding: "12px 24px", display: "flex", justifyContent: "space-between" }}>
               <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "#BB984D", margin: 0 }}>Scope of Work</p>
               <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "#BB984D", margin: 0 }}>Amount</p>
             </div>
-            {(proposal.line_items || []).map((item: any, idx: number) => (
-              <div key={item.id ?? idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", borderBottom: idx < proposal.line_items.length - 1 ? "1px solid #F5F3EF" : "none", background: idx % 2 === 0 ? "#fff" : "#FAFAF8" }}>
-                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>
-                  {item.product_name || item.name}
-                </p>
-                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 500, color: "#0A0A0A", margin: 0 }}>
-                  {formatCurrency(item.total_price ?? item.quantity * item.client_price)}
+
+            {groupedItems.map((group, gIdx) => {
+              const borderTop = gIdx > 0 ? "1px solid #E8E4DC" : "none";
+              if (group.category) {
+                const catTotal = group.items.reduce((s: number, i: any) => s + (i.total_price ?? (Number(i.quantity || 1) * Number(i.client_price || i.price_per_unit || 0))), 0);
+                return (
+                  <div key={gIdx}>
+                    {/* Category row */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: "#fff", borderTop }}>
+                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 600, color: "#0A0A0A", margin: 0 }}>{group.category}</p>
+                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 700, color: "#0A0A0A", margin: 0 }}>{formatCurrency(catTotal)}</p>
+                    </div>
+                    {/* Sub-items */}
+                    {group.items.map((item: any, iIdx: number) => (
+                      <div key={iIdx} style={{ padding: "8px 24px 8px 36px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: 0, opacity: 0.6 }}>· {item.product_name ?? item.name}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              // No category — show items flat with amount
+              return (
+                <div key={gIdx}>
+                  {group.items.map((item: any, iIdx: number) => {
+                    const lineTotal = item.total_price ?? (Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0));
+                    return (
+                      <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}</p>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 500, color: "#0A0A0A", margin: 0 }}>{formatCurrency(lineTotal)}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {/* Totals breakdown */}
+            <div style={{ borderTop: "2px solid #e8e4dc" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>Subtotal</p>
+                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(subtotal)}</p>
+              </div>
+              {discountAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}</p>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>− {formatCurrency(discountAmount)}</p>
+                </div>
+              )}
+              {badAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>{badLabel}</p>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(badAmount)}</p>
+                </div>
+              )}
+              {taxAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>{taxLabel}</p>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(taxAmount)}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: "#F5F3EF", borderTop: "1px solid #e8e4dc" }}>
+                <p style={{ fontFamily: "Lato, sans-serif", fontSize: 16, fontWeight: 700, color: "#0A0A0A", margin: 0 }}>Total Investment{taxAmount > 0 ? " + Tax" : ""}</p>
+                <p style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 24, fontWeight: 400, color: "#BB984D", margin: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {formatCurrency(total)}
                 </p>
               </div>
-            ))}
-            {/* Total row */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: "#F5F3EF", borderTop: "2px solid #e8e4dc" }}>
-              <p style={{ fontFamily: "Lato, sans-serif", fontSize: 16, fontWeight: 700, color: "#0A0A0A", margin: 0 }}>Total Investment</p>
-              <p style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 24, fontWeight: 400, color: "#BB984D", margin: 0 }}>
-                {formatCurrency(proposal.total)}
-              </p>
             </div>
           </div>
 
@@ -269,7 +359,7 @@ export function PublicProposal() {
             </div>
           )}
 
-          {/* Footer */}
+          {/* Footer — address + contact only, no repeated company name */}
           <div style={{ borderTop: "1px solid #e8e4dc", paddingTop: 24, textAlign: "center" }}>
             <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", opacity: 0.6, margin: "0 0 4px 0" }}>
               Questions? Contact us at{" "}
@@ -281,8 +371,8 @@ export function PublicProposal() {
                 (256) 617-4691
               </a>
             </p>
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase", color: "#BB984D", margin: "8px 0 0 0" }}>
-              Butler & Associates Construction, Inc.
+            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", opacity: 0.45, margin: "4px 0 0 0" }}>
+              6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
             </p>
           </div>
         </div>

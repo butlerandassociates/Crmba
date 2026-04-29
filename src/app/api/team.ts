@@ -75,8 +75,15 @@ export const usersAPI = {
     return data;
   },
 
-  /** Soft-deactivate — hides from team list and dropdowns */
+  /** Soft-deactivate — hides from team list and dropdowns, nulls out project assignments */
   deactivate: async (id: string) => {
+    // Null out any project/FIO assignments so deleted users don't persist as ghost assignees
+    await Promise.all([
+      supabase.from("projects").update({ foreman_id: null }).eq("foreman_id", id),
+      supabase.from("projects").update({ project_manager_id: null }).eq("project_manager_id", id),
+      supabase.from("projects").update({ sales_rep_id: null }).eq("sales_rep_id", id),
+      supabase.from("field_installation_orders").update({ foreman_id: null }).eq("foreman_id", id),
+    ]);
     const { data, error } = await supabase
       .from("profiles")
       .update({ is_active: false })
@@ -87,8 +94,15 @@ export const usersAPI = {
     return data;
   },
 
-  /** Hard delete — cleans up profile-files storage first */
+  /** Hard delete — nulls out assignments, cleans up profile-files storage */
   delete: async (id: string) => {
+    // Null out any project/FIO assignments before deletion to prevent dangling references
+    await Promise.all([
+      supabase.from("projects").update({ foreman_id: null }).eq("foreman_id", id),
+      supabase.from("projects").update({ project_manager_id: null }).eq("project_manager_id", id),
+      supabase.from("projects").update({ sales_rep_id: null }).eq("sales_rep_id", id),
+      supabase.from("field_installation_orders").update({ foreman_id: null }).eq("foreman_id", id),
+    ]);
     const { data: files } = await supabase
       .from("profile_files")
       .select("url")

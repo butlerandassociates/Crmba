@@ -19,8 +19,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Event types from SendGrid that indicate delivery failure
-const FAILURE_EVENTS = new Set(["bounce", "blocked", "dropped", "deferred"]);
+// Event types from SendGrid that indicate permanent delivery failure
+// "deferred" is excluded — it means SendGrid is retrying and fires every 30-60min, flooding the log
+const FAILURE_EVENTS = new Set(["bounce", "blocked", "dropped"]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -81,10 +82,9 @@ serve(async (req) => {
       const eventType = evt.event; // bounce / blocked / dropped / deferred
 
       const label: Record<string, string> = {
-        bounce:   "Email hard bounced",
-        blocked:  "Email blocked by recipient server",
-        dropped:  "Email dropped",
-        deferred: "Email delivery deferred (temporary issue)",
+        bounce:  "Email hard bounced",
+        blocked: "Email blocked by recipient server",
+        dropped: "Email dropped",
       };
       const description = `${label[eventType] ?? "Email delivery failed"} for address ${email}: ${reason}`;
 

@@ -77,7 +77,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
           Butler &amp; Associates Construction, Inc.
         </div>
         <div style={{ fontFamily: C.cg, fontSize: 26, fontWeight: 700, color: "#fff", letterSpacing: 2, marginBottom: 4 }}>
-          PAYMENT STATEMENT
+          INVESTMENT STATEMENT
         </div>
       </div>
 
@@ -147,7 +147,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
                   <td style={{ padding: "12px 14px", fontSize: 11, color: "#666" }}>{p.is_paid ? fmtDate(p.paid_date) : "—"}</td>
                   <td style={{ padding: "12px 14px", fontSize: 11, color: "#666" }}>{p.is_paid && p.payment_method ? p.payment_method : "—"}</td>
                   <td style={{ padding: "12px 14px", textAlign: "center" }}>
-                    <span style={{ display: "inline-block", padding: "3px 9px", borderRadius: 3, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>
+                    <span style={{ display: "inline-block", paddingTop: 0, paddingBottom: 10, paddingLeft: 9, paddingRight: 9, borderRadius: 3, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>
                       {st.label}
                     </span>
                   </td>
@@ -166,10 +166,6 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
             <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ fontSize: 11, color: "#666" }}>Total Contract Value</span>
               <span style={{ fontSize: 12, fontWeight: 600 }}>{fmt(project?.total_value ?? totalAmount)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 11, color: "#666" }}>Total Milestones</span>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>{fmt(totalAmount)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>Total Received</span>

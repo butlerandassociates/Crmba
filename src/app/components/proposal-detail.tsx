@@ -30,6 +30,7 @@ import {
   PenLine,
   X,
   Pencil,
+  Paperclip,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
@@ -62,6 +63,8 @@ export function ProposalDetail() {
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewPages, setPreviewPages] = useState<string[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
@@ -138,6 +141,7 @@ export function ProposalDetail() {
   const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
   const [markingAccepted, setMarkingAccepted] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [attachProposalPdf, setAttachProposalPdf] = useState(true);
 
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
@@ -184,6 +188,13 @@ export function ProposalDetail() {
       });
     setIsDirty(titleChanged || descChanged || itemsChanged);
   }, [editTitle, editDescription, editLineItems, proposal]);
+
+  useEffect(() => {
+    if (showPreview && proposal) {
+      setPreviewPages([]);
+      generatePreviewImages();
+    }
+  }, [showPreview]);
 
   useRealtimeRefetch(() => {
     if (!id) return;
@@ -422,49 +433,120 @@ export function ProposalDetail() {
   };
 
   const handleDownload = async () => {
-    const element = document.getElementById("proposal-export-content");
-    if (!element) return;
+    const container = document.getElementById("proposal-export-content");
+    if (!container) return;
     setDownloading(true);
     try {
-      // Pre-load all images as base64 to avoid CORS/taint issues with html2canvas
-      const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
+      const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
       await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
         if (img.complete && img.naturalWidth > 0) { resolve(); return; }
         img.onload = () => resolve();
-        img.onerror = () => resolve(); // skip broken images, don't fail
+        img.onerror = () => resolve();
       })));
 
-      const canvas = await html2canvas(element as HTMLElement, {
-        scale: 2,
+      const SCALE = 2;
+      const baseOpts = {
+        scale: SCALE,
         useCORS: true,
         allowTaint: false,
-        backgroundColor: "#F5F3EF",
         logging: false,
         imageTimeout: 10000,
         removeContainer: true,
-        // Strip Tailwind/shadcn stylesheets — they use oklch which html2canvas can't parse.
-        // ProposalExport is 100% inline-styled so removing external CSS is safe.
-        onclone: (_doc, el) => {
+        onclone: (_doc: Document, el: HTMLElement) => {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
           Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
         },
-      });
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      };
+
+      const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
+      const hdrEl    = q("proposal-page-header");
+      const body1El  = q("proposal-page-body");
+      const body2El  = q("proposal-page-body-2");
+      const ftrEl    = q("proposal-page-footer");
+      const colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
+
+      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas] = await Promise.all([
+        html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+      ]);
+
+      const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height / canvas.width) * pageW;
-      let remaining = imgH;
-      let yOffset = 0;
-      pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
-      remaining -= pageH;
-      while (remaining > 2) {
-        yOffset -= pageH;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
-        remaining -= pageH;
-      }
+
+      const pxPerPt = body1Canvas.width / pageW;
+      const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
+
+      const hdrH = toPt(hdrCanvas);
+      const ftrH = toPt(ftrCanvas);
+      const colH = toPt(colHdrCanvas);
+      const colW = colHdrCanvas.width / pxPerPt;
+      const colX = (pageW - colW) / 2;
+      const COL_GAP = 4;
+
+      const PAD      = 10; // pt gap between header/footer edges and body content
+      const slot     = pageH - hdrH - ftrH;
+      const slotFull = slot - 2 * PAD;
+      const slotCol  = slot - colH - COL_GAP - 2 * PAD;
+
+      const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
+      const fImg   = ftrCanvas.toDataURL("image/jpeg", 0.93);
+      const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
+
+      // Slice srcCanvas rows [yPx, yPx+hPx) into a new canvas — fully synchronous
+      const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
+        const h = Math.max(1, Math.min(hPx, src.height - yPx));
+        const out = document.createElement("canvas");
+        out.width  = src.width;
+        out.height = h;
+        out.getContext("2d")!.drawImage(src, 0, yPx, src.width, h, 0, 0, src.width, h);
+        return out;
+      };
+
+      const renderBodyPages = (
+        bodyCanvas: HTMLCanvasElement,
+        showCol: boolean,
+        startPage: number,
+      ): number => {
+        const bodyH  = toPt(bodyCanvas);
+        let consumed = 0;
+        let pageIdx  = startPage;
+        while (consumed < bodyH - 1) {
+          if (pageIdx > 0) pdf.addPage();
+          const isFirst = pageIdx === startPage;
+          const avail   = (!isFirst && showCol) ? slotCol : slotFull;
+          const sliceH  = Math.min(avail, bodyH - consumed);
+          const sliceCanvas = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
+
+          // Fill page with body bg so no white gaps between header/body/footer
+          pdf.setFillColor(245, 243, 239);
+          pdf.rect(0, 0, pageW, pageH, "F");
+
+          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
+
+          let bodyY = hdrH + PAD;
+          if (!isFirst && showCol) {
+            pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
+            bodyY = hdrH + PAD + colH + COL_GAP;
+          }
+
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
+
+          consumed += sliceH;
+          pageIdx++;
+        }
+        return pageIdx;
+      };
+
+      const nextPage = renderBodyPages(body1Canvas, true, 0);
+      renderBodyPages(body2Canvas, false, nextPage);
+
       pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
     } catch (err) {
@@ -472,6 +554,108 @@ export function ProposalDetail() {
       toast.error("Failed to generate PDF — please try again.");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const generatePreviewImages = async () => {
+    const container = document.getElementById("proposal-export-content");
+    if (!container) return;
+    setPreviewLoading(true);
+    try {
+      const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      })));
+
+      const SCALE = 2;
+      const h2cOpts = {
+        scale: SCALE, useCORS: true, allowTaint: false, logging: false,
+        imageTimeout: 10000, removeContainer: true,
+        onclone: (_doc: Document, el: HTMLElement) => {
+          const root = el.getRootNode() as Document;
+          Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
+          Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
+        },
+      };
+
+      const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
+      const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
+            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
+            colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
+
+      const [hdrC, body1C, body2C, ftrC, colC] = await Promise.all([
+        html2canvas(hdrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(body1El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body2El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(ftrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(colHdrEl, { ...h2cOpts, backgroundColor: "#0A0A0A" }),
+      ]);
+
+      const pageW_pt = 595.28, pageH_pt = 841.89;
+      const pxPerPt  = body1C.width / pageW_pt;
+      const pageW_px = body1C.width;
+      const pageH_px = Math.round(pageH_pt * pxPerPt);
+
+      const toPt  = (c: HTMLCanvasElement) => c.height / pxPerPt;
+      const hdrH  = toPt(hdrC), ftrH = toPt(ftrC), colH = toPt(colC);
+      const colW  = colC.width / pxPerPt;
+      const colX  = (pageW_pt - colW) / 2;
+      const COL_GAP = 4, PAD = 10;
+      const slot    = pageH_pt - hdrH - ftrH;
+      const slotFull = slot - 2 * PAD;
+      const slotCol  = slot - colH - COL_GAP - 2 * PAD;
+
+      const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
+        const h = Math.max(1, Math.min(hPx, src.height - yPx));
+        const out = document.createElement("canvas");
+        out.width = src.width; out.height = h;
+        out.getContext("2d")!.drawImage(src, 0, yPx, src.width, h, 0, 0, src.width, h);
+        return out;
+      };
+
+      const pages: string[] = [];
+
+      const renderToPages = (bodyCanvas: HTMLCanvasElement, showCol: boolean) => {
+        const bodyH = toPt(bodyCanvas);
+        let consumed = 0, pageNum = 0;
+        while (consumed < bodyH - 1) {
+          const needsCol = pageNum > 0 && showCol;
+          const avail    = needsCol ? slotCol : slotFull;
+          const sliceH   = Math.min(avail, bodyH - consumed);
+          const slice    = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
+
+          const page = document.createElement("canvas");
+          page.width = pageW_px; page.height = pageH_px;
+          const ctx = page.getContext("2d")!;
+
+          ctx.fillStyle = "#F5F3EF";
+          ctx.fillRect(0, 0, pageW_px, pageH_px);
+          ctx.drawImage(hdrC, 0, 0);
+
+          let bodyY_px = Math.round((hdrH + PAD) * pxPerPt);
+          if (needsCol) {
+            ctx.drawImage(colC, Math.round(colX * pxPerPt), Math.round((hdrH + PAD) * pxPerPt));
+            bodyY_px = Math.round((hdrH + PAD + colH + COL_GAP) * pxPerPt);
+          }
+          ctx.drawImage(slice, 0, bodyY_px);
+          ctx.drawImage(ftrC, 0, Math.round((pageH_pt - ftrH) * pxPerPt));
+
+          pages.push(page.toDataURL("image/jpeg", 0.92));
+          consumed += sliceH;
+          pageNum++;
+        }
+      };
+
+      renderToPages(body1C, true);
+      renderToPages(body2C, false);
+      setPreviewPages(pages);
+    } catch (err) {
+      console.error("Preview generation error:", err);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -500,9 +684,9 @@ export function ProposalDetail() {
       notificationsAPI.create({
         type: "proposal_accepted",
         title: "Proposal Accepted",
-        message: `"${proposal.title}" has been accepted.`,
+        message: `Accepted the proposal "${proposal.title}".`,
         link: `/proposals/${proposal.id}`,
-        metadata: { proposal_id: proposal.id, client_id: proposal.client_id },
+        metadata: { proposal_id: proposal.id, client_id: proposal.client_id, client_name: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "" },
       }).catch(() => {});
       setProposal({ ...proposal, status: "accepted", accepted_at: now });
       toast.success("Proposal marked as accepted");
@@ -518,7 +702,112 @@ export function ProposalDetail() {
     setEmailTo(client?.email ?? "");
     setEmailSubject(`Proposal: ${proposal.title}`);
     setEmailMessage(`Hi ${clientName},\n\nPlease review our proposal for your project. You can view, accept, or decline it using the link below.\n\nBest regards,\nButler & Associates Construction`);
+    setAttachProposalPdf(true);
     setShowEmailDialog(true);
+  };
+
+  const generatePdfBase64 = async (): Promise<string | null> => {
+    const container = document.getElementById("proposal-export-content");
+    if (!container) return null;
+    try {
+      const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      })));
+
+      const SCALE = 2;
+      const baseOpts = {
+        scale: SCALE, useCORS: true, allowTaint: false, logging: false,
+        imageTimeout: 10000, removeContainer: true,
+        onclone: (_doc: Document, el: HTMLElement) => {
+          const root = el.getRootNode() as Document;
+          Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
+          Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
+        },
+      };
+
+      const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
+      const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
+            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
+            colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
+
+      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas] = await Promise.all([
+        html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+      ]);
+
+      const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+
+      const pxPerPt = body1Canvas.width / pageW;
+      const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
+
+      const hdrH = toPt(hdrCanvas);
+      const ftrH = toPt(ftrCanvas);
+      const colH = toPt(colHdrCanvas);
+      const colW = colHdrCanvas.width / pxPerPt;
+      const colX = (pageW - colW) / 2;
+      const COL_GAP = 4;
+
+      const PAD      = 10;
+      const slot     = pageH - hdrH - ftrH;
+      const slotFull = slot - 2 * PAD;
+      const slotCol  = slot - colH - COL_GAP - 2 * PAD;
+
+      const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
+      const fImg   = ftrCanvas.toDataURL("image/jpeg", 0.93);
+      const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
+
+      const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
+        const h = Math.max(1, Math.min(hPx, src.height - yPx));
+        const out = document.createElement("canvas");
+        out.width  = src.width;
+        out.height = h;
+        out.getContext("2d")!.drawImage(src, 0, yPx, src.width, h, 0, 0, src.width, h);
+        return out;
+      };
+
+      const renderPages = (bodyCanvas: HTMLCanvasElement, showCol: boolean, startPage: number): number => {
+        const bodyH  = toPt(bodyCanvas);
+        let consumed = 0;
+        let pageIdx  = startPage;
+        while (consumed < bodyH - 1) {
+          if (pageIdx > 0) pdf.addPage();
+          const isFirst = pageIdx === startPage;
+          const avail   = (!isFirst && showCol) ? slotCol : slotFull;
+          const sliceH  = Math.min(avail, bodyH - consumed);
+          const sliceCanvas = makeSliceB64(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
+          pdf.setFillColor(245, 243, 239);
+          pdf.rect(0, 0, pageW, pageH, "F");
+          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
+          let bodyY = hdrH + PAD;
+          if (!isFirst && showCol) {
+            pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
+            bodyY = hdrH + PAD + colH + COL_GAP;
+          }
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
+          consumed += sliceH;
+          pageIdx++;
+        }
+        return pageIdx;
+      };
+
+      const nextPage = renderPages(body1Canvas, true, 0);
+      renderPages(body2Canvas, false, nextPage);
+
+      return pdf.output("datauristring").split(",")[1];
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      return null;
+    }
   };
 
   const handleSendEmail = async () => {
@@ -527,73 +816,122 @@ export function ProposalDetail() {
     try {
       const proposalLink = `${window.location.origin}/p/${proposal.id}`;
       const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width,initial-scale=1" />
-          <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
-        </head>
-        <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
-          <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+      const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
 
-            <!-- Header -->
-            <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td style="vertical-align:middle;">
-                    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
-                    <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
-                  </td>
-                  <td style="vertical-align:middle;text-align:right;width:60px;">
-                    <!-- White logo (larger) — uncomment to use: -->
-                    <!-- <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="Butler &amp; Associates" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" /> -->
-                    <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" />
-                  </td>
-                </tr>
-              </table>
+      // Build scope summary rows (one row per category or item)
+      const lineItems: any[] = proposal?.line_items ?? [];
+      const catMap: Record<string, number> = {};
+      const uncatItems: { name: string; total: number }[] = [];
+      for (const item of lineItems) {
+        const cat = item.category ?? null;
+        const total = item.total_price ?? (Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0));
+        if (cat) { catMap[cat] = (catMap[cat] ?? 0) + total; }
+        else uncatItems.push({ name: item.product_name ?? item.name ?? "Item", total });
+      }
+      const scopeRows = [
+        ...Object.entries(catMap).map(([name, total]) => ({ name, total })),
+        ...uncatItems,
+      ];
+      const scopeTableRows = scopeRows.map(r =>
+        `<tr><td style="padding:10px 16px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;border-bottom:1px solid #F5F3EF;">${r.name}</td><td style="padding:10px 16px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;text-align:right;border-bottom:1px solid #F5F3EF;font-variant-numeric:tabular-nums;">${fmt(r.total)}</td></tr>`
+      ).join("");
+      const grandTotal = fmt((proposal?.subtotal ?? 0) + (proposal?.bad_amount ?? 0) + (proposal?.tax_amount ?? 0) - (proposal?.discount_amount ?? 0));
+
+      // Build review quotes (show up to 2)
+      const topReviews = reviews.slice(0, 2);
+      const reviewsHtml = topReviews.length > 0 ? `
+        <div style="margin:0 0 28px 0;">
+          <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 14px 0;">What Our Clients Say</p>
+          ${topReviews.map(r => `
+            <div style="background:#F5F3EF;border-left:3px solid #BB984D;padding:12px 16px;margin:0 0 10px 0;border-radius:0 4px 4px 0;">
+              <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;line-height:1.7;margin:0 0 6px 0;font-style:italic;">"${r.review_text}"</p>
+              <p style="font-family:Inter,sans-serif;font-size:11px;color:#BB984D;font-weight:500;margin:0;">— ${r.reviewer_name} ${"★".repeat(r.rating)}</p>
             </div>
-            <!-- Gold rule -->
-            <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+          `).join("")}
+        </div>
+      ` : "";
 
-            <!-- Body -->
-            <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,Helvetica,Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
 
-              <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 20px 0;">
-                Your Proposal Is Ready
-              </p>
+    <!-- Header — centered B&A logo + company name -->
+    <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 12px auto;" />
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    </div>
+    <!-- Gold rule -->
+    <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
 
-              <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+    <!-- Body -->
+    <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
 
-              <div style="text-align:center;margin:0 0 28px 0;">
-                <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 36px;border-radius:4px;text-decoration:none;font-family:Inter,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">
-                  View &amp; Accept Proposal
-                </a>
-              </div>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
 
-              <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
-                This proposal is valid for 30 days. Questions? Reply to this email or reach us at
-                <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
-              </p>
-            </div>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
 
-            <!-- Footer -->
-            <div style="text-align:center;padding:20px 0 0 0;">
-              <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">
-                Butler &amp; Associates Construction, Inc.
-              </p>
-              <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">
-                6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
-              </p>
-            </div>
+      <!-- Scope of Work summary -->
+      ${scopeRows.length > 0 ? `
+      <div style="margin:0 0 28px 0;">
+        <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Scope of Work</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;">
+          <tr style="background:#0A0A0A;">
+            <td style="padding:10px 16px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;">Item</td>
+            <td style="padding:10px 16px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;text-align:right;">Amount</td>
+          </tr>
+          ${scopeTableRows}
+          <tr style="background:#F5F3EF;border-top:2px solid #E8E4DC;">
+            <td style="padding:14px 16px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#0A0A0A;">Total Investment</td>
+            <td style="padding:14px 16px;font-family:Georgia,serif;font-size:22px;font-weight:400;color:#BB984D;text-align:right;font-variant-numeric:tabular-nums;">${grandTotal}</td>
+          </tr>
+        </table>
+      </div>
+      ` : ""}
 
-          </div>
-        </body>
-        </html>
-      `;
+      ${reviewsHtml}
+
+      <!-- CTA -->
+      <div style="text-align:center;margin:0 0 24px 0;">
+        <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">
+          View &amp; Accept Proposal
+        </a>
+      </div>
+
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">
+        This proposal is valid for 30 days. Questions? Reply to this email or call
+        <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align:center;padding:20px 0 0 0;">
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+      let attachments: { content: string; filename: string; type: string; disposition: string }[] | undefined;
+      if (attachProposalPdf) {
+        const pdfBase64 = await generatePdfBase64();
+        if (pdfBase64) {
+          attachments = [{
+            content: pdfBase64,
+            filename: `${proposal.title} - ${clientName}.pdf`,
+            type: "application/pdf",
+            disposition: "attachment",
+          }];
+        }
+      }
+
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction" },
+        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction", attachments },
       });
       if (error) throw error;
       await estimatesAPI.updateStatus(proposal.id, "sent");
@@ -1015,7 +1353,7 @@ export function ProposalDetail() {
       {/* Item Picker Dialog */}
       <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
         <DialogContent className="h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
-          <DialogHeader className="px-6 py-5 border-b shrink-0">
+          <DialogHeader className="px-6 py-5 pr-16 border-b shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
@@ -1264,10 +1602,20 @@ export function ProposalDetail() {
 
           {/* Scrollable PDF viewer area */}
           <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
-            <div className="py-8 flex justify-center">
-              <div className="bg-white shadow-2xl" style={{ width: 794 }}>
-                <ProposalExport proposal={proposal} client={client} reviews={reviews} />
-              </div>
+            <div className="py-8 flex flex-col items-center gap-6">
+              {previewLoading ? (
+                <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span className="text-sm">Generating preview…</span>
+                </div>
+              ) : previewPages.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt={`Page ${i + 1}`}
+                  style={{ width: 794, display: "block", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}
+                />
+              ))}
             </div>
           </div>
         </DialogContent>
@@ -1284,14 +1632,15 @@ export function ProposalDetail() {
           </DialogHeader>
           {/* Scrollable body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
-            {client && (!client.address || !client.phone) && (
-              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-                Warning: {[!client.address && "address", !client.phone && "phone"].filter(Boolean).join(" and ")} missing on this client — the proposal PDF will have blank fields.
+            {client && !client.email && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 flex items-center justify-between gap-2">
+                <span>No email address on this client record — add one before sending.</span>
+                <a href={`/clients/${proposal.client_id}`} className="font-medium underline whitespace-nowrap">Edit Client</a>
               </div>
             )}
             <div className="space-y-2">
               <Label>To</Label>
-              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
+              <Input value={emailTo} readOnly className="bg-muted text-muted-foreground cursor-default" />
             </div>
             <div className="space-y-2">
               <Label>Subject <span className="text-destructive">*</span></Label>
@@ -1306,6 +1655,19 @@ export function ProposalDetail() {
               <Label>Message</Label>
               <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={8} className="resize-none" />
             </div>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="checkbox"
+                id="attach-pdf-checkbox"
+                checked={attachProposalPdf}
+                onChange={(e) => setAttachProposalPdf(e.target.checked)}
+                className="h-4 w-4 rounded border cursor-pointer accent-primary"
+              />
+              <label htmlFor="attach-pdf-checkbox" className="text-sm cursor-pointer select-none flex items-center gap-1.5">
+                <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                Attach Proposal PDF
+              </label>
+            </div>
             <p className="text-xs text-muted-foreground">A "View Proposal" button linking to the proposal page will be included automatically.</p>
           </div>
           {/* Fixed footer */}
@@ -1317,7 +1679,7 @@ export function ProposalDetail() {
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
-            <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo || !emailSubject.trim()}>
+            <Button onClick={handleSendEmail} disabled={sendingEmail || !emailTo || !emailSubject.trim() || !client?.email}>
               {sendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
               Send Email
             </Button>
@@ -1341,44 +1703,46 @@ export function ProposalDetail() {
             <iframe
               srcDoc={(() => {
                 const proposalLink = `${window.location.origin}/p/${proposal?.id}`;
-                const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
-                return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
-<style>::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.32)}*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}</style>
-</head>
-<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+                const fmtP = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
+                const lineItemsP: any[] = proposal?.line_items ?? [];
+                const catMapP: Record<string, number> = {};
+                const uncatP: { name: string; total: number }[] = [];
+                for (const item of lineItemsP) {
+                  const cat = item.category ?? null;
+                  const total = item.total_price ?? (Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0));
+                  if (cat) { catMapP[cat] = (catMapP[cat] ?? 0) + total; }
+                  else uncatP.push({ name: item.product_name ?? item.name ?? "Item", total });
+                }
+                const scopeRowsP = [...Object.entries(catMapP).map(([n, t]) => ({ name: n, total: t })), ...uncatP];
+                const scopeHtmlP = scopeRowsP.map(r =>
+                  `<tr><td style="padding:10px 16px;font-size:13px;color:#3A3A38;border-bottom:1px solid #F5F3EF;">${r.name}</td><td style="padding:10px 16px;font-size:13px;color:#3A3A38;text-align:right;border-bottom:1px solid #F5F3EF;">${fmtP(r.total)}</td></tr>`
+                ).join("");
+                const grandTotalP = fmtP((proposal?.subtotal ?? 0) + (proposal?.bad_amount ?? 0) + (proposal?.tax_amount ?? 0) - (proposal?.discount_amount ?? 0));
+                const topReviewsP = reviews.slice(0, 2);
+                const reviewsHtmlP = topReviewsP.length > 0 ? `
+                  <div style="margin:0 0 28px 0;">
+                    <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 14px 0;">What Our Clients Say</p>
+                    ${topReviewsP.map(r => `<div style="background:#F5F3EF;border-left:3px solid #BB984D;padding:12px 16px;margin:0 0 10px 0;border-radius:0 4px 4px 0;"><p style="font-size:12px;color:#3A3A38;line-height:1.7;margin:0 0 6px 0;font-style:italic;">"${r.review_text}"</p><p style="font-size:11px;color:#BB984D;font-weight:500;margin:0;">— ${r.reviewer_name} ${"★".repeat(r.rating)}</p></div>`).join("")}
+                  </div>` : "";
+                return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>*{font-family:Inter,Helvetica,Arial,sans-serif}::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}</style></head>
+<body style="margin:0;padding:0;background:#F5F3EF;">
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
-  <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px;">
-    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr>
-        <td style="vertical-align:middle;">
-          <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 5px 0;">Butler &amp; Associates Construction, Inc.</p>
-          <p style="font-family:'Cormorant Garamond',serif;font-size:18px;font-style:italic;font-weight:300;color:#fff;margin:0;line-height:1.3;">Crafted with intention. Built to last.</p>
-        </td>
-        <td style="vertical-align:middle;text-align:right;width:60px;">
-          <!-- White logo (larger) — uncomment to use: -->
-          <!-- <img src="https://images.squarespace-cdn.com/content/v1/67a6462842d3287ac4bbd645/da21fa34-e667-4e7e-bf6f-f9e8670503c6/Primary+Logo+WHITE.png" alt="B&amp;A" height="90" style="height:90px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/> -->
-          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" height="48" style="height:48px;width:auto;display:block;margin-left:auto;" onerror="this.style.display='none'"/>
-        </td>
-      </tr>
-    </table>
+  <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+    <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" height="56" style="height:56px;width:auto;display:block;margin:0 auto 12px auto;" onerror="this.style.display='none'"/>
+    <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
   </div>
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
   <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
-    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 20px 0;">Your Proposal Is Ready</p>
-    <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
-    <div style="text-align:center;margin:0 0 28px 0;">
-      <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 36px;border-radius:4px;text-decoration:none;font-family:Inter,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a>
-    </div>
-    <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
-      This proposal is valid for 30 days. Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
-    </p>
+    <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
+    <p style="font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+    ${scopeRowsP.length > 0 ? `<div style="margin:0 0 28px 0;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Scope of Work</p><table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;"><tr style="background:#0A0A0A;"><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;">Item</td><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;text-align:right;">Amount</td></tr>${scopeHtmlP}<tr style="background:#F5F3EF;border-top:2px solid #E8E4DC;"><td style="padding:14px 16px;font-size:14px;font-weight:700;color:#0A0A0A;">Total Investment</td><td style="padding:14px 16px;font-size:22px;color:#BB984D;text-align:right;">${grandTotalP}</td></tr></table></div>` : ""}
+    ${reviewsHtmlP}
+    <div style="text-align:center;margin:0 0 24px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a></div>
+    <p style="font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">This proposal is valid for 30 days. Questions? Reply to this email or call <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
   </div>
   <div style="text-align:center;padding:20px 0 0 0;">
-    <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
-    <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+    <p style="font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    <p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
   </div>
 </div>
 </body></html>`;

@@ -37,10 +37,6 @@ interface DocuSignTemplate {
 }
 
 
-interface FieldMapping {
-  [key: string]: string;
-}
-
 export function DocuSignDialog({
   open,
   onOpenChange,
@@ -59,63 +55,7 @@ export function DocuSignDialog({
   const [manualTemplateId, setManualTemplateId] = useState("");
   const [docusignConnected, setDocusignConnected] = useState<boolean | null>(null);
 
-  // Auto-map CRM fields to DocuSign template fields
   const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
-  const fieldMapping: FieldMapping = {
-    // Client fields
-    client_name: fullName,
-    client_first_name: client.first_name ?? "",
-    client_last_name: client.last_name ?? "",
-    client_email: client.email ?? "",
-    client_phone: client.phone ?? "",
-    client_company: client.company ?? "",
-    client_address: client.address ?? "",
-    client_city: client.city ?? "",
-    client_state: client.state ?? "",
-    client_zip: client.zip ?? "",
-    
-    // Project fields (if available)
-    ...(project && {
-      project_name: project.name,
-      project_description: project.description,
-      project_address: project.clientAddress,
-      project_value: project.totalValue.toString(),
-      total_value: project.totalValue.toString(),
-      contract_amount: project.totalValue.toString(),
-      project_start_date: project.startDate,
-      start_date: project.startDate,
-      project_manager: project.projectManagerName,
-      foreman: project.foremanName,
-      
-      // Financial fields
-      total_cost: project.totalCosts.toString(),
-      gross_profit: project.grossProfit.toString(),
-      profit_margin: project.profitMargin.toString(),
-    }),
-    
-    // Company fields
-    company_name: "Butler & Associates Construction, Inc.",
-    company_phone: "(256) 617-4691",
-    company_email: "jonathan@butlerconstruction.co",
-
-    // Date fields
-    current_date: new Date().toLocaleDateString("en-US"),
-    today_date: new Date().toLocaleDateString("en-US"),
-
-    // Aliases matching common DocuSign template field names
-    "Full Name": fullName,
-    "Client Name": fullName,
-    "Owner Name": fullName,
-    "Email": client.email ?? "",
-    "Client Email": client.email ?? "",
-    "Phone": client.phone ?? "",
-    "Client Phone": client.phone ?? "",
-    "Address": client.address ?? "",
-    "Project Address": project?.clientAddress ?? client.address ?? "",
-    "Date Signed": new Date().toLocaleDateString("en-US"),
-    "Agreement Date": new Date().toLocaleDateString("en-US"),
-    "Contract Date": new Date().toLocaleDateString("en-US"),
-  };
 
   // Load templates and check connection on open
   useEffect(() => {
@@ -189,15 +129,8 @@ export function DocuSignDialog({
     const templateToUse = manualTemplateId || selectedTemplate;
     if (!templateToUse) return;
 
-    // Validate required client fields before sending
-    const missingFields = [];
-    if (!client.email) missingFields.push("Email");
-    if (!client.address) missingFields.push("Address");
-    if (!client.city) missingFields.push("City");
-    if (!client.state) missingFields.push("State");
-    if (!client.zip) missingFields.push("ZIP");
-    if (missingFields.length > 0) {
-      setErrorMessage(`Cannot send — client is missing: ${missingFields.join(", ")}. Update the client's Contact Info first.`);
+    if (!client.email) {
+      setErrorMessage("Cannot send — client has no email address. Update the client's Contact Info first.");
       setStatus("error");
       return;
     }
@@ -207,22 +140,19 @@ export function DocuSignDialog({
     setErrorMessage("");
 
     try {
-      const textTabs = Object.entries(fieldMapping).map(([tabLabel, value]) => ({
-        tabLabel,
-        value: value || "",
-      }));
-
       const requestBody = {
         templateId: templateToUse,
         emailSubject: project
-          ? `Contract for ${project.name} - Butler & Associates Construction`
-          : `Contract - Butler & Associates Construction`,
-        emailBlurb: `Hi ${fullName.split(" ")[0] || "there"}, please review and sign the attached contract.`,
+          ? `${project.name} Agreement | Butler & Associates Construction, Inc`
+          : `Contract | Butler & Associates Construction, Inc`,
+        emailBlurb: `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
         clientEmail: client.email,
         clientName: fullName || client.email || "Client",
+
         adminEmail: "info@butlerconstruction.co",
-        adminName: "Butler & Associates Construction",
-        tabs: { textTabs },
+        adminName: "Jonathan Butler",
+        tabs: {},
+        returnUrl: window.location.href,
       };
 
       const response = await fetch(
@@ -244,6 +174,12 @@ export function DocuSignDialog({
 
       const data = await response.json();
       setEnvelopeId(data.envelopeId);
+
+      // Open DocuSign sender view in new tab so admin can fill fields and send
+      if (data.senderViewUrl) {
+        window.open(data.senderViewUrl, "_blank");
+      }
+
       setStatus("success");
       onSent?.(data.envelopeId);
 
@@ -289,7 +225,7 @@ export function DocuSignDialog({
                 <div>
                   <h3 className="text-lg font-semibold">Document Sent Successfully!</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    A signing request has been sent to <strong>info@butlerconstruction.co</strong>. Once signed, it will automatically forward to the client.
+                    DocuSign has opened in a new tab. Fill in the contract details and click <strong>Send</strong> — DocuSign will then route the contract to both signers automatically.
                   </p>
                 </div>
                 {envelopeId && (
@@ -484,35 +420,6 @@ export function DocuSignDialog({
               </div>
             </div>
 
-            {/* Auto-fill Preview */}
-            {(selectedTemplate || manualTemplateId) && (
-              <div className="space-y-2">
-                <Label>Auto-Fill Fields Preview</Label>
-                <div className="p-4 border rounded-lg bg-muted/50 max-h-48 overflow-y-auto">
-                  <div className="text-xs space-y-1.5">
-                    {Object.entries(fieldMapping)
-                      .filter(([_, value]) => value)
-                      .slice(0, 10)
-                      .map(([key, value]) => (
-                        <div key={key} className="flex items-start gap-2">
-                          <span className="text-muted-foreground font-mono min-w-[140px]">
-                            {key}:
-                          </span>
-                          <span className="font-medium">{value}</span>
-                        </div>
-                      ))}
-                    {Object.entries(fieldMapping).filter(([_, value]) => value).length > 10 && (
-                      <div className="text-muted-foreground italic pt-1">
-                        + {Object.entries(fieldMapping).filter(([_, value]) => value).length - 10} more fields...
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  These fields will be automatically populated in your DocuSign template
-                </p>
-              </div>
-            )}
 
           </DialogBody>
 

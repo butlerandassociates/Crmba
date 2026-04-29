@@ -67,10 +67,21 @@ export const productsAPI = {
     return data ?? [];
   },
 
-  /** Create or update a product (upsert by id presence) */
+  /** Create or update a product (upsert by id presence).
+   *  On update: cascades name + description changes to estimate_line_items
+   *  for proposals where the client is NOT active or completed (no signed contract). */
   save: async (product: Record<string, unknown>) => {
     if (product.id) {
       const { id, ...rest } = product;
+
+      // Fetch old name before update so we can match existing line items by it
+      let oldName: string | null = null;
+      if (rest.name !== undefined || rest.description !== undefined) {
+        const { data: existing } = await supabase
+          .from("products_services").select("name").eq("id", id).single();
+        oldName = existing?.name ?? null;
+      }
+
       const { data, error } = await supabase
         .from("products_services")
         .update(rest)
@@ -78,6 +89,30 @@ export const productsAPI = {
         .select()
         .single();
       if (error) throw new Error(error.message);
+
+      // Cascade name + description to open proposals (exclude active/completed — contracts are frozen)
+      if (oldName && (rest.name !== undefined || rest.description !== undefined)) {
+        const lineItemUpdate: Record<string, unknown> = {};
+        if (rest.name !== undefined) lineItemUpdate.product_name = rest.name;
+        if (rest.description !== undefined) lineItemUpdate.description = rest.description;
+
+        const { data: allEstimates } = await supabase
+          .from("estimates")
+          .select("id, clients!estimates_client_id_fkey(status)");
+
+        const eligibleIds = (allEstimates ?? [])
+          .filter((e: any) => !["active", "completed"].includes(e.clients?.status))
+          .map((e: any) => e.id);
+
+        if (eligibleIds.length > 0) {
+          await supabase
+            .from("estimate_line_items")
+            .update(lineItemUpdate)
+            .eq("product_name", oldName)
+            .in("estimate_id", eligibleIds);
+        }
+      }
+
       return data;
     }
     const { data, error } = await supabase

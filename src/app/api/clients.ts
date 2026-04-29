@@ -14,6 +14,7 @@ export const clientsAPI = {
         *,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
+        sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name),
         projects(
           total_value, start_date, end_date, profit_margin, sales_rep_id, project_manager_id,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name),
@@ -40,14 +41,17 @@ export const clientsAPI = {
       const projectSalesRepName = firstProject?.sales_rep
         ? `${firstProject.sales_rep.first_name ?? ""} ${firstProject.sales_rep.last_name ?? ""}`.trim()
         : null;
+      const clientSalesRepName = c.sales_rep
+        ? `${c.sales_rep.first_name ?? ""} ${c.sales_rep.last_name ?? ""}`.trim()
+        : null;
       const firstAppt = (c.appointments ?? [])
         .slice()
         .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
       const apptSalesRepName = firstAppt?.assigned_to_profile
         ? `${firstAppt.assigned_to_profile.first_name ?? ""} ${firstAppt.assigned_to_profile.last_name ?? ""}`.trim()
         : null;
-      const salesRepName = projectSalesRepName || apptSalesRepName || null;
-      const salesRepId: string | null = firstProject?.sales_rep_id ?? firstAppt?.assigned_to ?? null;
+      const salesRepName = projectSalesRepName || clientSalesRepName || apptSalesRepName || null;
+      const salesRepId: string | null = firstProject?.sales_rep_id ?? c.sales_rep_id ?? firstAppt?.assigned_to ?? null;
       const pmId: string | null = firstProject?.project_manager_id ?? null;
       const pmName = firstProject?.project_manager
         ? `${firstProject.project_manager.first_name ?? ""} ${firstProject.project_manager.last_name ?? ""}`.trim()
@@ -199,5 +203,14 @@ export const clientsAPI = {
       .single();
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  /** Assign a sales rep directly to a client (Prospect/Scheduled — no project yet) */
+  assignSalesRep: async (id: string, sales_rep_id: string | null) => {
+    const { error } = await supabase
+      .from("clients")
+      .update({ sales_rep_id })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
   },
 };

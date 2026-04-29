@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogBody,
@@ -12,7 +12,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Mail, Send, Loader2, Eye } from "lucide-react";
+import { Mail, Send, Loader2, Eye, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -23,10 +23,15 @@ import {
 } from "./ui/select";
 import { supabase } from "@/lib/supabase";
 import { activityLogAPI } from "../utils/api";
+import { ProposalExport } from "./proposal-export";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+
 interface EmailTemplatesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   client: Record<string, any>;
+  proposals?: any[];
   onSent?: () => void;
 }
 
@@ -42,6 +47,7 @@ export function EmailTemplatesDialog({
   open,
   onOpenChange,
   client,
+  proposals = [],
   onSent,
 }: EmailTemplatesDialogProps) {
   const firstName = client.first_name ?? client.name?.split(" ")[0] ?? "there";
@@ -52,6 +58,10 @@ export function EmailTemplatesDialog({
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [attachPdf, setAttachPdf] = useState(false);
+  const [selectedProposalId, setSelectedProposalId] = useState<string>("");
+  const [proposalReviews, setProposalReviews] = useState<any[]>([]);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +83,24 @@ export function EmailTemplatesDialog({
         setTemplates(mapped);
         setLoadingTemplates(false);
       });
+    // Pre-select the most recent proposal if there is one
+    if (proposals.length > 0) {
+      const sorted = [...proposals].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setSelectedProposalId(sorted[0].id);
+    }
   }, [open]);
+
+  // Load reviews when a proposal is selected and attachment is checked
+  useEffect(() => {
+    if (!attachPdf || !selectedProposalId) return;
+    supabase
+      .from("reviews")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => setProposalReviews(data ?? []));
+  }, [attachPdf, selectedProposalId]);
 
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find((t) => t.id === templateId);
@@ -88,6 +115,95 @@ export function EmailTemplatesDialog({
   const [sendTouched, setSendTouched] = useState(false);
   const [fieldTouched, setFieldTouched] = useState({ subject: false, body: false });
   const [showPreview, setShowPreview] = useState(false);
+
+  const generatePdfBase64 = async (): Promise<string | null> => {
+    const container = exportRef.current;
+    if (!container) return null;
+    try {
+      const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      })));
+
+      const SCALE = 2;
+      const opts = {
+        scale: SCALE, useCORS: true, allowTaint: false, logging: false,
+        imageTimeout: 10000, removeContainer: true,
+        onclone: (_doc: Document, el: HTMLElement) => {
+          const root = el.getRootNode() as Document;
+          Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
+          Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
+        },
+      };
+
+      const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
+      const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
+            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
+            colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
+
+      const [hdrC, body1C, body2C, ftrC, colC] = await Promise.all([
+        html2canvas(hdrEl,    { ...opts, backgroundColor: "#0A0A0A" }),
+        html2canvas(body1El,  { ...opts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body2El,  { ...opts, backgroundColor: "#F5F3EF" }),
+        html2canvas(ftrEl,    { ...opts, backgroundColor: "#0A0A0A" }),
+        html2canvas(colHdrEl, { ...opts, backgroundColor: "#0A0A0A" }),
+      ]);
+
+      const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const pxPerPt = body1C.width / pageW;
+      const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
+
+      const hdrH = toPt(hdrC), ftrH = toPt(ftrC), colH = toPt(colC);
+      const colW = colC.width / pxPerPt, colX = (pageW - colW) / 2;
+      const PAD = 10, COL_GAP = 4;
+      const slot = pageH - hdrH - ftrH;
+      const slotFull = slot - 2 * PAD, slotCol = slot - colH - COL_GAP - 2 * PAD;
+
+      const hImg = hdrC.toDataURL("image/jpeg", 0.93);
+      const fImg = ftrC.toDataURL("image/jpeg", 0.93);
+      const colImg = colC.toDataURL("image/jpeg", 0.93);
+
+      const slice = (src: HTMLCanvasElement, yPx: number, hPx: number) => {
+        const h = Math.max(1, Math.min(hPx, src.height - yPx));
+        const out = document.createElement("canvas");
+        out.width = src.width; out.height = h;
+        out.getContext("2d")!.drawImage(src, 0, yPx, src.width, h, 0, 0, src.width, h);
+        return out;
+      };
+
+      const renderPages = (bodyC: HTMLCanvasElement, showCol: boolean, startPage: number): number => {
+        const bodyH = toPt(bodyC);
+        let consumed = 0, pageIdx = startPage;
+        while (consumed < bodyH - 1) {
+          if (pageIdx > 0) pdf.addPage();
+          const isFirst = pageIdx === startPage;
+          const avail = (!isFirst && showCol) ? slotCol : slotFull;
+          const sliceH = Math.min(avail, bodyH - consumed);
+          const sc = slice(bodyC, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
+          pdf.setFillColor(245, 243, 239);
+          pdf.rect(0, 0, pageW, pageH, "F");
+          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
+          let bodyY = hdrH + PAD;
+          if (!isFirst && showCol) { pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH); bodyY = hdrH + PAD + colH + COL_GAP; }
+          pdf.addImage(sc.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
+          consumed += sliceH; pageIdx++;
+        }
+        return pageIdx;
+      };
+
+      renderPages(body2C, false, renderPages(body1C, true, 0));
+      return pdf.output("datauristring").split(",")[1];
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      return null;
+    }
+  };
 
   const buildEmailHtml = () => `
     <!DOCTYPE html>
@@ -147,8 +263,25 @@ export function EmailTemplatesDialog({
     setSending(true);
     try {
       const html = buildEmailHtml();
+
+      let attachments: { content: string; filename: string; type: string; disposition: string }[] | undefined;
+      if (attachPdf && selectedProposalId) {
+        const pdfBase64 = await generatePdfBase64();
+        if (pdfBase64) {
+          const proposal = proposals.find((p) => p.id === selectedProposalId);
+          const proposalTitle = proposal?.title ?? "Proposal";
+          const clientName = [client.first_name, client.last_name].filter(Boolean).join(" ") || client.name || "Client";
+          attachments = [{
+            content: pdfBase64,
+            filename: `${proposalTitle} - ${clientName}.pdf`,
+            type: "application/pdf",
+            disposition: "attachment",
+          }];
+        }
+      }
+
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction" },
+        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction", attachments },
       });
       if (error) throw error;
       await activityLogAPI.create({
@@ -173,7 +306,12 @@ export function EmailTemplatesDialog({
     setBody("");
     setSendTouched(false);
     setFieldTouched({ subject: false, body: false });
+    setAttachPdf(false);
+    setSelectedProposalId("");
+    setProposalReviews([]);
   };
+
+  const selectedProposal = proposals.find((p) => p.id === selectedProposalId) ?? null;
 
   return (
     <>
@@ -271,6 +409,41 @@ export function EmailTemplatesDialog({
               </div>
             </div>
           )}
+
+          {/* Attach Proposal PDF */}
+          {proposals.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="attach-pdf-etd"
+                  checked={attachPdf}
+                  onChange={(e) => setAttachPdf(e.target.checked)}
+                  className="h-4 w-4 rounded border cursor-pointer accent-primary"
+                />
+                <label htmlFor="attach-pdf-etd" className="text-sm cursor-pointer select-none flex items-center gap-1.5">
+                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                  Attach Proposal PDF
+                </label>
+              </div>
+              {attachPdf && proposals.length > 1 && (
+                <Select value={selectedProposalId} onValueChange={setSelectedProposalId}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Select proposal to attach" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[...proposals]
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      .map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.title ?? "Untitled"} — {p.status}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
         </DialogBody>
 
         <DialogFooter>
@@ -311,6 +484,17 @@ export function EmailTemplatesDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* Off-screen proposal renderer for PDF generation */}
+    {attachPdf && selectedProposal && (
+      <div
+        ref={exportRef}
+        style={{ position: "fixed", left: "-9999px", top: 0, zIndex: -1, pointerEvents: "none" }}
+        aria-hidden="true"
+      >
+        <ProposalExport proposal={selectedProposal} client={client} reviews={proposalReviews} />
+      </div>
+    )}
     </>
   );
 }

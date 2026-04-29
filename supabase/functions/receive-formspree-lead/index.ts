@@ -144,6 +144,27 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Deduplication: skip if an identical lead was created in the last 10 minutes
+    // (Formspree sometimes retries or fires multiple webhooks per submission)
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    let dupQuery = supabase
+      .from("clients")
+      .select("id")
+      .gte("created_at", tenMinutesAgo)
+      .limit(1);
+
+    if (email) dupQuery = dupQuery.eq("email", email);
+    else if (phone) dupQuery = dupQuery.eq("phone", phone);
+
+    const { data: existing } = await dupQuery.maybeSingle();
+    if (existing) {
+      console.log(`[formspree] Duplicate detected — client ${existing.id} already created within 10 min. Skipping.`);
+      return new Response(
+        JSON.stringify({ ok: true, skipped: "duplicate", existing_id: existing.id }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Lead source — "Referral" for referral forms, "Website" for everything else
     const leadSourceName = isReferral ? "Referral" : "Website";
     console.log(`[formspree] Looking up lead source: "${leadSourceName}"`);
@@ -181,6 +202,17 @@ serve(async (req) => {
       stage = fallback;
     }
 
+    // Build structured form data object for lead_form_data column
+    const smsConsent: string = f.sms_consent ?? f.smsConsent ?? f["SMS Consent"] ?? "";
+    const leadFormData: Record<string, any> = {};
+    if (sourceForm)     leadFormData.source_form  = sourceForm;
+    if (services.length) leadFormData.services     = services;
+    if (budget)         leadFormData.budget        = budget;
+    if (timeline)       leadFormData.timeline      = timeline;
+    if (referralLabel)  leadFormData.referral      = referralLabel;
+    if (projectDetails) leadFormData.details       = projectDetails;
+    if (smsConsent)     leadFormData.sms_consent   = smsConsent;
+
     // Insert client
     const insertPayload: Record<string, any> = {
       first_name:        firstName || "Unknown",
@@ -194,6 +226,7 @@ serve(async (req) => {
       pipeline_stage_id: stage?.id ?? null,
       status:            "prospect",
       scope_of_work:     services,
+      lead_form_data:    Object.keys(leadFormData).length > 0 ? leadFormData : null,
     };
 
     console.log("[formspree] Inserting client:", JSON.stringify(insertPayload));
