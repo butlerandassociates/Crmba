@@ -91,9 +91,11 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
     usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
     usersAPI.getByRole("sales_rep").then((reps) => {
       setSalesReps(reps);
-      // Pre-fill from existing project.sales_rep_id, or fall back to first appointment's assigned_to (if they're a sales rep)
+      // Pre-fill: project.sales_rep_id → client.sales_rep_id → first appointment assigned_to
       if (project?.sales_rep_id) {
         setSelectedSalesRep(project.sales_rep_id);
+      } else if (client?.sales_rep_id) {
+        setSelectedSalesRep(client.sales_rep_id);
       } else if (client?.id) {
         supabase
           .from("appointments")
