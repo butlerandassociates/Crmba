@@ -94,14 +94,29 @@ serve(async (req) => {
 
     const multiRaw: string | string[] =
       body["services[]"] ?? f.services ?? f.interest ??
-      f.service ?? f.primary_service ?? f.other_service ?? f.calc_type ?? "";
+      f.service ?? f.service_interest ?? f.service_type ?? f.project_interest ??
+      f.primary_service ?? f.other_service ?? f.calc_type ?? "";
     const singleRaw: string = f.project_type ?? f.calc_project_type ?? "";
-    const services: string[] = multiRaw
+    let services: string[] = multiRaw
       ? (Array.isArray(multiRaw)
           ? multiRaw.filter(Boolean)
           : multiRaw.split(",").map((s: string) => s.trim()).filter(Boolean)
         ).map(normalizeService)
       : singleRaw ? [normalizeService(singleRaw)] : [];
+
+    // Fallback: infer service from form name or email subject if no field matched
+    if (services.length === 0) {
+      const inferFrom = `${sourceForm} ${f._subject ?? ""}`.toLowerCase();
+      for (const [keyword, label] of Object.entries(SERVICE_MAP)) {
+        if (inferFrom.includes(keyword)) { services = [label]; break; }
+      }
+      // Extra keywords not in SERVICE_MAP
+      if (services.length === 0) {
+        if (inferFrom.includes("paver"))    services = ["Pavers"];
+        if (inferFrom.includes("sod"))      services = ["Sod"];
+        if (inferFrom.includes("consult"))  services = [];  // generic — don't infer
+      }
+    }
 
     console.log(`[formspree] Services: ${JSON.stringify(services)}`);
 
@@ -253,6 +268,7 @@ serve(async (req) => {
     if (timeline)        noteParts.push(`Timeline: ${timeline}`);
     if (referralLabel)   noteParts.push(`Heard about us via: ${referralLabel}`);
     if (services.length) noteParts.push(`Services: ${services.join(", ")}`);
+    if (smsConsent)      noteParts.push(`SMS consent: ${smsConsent}`);
     if (squareFootage)   noteParts.push(`Square footage: ${squareFootage}`);
     if (primaryUse)      noteParts.push(`Primary use: ${primaryUse}`);
     if (turfTier)        noteParts.push(`Tier selected: ${turfTier}`);

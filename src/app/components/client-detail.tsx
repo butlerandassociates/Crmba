@@ -1343,29 +1343,6 @@ export function ClientDetail() {
                 </SelectContent>
               </Select>
             </div>
-            {/* Website inquiry details — populated from Formspree/website form */}
-            {client.lead_form_data && Object.keys(client.lead_form_data).length > 0 && (() => {
-              const lfd = client.lead_form_data as Record<string, any>;
-              const rows: { label: string; value: string }[] = [];
-              if (lfd.services?.length)  rows.push({ label: "Interested In",   value: Array.isArray(lfd.services) ? lfd.services.join(", ") : lfd.services });
-              if (lfd.budget)            rows.push({ label: "Budget",           value: lfd.budget });
-              if (lfd.timeline)          rows.push({ label: "Timeline",         value: lfd.timeline });
-              if (lfd.referral)          rows.push({ label: "Heard About Us",   value: lfd.referral });
-              if (lfd.sms_consent)       rows.push({ label: "SMS Consent",      value: lfd.sms_consent });
-              if (lfd.details)           rows.push({ label: "Project Details",  value: lfd.details });
-              if (rows.length === 0) return null;
-              return (
-                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 space-y-2">
-                  <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Website Inquiry</div>
-                  {rows.map(({ label, value }) => (
-                    <div key={label}>
-                      <div className="text-xs text-muted-foreground">{label}</div>
-                      <div className="text-sm font-medium text-foreground leading-snug">{value}</div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-sm font-medium">Appointment</div>
