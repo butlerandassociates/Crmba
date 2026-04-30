@@ -90,7 +90,8 @@ export const productsAPI = {
         .single();
       if (error) throw new Error(error.message);
 
-      // Cascade name + description to open proposals (exclude active/completed — contracts are frozen)
+      // Cascade name + description to open proposals only.
+      // Frozen if: client is active/completed/sold OR proposal itself is accepted.
       if (oldName && (rest.name !== undefined || rest.description !== undefined)) {
         const lineItemUpdate: Record<string, unknown> = {};
         if (rest.name !== undefined) lineItemUpdate.product_name = rest.name;
@@ -98,10 +99,13 @@ export const productsAPI = {
 
         const { data: allEstimates } = await supabase
           .from("estimates")
-          .select("id, clients!estimates_client_id_fkey(status)");
+          .select("id, status, clients!estimates_client_id_fkey(status)");
 
         const eligibleIds = (allEstimates ?? [])
-          .filter((e: any) => !["active", "completed"].includes(e.clients?.status))
+          .filter((e: any) =>
+            !["active", "completed", "sold"].includes(e.clients?.status) &&
+            e.status !== "accepted"
+          )
           .map((e: any) => e.id);
 
         if (eligibleIds.length > 0) {

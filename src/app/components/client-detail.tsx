@@ -1148,7 +1148,7 @@ export function ClientDetail() {
               <ChevronDown className="h-4 w-4 ml-2" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 max-h-[calc(80vh-80px)] overflow-y-auto thin-scroll">
             <DropdownMenuLabel>Client Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {can("can_schedule_appointments") && (
@@ -2295,22 +2295,33 @@ export function ClientDetail() {
                 <div className="max-h-52 overflow-y-auto thin-scroll space-y-0 pr-1">
                   {feedItems.map((item) => {
                     const ts = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-                    if (item._type === "note") return (
-                      <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 transition-colors" onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
-                        <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{item.content.split("\n")[0]}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {item.is_system_generated ? "System" : "Team"} · {ts}
-                          </p>
+                    if (item._type === "note") {
+                      if (item.is_system_generated) return (
+                        <div key={`note-${item.id}`} className="group cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 mb-2 hover:bg-blue-100 transition-colors relative focus:outline-none" tabIndex={-1} onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
+                          <p className="text-[11px] font-semibold text-blue-600 uppercase tracking-wide mb-1 pr-5">{item.content.split("\n")[0]}</p>
+                          <p className="text-xs text-muted-foreground">{ts}</p>
+                          {can("can_delete_notes") && (
+                            <button className="absolute top-2.5 right-2.5 text-blue-300 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
-                        {can("can_delete_notes") && (
-                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
+                      );
+                      return (
+                        <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 transition-colors focus:outline-none" tabIndex={-1} onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
+                          <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm truncate">{item.content.split("\n")[0]}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Team · {ts}</p>
+                          </div>
+                          {can("can_delete_notes") && (
+                            <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
                     const isImage = item.mime_type?.startsWith("image/");
                     const isPdf = item.mime_type === "application/pdf";
                     return (
@@ -2823,36 +2834,90 @@ export function ClientDetail() {
                 <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded">System</span>
               )}
             </SheetTitle>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-gray-900 font-medium">
               {selectedNote && new Date(selectedNote.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
             </p>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-            <Textarea
-              className="flex-1 min-h-[200px] text-sm resize-none"
-              value={editingNoteContent}
-              onChange={(e) => setEditingNoteContent(e.target.value)}
-              placeholder="Note content…"
-            />
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* Content display — top 70% */}
+            <div className="overflow-y-auto thin-scroll px-6 py-4 border-b min-h-0" style={{ flex: "7 7 0" }}>
+              {selectedNote?.is_system_generated ? (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
+                  <p className="text-[11px] font-bold text-blue-600 uppercase tracking-widest mb-4">
+                    {editingNoteContent.split("\n")[0]}
+                  </p>
+                  <div className="space-y-3">
+                    {editingNoteContent.split("\n").slice(1).filter(Boolean).map((line, i) => {
+                      const colonIdx = line.indexOf(":");
+                      if (colonIdx > 0) {
+                        const label = line.substring(0, colonIdx).trim();
+                        const value = line.substring(colonIdx + 1).trim();
+                        return (
+                          <div key={i}>
+                            <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                            <p className="text-sm font-semibold text-gray-900">{value}</p>
+                          </div>
+                        );
+                      }
+                      return <p key={i} className="text-sm text-gray-900">{line}</p>;
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed text-gray-900">{editingNoteContent}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Edit area — bottom 30% (team notes only) */}
+            {!selectedNote?.is_system_generated && (
+              <div className="px-6 py-4 flex flex-col gap-2 min-h-0" style={{ flex: "3 3 0" }}>
+                <p className="text-xs text-gray-500 font-medium">Edit Note</p>
+                <Textarea
+                  className="flex-1 text-sm resize-none bg-white border-gray-200 text-gray-900 focus-visible:border-blue-400 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  value={editingNoteContent}
+                  onChange={(e) => setEditingNoteContent(e.target.value)}
+                  placeholder="Note content…"
+                />
+              </div>
+            )}
           </div>
 
-          <div className="px-6 py-4 border-t flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setSelectedNote(null)}>Cancel</Button>
-            <Button
-              size="sm"
-              disabled={savingNoteEdit || !editingNoteContent.trim()}
-              onClick={async () => {
-                if (!selectedNote || !editingNoteContent.trim()) return;
-                setSavingNoteEdit(true);
-                await supabase.from("client_notes").update({ content: editingNoteContent.trim() }).eq("id", selectedNote.id);
-                setSavingNoteEdit(false);
-                setSelectedNote(null);
-                loadNotes();
-              }}
-            >
-              {savingNoteEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          <div className="px-6 py-4 border-t flex justify-between gap-2">
+            <div>
+              {selectedNote?.is_system_generated && can("can_delete_notes") && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => { setPendingDeleteNote(selectedNote.id); setSelectedNote(null); }}
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedNote(null)}>
+              {selectedNote?.is_system_generated ? "Close" : "Cancel"}
             </Button>
+            {!selectedNote?.is_system_generated && (
+              <Button
+                size="sm"
+                disabled={savingNoteEdit || !editingNoteContent.trim()}
+                onClick={async () => {
+                  if (!selectedNote || !editingNoteContent.trim()) return;
+                  setSavingNoteEdit(true);
+                  await supabase.from("client_notes").update({ content: editingNoteContent.trim() }).eq("id", selectedNote.id);
+                  setSavingNoteEdit(false);
+                  setSelectedNote(null);
+                  loadNotes();
+                }}
+              >
+                {savingNoteEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+              </Button>
+            )}
+            </div>
           </div>
         </SheetContent>
       </Sheet>
