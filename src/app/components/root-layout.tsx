@@ -625,12 +625,14 @@ export function RootLayout() {
                               <span className="text-xs font-medium truncate">{alert.clientName}</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.description}</p>
-                            <button
-                              onClick={(e) => markAsRead(alert.id, e)}
-                              className="mt-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              Dismiss
-                            </button>
+                            <div className="flex items-center justify-end mt-0.5">
+                              <button
+                                onClick={(e) => markAsRead(alert.id, e)}
+                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
                           </div>
                         </Link>
                       ))}

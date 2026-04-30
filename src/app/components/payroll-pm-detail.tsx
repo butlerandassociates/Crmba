@@ -9,14 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X, Plus, Trash2, Loader2 } from "lucide-react";
+import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X, Loader2, Trash2, ChevronsUpDown, Search } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./ui/command";
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
 import { toast } from "sonner";
-import { Textarea } from "./ui/textarea";
-import { Label } from "./ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
@@ -32,14 +31,13 @@ export function PayrollPMDetail() {
   const [editAmount, setEditAmount] = useState("");
   const [processing, setProcessing] = useState<string | null>(null);
 
-  // Manual payout form
-  const [payoutOpen, setPayoutOpen] = useState(false);
-  const [payoutAmount, setPayoutAmount] = useState("");
-  const [payoutNotes, setPayoutNotes] = useState("");
-  const [payoutProjectId, setPayoutProjectId] = useState<string>("");
-  const [payoutSaving, setPayoutSaving] = useState(false);
+  // Per-project payout state
+  const [payoutAmounts, setPayoutAmounts] = useState<Record<string, string>>({});
+  const [payoutNotesByProject, setPayoutNotesByProject] = useState<Record<string, string>>({});
+  const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
   const [deletingPayoutId, setDeletingPayoutId] = useState<string | null>(null);
-  const [pmProjects, setPmProjects] = useState<any[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -49,7 +47,6 @@ export function PayrollPMDetail() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load PM profile
       const { data: profile } = await supabase
         .from("profiles")
         .select("id, first_name, last_name, commission_rate, role, phone, email")
@@ -57,21 +54,9 @@ export function PayrollPMDetail() {
         .single();
       setPm(profile);
 
-      // Load projects for this PM/Sales Rep (for project selector in payout form)
-      const pmCol = profile?.role === "sales_rep" ? "sales_rep_id" : "project_manager_id";
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id, name, client:clients(first_name, last_name)")
-        .eq(pmCol, id!)
-        .in("status", ["sold", "active", "completed"])
-        .order("name");
-      setPmProjects(projects ?? []);
-
-      // Load all commission payments for this PM
       const data = await commissionPaymentsAPI.getAll({ profile_id: id! });
       setInstallments(data);
 
-      // Silently fix stale commission values — route to correct column by role
       if (profile?.role === "sales_rep") {
         commissionPaymentsAPI.reconcileForSalesRep(id!).catch(() => {});
       } else {
@@ -126,27 +111,22 @@ export function PayrollPMDetail() {
     }
   };
 
-  const handleRecordPayout = async () => {
-    const amount = parseFloat(payoutAmount);
+  const handleRecordProjectPayout = async (projectId: string) => {
+    const amount = parseFloat(payoutAmounts[projectId] ?? "");
     if (isNaN(amount) || amount <= 0) { toast.error("Enter a valid amount greater than $0."); return; }
-    setPayoutSaving(true);
+    setSavingProjectId(projectId);
     try {
-      await commissionPaymentsAPI.createManualPayout(
-        id!,
-        amount,
-        payoutNotes.trim() || undefined,
-        payoutProjectId || undefined,
-      );
+      const notes = payoutNotesByProject[projectId]?.trim() || undefined;
+      await commissionPaymentsAPI.createManualPayout(id!, amount, notes, projectId);
       toast.success(`${fmt(amount)} payout recorded`);
-      setPayoutAmount("");
-      setPayoutNotes("");
-      setPayoutProjectId("");
-      setPayoutOpen(false);
+      setPayoutAmounts(prev => { const next = { ...prev }; delete next[projectId]; return next; });
+      setPayoutNotesByProject(prev => { const next = { ...prev }; delete next[projectId]; return next; });
+      setSelectedProjectId(null);
       loadData();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payout");
     } finally {
-      setPayoutSaving(false);
+      setSavingProjectId(null);
     }
   };
 
@@ -193,9 +173,7 @@ export function PayrollPMDetail() {
 
   const name = `${pm.first_name ?? ""} ${pm.last_name ?? ""}`.trim() || "—";
 
-  // Project commission records (auto-created from move-to-sold or milestone payments)
   const milestoneInstallments = installments.filter(i => i.payout_type !== "manual_payout");
-  // Manual cash payouts recorded by admin
   const manualPayouts = installments.filter(i => i.payout_type === "manual_payout");
 
   const pendingInstallments = milestoneInstallments.filter(i => i.status === "pending");
@@ -203,13 +181,42 @@ export function PayrollPMDetail() {
   const totalPending = pendingInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const totalProcessed = processedInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
 
-  // Payout tracker: how much of the total owed has been paid in cash
-  const totalOwed = totalPending; // pending milestone commissions = what's owed
+  // Grand total payout tracker
+  const totalOwed = totalPending;
   const totalPaidOut = manualPayouts.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const remaining = Math.max(0, totalOwed - totalPaidOut);
-  const paidPct = totalOwed > 0 ? Math.min(100, (totalPaidOut / totalOwed) * 100) : 0;
+  const grandRemaining = Math.max(0, totalOwed - totalPaidOut);
+  const grandPaidPct = totalOwed > 0 ? Math.min(100, (totalPaidOut / totalOwed) * 100) : 0;
 
-  // Group by project (milestone installments only)
+  // Per-project payout data — group pending installments by project
+  const pendingByProject: Record<string, { project: any; pendingAmount: number }> = {};
+  pendingInstallments.forEach((i: any) => {
+    const pid = i.project?.id ?? "unknown";
+    if (!pendingByProject[pid]) {
+      pendingByProject[pid] = { project: i.project, pendingAmount: 0 };
+    }
+    pendingByProject[pid].pendingAmount += parseFloat(i.amount) || 0;
+  });
+
+  const projectPayoutData = Object.values(pendingByProject).map((entry: any) => {
+    const proj = entry.project;
+    const projPaid = manualPayouts
+      .filter((p: any) => p.project_id === proj?.id)
+      .reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
+    const clientName = proj?.client
+      ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
+      : "";
+    return {
+      id: proj?.id ?? "unknown",
+      name: proj?.name ?? "Unknown Project",
+      clientId: proj?.client_id ?? null,
+      clientName,
+      owed: entry.pendingAmount,
+      paid: projPaid,
+      remaining: Math.max(0, entry.pendingAmount - projPaid),
+    };
+  });
+
+  // Group all milestone installments by project for the detail table below
   const byProject: Record<string, any> = {};
   milestoneInstallments.forEach((i: any) => {
     const pid = i.project?.id ?? "unknown";
@@ -276,31 +283,28 @@ export function PayrollPMDetail() {
         </Card>
       </div>
 
-      {/* Commission Payout Tracker */}
+      {/* Commission Payout Tracker — per-project */}
       {totalOwed > 0 && (
         <Card>
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <p className="text-sm font-semibold">Commission Payout Tracker</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Record cash installments paid to {pm.first_name} — use these amounts for your QuickBooks entries.</p>
-              </div>
-              <Button size="sm" onClick={() => setPayoutOpen((o) => !o)}>
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Record Payment
-              </Button>
+          <CardContent className="pt-5 pb-5 space-y-4">
+
+            {/* Header + overall progress */}
+            <div>
+              <p className="text-sm font-semibold">Commission Payout Tracker</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Record cash installments paid to {pm.first_name} per job — use these amounts for your QuickBooks entries.
+              </p>
             </div>
 
-            {/* Progress bar */}
-            <div className="space-y-2 mb-4">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{paidPct.toFixed(0)}% paid out</span>
-                <span>{fmtShort(remaining)} remaining</span>
+                <span>{grandPaidPct.toFixed(0)}% paid out overall</span>
+                <span>{fmtShort(grandRemaining)} remaining</span>
               </div>
-              <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${paidPct >= 100 ? "bg-green-500" : "bg-primary"}`}
-                  style={{ width: `${paidPct}%` }}
+                  className={`h-full rounded-full transition-all ${grandPaidPct >= 100 ? "bg-green-500" : "bg-primary"}`}
+                  style={{ width: `${grandPaidPct}%` }}
                 />
               </div>
               <div className="flex items-center justify-between text-xs">
@@ -309,131 +313,214 @@ export function PayrollPMDetail() {
               </div>
             </div>
 
-            {/* Record payout form */}
-            {payoutOpen && (
-              <div className="border rounded-lg p-4 bg-muted/30 space-y-3 mb-4">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">New Payment Entry</p>
-                <div className="flex gap-2">
-                  {[25, 50, 75, 100].map((pct) => {
-                    const val = ((totalOwed * pct) / 100).toFixed(2);
-                    return (
-                      <Button
-                        key={pct}
-                        size="sm"
-                        variant="outline"
-                        className="text-xs h-7"
-                        onClick={() => setPayoutAmount(val)}
-                      >
-                        {pct}% ({fmtShort(parseFloat(val))})
-                      </Button>
-                    );
-                  })}
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Project (optional)</Label>
-                    <Select value={payoutProjectId} onValueChange={setPayoutProjectId}>
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue placeholder="All projects" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {pmProjects.map((p) => {
-                          const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "";
-                          return (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}{clientName ? ` — ${clientName}` : ""}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Amount ($)</Label>
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={payoutAmount}
-                      onChange={(e) => setPayoutAmount(e.target.value)}
-                      className="h-8 text-sm"
-                      autoFocus
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Notes (optional)</Label>
-                    <Input
-                      placeholder="e.g. QuickBooks batch 04/22"
-                      value={payoutNotes}
-                      onChange={(e) => setPayoutNotes(e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button size="sm" variant="outline" onClick={() => { setPayoutOpen(false); setPayoutAmount(""); setPayoutNotes(""); setPayoutProjectId(""); }}>Cancel</Button>
-                  <Button size="sm" disabled={payoutSaving} onClick={handleRecordPayout}>
-                    {payoutSaving ? "Saving..." : "Record Payment"}
-                  </Button>
-                </div>
+            {/* Searchable project combobox */}
+            {projectPayoutData.length > 0 ? (
+              <div className="space-y-3">
+                <Popover open={projectDropdownOpen} onOpenChange={setProjectDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between h-auto min-h-[2.5rem] py-2 px-3 font-normal"
+                    >
+                      {selectedProjectId ? (() => {
+                        const proj = projectPayoutData.find(p => p.id === selectedProjectId);
+                        if (!proj) return <span className="text-muted-foreground">Select a project...</span>;
+                        return (
+                          <div className="flex items-center justify-between w-full pr-2 gap-4">
+                            <div className="text-left min-w-0">
+                              <p className="text-sm font-semibold truncate">{proj.name}</p>
+                              {proj.clientName && <p className="text-xs text-muted-foreground">{proj.clientName}</p>}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs shrink-0">
+                              <span className="text-muted-foreground">Owed <span className="font-semibold text-foreground">{fmt(proj.owed)}</span></span>
+                              <span className="text-muted-foreground">·</span>
+                              <span className="text-green-700 font-semibold">Paid {fmt(proj.paid)}</span>
+                              <span className="text-muted-foreground">·</span>
+                              {proj.remaining > 0
+                                ? <span className="text-amber-600 font-semibold">{fmt(proj.remaining)} left</span>
+                                : <span className="text-green-700 font-semibold">Fully paid</span>
+                              }
+                            </div>
+                          </div>
+                        );
+                      })() : (
+                        <span className="text-muted-foreground text-sm flex items-center gap-2">
+                          <Search className="h-3.5 w-3.5" /> Select a project to record a payout...
+                        </span>
+                      )}
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground ml-2" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start" side="bottom" sideOffset={4} avoidCollisions={false}>
+                    <Command>
+                      <CommandInput placeholder="Search project or client name..." />
+                      <CommandList className="max-h-56 overflow-y-auto">
+                        <CommandEmpty>No projects found.</CommandEmpty>
+                        <CommandGroup>
+                          {projectPayoutData.map(proj => (
+                            <CommandItem
+                              key={proj.id}
+                              value={`${proj.name} ${proj.clientName}`}
+                              onSelect={() => {
+                                setSelectedProjectId(proj.id);
+                                setProjectDropdownOpen(false);
+                              }}
+                              className="py-2.5 px-3 cursor-pointer"
+                            >
+                              <div className="flex items-center justify-between w-full gap-4">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold truncate">{proj.name}</p>
+                                  {proj.clientName && (
+                                    <p className="text-xs text-muted-foreground">{proj.clientName}</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs shrink-0">
+                                  <span className="text-muted-foreground">
+                                    Owed <span className="font-semibold text-foreground">{fmt(proj.owed)}</span>
+                                  </span>
+                                  <span className="text-muted-foreground">·</span>
+                                  <span className="text-green-700 font-semibold">Paid {fmt(proj.paid)}</span>
+                                  <span className="text-muted-foreground">·</span>
+                                  {proj.remaining > 0
+                                    ? <span className="text-amber-600 font-semibold">{fmt(proj.remaining)} left</span>
+                                    : <span className="text-green-700 font-semibold">Fully paid</span>
+                                  }
+                                </div>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Selected project payout row */}
+                {selectedProjectId && (() => {
+                  const proj = projectPayoutData.find(p => p.id === selectedProjectId);
+                  if (!proj) return null;
+                  const inputAmt = payoutAmounts[proj.id] ?? "";
+                  const inputNote = payoutNotesByProject[proj.id] ?? "";
+                  const isSaving = savingProjectId === proj.id;
+                  const canRecord = !isSaving && parseFloat(inputAmt) > 0;
+
+                  return (
+                    <div className="border rounded-lg p-3 bg-muted/20 space-y-2.5">
+                      {proj.remaining > 0 ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {[25, 50, 75, 100].map(pct => {
+                            const val = ((proj.owed * pct) / 100).toFixed(2);
+                            return (
+                              <Button
+                                key={pct}
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7 px-2.5"
+                                onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
+                              >
+                                {pct}%
+                                <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
+                              </Button>
+                            );
+                          })}
+                          <div className="flex items-center gap-2 ml-auto">
+                            <Input
+                              type="number"
+                              placeholder="Amount"
+                              value={inputAmt}
+                              onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                              className="h-7 w-24 text-sm text-right"
+                              autoFocus
+                            />
+                            <Input
+                              placeholder="Notes (optional)"
+                              value={inputNote}
+                              onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                              className="h-7 w-36 text-sm"
+                            />
+                            <Button
+                              size="sm"
+                              disabled={!canRecord}
+                              className="h-7 min-w-[72px] flex items-center justify-center"
+                              onClick={() => handleRecordProjectPayout(proj.id)}
+                            >
+                              {isSaving
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <span>Record</span>
+                              }
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-green-700 font-medium text-center py-1">
+                          This project is fully paid out.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-2">No projects with pending commission.</p>
             )}
 
             {/* Payout history */}
             {manualPayouts.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/50 border-b">
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Project</th>
-                      <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
-                      <th className="py-2 px-3 w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {manualPayouts.map((p: any) => (
-                      <tr key={p.id} className="border-b last:border-0">
-                        <td className="py-2 px-3 text-xs text-muted-foreground">
-                          {p.processed_date
-                            ? new Date(p.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                            : "—"}
-                        </td>
-                        <td className="py-2 px-3 text-xs text-muted-foreground">
-                          {p.project?.name ?? <span className="italic">—</span>}
-                        </td>
-                        <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
-                        <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
-                        <td className="py-2 px-3">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
-                            disabled={deletingPayoutId === p.id}
-                            onClick={() => handleDeletePayout(p.id)}
-                            title="Remove payout entry"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </td>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Payout History</p>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/50 border-b">
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Project</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
+                        <th className="py-2 px-3 w-8" />
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-muted/30 border-t">
-                      <td className="py-2 px-3 text-xs font-semibold">Total Paid Out</td>
-                      <td className="py-2 px-3" />
-                      <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(totalPaidOut)}</td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                </table>
+                    </thead>
+                    <tbody>
+                      {manualPayouts.map((p: any) => (
+                        <tr key={p.id} className="border-b last:border-0">
+                          <td className="py-2 px-3 text-xs text-muted-foreground">
+                            {p.processed_date
+                              ? new Date(p.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                              : "—"}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-muted-foreground">
+                            {p.project?.name ?? <span className="italic">—</span>}
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
+                          <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
+                          <td className="py-2 px-3">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                              disabled={deletingPayoutId === p.id}
+                              onClick={() => handleDeletePayout(p.id)}
+                              title="Remove payout entry"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-muted/30 border-t">
+                        <td className="py-2 px-3 text-xs font-semibold">Total Paid Out</td>
+                        <td className="py-2 px-3" />
+                        <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(totalPaidOut)}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             )}
 
-            {manualPayouts.length === 0 && !payoutOpen && (
-              <p className="text-xs text-muted-foreground text-center py-2">No payouts recorded yet. Click "Record Payment" to log your first installment.</p>
-            )}
           </CardContent>
         </Card>
       )}
@@ -487,7 +574,7 @@ export function PayrollPMDetail() {
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Commission</th>
                         <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
-                        <th className="py-2 px-3"></th>
+                        <th className="py-2 px-3" />
                       </tr>
                     </thead>
                     <tbody>

@@ -163,8 +163,8 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
 
       items.push({
         category: template.category,
-        productName: rule.product_name,
-        description: rule.description,
+        productName: product?.name ?? rule.product_name,
+        description: product?.description ?? rule.description,
         quantity: Math.ceil(qty * 10) / 10,
         unit: rule.unit ?? product?.unit ?? "each",
         materialCost: product?.material_cost ?? 0,
