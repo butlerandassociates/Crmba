@@ -1,30 +1,33 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "../../contexts/auth-context";
 import {
   Loader2, Search, ChevronRight, HardHat,
   Briefcase, DollarSign, Clock, CheckCircle2, MapPin, Calendar,
-  FileText, Download,
+  FileText, Download, Eye, X, Image,
 } from "lucide-react";
 
 import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
+import { Dialog, DialogContent } from "../ui/dialog";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency", currency: "USD",
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(v || 0);
 
 const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 const STATUS_COLORS: Record<string, string> = {
   active:    "bg-green-100 text-green-700 border-green-200",
   sold:      "bg-blue-100 text-blue-700 border-blue-200",
   completed: "bg-gray-100 text-gray-600 border-gray-200",
+  scheduled: "bg-purple-100 text-purple-700 border-purple-200",
 };
 
 export function ForemanDashboard() {
@@ -35,11 +38,18 @@ export function ForemanDashboard() {
   const [payments, setPayments] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
 
   useEffect(() => {
     if (!user?.profile?.id) return;
     loadAll();
   }, [user?.profile?.id]);
+
+  useRealtimeRefetch(
+    () => { if (user?.profile?.id) loadAll(); },
+    ["projects", "fio_crew_payments", "field_installation_orders"],
+    "foreman-dashboard-realtime"
+  );
 
   const loadAll = async () => {
     setLoading(true);
@@ -60,14 +70,18 @@ export function ForemanDashboard() {
     const clientIds = projects.map((p: any) => p.client_id);
     const projectMap: Record<string, string> = {};
     projects.forEach((p: any) => { projectMap[p.client_id] = p.name; });
-    // Get files for those clients — subcontractor agreements and certificates only
+    const foremanUserId = user!.profile!.id;
+    // Subcontractor + certificate: all. Photos: only foreman's own uploads.
     const { data: files } = await supabase
       .from("client_files")
-      .select("id, file_name, file_url, file_type, created_at, client_id")
+      .select("id, file_name, file_url, file_type, mime_type, created_at, client_id, user_id, uploader:profiles!client_files_user_id_fkey(first_name, last_name, role)")
       .in("client_id", clientIds)
-      .in("file_type", ["subcontractor", "certificate"])
+      .in("file_type", ["subcontractor", "certificate", "photo"])
       .order("created_at", { ascending: false });
-    setDocuments((files ?? []).map((f: any) => ({ ...f, projectName: projectMap[f.client_id] ?? "—" })));
+    const filtered = (files ?? []).filter((f: any) =>
+      f.file_type !== "photo" || f.user_id === foremanUserId
+    );
+    setDocuments(filtered.map((f: any) => ({ ...f, projectName: projectMap[f.client_id] ?? "—" })));
   };
 
   const loadJobs = async () => {
@@ -371,7 +385,8 @@ export function ForemanDashboard() {
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{jobName}</p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground truncate">
+                              {clientName !== "—" ? `${clientName} · ` : ""}
                               Week ending {p.week_ending_date ? fmtDate(p.week_ending_date) : "—"}
                               {p.completion_pct != null ? ` · ${p.completion_pct}% complete` : ""}
                             </p>
@@ -412,30 +427,67 @@ export function ForemanDashboard() {
             <Card>
               <CardContent className="pt-4 px-0">
                 <div className="divide-y">
-                  {documents.map((doc) => (
+                  {documents.map((doc) => {
+                    const isImage = /\.(jpg|jpeg|png|gif|heic|webp)$/i.test(doc.file_name ?? "") || doc.mime_type?.startsWith("image/");
+                    const isPdf = /\.pdf$/i.test(doc.file_name ?? "") || doc.mime_type === "application/pdf";
+                    const canPreview = isImage || isPdf;
+                    const typeLabel = doc.file_type === "subcontractor" ? "Subcontractor Agreement" : doc.file_type === "certificate" ? "Certificate" : "Site Photo";
+                    return (
                     <div key={doc.id} className="flex items-center justify-between gap-4 px-5 py-3 hover:bg-accent/40 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="shrink-0 h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center">
-                          <FileText className="h-4 w-4 text-blue-600" />
+                        <div className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${isImage ? "bg-blue-50" : "bg-red-50"}`}>
+                          {isImage
+                            ? <Image className="h-4 w-4 text-blue-600" />
+                            : <FileText className="h-4 w-4 text-red-500" />
+                          }
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{doc.file_name}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {doc.file_type === "subcontractor" ? "Subcontractor Agreement" : "Certificate of Completion"} · {doc.projectName} · {new Date(doc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className="text-xs text-muted-foreground">{typeLabel} · {doc.projectName} · {new Date(doc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                            {doc.uploader ? (
+                              <>
+                                <span className="text-xs text-muted-foreground">·</span>
+                                <span className="text-xs font-medium text-foreground">{doc.uploader.first_name} {doc.uploader.last_name}</span>
+                                {doc.uploader.role && (
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${{ admin: "bg-green-100 text-green-700", project_manager: "bg-blue-100 text-blue-700", sales_rep: "bg-purple-100 text-purple-700", foreman: "bg-orange-100 text-orange-700" }[doc.uploader.role as string] ?? "bg-gray-100 text-gray-600"}`}>
+                                    {({ admin: "Admin", project_manager: "PM", sales_rep: "Sales Rep", foreman: "Foreman" } as Record<string, string>)[doc.uploader.role] ?? doc.uploader.role}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-xs text-muted-foreground">·</span>
+                                <span className="text-xs font-medium text-foreground">System</span>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <a
-                        href={doc.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-primary hover:opacity-80 font-medium no-underline shrink-0"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Download
-                      </a>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {canPreview && (
+                          <button
+                            className="flex items-center gap-1 text-xs text-primary hover:opacity-80 font-medium"
+                            onClick={() => isImage ? setPreviewFile({ url: doc.file_url, name: doc.file_name }) : window.open(doc.file_url, "_blank")}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            View
+                          </button>
+                        )}
+                        <a
+                          href={doc.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:opacity-80 font-medium no-underline"
+                          download
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
+                        </a>
+                      </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
                 <div className="px-5 pt-3 border-t mt-1 text-xs text-muted-foreground">
                   {documents.length} document{documents.length !== 1 ? "s" : ""}
@@ -446,6 +498,27 @@ export function ForemanDashboard() {
         </div>
       )}
 
+
+      {/* Image preview modal */}
+      <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none [&>button]:hidden">
+          <div className="relative">
+            <button
+              className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
+              onClick={() => setPreviewFile(null)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {previewFile && (
+              <img
+                src={previewFile.url}
+                alt={previewFile.name}
+                className="w-full max-h-[80vh] object-contain"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

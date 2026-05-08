@@ -9,10 +9,9 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Mail, Send, Loader2, Eye, Paperclip } from "lucide-react";
+import { Mail, Send, Loader2, Eye, Paperclip, Bold, Italic, Link, Unlink, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -108,7 +107,43 @@ export function EmailTemplatesDialog({
       setSelectedTemplate(templateId);
       setSubject(template.subject);
       setBody(template.body);
+      if (bodyRef.current) bodyRef.current.innerHTML = template.body;
     }
+  };
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [linkInputOpen, setLinkInputOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const savedRangeRef = useRef<Range | null>(null);
+
+  useEffect(() => {
+    if (bodyRef.current) document.execCommand("defaultParagraphSeparator", false, "div");
+  }, [open]);
+
+  const execCmd = (cmd: string, value?: string) => {
+    document.execCommand(cmd, false, value);
+    bodyRef.current?.focus();
+    if (bodyRef.current) setBody(bodyRef.current.innerHTML);
+  };
+
+
+  const handleLinkButtonClick = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    setLinkUrl("");
+    setLinkInputOpen(true);
+  };
+
+  const handleConfirmLink = () => {
+    if (!linkUrl.trim()) { setLinkInputOpen(false); return; }
+    const sel = window.getSelection();
+    if (savedRangeRef.current) {
+      sel?.removeAllRanges();
+      sel?.addRange(savedRangeRef.current);
+    }
+    execCmd("createLink", linkUrl.trim());
+    setLinkInputOpen(false);
+    setLinkUrl("");
   };
 
   const [sending, setSending] = useState(false);
@@ -233,7 +268,10 @@ export function EmailTemplatesDialog({
           <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
             Message from Butler &amp; Associates
           </p>
-          <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
+          <div style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">
+            <style>ul{margin:8px 0;padding-left:20px;}li{margin:4px 0;}a{color:#BB984D;}</style>
+            ${body}
+          </div>
           <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
             Questions? Reply to this email or reach us at
             <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.
@@ -304,6 +342,7 @@ export function EmailTemplatesDialog({
     setSelectedTemplate("");
     setSubject("");
     setBody("");
+    if (bodyRef.current) bodyRef.current.innerHTML = "";
     setSendTouched(false);
     setFieldTouched({ subject: false, body: false });
     setAttachPdf(false);
@@ -385,16 +424,92 @@ export function EmailTemplatesDialog({
 
           {/* Body Field */}
           <div className="space-y-1.5">
-            <Label htmlFor="body">Message <span className="text-destructive">*</span></Label>
-            <Textarea
-              id="body"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              onBlur={() => setFieldTouched((p) => ({ ...p, body: true }))}
-              placeholder="Email message..."
-              rows={12}
-              className={`font-['Lato',sans-serif] text-sm${(sendTouched || fieldTouched.body) && bodyErr ? " border-red-500" : ""}`}
-            />
+            <Label>Message <span className="text-destructive">*</span></Label>
+            <div className={`rounded-md border bg-background ${(sendTouched || fieldTouched.body) && bodyErr ? "border-red-500" : "border-input"}`}>
+              {/* Toolbar */}
+              <div className="border-b">
+                <div className="flex items-center gap-0.5 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); execCmd("bold"); }}
+                    className="p-1.5 rounded hover:bg-muted transition-colors"
+                    title="Bold"
+                  >
+                    <Bold className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); execCmd("italic"); }}
+                    className="p-1.5 rounded hover:bg-muted transition-colors"
+                    title="Italic"
+                  >
+                    <Italic className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); handleLinkButtonClick(); }}
+                    className={`p-1.5 rounded transition-colors ${linkInputOpen ? "bg-muted text-primary" : "hover:bg-muted"}`}
+                    title="Insert link"
+                  >
+                    <Link className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); execCmd("unlink"); }}
+                    className="p-1.5 rounded hover:bg-muted transition-colors"
+                    title="Remove link"
+                  >
+                    <Unlink className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {linkInputOpen && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-t bg-muted/30">
+                    <Link className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      autoFocus
+                      type="text"
+                      value={linkUrl}
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleConfirmLink(); } if (e.key === "Escape") { setLinkInputOpen(false); } }}
+                      placeholder="https://example.com"
+                      className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleConfirmLink}
+                      className="p-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                      title="Apply link"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLinkInputOpen(false)}
+                      className="p-1 rounded hover:bg-muted transition-colors"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Editable area */}
+              <div
+                ref={bodyRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={() => { if (bodyRef.current) setBody(bodyRef.current.innerHTML); }}
+                onBlur={() => setFieldTouched((p) => ({ ...p, body: true }))}
+                className="min-h-[280px] px-3 py-2 text-sm font-['Lato',sans-serif] leading-relaxed focus:outline-none [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-0.5"
+                style={{ whiteSpace: "pre-wrap" }}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  const anchor = target.closest("a");
+                  if (anchor?.href) { e.preventDefault(); window.open(anchor.href, "_blank", "noopener,noreferrer"); }
+                }}
+              />
+            </div>
             {(sendTouched || fieldTouched.body) && bodyErr && <p className="text-xs text-red-500">{bodyErr}</p>}
           </div>
 
@@ -454,9 +569,11 @@ export function EmailTemplatesDialog({
             <Eye className="h-4 w-4 mr-2" />
             Preview
           </Button>
-          <Button onClick={handleSend} disabled={sending || !client.email}>
-            {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-            {sending ? "Sending..." : "Send Email"}
+          <Button onClick={handleSend} disabled={sending || !client.email} className="min-w-[120px]">
+            <span className="flex items-center gap-2">
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {sending ? "Sending..." : "Send Email"}
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

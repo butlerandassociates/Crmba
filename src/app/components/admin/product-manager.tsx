@@ -458,7 +458,7 @@ export function ProductManager() {
                       setNewProduct({ ...newProduct, additionalCosts: e.target.value })
                     }
                   />
-                  <p className="text-xs text-muted-foreground">Any other fees or costs</p>
+                  <p className="text-xs text-muted-foreground">For reference only — not included in proposal pricing</p>
                 </div>
               </div>
 
@@ -494,7 +494,7 @@ export function ProductManager() {
 
               {newProduct.materialCost && newProduct.markupPercent && (
                 <div className="p-4 bg-muted rounded-lg space-y-3">
-                  <div className="grid grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <div className="text-xs text-muted-foreground">Material Cost</div>
                       <div className="font-semibold">
@@ -507,39 +507,22 @@ export function ProductManager() {
                         {formatCurrency(parseFloat(newProduct.laborCost) || 0)}
                       </div>
                     </div>
-                    {newProduct.additionalCosts && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Additional</div>
-                        <div className="font-semibold">
-                          {formatCurrency(parseFloat(newProduct.additionalCosts) || 0)}
-                        </div>
-                      </div>
-                    )}
-                    {newProduct.salesTaxApplicable && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Sales Tax (9%)</div>
-                        <div className="font-semibold">
-                          {formatCurrency((parseFloat(newProduct.materialCost) || 0) * 0.09)}
-                        </div>
-                      </div>
-                    )}
                   </div>
                   <div className="border-t pt-3 grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <div className="text-xs text-muted-foreground">Price ({newProduct.markupPercent}% markup)</div>
+                      <div className="text-xs text-muted-foreground">Client Price ({newProduct.markupPercent}% markup)</div>
                       <div className="text-lg font-bold text-green-600">
-                        {formatCurrency(calculatePrice())}
+                        {formatCurrency(((parseFloat(newProduct.materialCost) || 0) + (parseFloat(newProduct.laborCost) || 0)) * (1 + (parseFloat(newProduct.markupPercent) || 0) / 100))}
                       </div>
                       <div className="text-xs text-muted-foreground">per {newProduct.unit || 'unit'}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Profit Per Unit</div>
                       <div className="text-lg font-bold text-green-600">
-                        {formatCurrency(calculatePrice() - (
-                          (parseFloat(newProduct.materialCost) || 0) * (newProduct.salesTaxApplicable ? 1.09 : 1) +
-                          (parseFloat(newProduct.laborCost) || 0) +
-                          (parseFloat(newProduct.additionalCosts) || 0)
-                        ))}
+                        {formatCurrency(
+                          ((parseFloat(newProduct.materialCost) || 0) + (parseFloat(newProduct.laborCost) || 0)) *
+                          (parseFloat(newProduct.markupPercent) || 0) / 100
+                        )}
                       </div>
                     </div>
                   </div>
@@ -917,13 +900,10 @@ export function ProductManager() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Client Price:</span>
                     <span className="font-semibold text-green-600">
-                      {formatCurrency(calcPrice(
-                        parseFloat(editingProduct.materialCost) || 0,
-                        parseFloat(editingProduct.laborCost) || 0,
-                        parseFloat(editingProduct.markupPercent) || 0,
-                        editingProduct.salesTaxApplicable,
-                        parseFloat(editingProduct.additionalCosts) || 0
-                      ))}
+                      {formatCurrency(
+                        ((parseFloat(editingProduct.materialCost) || 0) + (parseFloat(editingProduct.laborCost) || 0)) *
+                        (1 + (parseFloat(editingProduct.markupPercent) || 0) / 100)
+                      )}
                     </span>
                   </div>
                 </div>

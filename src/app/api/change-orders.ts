@@ -43,9 +43,15 @@ export const changeOrdersAPI = {
 
   /** Update CO status */
   updateStatus: async (id: string, status: string) => {
+    const extra: Record<string, string | null> = {};
+    if (status === "approved") {
+      const { data: { user } } = await supabase.auth.getUser();
+      extra.approved_by = user?.id ?? null;
+      extra.approved_at = new Date().toISOString();
+    }
     const { data, error } = await supabase
       .from("change_orders")
-      .update({ status, updated_at: new Date().toISOString() })
+      .update({ status, updated_at: new Date().toISOString(), ...extra })
       .eq("id", id)
       .select()
       .single();
@@ -91,7 +97,8 @@ export const changeOrdersAPI = {
         .insert(
           coItems.map((item: any, i: number) => ({
             estimate_id: estimate.id,
-            product_name: item.description,
+            name: item.description || co.title,
+            product_name: item.description || co.title,
             description: `Change Order: ${co.title}`,
             category: item.category,
             quantity: item.quantity,
@@ -187,7 +194,7 @@ export const changeOrdersAPI = {
   /** Update a draft CO — replaces items */
   update: async (
     id: string,
-    co: { title: string; reason?: string; timeline_impact?: string },
+    co: { title: string; reason?: string; timeline_impact?: string; approval_verified?: boolean; approval_file_url?: string },
     items: { category: string; description: string; quantity: number; unit_price: number; total: number }[]
   ) => {
     const costImpact = items.reduce((s, i) => s + i.total, 0);

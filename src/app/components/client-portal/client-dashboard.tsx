@@ -36,7 +36,7 @@ export function ClientDashboard() {
 
   const formatDate = (dateStr: string | null) =>
     dateStr
-      ? new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      ? new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
       : "TBD";
 
   const activeProjects = projects.filter((p) => ["active", "selling", "sold"].includes(p.status));

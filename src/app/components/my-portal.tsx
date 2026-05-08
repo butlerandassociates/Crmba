@@ -29,7 +29,7 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+  d ? new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 
 export function MyPortal() {
   const { user } = useAuth();

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase, type Profile } from "@/lib/supabase";
+import { toast } from "sonner";
 
 interface AuthUser {
   id: string;
@@ -64,6 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select("*")
         .eq("id", id)
         .single();
+
+      if (profile?.is_active === false) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setPermissions(new Set());
+        toast.error("Your account has been deactivated. Please contact your administrator.");
+        return;
+      }
 
       setUser({ id, email, profile: profile ?? null });
 

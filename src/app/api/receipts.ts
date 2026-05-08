@@ -6,11 +6,48 @@
 import { supabase } from "@/lib/supabase";
 
 export const receiptsAPI = {
+  /** All receipts across all projects — for the Cost Attributions overview page */
+  getAll: async () => {
+    const [{ data: receipts, error: receiptsErr }, { data: labor, error: laborErr }] = await Promise.all([
+      supabase
+        .from("project_receipts")
+        .select("*, project:projects(id, name, client_id, total_value, profit_margin, client:clients(id, first_name, last_name)), uploader:profiles!project_receipts_created_by_fkey(first_name, last_name)")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("fio_crew_payments")
+        .select("amount_paid, fio:field_installation_orders(project_id)"),
+    ]);
+    if (receiptsErr) throw new Error(receiptsErr.message);
+    if (laborErr) throw new Error(laborErr.message);
+
+    const laborByProject: Record<string, number> = {};
+    for (const p of labor ?? []) {
+      const pid = (p.fio as any)?.project_id;
+      if (pid) laborByProject[pid] = (laborByProject[pid] || 0) + (Number(p.amount_paid) || 0);
+    }
+
+    const materialByProject: Record<string, number> = {};
+    for (const r of receipts ?? []) {
+      const pid = r.project?.id;
+      if (pid) materialByProject[pid] = (materialByProject[pid] || 0) + (Number(r.amount) || 0);
+    }
+
+    return (receipts ?? []).map((r) => {
+      const pid          = r.project?.id;
+      const rev          = Number(r.project?.total_value) || 0;
+      const mat          = pid ? (materialByProject[pid] || 0) : 0;
+      const lab          = pid ? (laborByProject[pid] || 0) : 0;
+      const gp_pct       = rev > 0 ? ((rev - mat - lab) / rev) * 100 : null;
+      const projected_gp = r.project?.profit_margin ?? null;
+      return { ...r, gp_pct, projected_gp };
+    });
+  },
+
   /** All receipts for a project */
   getByProject: async (project_id: string) => {
     const { data, error } = await supabase
       .from("project_receipts")
-      .select("*")
+      .select("*, uploader:profiles!project_receipts_created_by_fkey(first_name, last_name)")
       .eq("project_id", project_id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);

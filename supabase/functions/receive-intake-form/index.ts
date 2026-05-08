@@ -44,7 +44,7 @@ serve(async (req) => {
     // Verify the client exists
     const { data: client, error: clientError } = await supabase
       .from("clients")
-      .select("id")
+      .select("id, first_name, last_name")
       .eq("id", client_id)
       .single();
 
@@ -84,6 +84,15 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+    await supabase.from("notifications").insert({
+      type: "intake_form_submitted",
+      title: "Intake Form Submitted",
+      message: `${clientName} completed their intake form`,
+      link: `/clients/${client_id}`,
+      metadata: { client_id },
+    });
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

@@ -30,6 +30,7 @@ import { GoogleCalendarCallback } from "./components/google-calendar-callback";
 import { Payroll } from "./components/payroll";
 import { PayrollPMDetail } from "./components/payroll-pm-detail";
 import { PayrollCrewDetail } from "./components/payroll-crew-detail";
+import { CostAttributionsAll } from "./components/cost-attributions-all";
 import { MyPortal } from "./components/my-portal";
 import { ForemanLayout } from "./components/foreman/foreman-layout";
 import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
@@ -75,6 +76,7 @@ export const router = createBrowserRouter([
       { path: "admin/data-migration",                 Component: G("can_view_admin_portal", DataMigration) },
       { path: "admin/list-management",                Component: G("can_view_admin_portal", ListManagement) },
       { path: "pipeline",                             Component: G("can_view_pipeline", PipelineForecast) },
+      { path: "cost-attributions",                    Component: G("can_view_cost_attributions", CostAttributionsAll) },
       { path: "payroll",                              Component: G("can_view_payroll", Payroll) },
       { path: "payroll/pm/:id",                       Component: G("can_view_payroll", PayrollPMDetail) },
       { path: "payroll/crew/:id",                     Component: G("can_view_payroll", PayrollCrewDetail) },

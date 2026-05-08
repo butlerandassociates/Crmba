@@ -2,7 +2,7 @@ import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { PaymentStatementExport } from "./payment-receipt-export";
@@ -84,7 +84,7 @@ import {
 } from "./ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI, usersAPI } from "../utils/api";
+import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI, usersAPI, commissionPaymentsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
@@ -120,6 +120,20 @@ import { toast } from "sonner";
 import { PageLoader, SkeletonList, SkeletonInfoCard } from "./ui/page-loader";
 import { Skeleton } from "./ui/skeleton";
 
+function formatApptTime(time: string): string {
+  if (!time) return time;
+  const [h, m] = time.split(":");
+  const hour = parseInt(h, 10);
+  const period = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:${m} ${period}`;
+}
+
+function parseApptDate(dateStr: string): Date {
+  // Append local midnight to prevent UTC-offset day shift
+  return new Date(dateStr.includes("T") ? dateStr : dateStr + "T00:00:00");
+}
+
 export function ClientDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -132,6 +146,7 @@ export function ClientDetail() {
   const [clientProposals, setClientProposals] = useState<any[]>([]);
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
+  const justMovedToSoldRef = useRef(false);
   const [soldModalOpen, setSoldModalOpen] = useState(false);
   const [activeModalOpen, setActiveModalOpen] = useState(false);
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
@@ -363,6 +378,7 @@ export function ClientDetail() {
   useEffect(() => {
     if (!client || !id) return;
     if (client.status !== "sold") return;
+    if (justMovedToSoldRef.current) return;
     const project = clientProjects[0];
     if (!project?.startDate) return;
     const start = new Date(project.startDate);
@@ -370,8 +386,13 @@ export function ClientDetail() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (today >= start) {
-      clientsAPI.update(id, { status: "active" }).then(() => {
+      const now = new Date().toISOString();
+      Promise.all([
+        clientsAPI.update(id, { status: "active" }),
+        project.id ? projectsAPI.update(project.id, { status: "active", active_at: now }) : Promise.resolve(),
+      ]).then(() => {
         setClient((prev: any) => ({ ...prev, status: "active" }));
+        setClientProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: "active" } : p));
         activityLogAPI.create({ client_id: id, action_type: "status_changed", description: "Automatically moved to Active — start date reached" }).then(loadActivityLog).catch(() => {});
       }).catch(() => {});
     }
@@ -638,6 +659,8 @@ export function ClientDetail() {
     }
   };
 
+  useRealtimeRefetch(loadActivityLog, ["activity_log"], `activity-${id}`);
+
   const loadPhotos = async () => {
     if (!id) return;
     try {
@@ -768,9 +791,16 @@ export function ClientDetail() {
       // Keep project status in sync with client status
       const activeProject = clientProjects[0];
       if (activeProject?.id) {
-        await projectsAPI.update(activeProject.id, { status: newStatus }).catch(() => {});
+        const projectUpdate: Record<string, any> = { status: newStatus };
+        if (newStatus === "scheduled") {
+          const { data: { user } } = await supabase.auth.getUser();
+          projectUpdate.scheduled_at = new Date().toISOString();
+          projectUpdate.scheduled_by = user?.id ?? null;
+        }
+        await projectsAPI.update(activeProject.id, projectUpdate).catch(() => {});
       }
       setClient({ ...client, status: newStatus, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
+      projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))).catch(console.error);
       activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Status changed to "${newStatus}"` }).then(loadActivityLog).catch(() => {});
       toast.success(`Moved to ${newStatus}`);
     } catch (err: any) {
@@ -859,11 +889,7 @@ export function ClientDetail() {
     try {
       const receipts = await receiptsAPI.getByProject(projectId);
       // Use accepted proposal, fall back to most recent non-declined (move-to-sold may not set "accepted")
-      const acceptedProposal =
-        clientProposals.find((p) => p.status === "accepted") ??
-        [...clientProposals]
-          .filter((p) => p.status !== "declined")
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
       const lineItems = acceptedProposal?.line_items ?? [];
       const estimateTotalCost = acceptedProposal?.total_cost ?? 0;
 
@@ -919,6 +945,35 @@ export function ClientDetail() {
     }
   };
 
+  useRealtimeRefetch(
+    () => {
+      const projectId = clientProjects[0]?.id;
+      if (projectId) loadGpHealth(projectId);
+    },
+    ["field_installation_orders", "fio_crew_payments", "cost_attributions", "project_payments", "receipts"],
+    `financials-${id}`
+  );
+
+  useRealtimeRefetch(
+    () => {
+      if (id) {
+        Promise.all([
+          clientsAPI.getById(id),
+          projectsAPI.getAll(),
+          projectPaymentsAPI.getByClient(id),
+        ])
+          .then(([clientData, allProjects, payments]) => {
+            setClient(clientData);
+            setClientProjects(allProjects.filter((p: any) => p.client_id === id));
+            setClientPayments(payments);
+          })
+          .catch(console.error);
+      }
+    },
+    ["clients", "projects", "project_payments"],
+    `client-core-${id}`
+  );
+
   const toggleGPHealth = (projectId: string) => {
     const isOpen = gpHealthOpen[projectId];
     setGpHealthOpen((prev) => ({ ...prev, [projectId]: !isOpen }));
@@ -929,16 +984,19 @@ export function ClientDetail() {
     if (!sellingProbability || !sellingCloseDate) return;
     setSavingSelling(true);
     try {
+      const alreadySelling = client.status === "selling";
       const matchingStage = pipelineStages.find((s) => s.name.toLowerCase() === "selling");
+      const { data: { user } } = await supabase.auth.getUser();
       await clientsAPI.update(client.id, {
         status: "selling",
         pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
         closing_probability: parseFloat(sellingProbability),
         expected_close_date: sellingCloseDate,
+        ...(!alreadySelling ? { selling_at: new Date().toISOString(), selling_by: user?.id ?? null } : {}),
       });
-      setClient({ ...client, status: "selling", closing_probability: parseFloat(sellingProbability), expected_close_date: sellingCloseDate });
-      const alreadySelling = client.status === "selling";
-      activityLogAPI.create({ client_id: client.id, action_type: alreadySelling ? "forecast_updated" : "status_changed", description: alreadySelling ? `Forecast updated — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` : `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).catch(() => {});
+      setClient({ ...client, status: "selling", closing_probability: parseFloat(sellingProbability), expected_close_date: sellingCloseDate, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
+      projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))).catch(console.error);
+      activityLogAPI.create({ client_id: client.id, action_type: alreadySelling ? "forecast_updated" : "status_changed", description: alreadySelling ? `Forecast updated — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` : `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).then(loadActivityLog).catch(() => {});
       toast.success("Moved to Selling");
       setSellingModalOpen(false);
     } catch (err: any) {
@@ -1099,7 +1157,7 @@ export function ClientDetail() {
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "—";
-    const d = new Date(dateStr);
+    const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`);
     if (isNaN(d.getTime())) return "—";
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
@@ -1121,9 +1179,11 @@ export function ClientDetail() {
     }
   };
 
+  const isReadOnlyCompleted = clientProjects[0]?.status === "completed" && (role === "project_manager" || role === "sales_rep");
+
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col">
+      <div className="sticky top-0 z-20 bg-background border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link to={`/clients?stage=${client?.status ?? ""}`}>
             <Button variant="outline" size="sm">
@@ -1169,7 +1229,7 @@ export function ClientDetail() {
                 Send DocuSign
               </DropdownMenuItem>
             )}
-            {["prospect", "selling"].includes(client.status) && (
+            {["prospect", "selling"].includes(client.status) && can("can_update_forecast") && (
               <DropdownMenuItem
                 onClick={() => {
                   setSellingProbability(client.closing_probability?.toString() ?? "");
@@ -1189,7 +1249,7 @@ export function ClientDetail() {
                 </DropdownMenuItem>
               </Link>
             )}
-            {["prospect", "scheduled", "selling"].includes(client.status) && can("can_manage_users") && (
+            {["prospect", "scheduled", "selling"].includes(client.status) && can("can_manage_users") && !client.sales_rep_id && (
               <DropdownMenuItem onClick={() => {
                 setAssignRepId(client.sales_rep_id ?? clientProjects[0]?.sales_rep_id ?? "");
                 usersAPI.getByRole("sales_rep").then(setAssignRepList).catch(() => {});
@@ -1254,6 +1314,7 @@ export function ClientDetail() {
         </DropdownMenu>
       </div>
 
+      <div className="p-4 space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="min-h-[300px] flex flex-col">
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -1343,6 +1404,24 @@ export function ClientDetail() {
                 </SelectContent>
               </Select>
             </div>
+            {client.sales_rep_id && (
+              <div>
+                <div className="text-sm font-medium mb-1">Sales Rep</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-muted-foreground">
+                    {client.sales_rep
+                      ? `${client.sales_rep.first_name ?? ""} ${client.sales_rep.last_name ?? ""}`.trim()
+                      : "Assigned"}
+                  </span>
+                  {client.sales_rep?.is_active === false && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
+                  {client.sales_rep?.commission_rate != null && (
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${client.sales_rep.commission_rate === 0 ? "border-red-300 bg-red-50 text-red-700" : "border-green-300 bg-green-50 text-green-700"}`}>
+                      {client.sales_rep.commission_rate}% commission
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-sm font-medium">Appointment</div>
@@ -1371,10 +1450,10 @@ export function ClientDetail() {
               ) : (() => {
                 const latest = clientAppointments[0];
                 const dateLabel = latest.appointment_date
-                  ? new Date(latest.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+                  ? parseApptDate(latest.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
                   : "—";
-                const timeRange = [latest.appointment_time, latest.end_time].filter(Boolean).join(" – ");
-                const isPast = latest.appointment_date ? new Date(latest.appointment_date) < new Date() : false;
+                const timeRange = [latest.appointment_time, latest.end_time].filter(Boolean).map(formatApptTime).join(" – ");
+                const isPast = latest.appointment_date ? parseApptDate(latest.appointment_date) < new Date() : false;
                 return (
                   <div className="space-y-2">
                     <div>
@@ -1766,9 +1845,11 @@ export function ClientDetail() {
             <CardTitle className="text-base">
               {["active", "completed"].includes(client.status) ? "Project Financials" : "Revenue & Forecast"}
             </CardTitle>
-            <Link to={`/clients/${client.id}/create-proposal`}>
-              <Button size="sm" variant="outline" className="h-8 text-xs"><FilePlus className="h-3.5 w-3.5 mr-1.5" />New Proposal</Button>
-            </Link>
+            {!clientProposals.some((p) => p.status === "accepted") && (
+              <Link to={`/clients/${client.id}/create-proposal`}>
+                <Button size="sm" variant="outline" className="h-8 text-xs"><FilePlus className="h-3.5 w-3.5 mr-1.5" />New Proposal</Button>
+              </Link>
+            )}
           </CardHeader>
           <CardContent className="pt-0">
             {["active", "completed"].includes(client.status) ? (() => {
@@ -1852,15 +1933,20 @@ export function ClientDetail() {
                         <div className="text-sm font-semibold text-purple-600">{formatCurrency(salesRepCommission)}</div>
                       </div>
                     )}
+                    {grossProfit > 0 && (commission > 0 || salesRepCommission > 0) && (
+                      <div className="pt-1 border-t">
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Net Profit</div>
+                        <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - salesRepCommission))}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })() : (
               /* Pre-sale — radial gauge + forecast fields */
               (() => {
-                const latestProposal = [...clientProposals]
-                  .filter((p) => p.status !== "declined")
-                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+                const latestProposal = clientProposals.find((p) => p.status === "accepted")
+                  ?? [...clientProposals].filter((p) => p.status !== "declined" && p.status !== "voided").sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
                 const projectedValue = latestProposal?.total ?? client.projected_value;
                 const isSelling = client.status === "selling";
                 const hasData = projectedValue || (isSelling && (client.closing_probability || client.expected_close_date));
@@ -1901,7 +1987,7 @@ export function ClientDetail() {
                         {projectedValue != null && (
                           <div>
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
-                              Projected Value{latestProposal ? " · from proposal" : ""}
+                              Projected Value{latestProposal?.status === "accepted" ? " · accepted proposal" : latestProposal ? " · from proposal" : ""}
                             </div>
                             <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(projectedValue)}</div>
                           </div>
@@ -1938,10 +2024,12 @@ export function ClientDetail() {
                         ? <FileCheck2 className="h-4 w-4 shrink-0 text-green-500" />
                         : proposal.status === "declined"
                         ? <FileX2 className="h-4 w-4 shrink-0 text-red-400" />
+                        : proposal.status === "voided"
+                        ? <FileX2 className="h-4 w-4 shrink-0 text-gray-400" />
                         : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                       }
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium truncate block">
+                        <span className={`text-sm font-medium truncate block ${proposal.status === "voided" ? "text-muted-foreground" : ""}`}>
                           {proposal.title ?? `Estimate #${proposal.estimate_number}`}
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -1949,6 +2037,7 @@ export function ClientDetail() {
                             proposal.status === "accepted" ? "bg-green-50 text-green-700 border-green-200"
                             : proposal.status === "declined" ? "bg-red-50 text-red-700 border-red-200"
                             : proposal.status === "sent"    ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : proposal.status === "voided"  ? "bg-gray-100 text-gray-400 border-gray-200"
                             : "bg-gray-50 text-gray-500 border-gray-200"
                           }`}>{proposal.status}</span>
                           <span className="text-xs text-muted-foreground">{formatDate(proposal.created_at)}</span>
@@ -2020,6 +2109,12 @@ export function ClientDetail() {
                   <p className="font-semibold text-base text-purple-600">{formatCurrency(project.salesRepCommission)}</p>
                 </div>
               )}
+              {((project.commission ?? 0) > 0 || (project.salesRepCommission ?? 0) > 0) && (project.grossProfit ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Net Profit</p>
+                  <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - (project.commission ?? 0) - (project.salesRepCommission ?? 0)))}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground">Start Date</p>
                 <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
@@ -2036,10 +2131,12 @@ export function ClientDetail() {
                 <p className="text-xs text-muted-foreground">Foreman</p>
                 <p className="font-medium">{project.foremanName || "—"}</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Sales Rep</p>
-                <p className="font-medium">{project.salesRepName || "—"}</p>
-              </div>
+              {project.salesRepName && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Sales Rep</p>
+                  <p className="font-medium">{project.salesRepName}</p>
+                </div>
+              )}
             </div>
             {/* ── GP Health Panel ── */}
             {gpHealthOpen[project.id] && (() => {
@@ -2188,13 +2285,13 @@ export function ClientDetail() {
         const tileClass = "flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left";
         return (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <button onClick={() => setPurchaseOrdersOpen(true)} className={tileClass}>
+            <button onClick={() => setPurchaseOrdersOpen(true)} className={tileClass} disabled={isReadOnlyCompleted}>
               <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
-              <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">Order materials</p></div>
+              <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">{isReadOnlyCompleted ? "View only" : "Order materials"}</p></div>
             </button>
-            <button onClick={() => navigate(`/clients/${id}/change-order`)} className={tileClass}>
+            <button onClick={() => navigate(`/clients/${id}/change-order`)} className={tileClass} disabled={isReadOnlyCompleted}>
               <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
-              <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">Scope changes</p></div>
+              <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">{isReadOnlyCompleted ? "View only" : "Scope changes"}</p></div>
             </button>
             <button onClick={() => setFioOpen(true)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0"><FileText className="h-5 w-5 text-green-600" /></div>
@@ -2228,6 +2325,7 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent className="space-y-3">
             {/* Compact upload row */}
+            {!isReadOnlyCompleted && (
             <div className="flex gap-2 items-center">
               <div
                 className={`flex-1 border border-dashed rounded-lg px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors ${isDraggingFile ? "border-primary bg-primary/5" : "hover:border-primary"} ${uploadingPhoto ? "opacity-60 pointer-events-none" : ""}`}
@@ -2258,8 +2356,10 @@ export function ClientDetail() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             {/* Inline note input */}
+            {!isReadOnlyCompleted && (
             <div className="space-y-1">
               <div className="flex gap-2">
                 <Input
@@ -2275,6 +2375,7 @@ export function ClientDetail() {
               </div>
               {notesErr && <p className="text-xs text-red-500">{notesErr}</p>}
             </div>
+            )}
 
             {/* Notes + Files feed */}
             {(() => {
@@ -2312,7 +2413,26 @@ export function ClientDetail() {
                           <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm truncate">{item.content.split("\n")[0]}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">Team · {ts}</p>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <p className="text-xs text-muted-foreground">{ts}</p>
+                              {item.author ? (
+                                <>
+                                  <span className="text-xs text-muted-foreground">·</span>
+                                  <span className="text-xs font-medium text-foreground">{item.author.first_name} {item.author.last_name}</span>
+                                  {item.author.role && (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${{ admin: "bg-green-100 text-green-700", project_manager: "bg-blue-100 text-blue-700", sales_rep: "bg-purple-100 text-purple-700", foreman: "bg-orange-100 text-orange-700" }[item.author.role as string] ?? "bg-gray-100 text-gray-600"}`}>
+                                      {({ admin: "Admin", project_manager: "PM", sales_rep: "Sales Rep", foreman: "Foreman" } as Record<string, string>)[item.author.role] ?? item.author.role}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-xs text-muted-foreground">·</span>
+                                  <span className="text-xs font-medium text-foreground">System</span>
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                           {can("can_delete_notes") && (
                             <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
@@ -2331,9 +2451,26 @@ export function ClientDetail() {
                           <button className="text-sm font-medium hover:opacity-75 truncate block w-full text-left" onClick={() => { if (isImage) setPreviewFile({ url: item.file_url, name: item.file_name }); else window.open(item.file_url, "_blank"); }}>
                             {item.file_name}
                           </button>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             {item.file_type && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded capitalize">{item.file_type}</span>}
                             <p className="text-xs text-muted-foreground">{ts}</p>
+                            {item.uploader ? (
+                              <>
+                                <span className="text-xs text-muted-foreground">·</span>
+                                <span className="text-xs font-medium text-foreground">{item.uploader.first_name} {item.uploader.last_name}</span>
+                                {item.uploader.role && (
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${{ admin: "bg-green-100 text-green-700", project_manager: "bg-blue-100 text-blue-700", sales_rep: "bg-purple-100 text-purple-700", foreman: "bg-orange-100 text-orange-700" }[item.uploader.role as string] ?? "bg-gray-100 text-gray-600"}`}>
+                                    {({ admin: "Admin", project_manager: "PM", sales_rep: "Sales Rep", foreman: "Foreman" } as Record<string, string>)[item.uploader.role] ?? item.uploader.role}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-xs text-muted-foreground">·</span>
+                                <span className="text-xs font-medium text-foreground">System</span>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
+                              </>
+                            )}
                           </div>
                         </div>
                         {can("can_delete_files") && (
@@ -2394,6 +2531,7 @@ export function ClientDetail() {
                     : type === "co_merged"               ? <ClipboardEdit className="h-3.5 w-3.5 text-green-500" />
                     : type === "receipt_added"           ? <Receipt className="h-3.5 w-3.5 text-emerald-500" />
                     : type === "receipt_deleted"         ? <Receipt className="h-3.5 w-3.5 text-red-400" />
+                    : type === "scope_acknowledged"      ? <HardHat className="h-3.5 w-3.5 text-green-600" />
                     : type === "fio_created"             ? <HardHat className="h-3.5 w-3.5 text-stone-500" />
                     : type === "project_created"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
                     : type === "proposal_created"        ? <FileText className="h-3.5 w-3.5 text-blue-400" />
@@ -2414,9 +2552,57 @@ export function ClientDetail() {
                       <div className="shrink-0 mt-0.5">{icon}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm">{entry.description}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {(() => {
+                            const roleStyles: Record<string, string> = {
+                              admin:           "bg-green-100 text-green-700",
+                              project_manager: "bg-blue-100 text-blue-700",
+                              sales_rep:       "bg-purple-100 text-purple-700",
+                              foreman:         "bg-orange-100 text-orange-700",
+                            };
+                            const roleLabels: Record<string, string> = {
+                              admin:           "Admin",
+                              project_manager: "PM",
+                              sales_rep:       "Sales Rep",
+                              foreman:         "Foreman",
+                            };
+                            if (entry.performer) {
+                              const name = `${entry.performer.first_name ?? ""} ${entry.performer.last_name ?? ""}`.trim();
+                              const role = entry.performer.role ?? "";
+                              return (
+                                <>
+                                  <span className="text-xs font-medium text-foreground">{name}</span>
+                                  {role && (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${roleStyles[role] ?? "bg-gray-100 text-gray-600"}`}>
+                                      {roleLabels[role] ?? role}
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-muted-foreground">·</span>
+                                </>
+                              );
+                            }
+                            if (["proposal_accepted", "proposal_rejected"].includes(entry.action_type)) {
+                              const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || "Client";
+                              return (
+                                <>
+                                  <span className="text-xs font-medium text-foreground">{clientName}</span>
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700">Client</span>
+                                  <span className="text-xs text-muted-foreground">·</span>
+                                </>
+                              );
+                            }
+                            return (
+                              <>
+                                <span className="text-xs font-medium text-foreground">System</span>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
+                                <span className="text-xs text-muted-foreground">·</span>
+                              </>
+                            );
+                          })()}
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -2523,12 +2709,16 @@ export function ClientDetail() {
                                 }}
                               />
                               <div className="flex-1 min-w-0">
-                                <p className={`font-semibold text-sm ${payment.is_paid ? "line-through text-muted-foreground" : ""}`}>{payment.label}</p>
+                                <p className={`font-semibold text-sm flex items-center gap-1.5 ${payment.is_paid ? "line-through text-muted-foreground" : ""}`}>
+                                  {payment.label}
+                                  {payment.is_deposit && <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full no-underline" style={{ textDecoration: "none" }}>Deposit</span>}
+                                </p>
                                 <p className="text-xs text-muted-foreground">{pctOfTotal}% · {formatCurrency(payment.amount)}{payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}</p>
                                 {payment.is_paid && payment.payment_method && (
                                   <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
                                 )}
                               </div>
+                              {role === "admin" && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <button onClick={() => { setEditPayment({ ...payment, amount: String(payment.amount), due_date: payment.due_date ?? "" }); setEditPaymentOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground">
                                   <Pencil className="h-3.5 w-3.5" />
@@ -2537,6 +2727,7 @@ export function ClientDetail() {
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </div>
+                              )}
                             </div>
                           );
                         })}
@@ -2563,10 +2754,12 @@ export function ClientDetail() {
                         </span>
                       </div>
                     </div>
+                    {role === "admin" && (
                     <Button size="sm" onClick={() => { setNewPayment(EMPTY_PAYMENT); setAddPaymentOpen(true); }}>
                       <Plus className="h-4 w-4 mr-1.5" />
                       Add Milestone
                     </Button>
+                    )}
                   </div>
                 </>
               );
@@ -2740,8 +2933,42 @@ export function ClientDetail() {
                 if (!markPaidOpen) return;
                 setSavingPayment(true);
                 try {
-                  const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: paidForm.paid_date || new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null });
+                  const { data: { user } } = await supabase.auth.getUser();
+                  const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: paidForm.paid_date || new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null, paid_by: user?.id ?? null });
                   setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
+
+                  // Auto-create pending commission entries for PM and Sales Rep
+                  const project = clientProjects[0];
+                  if (project?.id) {
+                    const { data: proj } = await supabase
+                      .from("projects")
+                      .select("id, project_manager_id, sales_rep_id, pm:profiles!projects_project_manager_id_fkey(commission_rate), sales_rep:profiles!projects_sales_rep_id_fkey(commission_rate)")
+                      .eq("id", project.id)
+                      .maybeSingle();
+                    const milestoneAmt = parseFloat(markPaidOpen.amount) || 0;
+                    if (proj?.project_manager_id && (proj.pm as any)?.commission_rate > 0) {
+                      const pmAmt = milestoneAmt * ((proj.pm as any).commission_rate / 100);
+                      commissionPaymentsAPI.createFromProgressPayment(proj.id, markPaidOpen.id, proj.project_manager_id, pmAmt).catch(() => {});
+                    }
+                    if (proj?.sales_rep_id && (proj.sales_rep as any)?.commission_rate > 0) {
+                      const repAmt = milestoneAmt * ((proj.sales_rep as any).commission_rate / 100);
+                      commissionPaymentsAPI.createFromProgressPayment(proj.id, markPaidOpen.id, proj.sales_rep_id, repAmt).catch(() => {});
+                    }
+                    // Notification H — tell PM/Sales Rep they earned commission (skip on deposit milestone)
+                    if (!markPaidOpen.is_deposit) {
+                      const fmtComm = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+                      const projName = (project as any)?.name ?? "Project";
+                      if (proj?.project_manager_id && (proj.pm as any)?.commission_rate > 0) {
+                        const pmCommAmt = milestoneAmt * ((proj.pm as any).commission_rate / 100);
+                        notificationsAPI.create({ type: "commission_earned", title: "Commission Earned", message: `You earned ${fmtComm(pmCommAmt)} commission for ${projName} — ${markPaidOpen.label}`, recipient_id: proj.project_manager_id }).catch(() => {});
+                      }
+                      if (proj?.sales_rep_id && (proj.sales_rep as any)?.commission_rate > 0) {
+                        const repCommAmt = milestoneAmt * ((proj.sales_rep as any).commission_rate / 100);
+                        notificationsAPI.create({ type: "commission_earned", title: "Commission Earned", message: `You earned ${fmtComm(repCommAmt)} commission for ${projName} — ${markPaidOpen.label}`, recipient_id: proj.sales_rep_id }).catch(() => {});
+                      }
+                    }
+                  }
+
                   setMarkPaidOpen(null);
                   activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});
                   toast.success("Payment marked as paid.");
@@ -2767,6 +2994,12 @@ export function ClientDetail() {
               <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" value={editPayment?.amount ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, amount: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={editPayment?.due_date ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, due_date: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Notes</Label><Input placeholder="Optional note" value={editPayment?.notes ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, notes: e.target.value }))} /></div>
+              <div className="flex items-center gap-2.5">
+                <input type="checkbox" id="edit-is-deposit" className="h-4 w-4 accent-primary"
+                  checked={editPayment?.is_deposit ?? false}
+                  onChange={(e) => setEditPayment((p: any) => ({ ...p, is_deposit: e.target.checked }))} />
+                <label htmlFor="edit-is-deposit" className="text-sm font-medium cursor-pointer">Mark as deposit milestone</label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditPaymentOpen(false)}>Cancel</Button>
@@ -2774,7 +3007,7 @@ export function ClientDetail() {
                 if (!editPayment) return;
                 setSavingPayment(true);
                 try {
-                  const updated = await projectPaymentsAPI.update(editPayment.id, { label: editPayment.label, amount: parseFloat(editPayment.amount) || 0, due_date: editPayment.due_date || undefined, notes: editPayment.notes || undefined });
+                  const updated = await projectPaymentsAPI.update(editPayment.id, { label: editPayment.label, amount: parseFloat(editPayment.amount) || 0, due_date: editPayment.due_date || undefined, notes: editPayment.notes || undefined, is_deposit: editPayment.is_deposit ?? false });
                   setClientPayments((prev) => prev.map((p) => p.id === editPayment.id ? { ...p, ...updated } : p));
                   setEditPaymentOpen(false);
                   activityLogAPI.create({ client_id: id!, action_type: "payment_milestone_added", description: `Payment milestone updated: "${editPayment.label}" — $${(parseFloat(editPayment.amount) || 0).toLocaleString()}` }).then(loadActivityLog).catch(() => {});
@@ -2945,12 +3178,12 @@ export function ClientDetail() {
             ) : (
               clientAppointments.map((appt) => {
                 const isPast = appt.appointment_date
-                  ? new Date(appt.appointment_date) < new Date()
+                  ? parseApptDate(appt.appointment_date) < new Date()
                   : false;
                 const dateLabel = appt.appointment_date
-                  ? new Date(appt.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+                  ? parseApptDate(appt.appointment_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
                   : "—";
-                const timeRange = [appt.appointment_time, appt.end_time].filter(Boolean).join(" – ");
+                const timeRange = [appt.appointment_time, appt.end_time].filter(Boolean).map(formatApptTime).join(" – ");
 
                 return (
                   <div key={appt.id} className="border rounded-lg p-4 space-y-3">
@@ -2962,9 +3195,18 @@ export function ClientDetail() {
                           {dateLabel}{timeRange ? ` · ${timeRange}` : ""}
                         </p>
                         {appt.assigned_to_profile && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Assigned to {appt.assigned_to_profile.first_name} {appt.assigned_to_profile.last_name}
-                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-xs text-muted-foreground">Assigned to {appt.assigned_to_profile.first_name} {appt.assigned_to_profile.last_name}</span>
+                            {appt.assigned_to_profile.role === "sales_rep" && (
+                              <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-1.5 py-0 text-[10px] font-medium text-purple-700">Sales Rep</span>
+                            )}
+                            {appt.assigned_to_profile.role === "admin" && (
+                              <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-1.5 py-0 text-[10px] font-medium text-blue-700">Admin</span>
+                            )}
+                            {appt.assigned_to_profile.role === "project_manager" && (
+                              <span className="inline-flex items-center rounded-full border border-green-300 bg-green-50 px-1.5 py-0 text-[10px] font-medium text-green-700">PM</span>
+                            )}
+                          </div>
                         )}
                       </div>
                       <div className="shrink-0">
@@ -3113,9 +3355,17 @@ export function ClientDetail() {
         client={client}
         project={clientProjects[0] ?? null}
         onSuccess={() => {
-          setClient({ ...client, status: "completed" });
-          loadActivityLog();
           const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          Promise.all([
+            clientsAPI.getById(id!),
+            projectsAPI.getAll(),
+            projectPaymentsAPI.getByClient(id!),
+          ]).then(([clientData, allProjects, payments]) => {
+            setClient(clientData);
+            setClientProjects(allProjects.filter((p: any) => p.client_id === id));
+            setClientPayments(payments);
+          }).catch(console.error);
+          loadActivityLog();
           notificationsAPI.create({
             type: "project_completed",
             title: "Project Completed",
@@ -3177,7 +3427,14 @@ export function ClientDetail() {
         project={clientProjects[0] ?? null}
         hasProposal={clientProposals.length > 0}
         onSuccess={() => {
-          setClient({ ...client, status: "sold" });
+          justMovedToSoldRef.current = true;
+          Promise.all([
+            clientsAPI.getById(id!),
+            projectsAPI.getAll(),
+          ]).then(([clientData, allProjects]) => {
+            setClient(clientData);
+            setClientProjects(allProjects.filter((p: any) => p.client_id === id));
+          }).catch(console.error);
           loadActivityLog();
         }}
       />
@@ -3190,10 +3447,17 @@ export function ClientDetail() {
         project={clientProjects[0] ?? null}
         acceptedProposal={clientProposals.find((p: any) => p.status === "accepted") ?? null}
         onSuccess={() => {
-          setClient({ ...client, status: "active" });
-          loadActivityLog();
-          projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id)));
           const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          Promise.all([
+            clientsAPI.getById(id!),
+            projectsAPI.getAll(),
+            projectPaymentsAPI.getByClient(id!),
+          ]).then(([clientData, allProjects, payments]) => {
+            setClient(clientData);
+            setClientProjects(allProjects.filter((p: any) => p.client_id === id));
+            setClientPayments(payments);
+          }).catch(console.error);
+          loadActivityLog();
           notificationsAPI.create({
             type: "project_active",
             title: "Project Started",
@@ -3877,6 +4141,17 @@ export function ClientDetail() {
                 ))}
               </SelectContent>
             </Select>
+            {(() => {
+              if (!assignRepId || assignRepId === "none") return null;
+              const rep = assignRepList.find((r: any) => r.id === assignRepId);
+              if (!rep || rep.commission_rate !== 0) return null;
+              return (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span className="mt-0.5">⚠️</span>
+                  <span><strong>{rep.first_name} {rep.last_name}</strong> has no commission rate set — their commission won't be tracked on any deal until you add a rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium">Team settings</a>.</span>
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignRepOpen(false)} disabled={savingRep}>Cancel</Button>
@@ -3942,6 +4217,10 @@ export function ClientDetail() {
           if (projectId) loadGpHealth(projectId);
           loadActivityLog();
         }}
+        onFioSaved={() => {
+          const projectId = clientProjects[0]?.id;
+          if (projectId) loadGpHealth(projectId);
+        }}
       />
 
       {/* Cost Attributions Sheet */}
@@ -3977,6 +4256,7 @@ export function ClientDetail() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }

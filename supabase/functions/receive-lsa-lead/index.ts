@@ -120,24 +120,26 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // ── Deduplication (10-minute window) ──────────────────────────────
+    // ── Deduplication (10-minute window) — only if we have a contact identifier ──
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    let dupQuery = supabase
-      .from("clients")
-      .select("id")
-      .gte("created_at", tenMinutesAgo)
-      .limit(1);
+    if (email || phone) {
+      let dupQuery = supabase
+        .from("clients")
+        .select("id")
+        .gte("created_at", tenMinutesAgo)
+        .limit(1);
 
-    if (email)      dupQuery = dupQuery.eq("email", email);
-    else if (phone) dupQuery = dupQuery.eq("phone", phone);
+      if (email) dupQuery = dupQuery.eq("email", email);
+      else       dupQuery = dupQuery.eq("phone", phone);
 
-    const { data: existing } = await dupQuery.maybeSingle();
-    if (existing) {
-      console.log(`[lsa] Duplicate detected — client ${existing.id} already created within 10 min. Skipping.`);
-      return new Response(
-        JSON.stringify({ ok: true, skipped: "duplicate", existing_id: existing.id }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const { data: existing } = await dupQuery.maybeSingle();
+      if (existing) {
+        console.log(`[lsa] Duplicate detected — client ${existing.id} already created within 10 min. Skipping.`);
+        return new Response(
+          JSON.stringify({ ok: true, skipped: "duplicate", existing_id: existing.id }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // ── Lead source: "Google LSA" ─────────────────────────────────────

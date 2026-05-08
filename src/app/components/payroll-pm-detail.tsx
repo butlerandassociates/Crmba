@@ -1,17 +1,11 @@
-/**
- * PM Commission Detail Page
- * Shows all commission installments for a specific project manager.
- * Route: /payroll/pm/:id
- */
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { ArrowLeft, TrendingUp, Clock, CheckCircle2, Edit2, Check, X, Loader2, Trash2, ChevronsUpDown, Search } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./ui/command";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
+import { ArrowLeft, TrendingUp, Clock, DollarSign, Edit2, Check, X, Loader2, Trash2, ChevronDown, ChevronUp, Plus, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
@@ -27,17 +21,20 @@ export function PayrollPMDetail() {
   const [loading, setLoading] = useState(true);
   const [pm, setPm] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
+  const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [processing, setProcessing] = useState<string | null>(null);
 
-  // Per-project payout state
   const [payoutAmounts, setPayoutAmounts] = useState<Record<string, string>>({});
   const [payoutNotesByProject, setPayoutNotesByProject] = useState<Record<string, string>>({});
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
   const [deletingPayoutId, setDeletingPayoutId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [confirmDeletePayoutId, setConfirmDeletePayoutId] = useState<string | null>(null);
+  const [expandedAddPayment, setExpandedAddPayment] = useState<Record<string, boolean>>({});
+  const [expandedPayoutHistory, setExpandedPayoutHistory] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [deleteInstallmentTarget, setDeleteInstallmentTarget] = useState<any>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -49,7 +46,7 @@ export function PayrollPMDetail() {
     try {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, commission_rate, role, phone, email")
+        .select("id, first_name, last_name, commission_rate, role, phone, email, is_active")
         .eq("id", id!)
         .single();
       setPm(profile);
@@ -64,21 +61,6 @@ export function PayrollPMDetail() {
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleMarkProcessed = async (cpId: string) => {
-    setProcessing(cpId);
-    try {
-      await commissionPaymentsAPI.update(cpId, { status: "processed" });
-      setInstallments(prev =>
-        prev.map(i => i.id === cpId ? { ...i, status: "processed", processed_date: new Date().toISOString().split("T")[0] } : i)
-      );
-      toast.success("Commission marked as processed");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update");
-    } finally {
-      setProcessing(null);
     }
   };
 
@@ -121,7 +103,7 @@ export function PayrollPMDetail() {
       toast.success(`${fmt(amount)} payout recorded`);
       setPayoutAmounts(prev => { const next = { ...prev }; delete next[projectId]; return next; });
       setPayoutNotesByProject(prev => { const next = { ...prev }; delete next[projectId]; return next; });
-      setSelectedProjectId(null);
+      setExpandedAddPayment(prev => ({ ...prev, [projectId]: false }));
       loadData();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payout");
@@ -177,46 +159,11 @@ export function PayrollPMDetail() {
   const manualPayouts = installments.filter(i => i.payout_type === "manual_payout");
 
   const pendingInstallments = milestoneInstallments.filter(i => i.status === "pending");
-  const processedInstallments = milestoneInstallments.filter(i => i.status === "processed");
   const totalPending = pendingInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const totalProcessed = processedInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-
-  // Grand total payout tracker
-  const totalOwed = totalPending;
   const totalPaidOut = manualPayouts.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const grandRemaining = Math.max(0, totalOwed - totalPaidOut);
-  const grandPaidPct = totalOwed > 0 ? Math.min(100, (totalPaidOut / totalOwed) * 100) : 0;
+  const totalEarned = milestoneInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
 
-  // Per-project payout data — group pending installments by project
-  const pendingByProject: Record<string, { project: any; pendingAmount: number }> = {};
-  pendingInstallments.forEach((i: any) => {
-    const pid = i.project?.id ?? "unknown";
-    if (!pendingByProject[pid]) {
-      pendingByProject[pid] = { project: i.project, pendingAmount: 0 };
-    }
-    pendingByProject[pid].pendingAmount += parseFloat(i.amount) || 0;
-  });
-
-  const projectPayoutData = Object.values(pendingByProject).map((entry: any) => {
-    const proj = entry.project;
-    const projPaid = manualPayouts
-      .filter((p: any) => p.project_id === proj?.id)
-      .reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
-    const clientName = proj?.client
-      ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
-      : "";
-    return {
-      id: proj?.id ?? "unknown",
-      name: proj?.name ?? "Unknown Project",
-      clientId: proj?.client_id ?? null,
-      clientName,
-      owed: entry.pendingAmount,
-      paid: projPaid,
-      remaining: Math.max(0, entry.pendingAmount - projPaid),
-    };
-  });
-
-  // Group all milestone installments by project for the detail table below
+  // Group all milestone installments by project, augmented with per-project payout data
   const byProject: Record<string, any> = {};
   milestoneInstallments.forEach((i: any) => {
     const pid = i.project?.id ?? "unknown";
@@ -226,6 +173,39 @@ export function PayrollPMDetail() {
     byProject[pid].items.push(i);
   });
 
+  const allGroups = Object.values(byProject).map((group: any) => {
+    const proj = group.project;
+    const owed = group.items
+      .filter((i: any) => i.status === "pending")
+      .reduce((s: number, i: any) => s + (parseFloat(i.amount) || 0), 0);
+    const projPayouts = manualPayouts.filter((p: any) => p.project_id === proj?.id);
+    const paid = projPayouts.reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
+    const remaining = Math.max(0, owed - paid);
+    const pct = owed > 0 ? Math.min(100, (paid / owed) * 100) : 0;
+    return { ...group, owed, paid, remaining, pct, projPayouts };
+  });
+
+  const filterCounts = {
+    all: allGroups.length,
+    pending: allGroups.filter(g => g.items.some((i: any) => i.status === "pending")).length,
+    paid: allGroups.filter(g => g.items.some((i: any) => i.status === "processed")).length,
+  };
+  const filterPassedGroups = filter === "all" ? allGroups
+    : filter === "pending" ? allGroups.filter(g => g.items.some((i: any) => i.status === "pending"))
+    : allGroups.filter(g => g.items.some((i: any) => i.status === "processed"));
+
+  const filteredGroups = searchQuery.trim()
+    ? filterPassedGroups.filter(g => {
+        const q = searchQuery.toLowerCase();
+        const projName = (g.project?.name ?? "").toLowerCase();
+        const clientName = (g.project?.client
+          ? `${g.project.client.first_name ?? ""} ${g.project.client.last_name ?? ""}`.trim()
+          : ""
+        ).toLowerCase();
+        return projName.includes(q) || clientName.includes(q);
+      })
+    : filterPassedGroups;
+
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
@@ -234,13 +214,30 @@ export function PayrollPMDetail() {
         <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">{name}</h1>
-          {pm.commission_rate && (
-            <Badge variant="outline">{pm.commission_rate}% commission rate</Badge>
+          {pm.is_active === false && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
+          {pm.commission_rate != null && (
+            <Badge
+              variant="outline"
+              className={pm.commission_rate === 0
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-green-300 bg-green-50 text-green-700"}
+            >
+              {pm.commission_rate}% Commission
+            </Badge>
           )}
         </div>
         {pm.email && <p className="text-sm text-muted-foreground mt-1">{pm.email}</p>}
+        <div className="relative mt-7">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search by project or client name…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -261,11 +258,11 @@ export function PayrollPMDetail() {
           <CardContent className="pt-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Processed</p>
-                <p className="text-xl font-bold text-green-600">{fmtShort(totalProcessed)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{processedInstallments.length} installment{processedInstallments.length !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-muted-foreground mb-1">Paid</p>
+                <p className="text-xl font-bold text-green-600">{fmtShort(totalPaidOut)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{manualPayouts.length} payout{manualPayouts.length !== 1 ? "s" : ""} recorded</p>
               </div>
-              <CheckCircle2 className="h-7 w-7 text-green-500 opacity-60" />
+              <DollarSign className="h-7 w-7 text-green-500 opacity-60" />
             </div>
           </CardContent>
         </Card>
@@ -274,7 +271,7 @@ export function PayrollPMDetail() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Total Earned</p>
-                <p className="text-xl font-bold">{fmtShort(totalPending + totalProcessed)}</p>
+                <p className="text-xl font-bold">{fmtShort(totalEarned)}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{milestoneInstallments.length} total installment{milestoneInstallments.length !== 1 ? "s" : ""}</p>
               </div>
               <TrendingUp className="h-7 w-7 text-primary opacity-60" />
@@ -282,248 +279,6 @@ export function PayrollPMDetail() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Commission Payout Tracker — per-project */}
-      {totalOwed > 0 && (
-        <Card>
-          <CardContent className="pt-5 pb-5 space-y-4">
-
-            {/* Header + overall progress */}
-            <div>
-              <p className="text-sm font-semibold">Commission Payout Tracker</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Record cash installments paid to {pm.first_name} per job — use these amounts for your QuickBooks entries.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{grandPaidPct.toFixed(0)}% paid out overall</span>
-                <span>{fmtShort(grandRemaining)} remaining</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${grandPaidPct >= 100 ? "bg-green-500" : "bg-primary"}`}
-                  style={{ width: `${grandPaidPct}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Total owed: <span className="font-semibold text-foreground">{fmtShort(totalOwed)}</span></span>
-                <span className="text-green-700 font-semibold">Paid: {fmtShort(totalPaidOut)}</span>
-              </div>
-            </div>
-
-            {/* Searchable project combobox */}
-            {projectPayoutData.length > 0 ? (
-              <div className="space-y-3">
-                <Popover open={projectDropdownOpen} onOpenChange={setProjectDropdownOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      className="w-full justify-between h-auto min-h-[2.5rem] py-2 px-3 font-normal"
-                    >
-                      {selectedProjectId ? (() => {
-                        const proj = projectPayoutData.find(p => p.id === selectedProjectId);
-                        if (!proj) return <span className="text-muted-foreground">Select a project...</span>;
-                        return (
-                          <div className="flex items-center justify-between w-full pr-2 gap-4">
-                            <div className="text-left min-w-0">
-                              <p className="text-sm font-semibold truncate">{proj.name}</p>
-                              {proj.clientName && <p className="text-xs text-muted-foreground">{proj.clientName}</p>}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs shrink-0">
-                              <span className="text-muted-foreground">Owed <span className="font-semibold text-foreground">{fmt(proj.owed)}</span></span>
-                              <span className="text-muted-foreground">·</span>
-                              <span className="text-green-700 font-semibold">Paid {fmt(proj.paid)}</span>
-                              <span className="text-muted-foreground">·</span>
-                              {proj.remaining > 0
-                                ? <span className="text-amber-600 font-semibold">{fmt(proj.remaining)} left</span>
-                                : <span className="text-green-700 font-semibold">Fully paid</span>
-                              }
-                            </div>
-                          </div>
-                        );
-                      })() : (
-                        <span className="text-muted-foreground text-sm flex items-center gap-2">
-                          <Search className="h-3.5 w-3.5" /> Select a project to record a payout...
-                        </span>
-                      )}
-                      <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground ml-2" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start" side="bottom" sideOffset={4} avoidCollisions={false}>
-                    <Command>
-                      <CommandInput placeholder="Search project or client name..." />
-                      <CommandList className="max-h-56 overflow-y-auto">
-                        <CommandEmpty>No projects found.</CommandEmpty>
-                        <CommandGroup>
-                          {projectPayoutData.map(proj => (
-                            <CommandItem
-                              key={proj.id}
-                              value={`${proj.name} ${proj.clientName}`}
-                              onSelect={() => {
-                                setSelectedProjectId(proj.id);
-                                setProjectDropdownOpen(false);
-                              }}
-                              className="py-2.5 px-3 cursor-pointer"
-                            >
-                              <div className="flex items-center justify-between w-full gap-4">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold truncate">{proj.name}</p>
-                                  {proj.clientName && (
-                                    <p className="text-xs text-muted-foreground">{proj.clientName}</p>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 text-xs shrink-0">
-                                  <span className="text-muted-foreground">
-                                    Owed <span className="font-semibold text-foreground">{fmt(proj.owed)}</span>
-                                  </span>
-                                  <span className="text-muted-foreground">·</span>
-                                  <span className="text-green-700 font-semibold">Paid {fmt(proj.paid)}</span>
-                                  <span className="text-muted-foreground">·</span>
-                                  {proj.remaining > 0
-                                    ? <span className="text-amber-600 font-semibold">{fmt(proj.remaining)} left</span>
-                                    : <span className="text-green-700 font-semibold">Fully paid</span>
-                                  }
-                                </div>
-                              </div>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-
-                {/* Selected project payout row */}
-                {selectedProjectId && (() => {
-                  const proj = projectPayoutData.find(p => p.id === selectedProjectId);
-                  if (!proj) return null;
-                  const inputAmt = payoutAmounts[proj.id] ?? "";
-                  const inputNote = payoutNotesByProject[proj.id] ?? "";
-                  const isSaving = savingProjectId === proj.id;
-                  const canRecord = !isSaving && parseFloat(inputAmt) > 0;
-
-                  return (
-                    <div className="border rounded-lg p-3 bg-muted/20 space-y-2.5">
-                      {proj.remaining > 0 ? (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {[25, 50, 75, 100].map(pct => {
-                            const val = ((proj.owed * pct) / 100).toFixed(2);
-                            return (
-                              <Button
-                                key={pct}
-                                size="sm"
-                                variant="outline"
-                                className="text-xs h-7 px-2.5"
-                                onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
-                              >
-                                {pct}%
-                                <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
-                              </Button>
-                            );
-                          })}
-                          <div className="flex items-center gap-2 ml-auto">
-                            <Input
-                              type="number"
-                              placeholder="Amount"
-                              value={inputAmt}
-                              onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
-                              className="h-7 w-24 text-sm text-right"
-                              autoFocus
-                            />
-                            <Input
-                              placeholder="Notes (optional)"
-                              value={inputNote}
-                              onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
-                              className="h-7 w-36 text-sm"
-                            />
-                            <Button
-                              size="sm"
-                              disabled={!canRecord}
-                              className="h-7 min-w-[72px] flex items-center justify-center"
-                              onClick={() => handleRecordProjectPayout(proj.id)}
-                            >
-                              {isSaving
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : <span>Record</span>
-                              }
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-green-700 font-medium text-center py-1">
-                          This project is fully paid out.
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground text-center py-2">No projects with pending commission.</p>
-            )}
-
-            {/* Payout history */}
-            {manualPayouts.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Payout History</p>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/50 border-b">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Project</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
-                        <th className="py-2 px-3 w-8" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {manualPayouts.map((p: any) => (
-                        <tr key={p.id} className="border-b last:border-0">
-                          <td className="py-2 px-3 text-xs text-muted-foreground">
-                            {p.processed_date
-                              ? new Date(p.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                              : "—"}
-                          </td>
-                          <td className="py-2 px-3 text-xs text-muted-foreground">
-                            {p.project?.name ?? <span className="italic">—</span>}
-                          </td>
-                          <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
-                          <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
-                          <td className="py-2 px-3">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
-                              disabled={deletingPayoutId === p.id}
-                              onClick={() => handleDeletePayout(p.id)}
-                              title="Remove payout entry"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-muted/30 border-t">
-                        <td className="py-2 px-3 text-xs font-semibold">Total Paid Out</td>
-                        <td className="py-2 px-3" />
-                        <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(totalPaidOut)}</td>
-                        <td colSpan={2} />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-
-          </CardContent>
-        </Card>
-      )}
 
       {/* Commission Installments by Project */}
       {milestoneInstallments.length === 0 ? (
@@ -534,14 +289,69 @@ export function PayrollPMDetail() {
             <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
           </CardContent>
         </Card>
-      ) : (
-        Object.values(byProject).map((group: any) => {
+      ) : (<>
+
+        {/* Filter tabs */}
+        <div className="flex gap-2 border-b">
+          {(["all", "pending", "paid"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors capitalize ${
+                filter === f
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f === "paid" ? "Paid" : f === "pending" ? "Pending" : "All"}
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">({filterCounts[f]})</span>
+            </button>
+          ))}
+        </div>
+
+        {filteredGroups.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+            {searchQuery.trim() ? (
+              <>
+                <Search className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No results for "{searchQuery}"</p>
+                <p className="text-xs mt-1">Try a different project or client name.</p>
+              </>
+            ) : filter === "pending" ? (
+              <>
+                <Clock className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No pending commissions</p>
+                <p className="text-xs mt-1">All installments have been paid out.</p>
+              </>
+            ) : filter === "paid" ? (
+              <>
+                <DollarSign className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No paid commissions yet</p>
+                <p className="text-xs mt-1">Payouts will appear here once recorded.</p>
+              </>
+            ) : (
+              <>
+                <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No commission installments</p>
+                <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
+              </>
+            )}
+          </div>
+        )}
+
+        {filteredGroups.map((group: any) => {
           const proj = group.project;
           const clientName = proj?.client
             ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
             : "—";
           const gpTotal = parseFloat(proj?.gross_profit) || 0;
           const commissionTotal = parseFloat(proj?.commission) || 0;
+          const { owed, paid, remaining, pct, projPayouts } = group;
+          const isAddPaymentOpen = !!expandedAddPayment[proj?.id];
+          const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
+          const inputAmt = payoutAmounts[proj?.id] ?? "";
+          const inputNote = payoutNotesByProject[proj?.id] ?? "";
+          const isSaving = savingProjectId === proj?.id;
 
           return (
             <Card key={proj?.id ?? "unknown"}>
@@ -549,10 +359,7 @@ export function PayrollPMDetail() {
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle className="text-base">{proj?.name ?? "Unknown Project"}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      Client: {clientName}
-                      {gpTotal > 0 && <> &nbsp;·&nbsp; GP: {fmtShort(gpTotal)} &nbsp;·&nbsp; Total Commission: {fmtShort(commissionTotal)}</>}
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
                   </div>
                   {proj?.client_id && (
                     <Link
@@ -563,13 +370,46 @@ export function PayrollPMDetail() {
                     </Link>
                   )}
                 </div>
+
+                {/* GP + Commission */}
+                {gpTotal > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    GP: <span className="font-semibold text-foreground">{fmtShort(gpTotal)}</span>
+                    &nbsp;·&nbsp;
+                    Commission: <span className="font-semibold text-foreground">{fmtShort(commissionTotal)}</span>
+                  </p>
+                )}
+
+                {/* Per-project payout summary */}
+                {owed > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center gap-3 text-sm flex-wrap">
+                      <span className="text-muted-foreground">Owed <span className="font-semibold text-foreground">{fmt(owed)}</span></span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-green-700">Paid <span className="font-semibold">{fmt(paid)}</span></span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className={remaining > 0 ? "text-amber-600" : "text-green-700"}>
+                        Remaining <span className="font-semibold">{fmt(remaining)}</span>
+                      </span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-green-500" : "bg-primary"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">{pct.toFixed(0)}% paid out</p>
+                  </div>
+                )}
               </CardHeader>
+
               <CardContent className="pt-0">
+                {/* Installment rows */}
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/50 border-b">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Milestone</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Installment</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Source</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Commission</th>
                         <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
@@ -621,12 +461,12 @@ export function PayrollPMDetail() {
                                   ? "bg-green-100 text-green-700"
                                   : "bg-yellow-100 text-yellow-700"
                               }`}>
-                                {item.status === "processed" ? "Processed" : "Pending"}
+                                {item.status === "processed" ? "Paid" : "Pending"}
                               </span>
                             </td>
                             <td className="py-2.5 px-3 text-right text-xs text-muted-foreground">
                               {item.status === "processed" && item.processed_date
-                                ? new Date(item.processed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                ? new Date(item.processed_date.includes("T") ? item.processed_date : `${item.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                                 : item.created_at
                                 ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
                                 : "—"}
@@ -668,19 +508,10 @@ export function PayrollPMDetail() {
                                         </Button>
                                         <Button
                                           size="sm"
-                                          variant="outline"
-                                          className="h-6 text-xs px-2"
-                                          disabled={isProcessing}
-                                          onClick={() => handleMarkProcessed(item.id)}
-                                        >
-                                          {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Mark Processed"}
-                                        </Button>
-                                        <Button
-                                          size="sm"
                                           variant="ghost"
                                           className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
                                           disabled={isProcessing}
-                                          onClick={() => handleDeleteInstallment(item.id)}
+                                          onClick={() => setDeleteInstallmentTarget(item)}
                                           title="Remove incorrect installment"
                                         >
                                           <X className="h-3 w-3" />
@@ -697,11 +528,188 @@ export function PayrollPMDetail() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Footer: + Add Payment | ▼ Payout History */}
+                {owed > 0 && (
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                    <div>
+                      {remaining > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs gap-1.5"
+                          onClick={() => setExpandedAddPayment(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                        >
+                          {isAddPaymentOpen ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                          {isAddPaymentOpen ? "Cancel" : "Add Payment"}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-green-700 font-medium">Fully paid out</span>
+                      )}
+                    </div>
+                    {projPayouts.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs gap-1.5 text-muted-foreground"
+                        onClick={() => setExpandedPayoutHistory(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                      >
+                        {isHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        Payout History ({projPayouts.length})
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {/* Add Payment form (collapsible) */}
+                {isAddPaymentOpen && remaining > 0 && (
+                  <div className="mt-3 border rounded-lg p-3 bg-muted/20 space-y-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[25, 50, 75, 100].map(pct => {
+                        const val = ((owed * pct) / 100).toFixed(2);
+                        return (
+                          <Button
+                            key={pct}
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 px-2.5"
+                            onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
+                          >
+                            {pct}%
+                            <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
+                          </Button>
+                        );
+                      })}
+                      <div className="flex items-center gap-2 ml-auto">
+                        <Input
+                          type="number"
+                          placeholder="Amount"
+                          value={inputAmt}
+                          onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                          className="h-7 w-24 text-sm text-right"
+                          autoFocus
+                        />
+                        <Input
+                          placeholder="Notes (optional)"
+                          value={inputNote}
+                          onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                          className="h-7 w-36 text-sm"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={isSaving || !(parseFloat(inputAmt) > 0)}
+                          className="h-7 min-w-[72px] flex items-center justify-center"
+                          onClick={() => handleRecordProjectPayout(proj.id)}
+                        >
+                          {isSaving
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <span>Record</span>
+                          }
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Payout History (collapsible) */}
+                {isHistoryOpen && projPayouts.length > 0 && (
+                  <div className="mt-3 border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-muted/50 border-b">
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
+                          <th className="py-2 px-3 w-8" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {projPayouts.map((p: any) => (
+                          <tr key={p.id} className="border-b last:border-0">
+                            <td className="py-2 px-3 text-xs text-muted-foreground">
+                              {p.processed_date
+                                ? new Date(p.processed_date.includes("T") ? p.processed_date : `${p.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                : "—"}
+                            </td>
+                            <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
+                            <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
+                            <td className="py-2 px-3">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                disabled={deletingPayoutId === p.id}
+                                onClick={() => setConfirmDeletePayoutId(p.id)}
+                                title="Remove payout entry"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-muted/30 border-t">
+                          <td className="py-2 px-3 text-xs font-semibold">Total Paid</td>
+                          <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(paid)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+
               </CardContent>
             </Card>
           );
-        })
-      )}
+        })}
+      </>)}
+
+      <AlertDialog open={!!confirmDeletePayoutId} onOpenChange={(o) => { if (!o) setConfirmDeletePayoutId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Payout Entry?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this manual payout record. This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeletePayoutId) { handleDeletePayout(confirmDeletePayoutId); setConfirmDeletePayoutId(null); } }}
+            >Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteInstallmentTarget} onOpenChange={(o) => { if (!o) setDeleteInstallmentTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Commission Installment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the <strong>{fmt(parseFloat(deleteInstallmentTarget?.amount) || 0)}</strong> installment
+              {deleteInstallmentTarget?.progress_payment?.label
+                ? <> for <strong>{deleteInstallmentTarget.progress_payment.label}</strong></>
+                : " (Contract Signed)"
+              }. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!processing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!!processing}
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async () => {
+                await handleDeleteInstallment(deleteInstallmentTarget.id);
+                setDeleteInstallmentTarget(null);
+              }}
+            >
+              {processing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }

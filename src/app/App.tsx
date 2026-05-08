@@ -15,9 +15,11 @@ function AppContent() {
     );
   }
 
+  const isPublicRoute = window.location.pathname.startsWith('/p/');
+
   return (
     <>
-      {!user ? <AuthScreen /> : <RouterProvider router={router} />}
+      {!user && !isPublicRoute ? <AuthScreen /> : <RouterProvider router={router} />}
       <Toaster />
     </>
   );

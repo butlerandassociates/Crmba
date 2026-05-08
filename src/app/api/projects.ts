@@ -20,24 +20,21 @@ const mapProject = (p: any) => ({
   clientName: p.client
     ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() || p.client.company
     : "",
-  projectManagerName: p.project_manager
-    ? `${p.project_manager.first_name ?? ""} ${p.project_manager.last_name ?? ""}`.trim()
-    : "",
-  foremanName: p.foreman
-    ? `${p.foreman.first_name ?? ""} ${p.foreman.last_name ?? ""}`.trim()
-    : "",
-  foremanPhone:  p.foreman?.phone ?? null,
-  salesRepName: p.sales_rep
-    ? `${p.sales_rep.first_name ?? ""} ${p.sales_rep.last_name ?? ""}`.trim()
-    : "",
+  projectManagerName:     p.project_manager ? `${p.project_manager.first_name ?? ""} ${p.project_manager.last_name ?? ""}`.trim() : "",
+  projectManagerActive:   p.project_manager?.is_active ?? true,
+  foremanName:            p.foreman ? `${p.foreman.first_name ?? ""} ${p.foreman.last_name ?? ""}`.trim() : "",
+  foremanPhone:           p.foreman?.phone ?? null,
+  foremanActive:          p.foreman?.is_active ?? true,
+  salesRepName:           p.sales_rep ? `${p.sales_rep.first_name ?? ""} ${p.sales_rep.last_name ?? ""}`.trim() : "",
+  salesRepActive:         p.sales_rep?.is_active ?? true,
 });
 
 const FULL_SELECT = `
   *,
   client:clients(id, first_name, last_name, company, is_discarded),
-  project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name),
-  foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone),
-  sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name)
+  project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active),
+  foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
+  sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active)
 `;
 
 export const projectsAPI = {
@@ -60,9 +57,9 @@ export const projectsAPI = {
       .select(`
         *,
         client:clients(id, first_name, last_name, company, email, phone),
-        project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name),
-        foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone),
-        sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name)
+        project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active),
+        foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
+        sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active)
       `)
       .eq("id", id)
       .single();

@@ -23,11 +23,16 @@ const now = new Date();
 const YEARS = Array.from({ length: 4 }, (_, i) => now.getFullYear() - i);
 
 interface PLSection {
-  materialSold:  number;
-  laborSold:     number;
-  otherSold:     number;
-  materialCosts: number;
-  laborCosts:    number;
+  materialSold:        number;
+  laborSold:           number;
+  otherSold:           number;
+  materialCosts:       number;
+  laborCosts:          number;
+  cashCollected:       number;
+  outstandingBalance:  number;
+  actualMaterialCosts: number;
+  actualLaborCosts:    number;
+  commissions:         number;
 }
 
 interface PLData {
@@ -39,27 +44,42 @@ interface PLData {
 }
 
 function sectionTotals(s: PLSection) {
-  const rev    = s.materialSold + s.laborSold + s.otherSold;
-  const cost   = s.materialCosts + s.laborCosts;
-  const gp     = rev - cost;
-  const margin = rev > 0 ? (gp / rev) * 100 : 0;
-  return { rev, cost, gp, margin };
+  const rev        = s.materialSold + s.laborSold + s.otherSold;
+  const cost       = s.materialCosts + s.laborCosts;
+  const gp         = rev - cost;
+  const margin     = rev > 0 ? (gp / rev) * 100 : 0;
+  const actualCost = s.actualMaterialCosts + s.actualLaborCosts;
+  const netProfit  = gp - s.commissions;
+  return { rev, cost, gp, margin, actualCost, netProfit };
 }
 
 function combineSection(a: PLSection, b: PLSection): PLSection {
   return {
-    materialSold:  a.materialSold  + b.materialSold,
-    laborSold:     a.laborSold     + b.laborSold,
-    otherSold:     a.otherSold     + b.otherSold,
-    materialCosts: a.materialCosts + b.materialCosts,
-    laborCosts:    a.laborCosts    + b.laborCosts,
+    materialSold:        a.materialSold        + b.materialSold,
+    laborSold:           a.laborSold           + b.laborSold,
+    otherSold:           a.otherSold           + b.otherSold,
+    materialCosts:       a.materialCosts       + b.materialCosts,
+    laborCosts:          a.laborCosts          + b.laborCosts,
+    cashCollected:       a.cashCollected       + b.cashCollected,
+    outstandingBalance:  a.outstandingBalance  + b.outstandingBalance,
+    actualMaterialCosts: a.actualMaterialCosts + b.actualMaterialCosts,
+    actualLaborCosts:    a.actualLaborCosts    + b.actualLaborCosts,
+    commissions:         a.commissions         + b.commissions,
   };
 }
 
 async function buildSectionData(clientIds: string[], rangeStart: string, rangeEnd: string): Promise<PLSection> {
-  const empty: PLSection = { materialSold: 0, laborSold: 0, otherSold: 0, materialCosts: 0, laborCosts: 0 };
+  const empty: PLSection = {
+    materialSold: 0, laborSold: 0, otherSold: 0, materialCosts: 0, laborCosts: 0,
+    cashCollected: 0, outstandingBalance: 0, actualMaterialCosts: 0, actualLaborCosts: 0, commissions: 0,
+  };
   if (!clientIds.length) return empty;
 
+  // date-only strings for date-type columns (paid_date)
+  const rangeStartDate = rangeStart.slice(0, 10);
+  const rangeEndDate   = rangeEnd.slice(0, 10);
+
+  // ── Estimates + line items (budgeted revenue & costs) ─────────────────────
   const { data: estimates } = await supabase
     .from("estimates")
     .select("id, bad_amount")
@@ -67,35 +87,105 @@ async function buildSectionData(clientIds: string[], rangeStart: string, rangeEn
     .lt("created_at", rangeEnd)
     .in("client_id", clientIds);
 
-  if (!estimates?.length) return empty;
-
   let materialSold = 0, laborSold = 0, otherSold = 0, materialCosts = 0, laborCosts = 0;
-  let totalBad = 0;
-  for (const est of estimates) totalBad += Number(est.bad_amount) || 0;
 
-  const ids = estimates.map((e: any) => e.id);
-  const { data: lineItems } = await supabase
-    .from("estimate_line_items")
-    .select("total_price, labor_cost, material_cost, quantity")
-    .in("estimate_id", ids);
+  if (estimates?.length) {
+    let totalBad = 0;
+    for (const est of estimates) totalBad += Number(est.bad_amount) || 0;
 
-  for (const li of lineItems ?? []) {
-    const revenue = Number(li.total_price) || 0;
-    const qty     = Number(li.quantity) || 1;
-    const lc      = Number(li.labor_cost    || 0) * qty;
-    const mc      = Number(li.material_cost || 0) * qty;
-    const tc      = lc + mc;
-    if (tc > 0) {
-      laborSold    += (lc / tc) * revenue;
-      materialSold += (mc / tc) * revenue;
-    } else {
-      otherSold += revenue;
+    const ids = estimates.map((e: any) => e.id);
+    const { data: lineItems } = await supabase
+      .from("estimate_line_items")
+      .select("total_price, labor_cost, material_cost, quantity")
+      .in("estimate_id", ids);
+
+    for (const li of lineItems ?? []) {
+      const revenue = Number(li.total_price) || 0;
+      const qty     = Number(li.quantity) || 1;
+      const lc      = Number(li.labor_cost    || 0) * qty;
+      const mc      = Number(li.material_cost || 0) * qty;
+      const tc      = lc + mc;
+      if (tc > 0) {
+        laborSold    += (lc / tc) * revenue;
+        materialSold += (mc / tc) * revenue;
+      } else {
+        otherSold += revenue;
+      }
+      laborCosts    += lc;
+      materialCosts += mc;
     }
-    laborCosts    += lc;
-    materialCosts += mc;
+    otherSold += totalBad;
   }
-  otherSold += totalBad;
-  return { materialSold, laborSold, otherSold, materialCosts, laborCosts };
+
+  // ── Cash collected — project_payments.is_paid=true, paid_date in range ────
+  const { data: paidPayments } = await supabase
+    .from("project_payments")
+    .select("amount")
+    .eq("is_paid", true)
+    .gte("paid_date", rangeStartDate)
+    .lt("paid_date", rangeEndDate)
+    .in("client_id", clientIds);
+  const cashCollected = (paidPayments ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  // ── Outstanding balance — project_payments.is_paid=false (all time) ───────
+  const { data: unpaidPayments } = await supabase
+    .from("project_payments")
+    .select("amount")
+    .eq("is_paid", false)
+    .in("client_id", clientIds);
+  const outstandingBalance = (unpaidPayments ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  // ── Get project IDs for actual cost + commission queries ──────────────────
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id")
+    .in("client_id", clientIds);
+  const projectIds = (projects ?? []).map((p: any) => p.id);
+
+  let actualMaterialCosts = 0, actualLaborCosts = 0, commissions = 0;
+
+  if (projectIds.length) {
+    // ── Actual material costs — project_receipts.category='material' ─────────
+    const { data: matReceipts } = await supabase
+      .from("project_receipts")
+      .select("amount")
+      .eq("category", "material")
+      .gte("created_at", rangeStart)
+      .lt("created_at", rangeEnd)
+      .in("project_id", projectIds);
+    actualMaterialCosts = (matReceipts ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    // ── Actual labor costs — fio_crew_payments.amount_paid ───────────────────
+    const { data: fios } = await supabase
+      .from("field_installation_orders")
+      .select("id")
+      .in("project_id", projectIds);
+    const fioIds = (fios ?? []).map((f: any) => f.id);
+    if (fioIds.length) {
+      const { data: crewPays } = await supabase
+        .from("fio_crew_payments")
+        .select("amount_paid")
+        .gte("created_at", rangeStart)
+        .lt("created_at", rangeEnd)
+        .in("fio_id", fioIds);
+      actualLaborCosts = (crewPays ?? []).reduce((s, p) => s + (Number(p.amount_paid) || 0), 0);
+    }
+
+    // ── Commissions — commission_payments.status='processed' ─────────────────
+    const { data: commPays } = await supabase
+      .from("commission_payments")
+      .select("amount")
+      .eq("status", "processed")
+      .gte("created_at", rangeStart)
+      .lt("created_at", rangeEnd)
+      .in("project_id", projectIds);
+    commissions = (commPays ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  }
+
+  return {
+    materialSold, laborSold, otherSold, materialCosts, laborCosts,
+    cashCollected, outstandingBalance, actualMaterialCosts, actualLaborCosts, commissions,
+  };
 }
 
 /* ─── Excel export ───────────────────────────────────────────────────────── */
@@ -200,15 +290,29 @@ async function exportToExcel(data: PLData, logoUrl: string) {
     if (s.otherSold > 0) addRow("Other", s.otherSold, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
     addRow("Total Revenue", t.rev, { labelFont: font({ bold: true, size: 11, color: C_BLACK }), amtFont: font({ bold: true, size: 11, color: C_BLACK }), labelFill: fill(C_SAND), amtFill: fill(C_SAND), borders: topBorder(C_GOLD), height: 22 });
     spacer();
-    sectionHead("Cost of Goods Sold");
+    sectionHead("Cost of Goods Sold (Budgeted)");
     addRow("Material Costs", s.materialCosts, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
     addRow("Labor Costs",    s.laborCosts,    { labelFont: font({ size: 11, color: C_RED }),  amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
     addRow("Total COGS",     t.cost, { labelFont: font({ bold: true, size: 11, color: C_RED }), amtFont: font({ bold: true, size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), borders: topBorder(C_GOLD), height: 22 });
     spacer();
     const gpBg = t.gp >= 0 ? "F0FDF4" : "FEF2F2"; const gpFg = t.gp >= 0 ? "15803D" : "B91C1C";
-    sectionHead("Bottom Line");
+    sectionHead("Gross Profit");
     addRow("Gross Profit", t.gp,  { labelFont: font({ bold: true, size: 13, color: gpFg }), amtFont: font({ bold: true, size: 13, color: gpFg }), labelFill: fill(gpBg), amtFill: fill(gpBg), borders: topBorder(C_GOLD), height: 26 });
     addRow("Gross Margin", `${fmtPct(t.margin)}`, { labelFont: font({ size: 11, color: C_MUTED }), amtFont: font({ bold: true, size: 11, color: gpFg }), labelFill: fill(gpBg), amtFill: fill(gpBg) });
+    spacer();
+    sectionHead("Accounts Receivable");
+    addRow("Cash Collected (this period)", s.cashCollected, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: "15803D" }), labelFill: fill("F0FDF4"), amtFill: fill("F0FDF4"), indent: 1 });
+    addRow("Outstanding Balance",          s.outstandingBalance, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: "B45309" }), labelFill: fill("FFFBEB"), amtFill: fill("FFFBEB"), indent: 1 });
+    spacer();
+    sectionHead("Actual Costs (This Period)");
+    addRow("Actual Material Costs", s.actualMaterialCosts, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
+    addRow("Actual Labor Costs",    s.actualLaborCosts,    { labelFont: font({ size: 11, color: C_RED }),  amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
+    addRow("Total Actual Costs",    t.actualCost, { labelFont: font({ bold: true, size: 11, color: C_RED }), amtFont: font({ bold: true, size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), borders: topBorder(C_GOLD), height: 22 });
+    spacer();
+    const npBg = t.netProfit >= 0 ? "F0FDF4" : "FEF2F2"; const npFg = t.netProfit >= 0 ? "15803D" : "B91C1C";
+    sectionHead("Net Profit");
+    addRow("Commission Expense", s.commissions, { labelFont: font({ size: 11, color: C_RED }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
+    addRow("Net Profit", t.netProfit, { labelFont: font({ bold: true, size: 13, color: npFg }), amtFont: font({ bold: true, size: 13, color: npFg }), labelFill: fill(npBg), amtFill: fill(npBg), borders: topBorder(C_GOLD), height: 26 });
     spacer(); goldBar(); spacer();
   };
 
@@ -259,7 +363,7 @@ function buildSectionHtml(s: PLSection, t: ReturnType<typeof sectionTotals>, lab
       ${s.otherSold > 0 ? row("Other (incl. BAD)", s.otherSold) : ""}
       ${totRow("Total Revenue", t.rev)}
     </table>
-    ${secHead("Cost of Goods Sold")}
+    ${secHead("Cost of Goods Sold (Budgeted)")}
     <table style="width:100%;border-collapse:collapse;">
       ${row("Material Costs", s.materialCosts, { red: true })}
       ${row("Labor Costs",    s.laborCosts,    { red: true, redBg: true })}
@@ -274,6 +378,25 @@ function buildSectionHtml(s: PLSection, t: ReturnType<typeof sectionTotals>, lab
         <div style="font-size:13px;font-weight:700;color:${GRN};font-variant-numeric:tabular-nums;">${fmt(t.gp)}</div>
         <div style="font-size:11px;font-weight:600;color:${GRN};margin-top:2px;">${fmtPct(t.margin)}</div>
       </div>
+    </div>
+    ${secHead("Accounts Receivable")}
+    <table style="width:100%;border-collapse:collapse;">
+      ${row("Cash Collected (this period)", s.cashCollected)}
+      ${row("Outstanding Balance",          s.outstandingBalance, { alt: true })}
+    </table>
+    ${secHead("Actual Costs (This Period)")}
+    <table style="width:100%;border-collapse:collapse;">
+      ${row("Actual Material Costs", s.actualMaterialCosts, { red: true })}
+      ${row("Actual Labor Costs",    s.actualLaborCosts,    { red: true, redBg: true })}
+      ${totRow("Total Actual Costs", t.actualCost, { red: true })}
+    </table>
+    ${secHead("Net Profit")}
+    <table style="width:100%;border-collapse:collapse;">
+      ${row("Commission Expense", s.commissions, { red: true })}
+    </table>
+    <div style="margin-top:10px;background:${t.netProfit >= 0 ? "#F0FDF4" : "#FEF2F2"};border-top:2px solid #BB984D;border-bottom:2px solid #BB984D;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:13px;font-weight:700;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};">Net Profit</div>
+      <div style="font-size:13px;font-weight:700;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};font-variant-numeric:tabular-nums;">${fmt(t.netProfit)}</div>
     </div>`;
 }
 
@@ -286,51 +409,75 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
   const genDate   = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const cell = (val: string, bold = false, color = "#3A3A38", bg = "#fff") =>
-    `<td style="padding:9px 14px;font-size:11px;font-weight:${bold ? 700 : 400};color:${color};background:${bg};text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;border-bottom:1px solid #F0EDE8;">${val}</td>`;
+    `<td style="padding:11px 18px;font-size:11px;font-weight:${bold ? 700 : 400};color:${color};background:${bg};text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;border-bottom:1px solid #F0EDE8;">${val}</td>`;
 
   const labelCell = (val: string, bold = false, bg = "#fff") =>
-    `<td style="padding:9px 16px;font-size:11px;font-weight:${bold ? 700 : 400};color:#3A3A38;background:${bg};border-bottom:1px solid #F0EDE8;">${val}</td>`;
+    `<td style="padding:11px 20px;font-size:11px;font-weight:${bold ? 700 : 400};color:#3A3A38;background:${bg};border-bottom:1px solid #F0EDE8;">${val}</td>`;
 
   const gpBg  = combined.gp >= 0 ? "#F0FDF4" : "#FEF2F2";
   const gpFgA = active.gp    >= 0 ? "#15803D" : "#B91C1C";
   const gpFgC = completed.gp >= 0 ? "#15803D" : "#B91C1C";
   const gpFgT = combined.gp  >= 0 ? "#15803D" : "#B91C1C";
 
+  const cmb = combineSection(data.active, data.completed);
+  const npBgA = active.netProfit    >= 0 ? "#F0FDF4" : "#FEF2F2";
+  const npBgC = completed.netProfit >= 0 ? "#F0FDF4" : "#FEF2F2";
+  const npBgT = combined.netProfit  >= 0 ? "#F0FDF4" : "#FEF2F2";
+  const npFgA = active.netProfit    >= 0 ? "#15803D" : "#B91C1C";
+  const npFgC = completed.netProfit >= 0 ? "#15803D" : "#B91C1C";
+  const npFgT = combined.netProfit  >= 0 ? "#15803D" : "#B91C1C";
+
   const rows = [
     // [label, boldLabel, activeVal, completedVal, combinedVal, boldVals, labelBg, cellBg, amtColor]
     ["REVENUE", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Material Sold", false, fmt(data.active.materialSold), fmt(data.completed.materialSold), fmt(combineSection(data.active, data.completed).materialSold), false, "#fff", "#fff", "#3A3A38"],
-    ["Labor Sold", false, fmt(data.active.laborSold), fmt(data.completed.laborSold), fmt(combineSection(data.active, data.completed).laborSold), false, "#FAF8F5", "#FAF8F5", "#3A3A38"],
+    ["Material Sold", false, fmt(data.active.materialSold), fmt(data.completed.materialSold), fmt(cmb.materialSold), false, "#fff", "#fff", "#3A3A38"],
+    ["Labor Sold", false, fmt(data.active.laborSold), fmt(data.completed.laborSold), fmt(cmb.laborSold), false, "#FAF8F5", "#FAF8F5", "#3A3A38"],
     ...(data.active.otherSold > 0 || data.completed.otherSold > 0
-      ? [["Other (incl. BAD)", false, fmt(data.active.otherSold), fmt(data.completed.otherSold), fmt(combineSection(data.active, data.completed).otherSold), false, "#fff", "#fff", "#3A3A38"]] : []),
+      ? [["Other (incl. BAD)", false, fmt(data.active.otherSold), fmt(data.completed.otherSold), fmt(cmb.otherSold), false, "#fff", "#fff", "#3A3A38"]] : []),
     ["Total Revenue", true, fmt(active.rev), fmt(completed.rev), fmt(combined.rev), true, "#F0EDE8", "#F0EDE8", "#0A0A0A"],
-    ["COST OF GOODS SOLD", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Material Costs", false, fmt(data.active.materialCosts), fmt(data.completed.materialCosts), fmt(combineSection(data.active, data.completed).materialCosts), false, "#fff", "#fff", "#B91C1C"],
-    ["Labor Costs", false, fmt(data.active.laborCosts), fmt(data.completed.laborCosts), fmt(combineSection(data.active, data.completed).laborCosts), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
+    ["COST OF GOODS SOLD (BUDGETED)", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
+    ["Material Costs", false, fmt(data.active.materialCosts), fmt(data.completed.materialCosts), fmt(cmb.materialCosts), false, "#fff", "#fff", "#B91C1C"],
+    ["Labor Costs", false, fmt(data.active.laborCosts), fmt(data.completed.laborCosts), fmt(cmb.laborCosts), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
     ["Total COGS", true, fmt(active.cost), fmt(completed.cost), fmt(combined.cost), true, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["BOTTOM LINE", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
+    ["GROSS PROFIT", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
     ["Gross Profit", true, fmt(active.gp), fmt(completed.gp), fmt(combined.gp), true, gpBg, gpBg, "MIXED_GP"],
     ["Gross Margin", false, fmtPct(active.margin), fmtPct(completed.margin), fmtPct(combined.margin), false, gpBg, gpBg, "MIXED_GP"],
+    ["ACCOUNTS RECEIVABLE", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
+    ["Cash Collected (this period)", false, fmt(data.active.cashCollected), fmt(data.completed.cashCollected), fmt(cmb.cashCollected), false, "#F0FDF4", "#F0FDF4", "#15803D"],
+    ["Outstanding Balance", false, fmt(data.active.outstandingBalance), fmt(data.completed.outstandingBalance), fmt(cmb.outstandingBalance), false, "#FFFBEB", "#FFFBEB", "#B45309"],
+    ["ACTUAL COSTS (THIS PERIOD)", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
+    ["Actual Material Costs", false, fmt(data.active.actualMaterialCosts), fmt(data.completed.actualMaterialCosts), fmt(cmb.actualMaterialCosts), false, "#fff", "#fff", "#B91C1C"],
+    ["Actual Labor Costs", false, fmt(data.active.actualLaborCosts), fmt(data.completed.actualLaborCosts), fmt(cmb.actualLaborCosts), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
+    ["Total Actual Costs", true, fmt(active.actualCost), fmt(completed.actualCost), fmt(combined.actualCost), true, "#FEF2F2", "#FEF2F2", "#B91C1C"],
+    ["NET PROFIT", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
+    ["Commission Expense", false, fmt(data.active.commissions), fmt(data.completed.commissions), fmt(cmb.commissions), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
+    ["Net Profit", true, fmt(active.netProfit), fmt(completed.netProfit), fmt(combined.netProfit), true, "MIXED_NP_BG", "MIXED_NP_BG", "MIXED_NP"],
   ] as const;
 
   const tableRows = rows.map(([label, boldL, av, cv, tv, boldV, lBg, cBg, amtColor]) => {
-    const isSection = (amtColor as string) === "#BB984D";
-    const isMixedGP = (amtColor as string) === "MIXED_GP";
-    const borderTop = label === "Total Revenue" || label === "Total COGS" || label === "Gross Profit" ? "border-top:2px solid #BB984D;" : "";
+    const isSection  = (amtColor as string) === "#BB984D";
+    const isMixedGP  = (amtColor as string) === "MIXED_GP";
+    const isMixedNP  = (amtColor as string) === "MIXED_NP";
+    const isMixedBg  = (lBg as string) === "MIXED_NP_BG";
+    const borderTop  = ["Total Revenue","Total COGS","Gross Profit","Net Profit","Total Actual Costs"].includes(label as string) ? "border-top:2px solid #BB984D;" : "";
 
     if (isSection) {
       return `<tr>
-        <td colspan="4" style="padding:7px 16px;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#BB984D;background:#0A0A0A;${borderTop}">${label}</td>
+        <td colspan="4" style="padding:10px 20px;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#BB984D;background:#0A0A0A;${borderTop}">${label}</td>
       </tr>`;
     }
-    const aColor = isMixedGP ? gpFgA : (amtColor as string);
-    const cColor = isMixedGP ? gpFgC : (amtColor as string);
-    const tColor = isMixedGP ? gpFgT : (amtColor as string);
-    return `<tr>
-      ${labelCell(label as string, boldL as boolean, lBg as string)}
-      ${cell(av as string, boldV as boolean, aColor, cBg as string)}
-      ${cell(cv as string, boldV as boolean, cColor, cBg as string)}
-      ${cell(tv as string, boldV as boolean, tColor, cBg as string)}
+    const aColor = isMixedGP ? gpFgA : isMixedNP ? npFgA : (amtColor as string);
+    const cColor = isMixedGP ? gpFgC : isMixedNP ? npFgC : (amtColor as string);
+    const tColor = isMixedGP ? gpFgT : isMixedNP ? npFgT : (amtColor as string);
+    const aBg = isMixedBg ? npBgA : (cBg as string);
+    const cBg2 = isMixedBg ? npBgC : (cBg as string);
+    const tBg = isMixedBg ? npBgT : (cBg as string);
+    const lBgFinal = isMixedBg ? npBgT : (lBg as string);
+    return `<tr style="${borderTop}">
+      ${labelCell(label as string, boldL as boolean, lBgFinal)}
+      ${cell(av as string, boldV as boolean, aColor, aBg)}
+      ${cell(cv as string, boldV as boolean, cColor, cBg2)}
+      ${cell(tv as string, boldV as boolean, tColor, tBg)}
     </tr>`;
   }).join("");
 
@@ -369,10 +516,10 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
     <table style="margin-top:18px;">
       <thead>
         <tr>
-          <th style="padding:8px 16px;font-size:10px;font-weight:600;text-align:left;color:#888;border-bottom:2px solid #BB984D;background:#fff;width:40%;"></th>
-          <th style="padding:8px 14px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Current (Active)</th>
-          <th style="padding:8px 14px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Closed (Completed)</th>
-          <th style="padding:8px 14px;font-size:10px;font-weight:600;text-align:right;border-bottom:2px solid #BB984D;background:#0A0A0A;color:#BB984D;">Combined Total</th>
+          <th style="padding:10px 20px;font-size:10px;font-weight:600;text-align:left;color:#888;border-bottom:2px solid #BB984D;background:#fff;width:40%;"></th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Current (Active)</th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Closed (Completed)</th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;border-bottom:2px solid #BB984D;background:#0A0A0A;color:#BB984D;">Combined Total</th>
         </tr>
       </thead>
       <tbody>${tableRows}</tbody>
@@ -484,15 +631,18 @@ export function PLReport() {
       <div className="bg-[#1A1A1A] text-[#BB984D] text-xs font-bold px-5 py-2 tracking-wide">{label}</div>
       <table className="w-full text-sm">
         <tbody>
+          {/* ── Revenue ── */}
           <tr><td colSpan={2} className="pt-4 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Revenue</td></tr>
           <tr className="border-b border-dashed"><td className="py-2 pl-8 text-foreground">Material Sold</td><td className="py-2 text-right font-mono pr-4">{fmt(s.materialSold)}</td></tr>
           <tr className="border-b border-dashed"><td className="py-2 pl-8 text-foreground">Labor Sold</td><td className="py-2 text-right font-mono pr-4">{fmt(s.laborSold)}</td></tr>
           {s.otherSold > 0 && <tr className="border-b border-dashed"><td className="py-2 pl-8 text-foreground">Other (incl. BAD)</td><td className="py-2 text-right font-mono pr-4">{fmt(s.otherSold)}</td></tr>}
           <tr className="bg-muted/40 font-semibold border-t-2"><td className="py-2 pl-8">Total Revenue</td><td className="py-2 text-right font-mono pr-4">{fmt(t.rev)}</td></tr>
-          <tr><td colSpan={2} className="pt-5 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Cost of Goods Sold</td></tr>
+          {/* ── COGS ── */}
+          <tr><td colSpan={2} className="pt-5 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Cost of Goods Sold (Budgeted)</td></tr>
           <tr className="border-b border-dashed"><td className="py-2 pl-8">Material Costs</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(s.materialCosts)}</td></tr>
           <tr className="border-b border-dashed"><td className="py-2 pl-8">Labor Costs</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(s.laborCosts)}</td></tr>
           <tr className="bg-red-50 font-semibold border-t-2"><td className="py-2 pl-8 text-red-700">Total COGS</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(t.cost)}</td></tr>
+          {/* ── Gross Profit ── */}
           <tr className={`font-bold text-base border-t-2 border-b-2 ${t.gp >= 0 ? "bg-green-50" : "bg-red-50"}`}>
             <td className={`py-2.5 pl-8 ${t.gp >= 0 ? "text-green-700" : "text-red-700"}`}>Gross Profit</td>
             <td className={`py-2.5 text-right font-mono pr-4 ${t.gp >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(t.gp)}</td>
@@ -500,6 +650,22 @@ export function PLReport() {
           <tr>
             <td className="py-1.5 pl-8 text-muted-foreground text-sm">Gross Margin</td>
             <td className={`py-1.5 text-right font-mono font-semibold text-sm pr-4 ${t.margin >= 0 ? "text-green-600" : "text-red-600"}`}>{fmtPct(t.margin)}</td>
+          </tr>
+          {/* ── Accounts Receivable ── */}
+          <tr><td colSpan={2} className="pt-5 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Accounts Receivable</td></tr>
+          <tr className="border-b border-dashed"><td className="py-2 pl-8 text-foreground">Cash Collected (this period)</td><td className="py-2 text-right font-mono text-green-600 pr-4">{fmt(s.cashCollected)}</td></tr>
+          <tr className="border-b border-dashed"><td className="py-2 pl-8 text-foreground">Outstanding Balance</td><td className="py-2 text-right font-mono text-amber-600 pr-4">{fmt(s.outstandingBalance)}</td></tr>
+          {/* ── Actual Costs ── */}
+          <tr><td colSpan={2} className="pt-5 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Actual Costs (This Period)</td></tr>
+          <tr className="border-b border-dashed"><td className="py-2 pl-8">Actual Material Costs</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(s.actualMaterialCosts)}</td></tr>
+          <tr className="border-b border-dashed"><td className="py-2 pl-8">Actual Labor Costs</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(s.actualLaborCosts)}</td></tr>
+          <tr className="bg-red-50 font-semibold border-t-2"><td className="py-2 pl-8 text-red-700">Total Actual Costs</td><td className="py-2 text-right font-mono text-red-600 pr-4">{fmt(t.actualCost)}</td></tr>
+          {/* ── Net Profit ── */}
+          <tr><td colSpan={2} className="pt-5 pb-1.5 px-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Net Profit</td></tr>
+          <tr className="border-b border-dashed"><td className="py-2 pl-8">Commission Expense</td><td className="py-2 text-right font-mono text-red-600 pr-4">({fmt(s.commissions)})</td></tr>
+          <tr className={`font-bold text-base border-t-2 border-b-2 ${t.netProfit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
+            <td className={`py-2.5 pl-8 ${t.netProfit >= 0 ? "text-green-700" : "text-red-700"}`}>Net Profit</td>
+            <td className={`py-2.5 text-right font-mono pr-4 ${t.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(t.netProfit)}</td>
           </tr>
         </tbody>
       </table>

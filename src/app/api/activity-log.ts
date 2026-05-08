@@ -1,5 +1,17 @@
 import { supabase } from "@/lib/supabase";
 
+const attachPerformers = async (rows: any[]) => {
+  const ids = [...new Set(rows.map((r) => r.performed_by).filter(Boolean))];
+  if (ids.length === 0) return rows;
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, first_name, last_name, role")
+    .in("id", ids);
+  const map: Record<string, any> = {};
+  (profiles ?? []).forEach((p) => { map[p.id] = p; });
+  return rows.map((r) => ({ ...r, performer: r.performed_by ? (map[r.performed_by] ?? null) : null }));
+};
+
 export const activityLogAPI = {
   getByClient: async (clientId: string) => {
     const { data, error } = await supabase
@@ -8,7 +20,7 @@ export const activityLogAPI = {
       .eq("client_id", clientId)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data || [];
+    return attachPerformers(data || []);
   },
 
   getByProject: async (projectId: string) => {
@@ -18,7 +30,7 @@ export const activityLogAPI = {
       .eq("project_id", projectId)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data || [];
+    return attachPerformers(data || []);
   },
 
   create: async (log: {

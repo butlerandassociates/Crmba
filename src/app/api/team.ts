@@ -6,13 +6,11 @@
 import { supabase } from "@/lib/supabase";
 
 export const usersAPI = {
-  /** All active team members with their active project count */
-  getAll: async () => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("is_active", true)
-      .order("first_name");
+  /** All team members with their active project count. Pass includeInactive=true for admin pages. */
+  getAll: async (includeInactive = false) => {
+    let query = supabase.from("profiles").select("*").order("first_name");
+    if (!includeInactive) query = query.eq("is_active", true);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     const { data: projects } = await supabase
@@ -33,7 +31,7 @@ export const usersAPI = {
   getByRole: async (role: "project_manager" | "foreman" | "sales_rep" | "admin") => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, phone, email")
+      .select("id, first_name, last_name, phone, email, commission_rate, role")
       .eq("role", role)
       .eq("is_active", true)
       .order("first_name");
@@ -77,6 +75,7 @@ export const usersAPI = {
 
   /** Soft-deactivate — hides from team list and dropdowns, nulls out project assignments */
   deactivate: async (id: string) => {
+    const { data: { user: deactivatingUser } } = await supabase.auth.getUser();
     // Null out any project/FIO assignments so deleted users don't persist as ghost assignees
     await Promise.all([
       supabase.from("projects").update({ foreman_id: null }).eq("foreman_id", id),
@@ -86,7 +85,11 @@ export const usersAPI = {
     ]);
     const { data, error } = await supabase
       .from("profiles")
-      .update({ is_active: false })
+      .update({
+        is_active: false,
+        deactivated_at: new Date().toISOString(),
+        deactivated_by: deactivatingUser?.id ?? null,
+      })
       .eq("id", id)
       .select()
       .single();
@@ -94,25 +97,14 @@ export const usersAPI = {
     return data;
   },
 
-  /** Hard delete — nulls out assignments, cleans up profile-files storage */
+  /** Hard delete — nulls out assignments before deletion */
   delete: async (id: string) => {
-    // Null out any project/FIO assignments before deletion to prevent dangling references
     await Promise.all([
       supabase.from("projects").update({ foreman_id: null }).eq("foreman_id", id),
       supabase.from("projects").update({ project_manager_id: null }).eq("project_manager_id", id),
       supabase.from("projects").update({ sales_rep_id: null }).eq("sales_rep_id", id),
       supabase.from("field_installation_orders").update({ foreman_id: null }).eq("foreman_id", id),
     ]);
-    const { data: files } = await supabase
-      .from("profile_files")
-      .select("url")
-      .eq("profile_id", id);
-    if (files && files.length > 0) {
-      const paths = files
-        .map((f: any) => f.url?.split("/profile-files/")[1])
-        .filter(Boolean);
-      if (paths.length > 0) await supabase.storage.from("profile-files").remove(paths);
-    }
     const { error } = await supabase.from("profiles").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return { id };

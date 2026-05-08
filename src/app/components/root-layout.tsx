@@ -26,6 +26,7 @@ import {
   UserCheck,
   CalendarClock,
   Banknote,
+  Receipt,
   Briefcase,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
@@ -143,6 +144,7 @@ export function RootLayout() {
       const today = new Date().toISOString().split("T")[0];
       const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const cutoff3days = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const in3DaysStr = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
       // For PM/Sales Rep: fetch only their assigned client IDs so alerts are scoped
       let scopedClientIds: Set<string> | null = null;
@@ -156,7 +158,7 @@ export function RootLayout() {
         scopedClientIds = new Set((assigned ?? []).map((p: any) => p.client_id));
       }
 
-      const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes, docusignRes, budgetRes] = await Promise.all([
+      const [clientsRes, estimatesRes, paymentsRes, apptRes, foremanRes, docusignRes, budgetRes, startDateRes, fioProjectsRes, ghostPmRes, commissionPendingRes] = await Promise.all([
         supabase.from("clients").select("id, first_name, last_name, status, expected_close_date, created_at, appointment_scheduled").eq("is_discarded", false),
         supabase.from("estimates").select("client_id"),
         supabase.from("project_payments")
@@ -183,6 +185,24 @@ export function RootLayout() {
           .in("status", ["active", "sold"])
           .not("total_value", "is", null)
           .gt("total_value", 0),
+        // Projects with start_date within next 3 days (for FIO reminder)
+        supabase.from("projects")
+          .select("id, client_id, name, start_date, client:clients!projects_client_id_fkey(first_name, last_name, is_discarded)")
+          .in("status", ["sold", "active"])
+          .not("start_date", "is", null)
+          .gte("start_date", today)
+          .lte("start_date", in3DaysStr),
+        // All FIO project_ids to detect which upcoming projects already have one
+        supabase.from("field_installation_orders").select("project_id"),
+        // Active projects with an inactive PM assigned
+        supabase.from("projects")
+          .select("id, client_id, client:clients!projects_client_id_fkey(first_name, last_name, is_discarded), pm:profiles!projects_project_manager_id_fkey(first_name, last_name, is_active)")
+          .in("status", ["sold", "active"])
+          .not("project_manager_id", "is", null),
+        // Pending commission payments grouped by rep (admin only — who needs to be paid)
+        supabase.from("commission_payments")
+          .select("profile_id, amount, profile:profiles!commission_payments_profile_id_fkey(first_name, last_name)")
+          .eq("status", "pending"),
       ]);
       const clients = clientsRes.data ?? [];
       const proposalClientIds = new Set((estimatesRes.data ?? []).map((e: any) => e.client_id));
@@ -236,7 +256,7 @@ export function RootLayout() {
           id: `stale-${c.id}`, clientId: c.id,
           clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
           label: "Close Date Passed",
-          description: `Expected by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+          description: `Expected by ${new Date(c.expected_close_date.includes("T") ? c.expected_close_date : `${c.expected_close_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
           severity: "amber",
         });
       });
@@ -247,7 +267,7 @@ export function RootLayout() {
           id: `overdue-${p.id}-${today}`, clientId: p.project?.client_id ?? "",
           clientName: client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "—",
           label: "Payment Overdue",
-          description: `${p.label ?? "Payment"} — due ${new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+          description: `${p.label ?? "Payment"} — due ${new Date(p.due_date.includes("T") ? p.due_date : `${p.due_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
           severity: "red",
         });
       });
@@ -258,7 +278,7 @@ export function RootLayout() {
         .forEach((a: any) => {
           const c = a.client;
           const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
-          const apptDate = new Date(a.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const apptDate = new Date(a.appointment_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
           alerts.push({
             id: `appt-followup-${a.id}-${today}`,
             clientId: c.id,
@@ -275,7 +295,7 @@ export function RootLayout() {
         .forEach((a: any) => {
           const c = a.client;
           const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
-          const apptDate = new Date(a.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const apptDate = new Date(a.appointment_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
           alerts.push({
             id: `appt-scheduled-followup-${a.id}-${today}`,
             clientId: c.id,
@@ -310,7 +330,7 @@ export function RootLayout() {
 
       (docusignRes.data ?? []).forEach((c: any) => {
         const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
-        const sentDate = new Date(c.docusign_sent_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const sentDate = new Date(c.docusign_sent_date.includes("T") ? c.docusign_sent_date : `${c.docusign_sent_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
         alerts.push({
           id: `docusign-unsigned-${c.id}-${today}`,
           clientId: c.id,
@@ -341,6 +361,68 @@ export function RootLayout() {
             });
           }
         });
+
+      // Alert D: start date within 3 days with no FIO created yet
+      const fioProjectIds = new Set((fioProjectsRes.data ?? []).map((f: any) => f.project_id));
+      (startDateRes.data ?? [])
+        .filter((p: any) => !p.client?.is_discarded && !fioProjectIds.has(p.id))
+        .forEach((p: any) => {
+          const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "—";
+          const daysUntil = Math.ceil((new Date(p.start_date + "T00:00:00").getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+          alerts.push({
+            id: `start-date-no-fio-${p.id}`,
+            clientId: p.client_id ?? "",
+            clientName,
+            label: "FIO Not Created",
+            description: `Start date ${daysUntil <= 0 ? "today" : `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`} — no Field Installation Order yet`,
+            severity: daysUntil <= 1 ? "red" : "amber",
+          });
+        });
+
+      // Ghost PM alert: sold/active project with deactivated PM — admin only
+      if (role === "admin") {
+        (ghostPmRes.data ?? [])
+          .filter((p: any) => !p.client?.is_discarded && p.pm?.is_active === false)
+          .forEach((p: any) => {
+            const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "—";
+            const pmName = `${p.pm.first_name ?? ""} ${p.pm.last_name ?? ""}`.trim() || "PM";
+            alerts.push({
+              id: `ghost-pm-${p.id}`,
+              clientId: p.client_id ?? "",
+              clientName,
+              label: "Inactive PM Assigned",
+              description: `${pmName} is deactivated — reassign a PM to this job`,
+              severity: "red",
+            });
+          });
+      }
+
+      // Pending commission reminder: alert admin when any rep has unpaid pending commission
+      if (role === "admin") {
+        const commissionByRep = new Map<string, { name: string; total: number }>();
+        (commissionPendingRes.data ?? []).forEach((cp: any) => {
+          if (!cp.profile_id) return;
+          const existing = commissionByRep.get(cp.profile_id);
+          const name = cp.profile ? `${cp.profile.first_name ?? ""} ${cp.profile.last_name ?? ""}`.trim() : "Team Member";
+          commissionByRep.set(cp.profile_id, {
+            name,
+            total: (existing?.total ?? 0) + (Number(cp.amount) || 0),
+          });
+        });
+        const fmtComm = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+        commissionByRep.forEach((data, profileId) => {
+          if (data.total > 0) {
+            alerts.push({
+              id: `pending-commission-${profileId}`,
+              clientId: "",
+              clientName: data.name,
+              label: "Pending Commission",
+              description: `${data.name} has ${fmtComm(data.total)} in pending commission`,
+              severity: "amber",
+            });
+          }
+        });
+      }
 
       // Scope alerts to assigned clients for PM and Sales Rep
       const finalAlerts = scopedClientIds
@@ -375,7 +457,7 @@ export function RootLayout() {
   };
 
   useEffect(() => { fetchAlerts(); }, []);
-  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items"], "nav-alerts");
+  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items", "field_installation_orders", "profiles", "commission_payments"], "nav-alerts");
   useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
 
   // My Profile modal state
@@ -707,6 +789,12 @@ export function RootLayout() {
                     Payroll
                   </DropdownMenuItem>
                 )}
+                {can("can_view_cost_attributions") && (
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/cost-attributions")}>
+                    <Receipt className="mr-2 h-4 w-4" />
+                    Cost Attributions
+                  </DropdownMenuItem>
+                )}
                 {can("can_view_admin_portal") && (
                   <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("/admin")}>
                     <ShieldCheck className="mr-2 h-4 w-4" />
@@ -725,7 +813,7 @@ export function RootLayout() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className={`flex-1 ${location.pathname === "/cost-attributions" ? "overflow-hidden" : "overflow-auto"}`}>
         <Outlet />
       </main>
 

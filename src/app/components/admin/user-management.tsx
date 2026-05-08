@@ -5,9 +5,10 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound, Pencil } from "lucide-react";
+import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound, Pencil, UserX } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
+import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import {
   Dialog,
@@ -225,7 +226,7 @@ export function UserManagement() {
   const loadUsers = () => {
     setLoading(true);
     usersAPI
-      .getAll()
+      .getAll(true)
       .then(setUsers)
       .catch((e) => toast.error(e.message))
       .finally(() => setLoading(false));
@@ -309,6 +310,17 @@ export function UserManagement() {
   const [confirmUser, setConfirmUser] = useState<any | null>(null);
   const [resending, setResending] = useState<string | null>(null);
   const [updatingEmail, setUpdatingEmail] = useState<string | null>(null);
+
+  // Sales Rep deactivation with lead reassignment
+  const [salesRepDeactivateTarget, setSalesRepDeactivateTarget] = useState<any | null>(null);
+  const [salesRepOpenLeads, setSalesRepOpenLeads] = useState<any[]>([]);
+  const [salesRepReassignTo, setSalesRepReassignTo] = useState<string>("none");
+  const [deactivating, setDeactivating] = useState(false);
+
+  // PM deactivation with active-jobs warning
+  const [pmDeactivateTarget, setPmDeactivateTarget] = useState<any | null>(null);
+  const [pmActiveJobs, setPmActiveJobs] = useState<any[]>([]);
+  const [pmDeactivating, setPmDeactivating] = useState(false);
 
   const handleResendInvite = async (user: any) => {
     setResending(user.id);
@@ -414,11 +426,72 @@ export function UserManagement() {
     }
   };
 
+  const initPMDeactivate = async (user: any) => {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, name, status")
+      .eq("project_manager_id", user.id)
+      .in("status", ["sold", "active"]);
+    setPmActiveJobs(data ?? []);
+    setPmDeactivateTarget(user);
+  };
+
+  const confirmPMDeactivate = async () => {
+    if (!pmDeactivateTarget) return;
+    setPmDeactivating(true);
+    try {
+      await usersAPI.deactivate(pmDeactivateTarget.id);
+      toast.success(`${pmDeactivateTarget.first_name} deactivated.`);
+      setPmDeactivateTarget(null);
+      setPmActiveJobs([]);
+      loadUsers();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setPmDeactivating(false);
+    }
+  };
+
+  const initSalesRepDeactivate = async (user: any) => {
+    const { data } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name, company, status")
+      .eq("sales_rep_id", user.id)
+      .in("status", ["prospect", "scheduled", "selling"])
+      .eq("is_discarded", false);
+    setSalesRepOpenLeads(data ?? []);
+    setSalesRepReassignTo("none");
+    setSalesRepDeactivateTarget(user);
+  };
+
+  const confirmSalesRepDeactivate = async () => {
+    if (!salesRepDeactivateTarget) return;
+    setDeactivating(true);
+    try {
+      if (salesRepOpenLeads.length > 0) {
+        const leadIds = salesRepOpenLeads.map((c) => c.id);
+        await supabase
+          .from("clients")
+          .update({ sales_rep_id: salesRepReassignTo === "none" ? null : salesRepReassignTo })
+          .in("id", leadIds);
+      }
+      await usersAPI.deactivate(salesRepDeactivateTarget.id);
+      toast.success(`${salesRepDeactivateTarget.first_name} deactivated.`);
+      setSalesRepDeactivateTarget(null);
+      setSalesRepOpenLeads([]);
+      loadUsers();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
-      case "admin":           return "bg-purple-500";
+      case "admin":           return "bg-green-500";
       case "project_manager": return "bg-blue-500";
-      case "sales_rep":       return "bg-green-500";
+      case "sales_rep":       return "bg-purple-500";
       case "foreman":         return "bg-orange-500";
       default:                return "bg-gray-500";
     }
@@ -622,7 +695,9 @@ export function UserManagement() {
                       variant="outline"
                       size="sm"
                       className="flex-1"
-                      onClick={() => user.is_active ? setConfirmUser(user) : handleToggleActive(user)}
+                      onClick={() => user.is_active
+                      ? (user.role === "sales_rep" ? initSalesRepDeactivate(user) : user.role === "project_manager" ? initPMDeactivate(user) : setConfirmUser(user))
+                      : handleToggleActive(user)}
                     >
                       {user.is_active ? "Deactivate" : "Reactivate"}
                     </Button>
@@ -651,6 +726,129 @@ export function UserManagement() {
         </div>
       )}
 
+      {/* Sales Rep Deactivation — Reassignment Modal */}
+      <Dialog
+        open={!!salesRepDeactivateTarget}
+        onOpenChange={(open) => { if (!open) { setSalesRepDeactivateTarget(null); setSalesRepOpenLeads([]); } }}
+      >
+        <DialogContent style={{ maxWidth: 480 }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserX className="h-5 w-5 text-destructive" />
+              Deactivate {salesRepDeactivateTarget
+                ? `${salesRepDeactivateTarget.first_name ?? ""} ${salesRepDeactivateTarget.last_name ?? ""}`.trim()
+                : ""}?
+            </DialogTitle>
+            <DialogDescription>
+              {salesRepOpenLeads.length > 0
+                ? `This rep has ${salesRepOpenLeads.length} open lead${salesRepOpenLeads.length > 1 ? "s" : ""}. Choose who to reassign them to before deactivating.`
+                : "They will lose portal access immediately. This cannot be undone without reactivating."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {salesRepOpenLeads.length > 0 && (
+            <div className="px-6 space-y-4">
+              <div className="border rounded-lg divide-y max-h-44 overflow-y-auto">
+                {salesRepOpenLeads.map((c) => (
+                  <div key={c.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">
+                      {`${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || c.company || "—"}
+                    </span>
+                    <Badge variant="outline" className="text-xs shrink-0 capitalize">{c.status}</Badge>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Reassign open leads to</Label>
+                <Select value={salesRepReassignTo} onValueChange={setSalesRepReassignTo}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a rep" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Leave unassigned</SelectItem>
+                    {users
+                      .filter((u) => u.role === "sales_rep" && u.is_active && u.id !== salesRepDeactivateTarget?.id)
+                      .map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {`${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setSalesRepDeactivateTarget(null); setSalesRepOpenLeads([]); }} disabled={deactivating}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmSalesRepDeactivate}
+              disabled={deactivating}
+              className="min-w-[120px]"
+            >
+              {deactivating
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /><span>Deactivating…</span></>
+                : "Yes, Deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PM Deactivation — Active Jobs Warning */}
+      <Dialog
+        open={!!pmDeactivateTarget}
+        onOpenChange={(open) => { if (!open) { setPmDeactivateTarget(null); setPmActiveJobs([]); } }}
+      >
+        <DialogContent style={{ maxWidth: 480 }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserX className="h-5 w-5 text-destructive" />
+              Deactivate {pmDeactivateTarget
+                ? `${pmDeactivateTarget.first_name ?? ""} ${pmDeactivateTarget.last_name ?? ""}`.trim()
+                : ""}?
+            </DialogTitle>
+            <DialogDescription>
+              {pmActiveJobs.length > 0
+                ? `This PM has ${pmActiveJobs.length} active job${pmActiveJobs.length > 1 ? "s" : ""} still running. Jobs will remain assigned but flagged for reassignment.`
+                : "They will lose portal access immediately."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {pmActiveJobs.length > 0 && (
+            <div className="px-6">
+              <div className="border rounded-lg divide-y max-h-44 overflow-y-auto">
+                {pmActiveJobs.map((p) => (
+                  <div key={p.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">{p.name}</span>
+                    <Badge variant="outline" className="text-xs shrink-0 capitalize">{p.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setPmDeactivateTarget(null); setPmActiveJobs([]); }} disabled={pmDeactivating}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmPMDeactivate}
+              disabled={pmDeactivating}
+              className="min-w-[140px]"
+            >
+              {pmDeactivating
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /><span>Deactivating…</span></>
+                : pmActiveJobs.length > 0 ? "Proceed Anyway" : "Yes, Deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Deactivate Confirmation */}
       <AlertDialog open={!!confirmUser} onOpenChange={(open) => !open && setConfirmUser(null)}>
         <AlertDialogContent>
@@ -678,7 +876,15 @@ export function UserManagement() {
       <UserDetailModal
         user={selectedUser}
         onClose={() => setSelectedUser(null)}
-        onToggleActive={(u) => { if (u.is_active) { setSelectedUser(null); setConfirmUser(u); } else { handleToggleActive(u); setSelectedUser(null); } }}
+        onToggleActive={(u) => {
+          if (u.is_active) {
+            setSelectedUser(null);
+            if (u.role === "sales_rep") { initSalesRepDeactivate(u); } else if (u.role === "project_manager") { initPMDeactivate(u); } else { setConfirmUser(u); }
+          } else {
+            handleToggleActive(u);
+            setSelectedUser(null);
+          }
+        }}
         onResendInvite={(u) => { handleResendInvite(u); setSelectedUser(null); }}
         onUpdateUser={handleUpdateUser}
         resending={resending}

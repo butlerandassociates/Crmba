@@ -10,7 +10,7 @@ export const fioAPI = {
   getByProject: async (project_id: string) => {
     const { data, error } = await supabase
       .from("field_installation_orders")
-      .select(`*, items:field_installation_order_items(*), foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name, phone)`)
+      .select(`*, items:field_installation_order_items(*), foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name, phone, is_active)`)
       .eq("project_id", project_id)
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
@@ -40,7 +40,7 @@ export const fioAPI = {
   },
 
   /** Update FIO status or notes */
-  update: async (id: string, updates: { status?: string; foreman_id?: string; notes?: string; work_date?: string | null; approved_by?: string; approved_date?: string; paid_date?: string }) => {
+  update: async (id: string, updates: { status?: string; foreman_id?: string; notes?: string; work_date?: string | null; approved_by?: string; approved_date?: string; paid_date?: string; completed_by?: string | null; completed_at?: string | null }) => {
     const { data, error } = await supabase
       .from("field_installation_orders")
       .update({ ...updates, updated_at: new Date().toISOString() })

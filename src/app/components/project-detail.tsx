@@ -621,7 +621,10 @@ export function ProjectDetail() {
                       <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
                       <div>
                         <div className="text-xs text-muted-foreground">Project Manager</div>
-                        <div className="font-medium text-sm">{project.projectManagerName}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-sm">{project.projectManagerName}</span>
+                          {!project.projectManagerActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -633,7 +636,10 @@ export function ProjectDetail() {
                       <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
                       <div>
                         <div className="text-xs text-muted-foreground">Foreman</div>
-                        <div className="font-medium text-sm text-primary">{project.foremanName}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-sm text-primary">{project.foremanName}</span>
+                          {!project.foremanActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
+                        </div>
                         <div className="text-xs text-muted-foreground mt-0.5">Click to view payment breakdown</div>
                       </div>
                     </button>
@@ -643,7 +649,10 @@ export function ProjectDetail() {
                       <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
                       <div>
                         <div className="text-xs text-muted-foreground">Sales Rep</div>
-                        <div className="font-medium text-sm">{project.salesRepName}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-sm">{project.salesRepName}</span>
+                          {!project.salesRepActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
+                        </div>
                       </div>
                     </div>
                   )}

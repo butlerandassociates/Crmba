@@ -44,7 +44,7 @@ const formatCurrency = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
 export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave }: ChangeOrdersSheetProps) {
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
   const [view, setView] = useState<View>("list");
   const [cos, setCos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -429,7 +429,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
 
   const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
-    return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   const canSend = title.trim() && reason.trim() && items.some((i) => i.description.trim());
@@ -523,7 +523,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                                 <span className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
                                   {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
                                 </span>
-                                {co.status !== "merged" && (
+                                {role === "admin" && co.status !== "merged" && (
                                   <button
                                     className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
                                     title="Delete change order"
@@ -791,7 +791,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                     {downloading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
                     Export PDF
                   </Button>
-                  {selectedCo.status !== "merged" && (
+                  {role === "admin" && selectedCo.status !== "merged" && (
                     <Button
                       variant="outline"
                       size="sm"

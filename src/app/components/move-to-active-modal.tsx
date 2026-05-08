@@ -67,6 +67,9 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
     if (!canConfirm) return;
     setSaving(true);
     try {
+      const { data: { user: activeUser } } = await supabase.auth.getUser();
+      const activeNow = new Date().toISOString();
+
       // 1. Upload contract file (if manually uploaded)
       if (contractFile) {
         await photosAPI.upload(client.id, contractFile, "contract").catch(() => {});
@@ -88,11 +91,15 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
           name: projectName,
           status: "active",
           total_value: totalValue,
+          active_at: activeNow,
+          active_by: activeUser?.id ?? null,
         });
-        // Link estimate to this project if we have one
-        if (acceptedProposal?.id && resolvedProject?.id) {
-          await supabase.from("estimates").update({ project_id: resolvedProject.id }).eq("id", acceptedProposal.id);
-        }
+      } else {
+        await supabase.from("projects").update({
+          status: "active",
+          active_at: activeNow,
+          active_by: activeUser?.id ?? null,
+        }).eq("id", resolvedProject.id);
       }
 
       // 3b. Sync GP/margin/total from accepted proposal if project has no GP yet
@@ -205,7 +212,7 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
                   <p className="text-sm font-medium text-green-700">DocuSign contract signed</p>
                   {client.docusign_completed_date && (
                     <p className="text-xs text-green-600">
-                      Completed {new Date(client.docusign_completed_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      Completed {new Date(client.docusign_completed_date.includes("T") ? client.docusign_completed_date : `${client.docusign_completed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </p>
                   )}
                 </div>

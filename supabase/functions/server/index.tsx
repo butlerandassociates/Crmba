@@ -971,6 +971,19 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
         console.log(`Client updated to ${clientStatus} for envelope ${envelopeId}`);
       }
 
+      // Bell notification for declined or voided
+      if ((clientStatus === "declined" || clientStatus === "voided") && clientRow?.id) {
+        const clientName = `${clientRow.first_name ?? ""} ${clientRow.last_name ?? ""}`.trim();
+        const label = clientStatus === "declined" ? "Declined" : "Voided";
+        await supabase.from("notifications").insert({
+          type: `docusign_${clientStatus}`,
+          title: `DocuSign ${label}`,
+          message: `${clientName} ${clientStatus === "declined" ? "declined to sign" : "voided"} the contract`,
+          link: `/clients/${clientRow.id}`,
+          metadata: { client_id: clientRow.id, client_name: clientName, envelope_id: envelopeId },
+        });
+      }
+
       // Auto-upload signed PDF to client files when contract is completed
       if (clientStatus === "completed" && clientRow?.id) {
         try {

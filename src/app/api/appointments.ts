@@ -10,7 +10,7 @@ export const appointmentsAPI = {
   getByClient: async (client_id: string) => {
     const { data, error } = await supabase
       .from("appointments")
-      .select(`*, assigned_to_profile:profiles!assigned_to(first_name, last_name)`)
+      .select(`*, assigned_to_profile:profiles!assigned_to(first_name, last_name, role)`)
       .eq("client_id", client_id)
       .order("appointment_date", { ascending: false })
       .order("appointment_time", { ascending: false });

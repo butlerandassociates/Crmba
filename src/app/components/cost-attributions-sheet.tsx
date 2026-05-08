@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Upload, FileText, Loader2, Receipt } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Badge } from "./ui/badge";
 import { receiptsAPI } from "../api/receipts";
 import { activityLogAPI } from "../api/activity-log";
+import { usePermissions } from "../hooks/usePermissions";
 import { toast } from "sonner";
 
 interface CostAttributionsSheetProps {
@@ -20,9 +22,11 @@ interface CostAttributionsSheetProps {
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-const EMPTY = { name: "", amount: "", category: "material" as "material" | "labor", note: "" };
+const EMPTY = { name: "", amount: "", category: "material" as "material", note: "" };
 
 export function CostAttributionsSheet({ open, onOpenChange, client, project, onReceiptChange }: CostAttributionsSheetProps) {
+  const { can } = usePermissions();
+  const canEdit = can("can_edit_financials");
   const [receipts, setReceipts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY });
@@ -30,6 +34,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   const [isDragging, setIsDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadReceipts = async () => {
@@ -90,38 +95,28 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(o) => { if (!o) { setForm({ ...EMPTY }); setDroppedFile(null); } onOpenChange(o); }}>
       <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
         {/* Header */}
-        <SheetHeader className="px-6 py-4 border-b">
-          <SheetTitle className="text-base flex items-center gap-2">
-            <Receipt className="h-4 w-4" />
-            Cost Attributions
-          </SheetTitle>
-          <SheetDescription className="text-xs">
-            {client?.first_name} {client?.last_name} — actual material &amp; labor costs
-          </SheetDescription>
+        <SheetHeader className="px-6 py-4 border-b flex flex-row items-center justify-between pr-12">
+          <div>
+            <SheetTitle className="text-base flex items-center gap-2">
+              <Receipt className="h-4 w-4" />
+              Cost Attributions
+            </SheetTitle>
+            <SheetDescription className="text-xs mt-0.5">
+              {client?.first_name} {client?.last_name} — actual material costs
+            </SheetDescription>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-xs text-muted-foreground">Total</p>
+            <p className="font-bold text-lg">{fmt(totalMaterial + totalLabor)}</p>
+          </div>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-3 p-4 border-b bg-muted/30">
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">Materials</p>
-              <p className="font-bold text-base">{fmt(totalMaterial)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">Labor</p>
-              <p className="font-bold text-base">{fmt(totalLabor)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">Total Costs</p>
-              <p className="font-bold text-base">{fmt(totalMaterial + totalLabor)}</p>
-            </div>
-          </div>
-
-          {/* Add Receipt Form */}
-          <div className="p-4 border-b space-y-3">
+          {/* Add Receipt Form — admin only */}
+          {canEdit && <div className="p-4 border-b space-y-3 shrink-0">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add Receipt</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -136,14 +131,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Category</Label>
-                <select
-                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as any }))}
-                >
-                  <option value="material">Material</option>
-                  <option value="labor">Labor</option>
-                </select>
+                <div className="flex h-8 w-full items-center rounded-md border border-input bg-muted/40 px-2 text-sm text-muted-foreground">Material</div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Note</Label>
@@ -171,9 +159,10 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
               {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Plus className="h-4 w-4 mr-1.5" />}
               Add Receipt
             </Button>
-          </div>
+          </div>}
 
-          {/* Receipts list */}
+        {/* Receipts list — scrollable */}
+        <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-2">
             {loading ? (
               <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -199,15 +188,22 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
                         <FileText className="h-3 w-3" />{r.file_name || "Receipt"}
                       </a>
                     )}
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {r.uploader ? `${r.uploader.first_name ?? ""} ${r.uploader.last_name ?? ""}`.trim() : "Unknown"}{" · "}
+                      {new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{" "}
+                      {new Date(r.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                    </p>
                   </div>
                   <span className="font-semibold text-sm shrink-0">{fmt(r.amount)}</span>
-                  <button
-                    onClick={() => handleDelete(r)}
-                    disabled={deletingId === r.id}
-                    className="text-muted-foreground hover:text-destructive shrink-0"
-                  >
-                    {deletingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setDeleteTarget(r)}
+                      disabled={deletingId === r.id}
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                    >
+                      {deletingId === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -215,5 +211,26 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
         </div>
       </SheetContent>
     </Sheet>
+
+    <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Receipt</AlertDialogTitle>
+          <AlertDialogDescription>
+            Delete <span className="font-medium text-foreground">"{deleteTarget?.name}"</span> ({deleteTarget ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(deleteTarget.amount) : ""})? This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => { if (deleteTarget) { handleDelete(deleteTarget); setDeleteTarget(null); } }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil } from "lucide-react";
+import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
@@ -11,6 +11,7 @@ import { purchaseOrdersAPI } from "../api/purchase-orders";
 import { activityLogAPI } from "../api/activity-log";
 import { notificationsAPI } from "../utils/api";
 import { productsAPI } from "../api/products";
+import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -53,6 +54,7 @@ const emptyLine = (): MaterialLine => ({
 });
 
 export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSave }: PurchaseOrdersSheetProps) {
+  const { role } = usePermissions();
   const [view, setView] = useState<View>("list");
   const [pos, setPos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -61,6 +63,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const [isEditing, setIsEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // Form state
   const [supplierName, setSupplierName] = useState("");
@@ -239,6 +242,22 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     }
   };
 
+  const handleApprovePo = async () => {
+    if (!selectedPo?.id) return;
+    setApproving(true);
+    try {
+      const updated = await purchaseOrdersAPI.approve(selectedPo.id);
+      setSelectedPo((prev: any) => ({ ...prev, ...updated }));
+      setPos((prev) => prev.map((p) => p.id === selectedPo.id ? { ...p, ...updated } : p));
+      activityLogAPI.create({ client_id: client?.id, action_type: "po_status_updated", description: `Purchase order approved — supplier: ${selectedPo.supplier_name}` }).catch(() => {});
+      toast.success("Purchase order approved");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve purchase order");
+    } finally {
+      setApproving(false);
+    }
+  };
+
   const handleCreate = async (sendAfter = false) => {
     const newErrors: Record<string, string> = {};
 
@@ -336,7 +355,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
 
   const formatDate = (d: string | null | undefined) => {
     if (!d) return "—";
-    return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   const deliveryTimeLabel = (t: string) => {
@@ -786,9 +805,9 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
           {/* Footer */}
           {view === "detail" && selectedPo && (
             <div className="px-6 py-4 border-t flex justify-between gap-2">
-              {/* Delete side */}
+              {/* Delete side — admin only */}
               <div>
-                {!confirmDelete ? (
+                {role === "admin" && !confirmDelete && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -798,7 +817,8 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                     <Trash2 className="h-4 w-4 mr-1.5" />
                     Delete
                   </Button>
-                ) : (
+                )}
+                {role === "admin" && confirmDelete && (
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-destructive font-medium">Delete this PO?</span>
                     <Button
@@ -815,12 +835,31 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                   </div>
                 )}
               </div>
-              {/* Edit side */}
+              {/* Right side: Approve + Edit */}
               {!confirmDelete && (
-                <Button size="sm" onClick={() => handleEditPo(selectedPo)}>
-                  <Pencil className="h-4 w-4 mr-1.5" />
-                  Edit
-                </Button>
+                <div className="flex items-center gap-2">
+                  {selectedPo.approved_at ? (
+                    <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Approved {new Date(selectedPo.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={approving}
+                      onClick={handleApprovePo}
+                      className="border-green-400 text-green-700 hover:bg-green-50"
+                    >
+                      {approving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1.5" />}
+                      Approve
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => handleEditPo(selectedPo)}>
+                    <Pencil className="h-4 w-4 mr-1.5" />
+                    Edit
+                  </Button>
+                </div>
               )}
             </div>
           )}

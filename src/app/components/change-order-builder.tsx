@@ -99,9 +99,9 @@ export function ChangeOrderBuilder() {
           .maybeSingle();
         setProject(proj);
 
-        // If editing, load existing CO
+        // Load existing COs — if editing load by coId, else redirect to latest draft
+        const cos = await changeOrdersAPI.getByClient(clientId);
         if (coId) {
-          const cos = await changeOrdersAPI.getByClient(clientId);
           const co = cos.find((c: any) => c.id === coId);
           if (co) {
             setExistingCO(co);
@@ -120,6 +120,13 @@ export function ChangeOrderBuilder() {
                 total: i.total || 0,
               })));
             }
+          }
+        } else {
+          // No coId — check if a draft CO already exists and redirect to it
+          const draft = cos.find((c: any) => c.status === "draft");
+          if (draft) {
+            navigate(`/clients/${clientId}/change-order/${draft.id}`, { replace: true });
+            return;
           }
         }
       } catch (err) {
@@ -213,6 +220,8 @@ export function ChangeOrderBuilder() {
         reason: coDescription.trim(),
         timeline_impact: timelineImpact.trim(),
         status: "draft" as const,
+        approval_verified: approvalVerified,
+        approval_file_url: approvalFileUrl || undefined,
       };
       const coItems = items.map(i => ({
         category: i.category,
@@ -222,10 +231,19 @@ export function ChangeOrderBuilder() {
         total: Number(i.total),
       }));
       if (isEdit && existingCO) {
-        await changeOrdersAPI.update(existingCO.id, coData, coItems);
+        await changeOrdersAPI.update(existingCO.id, coData as any, coItems);
         toast.success("Change order updated.");
       } else {
-        await changeOrdersAPI.create(coData, coItems);
+        const created = await changeOrdersAPI.create(coData, coItems);
+        // Save approval fields on newly created CO then redirect to its edit URL
+        if (approvalFileUrl || approvalVerified) {
+          await supabase.from("change_orders").update({
+            approval_verified: approvalVerified,
+            approval_file_url: approvalFileUrl || null,
+          }).eq("id", created.id);
+        }
+        setExistingCO({ ...created, id: created.id });
+        navigate(`/clients/${clientId}/change-order/${created.id}`, { replace: true });
         toast.success("Change order saved as draft.");
       }
       activityLogAPI.create({
@@ -233,7 +251,6 @@ export function ChangeOrderBuilder() {
         action_type: "change_order_created",
         description: `Change order "${coTitle.trim()}" ${isEdit ? "updated" : "created"} — draft`,
       }).catch(() => {});
-      navigate(`/clients/${clientId}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to save — please try again.");
     } finally {

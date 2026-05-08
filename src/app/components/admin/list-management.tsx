@@ -6,6 +6,10 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock, FileSignature } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { SkeletonList } from "../ui/page-loader";
@@ -36,6 +40,7 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
   const [editTouched, setEditTouched] = useState(false);
   const [savingId, setSavingId]     = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [search, setSearch]         = useState("");
 
   const addError = addValue.trim().length === 0 ? "Name is required."
@@ -90,6 +95,22 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
   const filtered = items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
+    <>
+    <AlertDialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove "{confirmDelete?.name}"?</AlertDialogTitle>
+          <AlertDialogDescription>This will remove it from the list. This action cannot be undone.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => { if (confirmDelete) { handleDelete(confirmDelete.id, confirmDelete.name); setConfirmDelete(null); } }}
+          >Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <Card className="flex flex-col min-h-[340px]">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{title}</CardTitle>
@@ -174,7 +195,7 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
                     <Button size="icon" variant="ghost" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { setEditingId(item.id); setEditValue(item.name); }}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive" onClick={() => handleDelete(item.id, item.name)} disabled={deletingId === item.id}>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive" onClick={() => setConfirmDelete({ id: item.id, name: item.name })} disabled={deletingId === item.id}>
                       {deletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     </Button>
                   </>
@@ -185,6 +206,7 @@ function ListSection({ title, description, items, loading, onAdd, onEdit, onDele
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 
@@ -1189,6 +1211,7 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
   const [editTouched, setEditTouched]   = useState(false);
   const [savingZip, setSavingZip]       = useState<string | null>(null);
   const [deletingZip, setDeletingZip]   = useState<string | null>(null);
+  const [confirmDeleteZip, setConfirmDeleteZip] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   const handleAdd = async () => {
@@ -1226,6 +1249,27 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
   const editRateErr   = !editRate ? "Rate is required." : parseFloat(editRate) <= 0 ? "Must be greater than 0." : "";
 
   return (
+    <>
+    <AlertDialog open={!!confirmDeleteZip} onOpenChange={(o) => { if (!o) setConfirmDeleteZip(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove Zip {confirmDeleteZip}?</AlertDialogTitle>
+          <AlertDialogDescription>This will remove the tax rate for zip {confirmDeleteZip}. This cannot be undone.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => {
+              const zip = confirmDeleteZip!;
+              setConfirmDeleteZip(null);
+              setDeletingZip(zip);
+              onDelete(zip).then(() => toast.success(`Zip ${zip} removed.`)).catch((e) => toast.error(e.message)).finally(() => setDeletingZip(null));
+            }}
+          >Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <Card className="md:col-span-2 flex flex-col min-h-[340px]">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Sales Tax Rates by Zip Code</CardTitle>
@@ -1343,7 +1387,7 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
                     <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={() => { setEditingZip(item.zip_code); setEditCounty(item.county); setEditRate(String(item.total_rate)); setEditTouched(false); }}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={() => { setDeletingZip(item.zip_code); onDelete(item.zip_code).then(() => toast.success(`Zip ${item.zip_code} removed.`)).catch((e) => toast.error(e.message)).finally(() => setDeletingZip(null)); }} disabled={deletingZip === item.zip_code}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={() => setConfirmDeleteZip(item.zip_code)} disabled={deletingZip === item.zip_code}>
                       {deletingZip === item.zip_code ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     </Button>
                   </>
@@ -1354,6 +1398,7 @@ function ZipTaxSection({ items, loading, onAdd, onEdit, onDelete }: {
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 
@@ -1427,6 +1472,7 @@ function RolePermissionsCard({
   const [editRoleTouched, setEditRoleTouched] = useState(false);
   const [savingRoleId,  setSavingRoleId] = useState<string | null>(null);
   const [deletingRoleId,setDeletingRoleId] = useState<string | null>(null);
+  const [confirmDeleteRole, setConfirmDeleteRole] = useState<Role | null>(null);
 
   // Permissions CRUD state
   const [permSearch,   setPermSearch]    = useState("");
@@ -1442,6 +1488,7 @@ function RolePermissionsCard({
   const [editPermCat,  setEditPermCat]   = useState("");
   const [savingPermId, setSavingPermId]  = useState<string | null>(null);
   const [deletingPermId,setDeletingPermId] = useState<string | null>(null);
+  const [confirmDeletePerm, setConfirmDeletePerm] = useState<Permission | null>(null);
 
   // Load assigned permissions when role selected
   useEffect(() => {
@@ -1557,6 +1604,37 @@ function RolePermissionsCard({
   };
 
   return (
+    <>
+    <AlertDialog open={!!confirmDeleteRole} onOpenChange={(o) => { if (!o) setConfirmDeleteRole(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Role "{confirmDeleteRole?.label}"?</AlertDialogTitle>
+          <AlertDialogDescription>This will permanently delete this role. This cannot be undone.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => { if (confirmDeleteRole) { handleDeleteRole(confirmDeleteRole); setConfirmDeleteRole(null); } }}
+          >Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog open={!!confirmDeletePerm} onOpenChange={(o) => { if (!o) setConfirmDeletePerm(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Permission "{confirmDeletePerm?.label}"?</AlertDialogTitle>
+          <AlertDialogDescription>This will permanently delete this permission from all roles. This cannot be undone.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => { if (confirmDeletePerm) { handleDeletePerm(confirmDeletePerm); setConfirmDeletePerm(null); } }}
+          >Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <Card className="md:col-span-2 flex flex-col h-[560px]">
       <CardHeader className="pb-3 shrink-0">
         <CardTitle className="text-base flex items-center gap-2">
@@ -1643,7 +1721,7 @@ function RolePermissionsCard({
                         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); setEditRoleId(role.id); setEditRoleLabel(role.label); }}>
                           <Pencil className="h-3 w-3" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteRole(role); }} disabled={deletingRoleId === role.id}>
+                        <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); setConfirmDeleteRole(role); }} disabled={deletingRoleId === role.id}>
                           {deletingRoleId === role.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                         </Button>
                       </div>
@@ -1792,7 +1870,7 @@ function RolePermissionsCard({
                                 <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setEditPermId(perm.id); setEditPermKey(perm.key); setEditPermLabel(perm.label); setEditPermCat(perm.category); }}>
                                   <Pencil className="h-3 w-3" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeletePerm(perm)} disabled={deletingPermId === perm.id}>
+                                <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => setConfirmDeletePerm(perm)} disabled={deletingPermId === perm.id}>
                                   {deletingPermId === perm.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                                 </Button>
                               </div>
@@ -1816,6 +1894,7 @@ function RolePermissionsCard({
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }
 

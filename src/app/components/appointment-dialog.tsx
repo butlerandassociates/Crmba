@@ -52,6 +52,7 @@ export function AppointmentDialog({
   const [scheduling, setScheduling]           = useState(false);
   const [touched, setTouched]                 = useState(false);
   const [teamMembers, setTeamMembers]           = useState<any[]>([]);
+  const [salesRepIds, setSalesRepIds]           = useState<Set<string>>(new Set());
   const [assignedUserId, setAssignedUserId]     = useState("");
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
@@ -61,7 +62,10 @@ export function AppointmentDialog({
     Promise.all([
       usersAPI.getByRole("sales_rep"),
       usersAPI.getByRole("admin"),
-    ]).then(([reps, admins]) => setTeamMembers([...reps, ...admins])).catch(console.error);
+    ]).then(([reps, admins]) => {
+      setTeamMembers([...reps, ...admins]);
+      setSalesRepIds(new Set(reps.map((r: any) => r.id)));
+    }).catch(console.error);
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
     supabase.from("company_settings")
@@ -97,6 +101,13 @@ export function AppointmentDialog({
     const rawBody = apptType?.email_body?.trim() ||
       `Your {type} has been confirmed.\n\nDate: {date}\nTime: {time}\nLocation: {address}\n\nWe look forward to meeting with you!`;
     const body = Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), rawBody);
+    const isInitialAppointment = typeName.toLowerCase().includes("initial") && !client?.intake_form_completed;
+    const intakeFormBlock = isInitialAppointment ? `
+    <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:0 0 28px 0;background:#FAFAF8;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Before Your Appointment</p>
+      <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;line-height:1.6;margin:0 0 16px 0;">Please take a moment to complete our intake form — it helps us prepare and make the most of your time with us.</p>
+      <div style="text-align:center;"><a href="${INTAKE_FORM_URL}" target="_blank" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 24px;border-radius:4px;">Complete Intake Form →</a></div>
+    </div>` : "";
     return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet"/><style>::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.32)}*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}</style></head>
 <body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
@@ -110,11 +121,7 @@ export function AppointmentDialog({
   <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
     <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Message from Butler &amp; Associates</p>
     <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
-    <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:0 0 28px 0;background:#FAFAF8;">
-      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Before Your Appointment</p>
-      <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;line-height:1.6;margin:0 0 16px 0;">Please take a moment to complete our intake form — it helps us prepare and make the most of your time with us.</p>
-      <div style="text-align:center;"><a href="${INTAKE_FORM_URL}" target="_blank" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 24px;border-radius:4px;">Complete Intake Form →</a></div>
-    </div>
+    ${intakeFormBlock}
     <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
   </div>
   <div style="text-align:center;padding:20px 0 0 0;">
@@ -171,6 +178,11 @@ export function AppointmentDialog({
         google_event_html_link:   null,
         email_notification_sent:  false,
       });
+
+      // Save as official sales rep if assigned user is a sales rep
+      if (assignedUserId && salesRepIds.has(assignedUserId) && !client.sales_rep_id) {
+        clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
+      }
 
       // Log appointment scheduled
       activityLogAPI.create({
@@ -382,6 +394,17 @@ export function AppointmentDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">They will receive the calendar invite alongside the client.</p>
+            {(() => {
+              if (!assignedUserId || !salesRepIds.has(assignedUserId)) return null;
+              const rep = teamMembers.find((m) => m.id === assignedUserId);
+              if (!rep || rep.commission_rate !== 0) return null;
+              return (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span className="mt-0.5">⚠️</span>
+                  <span><strong>{rep.first_name} {rep.last_name}</strong> has no commission rate set — their commission won&apos;t be tracked on any deal until you add a rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium">Team settings</a>.</span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Client Email — read only, sourced from client record */}
@@ -595,17 +618,13 @@ export function AppointmentDialog({
             disabled={scheduling || !assignedUserId || !appointmentType || !selectedDate || !startTime || !endTime || calendarConnected === false || !client?.email || !!ccEmailsError}
             className="min-w-[180px]"
           >
-            {scheduling ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Scheduling...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <CalendarIcon className="h-4 w-4" />
-                Schedule & Send Invite
-              </span>
-            )}
+            <span className="flex items-center justify-center gap-2 whitespace-nowrap">
+              {scheduling ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Scheduling...</>
+              ) : (
+                <><CalendarIcon className="h-4 w-4" />Schedule &amp; Send Invite</>
+              )}
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

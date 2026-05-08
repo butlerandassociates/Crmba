@@ -84,6 +84,19 @@ export const purchaseOrdersAPI = {
     }
   },
 
+  /** Record admin approval — writes approved_by + approved_at */
+  approve: async (id: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("purchase_orders")
+      .update({ approved_by: user?.id ?? null, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
   /** Delete a PO */
   delete: async (id: string) => {
     const { error } = await supabase.from("purchase_orders").delete().eq("id", id);

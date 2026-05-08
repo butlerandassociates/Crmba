@@ -60,14 +60,14 @@ export function Payroll() {
     const { data: crewPayments } = await supabase
       .from("fio_crew_payments")
       .select(`
-        id, amount_paid, paid_at, notes,
+        id, amount_paid, created_at, notes,
         fio:field_installation_orders(
           id,
           project:projects(id, name, client:clients(first_name, last_name, is_discarded)),
           foreman:profiles!field_installation_orders_foreman_id_fkey(id, first_name, last_name)
         )
       `)
-      .order("paid_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(100);
 
     const commissionEntries = (commissions ?? [])
@@ -92,7 +92,7 @@ export function Payroll() {
       .map((p: any) => ({
         id: `crew-${p.id}`,
         type: "crew" as const,
-        date: p.paid_at,
+        date: p.created_at,
         amount: parseFloat(p.amount_paid) || 0,
         projectName: p.fio?.project?.name ?? "—",
         clientName: p.fio?.project?.client
@@ -391,8 +391,10 @@ export function Payroll() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-3">
                         <p className="font-semibold text-base">{name}</p>
-                        {pm.commission_rate && (
-                          <Badge variant="outline" className="text-xs">{pm.commission_rate}% rate</Badge>
+                        {pm.commission_rate != null && (
+                          <Badge variant="outline" className={`text-xs ${pm.commission_rate === 0 ? "border-red-300 bg-red-50 text-red-700" : "border-green-300 bg-green-50 text-green-700"}`}>
+                            {pm.commission_rate}% rate
+                          </Badge>
                         )}
                         {pendingCount > 0 && (
                           <Badge className="text-xs bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100">
@@ -474,7 +476,7 @@ export function Payroll() {
                           <p className="text-sm font-semibold text-green-600">{fmt(entry.amount)}</p>
                           <p className="text-xs text-muted-foreground">
                             {entry.date
-                              ? new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                              ? new Date(entry.date.includes("T") ? entry.date : `${entry.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                               : "—"}
                           </p>
                         </div>

@@ -39,6 +39,7 @@ export const projectPaymentsAPI = {
     notes?: string;
     due_date?: string;
     payment_method?: string;
+    is_deposit?: boolean;
   }) => {
     const { data, error } = await supabase
       .from("project_payments")
@@ -59,6 +60,8 @@ export const projectPaymentsAPI = {
     notes?: string;
     due_date?: string | null;
     payment_method?: string | null;
+    paid_by?: string | null;
+    is_deposit?: boolean;
   }) => {
     const { data, error } = await supabase
       .from("project_payments")

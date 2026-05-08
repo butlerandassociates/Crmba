@@ -23,7 +23,7 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
 
   const fmtDate = (d: string) =>
-    new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
   const items: any[] = co?.items || [];

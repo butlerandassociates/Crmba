@@ -21,9 +21,9 @@ import { toast } from "sonner";
 import { SkeletonTable } from "./ui/page-loader";
 
 const ROLE_CONFIG: Record<string, { label: string; color: string }> = {
-  sales_rep:       { label: "Sales Rep",       color: "bg-orange-500" },
+  sales_rep:       { label: "Sales Rep",       color: "bg-purple-500" },
   project_manager: { label: "Project Manager", color: "bg-blue-500"   },
-  foreman:         { label: "Foreman",         color: "bg-green-500"  },
+  foreman:         { label: "Foreman",         color: "bg-orange-500" },
 };
 
 // Sections shown on the team page in priority order (excludes admin)
@@ -86,59 +86,29 @@ export function Team() {
       if (editMember.role === "project_manager" || editMember.role === "sales_rep") {
         payload.commission_rate = editForm.commission_rate !== "" ? parseFloat(editForm.commission_rate) : null;
       }
-      await usersAPI.update(editMember.id, payload);
 
-      // If PM commission_rate changed, recalculate commission on all their sold/active projects
-      if (editMember.role === "project_manager" && payload.commission_rate != null) {
-        const newRate = payload.commission_rate as number;
-        const { data: pmProjects } = await supabase
+      // Block setting sales rep rate to 0 if they have active/sold projects with pending commissions
+      if (editMember.role === "sales_rep" && payload.commission_rate === 0) {
+        const { data: activeProjects } = await supabase
           .from("projects")
-          .select("id, total_value")
-          .eq("project_manager_id", editMember.id)
-          .in("status", ["sold", "active"]);
-        for (const proj of pmProjects ?? []) {
-          const newCommission = (proj.total_value || 0) * (newRate / 100);
-          await supabase.from("projects").update({ commission: newCommission, commission_rate: newRate }).eq("id", proj.id);
-          const { data: existing } = await supabase
-            .from("commission_payments")
-            .select("id, status")
-            .eq("project_id", proj.id)
-            .eq("profile_id", editMember.id)
-            .is("progress_payment_id", null)
-            .maybeSingle();
-          if (existing && existing.status === "pending") {
-            await supabase.from("commission_payments").update({ amount: newCommission }).eq("id", existing.id);
-          } else if (!existing) {
-            await supabase.from("commission_payments").insert({ project_id: proj.id, profile_id: editMember.id, amount: newCommission, status: "pending" });
-          }
-        }
-      }
-
-      // If Sales Rep commission_rate changed, recalculate on all their sold/active projects
-      if (editMember.role === "sales_rep" && payload.commission_rate != null) {
-        const newRate = payload.commission_rate as number;
-        const { data: repProjects } = await supabase
-          .from("projects")
-          .select("id, gross_profit")
+          .select("id")
           .eq("sales_rep_id", editMember.id)
           .in("status", ["sold", "active"]);
-        for (const proj of repProjects ?? []) {
-          const newCommission = (proj.gross_profit || 0) * (newRate / 100);
-          await supabase.from("projects").update({ sales_rep_commission: newCommission, sales_rep_commission_rate: newRate }).eq("id", proj.id);
-          const { data: existing } = await supabase
-            .from("commission_payments")
-            .select("id, status")
-            .eq("project_id", proj.id)
-            .eq("profile_id", editMember.id)
-            .is("progress_payment_id", null)
-            .maybeSingle();
-          if (existing && existing.status === "pending") {
-            await supabase.from("commission_payments").update({ amount: newCommission }).eq("id", existing.id);
-          } else if (!existing) {
-            await supabase.from("commission_payments").insert({ project_id: proj.id, profile_id: editMember.id, amount: newCommission, status: "pending" });
-          }
+        if ((activeProjects ?? []).length > 0) {
+          toast.error(`Cannot set commission to 0% — ${editMember.first_name} ${editMember.last_name} has active projects with unsettled commissions. Process their payroll first.`);
+          return;
         }
       }
+
+      await usersAPI.update(editMember.id, payload);
+
+      // PM rate change: do NOT retroactively recalculate existing projects.
+      // Each project has its own commission_rate locked at time of Move to Sold.
+      // The new profile rate only applies to future deals.
+
+      // Sales rep rate change: do NOT retroactively recalculate existing projects.
+      // Each project has its own sales_rep_commission_rate locked at time of Move to Sold.
+      // The new profile rate only applies to future deals.
 
       toast.success("Team member updated.");
       setEditMember(null);

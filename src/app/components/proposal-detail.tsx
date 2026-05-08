@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { formatCurrency } from "@/app/utils/format";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -31,6 +31,8 @@ import {
   X,
   Pencil,
   Paperclip,
+  RotateCcw,
+  Ban,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
@@ -54,12 +56,13 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { ProposalExport } from "./proposal-export";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { PageLoader, SkeletonCards } from "./ui/page-loader";
 
 export function ProposalDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -78,6 +81,7 @@ export function ProposalDetail() {
   // Editable fields
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [saveTouched, setSaveTouched] = useState(false);
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
@@ -140,8 +144,11 @@ export function ProposalDetail() {
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
   const [markingAccepted, setMarkingAccepted] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [attachProposalPdf, setAttachProposalPdf] = useState(true);
+  const [clientHasAcceptedProposal, setClientHasAcceptedProposal] = useState(false);
 
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
@@ -164,6 +171,13 @@ export function ProposalDetail() {
       setEditLineItems(est.line_items ?? []);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
+        supabase.from("estimates")
+          .select("id")
+          .eq("client_id", est.client_id)
+          .eq("status", "accepted")
+          .neq("id", est.id)
+          .limit(1)
+          .then(({ data }) => setClientHasAcceptedProposal((data ?? []).length > 0));
       }
     }).catch((err) => {
       console.error("proposal-detail getById error:", err);
@@ -204,13 +218,16 @@ export function ProposalDetail() {
     }).catch(console.error);
   }, ["estimates", "estimate_line_items"], "proposal-detail");
 
+  const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
   const computedSubtotal = isDirty
     ? editLineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.client_price)), 0)
     : (proposal?.subtotal ?? 0);
-  const activeBad = badOverride !== null ? badOverride : (proposal?.bad_amount ?? 0);
-  const computedTotal = isDirty
-    ? computedSubtotal + (proposal?.tax_amount ?? 0) + activeBad
-    : (proposal?.total ?? 0);
+  const badQualifyingSubtotal = editLineItems
+    .filter((item) => BAD_CATEGORIES.includes(item.category) || Number(item.labor_cost ?? 0) > 0)
+    .reduce((sum, item) => sum + Number(item.quantity) * Number(item.client_price), 0);
+  const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * 1.5 * 100) / 100;
+  const activeBad = badOverride !== null ? badOverride : (isDirty ? badPriceAuto : (proposal?.bad_amount ?? 0));
+  const computedTotal = computedSubtotal + activeBad + (proposal?.tax_amount ?? 0);
   const computedTotalCost = editLineItems.reduce(
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
@@ -299,8 +316,16 @@ export function ProposalDetail() {
     toast.success(`${wizardCategory} items updated`);
   };
 
+  const isLocked = proposal?.status === "accepted" || proposal?.status === "voided";
+
+  const titleErr = !editTitle.trim() ? "Proposal title is required." : "";
+  const itemsErr = editLineItems.length === 0 ? "Please add at least one line item." : "";
+  const totalErr = editLineItems.length > 0 && computedTotal <= 0 ? "Proposal total must be greater than $0." : "";
+
   const handleSave = async () => {
     if (!proposal) return;
+    setSaveTouched(true);
+    if (titleErr || itemsErr || totalErr) return;
     setSaving(true);
     try {
       await estimatesAPI.update(proposal.id, {
@@ -425,7 +450,7 @@ export function ProposalDetail() {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
+    return new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -664,10 +689,27 @@ export function ProposalDetail() {
     setMarkingAccepted(true);
     try {
       const now = new Date().toISOString();
+      const { data: { user: acceptedUser } } = await supabase.auth.getUser();
       await supabase.from("estimates").update({
         status: "accepted",
         accepted_at: now,
+        accepted_by: acceptedUser?.id ?? null,
       }).eq("id", proposal.id);
+
+      // Auto-void all draft/sent proposals for this client — client-declined stays as "declined"
+      const { data: voidedProposals } = await supabase.from("estimates")
+        .update({ status: "voided", voided_at: now })
+        .eq("client_id", proposal.client_id)
+        .neq("id", proposal.id)
+        .in("status", ["draft", "sent"])
+        .select("id, title, estimate_number");
+      (voidedProposals ?? []).forEach((vp: any) => {
+        activityLogAPI.create({
+          client_id: proposal.client_id,
+          action_type: "status_changed",
+          description: `Proposal ${vp.title} — voided by accepted proposal ${proposal.title}`,
+        }).catch(() => {});
+      });
 
       // Sync project financials from accepted proposal
       await supabase.from("projects").update({
@@ -694,6 +736,31 @@ export function ProposalDetail() {
       toast.error("Failed to update proposal status");
     } finally {
       setMarkingAccepted(false);
+    }
+  };
+
+  const handleRevertToDraft = async () => {
+    if (!proposal) return;
+    setReverting(true);
+    try {
+      await supabase.from("estimates").update({
+        status: "draft",
+        accepted_at: null,
+        accepted_by: null,
+        voided_at: null,
+      }).eq("id", proposal.id);
+      activityLogAPI.create({
+        client_id: proposal.client_id,
+        action_type: "proposal_created",
+        description: `Proposal reverted to draft by admin: "${proposal.title}"`,
+      }).catch(() => {});
+      setProposal({ ...proposal, status: "draft", accepted_at: null, accepted_by: null, voided_at: null });
+      setShowRevertDialog(false);
+      toast.success("Proposal reverted to draft");
+    } catch {
+      toast.error("Failed to revert proposal");
+    } finally {
+      setReverting(false);
     }
   };
 
@@ -974,52 +1041,111 @@ export function ProposalDetail() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button>
-                <Share2 className="h-4 w-4 mr-2" />
-                Export to Share
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Share Proposal</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {can("can_send_proposals") && (
-                <DropdownMenuItem onClick={handleEmail}>
-                  <Mail className="h-4 w-4 mr-2" />
-                  Email to Client
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={handleDownload}>
-                <Download className="h-4 w-4 mr-2" />
-                Download PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {proposal.status !== "accepted" && (
-            <Button
-              variant="outline"
-              onClick={handleMarkAccepted}
-              disabled={markingAccepted}
-              className="border-green-300 text-green-700 hover:bg-green-50"
-            >
-              {markingAccepted
-                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                : <CheckCircle2 className="h-4 w-4 mr-2" />}
-              Mark as Accepted
+          {proposal.status !== "voided" && (
+            <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
+              <Eye className="h-4 w-4 mr-2" />
+              Preview
             </Button>
           )}
 
-          <Button variant="outline" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-            Save
-          </Button>
+          {proposal.status !== "voided" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button>
+                  <Share2 className="h-4 w-4 mr-2" />
+                  Export to Share
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Share Proposal</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {can("can_send_proposals") && (
+                  proposal.status === "declined" && clientHasAcceptedProposal ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem disabled>
+                            <Mail className="h-4 w-4 mr-2 opacity-40" />
+                            <span className="opacity-40">Email to Client</span>
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>Another proposal is already accepted</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <DropdownMenuItem onClick={handleEmail}>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Email to Client
+                    </DropdownMenuItem>
+                  )
+                )}
+                <DropdownMenuItem onClick={handleDownload}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {!isLocked && (
+            proposal.status === "declined" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button variant="outline" disabled className="border-green-200 text-green-400 cursor-not-allowed">
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      Mark as Accepted
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {clientHasAcceptedProposal
+                    ? "Another proposal is already accepted"
+                    : "Reset to Sent first, then accept"}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={handleMarkAccepted}
+                disabled={markingAccepted}
+                className="border-green-300 text-green-700 hover:bg-green-50"
+              >
+                {markingAccepted
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                Mark as Accepted
+              </Button>
+            )
+          )}
+
+          {(proposal.status === "accepted" || proposal.status === "voided") && role === "admin" && (
+            proposal.status === "voided" && clientHasAcceptedProposal ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button variant="outline" disabled className="border-orange-300 text-orange-300 cursor-not-allowed">
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Revert to Draft
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Another proposal is already accepted</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button variant="outline" onClick={() => setShowRevertDialog(true)} className="border-orange-300 text-orange-700 hover:bg-orange-50">
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Revert to Draft
+              </Button>
+            )
+          )}
+
+          {!isLocked && (
+            <Button variant="outline" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              Save
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1058,7 +1184,7 @@ export function ProposalDetail() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-bold text-green-600">{formatCurrency(proposal.total)}</p>
+            <p className="text-xl font-bold text-green-600">{formatCurrency(computedTotal)}</p>
           </CardContent>
         </Card>
       </div>
@@ -1091,22 +1217,46 @@ export function ProposalDetail() {
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 text-xs"
-            onClick={async () => {
-              await supabase.from("estimates").update({
-                status: "sent",
-                declined_at: null,
-                decline_reason: null,
-              }).eq("id", proposal.id);
-              activityLogAPI.create({ client_id: proposal.client_id, action_type: "status_changed", description: `Proposal reset to Sent: "${proposal.title}" — previous decline reversed` }).catch(() => {});
-              setProposal({ ...proposal, status: "sent", declined_at: null, decline_reason: null });
-            }}
-          >
-            Reset to Sent
-          </Button>
+          {clientHasAcceptedProposal ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button variant="outline" size="sm" disabled className="shrink-0 text-xs cursor-not-allowed opacity-50">
+                    Reset to Sent
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Another proposal is already accepted</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 text-xs"
+              onClick={async () => {
+                await supabase.from("estimates").update({
+                  status: "sent",
+                  declined_at: null,
+                  decline_reason: null,
+                }).eq("id", proposal.id);
+                activityLogAPI.create({ client_id: proposal.client_id, action_type: "status_changed", description: `Proposal reset to Sent: "${proposal.title}" — previous decline reversed` }).catch(() => {});
+                setProposal({ ...proposal, status: "sent", declined_at: null, decline_reason: null });
+              }}
+            >
+              Reset to Sent
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Voided banner */}
+      {proposal.status === "voided" && (
+        <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+          <Ban className="h-5 w-5 text-gray-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-gray-600">Proposal Voided</p>
+            <p className="text-xs text-gray-500 mt-0.5">This proposal automatically voided when another proposal accepted.</p>
+          </div>
         </div>
       )}
 
@@ -1118,24 +1268,45 @@ export function ProposalDetail() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Title</Label>
-            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            {isLocked
+              ? <p className="text-sm font-medium">{editTitle}</p>
+              : <>
+                  <Label>Title <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className={saveTouched && titleErr ? "border-red-500" : ""}
+                  />
+                  {saveTouched && titleErr && <p className="text-xs text-red-500">{titleErr}</p>}
+                </>
+            }
           </div>
           <div className="space-y-2">
             <Label>Description</Label>
-            <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} />
+            {isLocked
+              ? <p className="text-sm text-muted-foreground">{editDescription || "—"}</p>
+              : <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} />
+            }
           </div>
         </CardContent>
       </Card>
 
       {/* Line Items */}
-      <Card>
+      <Card className={saveTouched && (itemsErr || totalErr) ? "border-red-500" : ""}>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Line Items</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => { setShowItemPicker(true); setPickerCategory(""); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Item
-          </Button>
+          {!isLocked && (
+            <Button variant="outline" size="sm" onClick={() => { setShowItemPicker(true); setPickerCategory(""); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Item
+            </Button>
+          )}
         </CardHeader>
+        {saveTouched && (itemsErr || totalErr) && (
+          <div className="px-6 pb-3">
+            <p className="text-xs text-red-500">{itemsErr || totalErr}</p>
+          </div>
+        )}
         <CardContent className="p-0">
           {(() => {
             // Group items by category
@@ -1164,13 +1335,13 @@ export function ProposalDetail() {
                     {Object.entries(groups).map(([cat, groupItems]) => {
                       const hasWizard = templates.some((t: any) => t.category === cat);
                       return (
-                        <>
+                        <Fragment key={cat}>
                           {/* Category header row */}
-                          <tr key={`cat-${cat}`} className="border-b border-t">
+                          <tr className="border-b border-t">
                             <td colSpan={8} className="px-4 py-2 bg-muted/30">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
-                                {hasWizard && (
+                                {hasWizard && !isLocked && (
                                   <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
                                     <Wand2 className="h-3.5 w-3.5" />
                                     Edit in Wizard
@@ -1187,7 +1358,7 @@ export function ProposalDetail() {
                             const materialCost = Number(item.material_cost ?? 0);
                             const markupPct = Number(item.markup_percent ?? 0);
                             return (
-                              <>
+                              <Fragment key={rowKey}>
                                 <tr key={rowKey} className="hover:bg-accent/50">
                                   <td className="p-3">
                                     <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
@@ -1196,28 +1367,18 @@ export function ProposalDetail() {
                                     )}
                                   </td>
                                   <td className="p-3">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      step="any"
-                                      value={item.fio_qty ?? 0}
-                                      placeholder="0"
-                                      onChange={(e) => {
-                                        const val = e.target.value === "" ? null : Number(e.target.value);
-                                        setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li));
-                                      }}
-                                      className="w-20"
-                                    />
+                                    {isLocked
+                                      ? <span className="text-sm text-muted-foreground w-20 block">{item.fio_qty ?? 0}</span>
+                                      : <Input type="number" min={0} step="any" value={item.fio_qty ?? 0} placeholder="0"
+                                          onChange={(e) => { const val = e.target.value === "" ? null : Number(e.target.value); setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, fio_qty: val } : li)); }}
+                                          className="w-20" />
+                                    }
                                   </td>
                                   <td className="p-3">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      step="any"
-                                      value={item.quantity}
-                                      onChange={(e) => updateQty(idx, Number(e.target.value))}
-                                      className="w-20"
-                                    />
+                                    {isLocked
+                                      ? <span className="text-sm w-20 block">{item.quantity}</span>
+                                      : <Input type="number" min={0} step="any" value={item.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-20" />
+                                    }
                                   </td>
                                   <td className="p-3 text-sm text-muted-foreground">{item.unit ?? ""}</td>
                                   <td className="p-3 text-sm">{formatCurrency(Number(item.client_price))}</td>
@@ -1239,9 +1400,11 @@ export function ProposalDetail() {
                                     </Button>
                                   </td>
                                   <td className="p-3">
-                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPendingDeleteIdx(idx)}>
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                    </Button>
+                                    {!isLocked && (
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPendingDeleteIdx(idx)}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                      </Button>
+                                    )}
                                   </td>
                                 </tr>
                                 {isExpanded && (
@@ -1265,16 +1428,16 @@ export function ProposalDetail() {
                                         <div className="h-3 w-px bg-border" />
                                         <div className="flex items-center gap-1.5">
                                           <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
-                                          <span className="font-semibold text-amber-600">{markupPct}%</span>
+                                          <span className="font-semibold text-amber-600">{parseFloat(markupPct.toFixed(2))}%</span>
                                         </div>
                                       </div>
                                     </td>
                                   </tr>
                                 )}
-                              </>
+                              </Fragment>
                             );
                           })}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -1793,6 +1956,25 @@ export function ProposalDetail() {
               }
             }}>
               Remove
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revert to Draft confirmation */}
+      <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Revert to Draft?</DialogTitle>
+            <DialogDescription>
+              This will unlock the proposal for editing and return it to draft status. If it was accepted, financials will no longer count until re-accepted. If it was voided, it will become an active draft again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 px-6 py-4">
+            <Button variant="outline" onClick={() => setShowRevertDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRevertToDraft} disabled={reverting}>
+              {reverting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Revert to Draft
             </Button>
           </div>
         </DialogContent>

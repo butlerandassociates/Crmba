@@ -161,8 +161,14 @@ export function Projects() {
               </td>
               <td className="p-3">
                 <div className="space-y-0.5 text-xs text-muted-foreground">
-                  <div>PM: {project.projectManagerName || "—"}</div>
-                  <div>FM: {project.foremanName || "—"}</div>
+                  <div className="flex items-center gap-1">
+                    <span>PM: {project.projectManagerName || "—"}</span>
+                    {project.projectManagerName && !project.projectManagerActive && <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-600 font-medium">Inactive</span>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>FM: {project.foremanName || "—"}</span>
+                    {project.foremanName && !project.foremanActive && <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-600 font-medium">Inactive</span>}
+                  </div>
                 </div>
               </td>
               <td className="p-3">

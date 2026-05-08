@@ -51,13 +51,14 @@ export const commissionPaymentsAPI = {
     profile_id: string,
     amount: number
   ) => {
-    // Check if already exists for this progress payment
+    // Dedup per (progress_payment_id, profile_id) — PM and Sales Rep each get their own row
     const { data: existing } = await supabase
       .from("commission_payments")
       .select("id")
       .eq("progress_payment_id", progress_payment_id)
+      .eq("profile_id", profile_id)
       .maybeSingle();
-    if (existing) return; // already created, skip
+    if (existing) return; // already created for this person, skip
 
     const { error } = await supabase
       .from("commission_payments")

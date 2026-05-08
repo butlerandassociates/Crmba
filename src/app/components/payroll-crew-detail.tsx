@@ -8,21 +8,34 @@ import { useParams, Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { ArrowLeft, CheckCircle2, Clock, Wrench, ClipboardList, Loader2 } from "lucide-react";
+import { Input } from "./ui/input";
+import { ArrowLeft, CheckCircle2, Clock, Wrench, ClipboardList, Loader2, Search } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonFIOCard } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { fioAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
 
-type FIOFilter = "all" | "pending" | "approved" | "paid";
+type FIOFilter = "all" | "draft" | "acknowledged" | "partial_paid" | "paid";
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  approved: "bg-blue-100 text-blue-700",
-  paid: "bg-green-100 text-green-700",
+  draft:        "bg-gray-100 text-gray-600",
+  sent:         "bg-blue-100 text-blue-700",
+  acknowledged: "bg-purple-100 text-purple-700",
+  partial_paid: "bg-amber-100 text-amber-700",
+  complete:     "bg-teal-100 text-teal-700",
+  paid:         "bg-green-100 text-green-700",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft:        "Draft",
+  sent:         "Sent",
+  acknowledged: "Acknowledged",
+  partial_paid: "Partial Paid",
+  complete:     "Complete",
+  paid:         "Paid",
 };
 
 export function PayrollCrewDetail() {
@@ -31,6 +44,7 @@ export function PayrollCrewDetail() {
   const [foreman, setForeman] = useState<any>(null);
   const [fios, setFios] = useState<any[]>([]);
   const [filter, setFilter] = useState<FIOFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,7 +57,7 @@ export function PayrollCrewDetail() {
     try {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("id, first_name, last_name, phone, email")
+        .select("id, first_name, last_name, phone, email, is_active")
         .eq("id", id!)
         .single();
       setForeman(profile);
@@ -65,31 +79,17 @@ export function PayrollCrewDetail() {
           (s: number, it: any) => s + (parseFloat(it.quantity) || 0) * (parseFloat(it.labor_cost_per_unit) || 0), 0
         );
         const totalPaid = (fio.payments || []).reduce((s: number, p: any) => s + (parseFloat(p.amount_paid) || 0), 0);
-        return { ...fio, totalLabor, totalPaid, remaining: Math.max(0, totalLabor - totalPaid) };
+        const remaining = Math.max(0, totalLabor - totalPaid);
+        // Derive status from payments if DB status is stale (pre-migration 057 records)
+        let effectiveStatus = fio.status;
+        if (effectiveStatus === "draft" && totalPaid > 0) {
+          effectiveStatus = remaining === 0 ? "paid" : "partial_paid";
+        }
+        return { ...fio, status: effectiveStatus, totalLabor, totalPaid, remaining };
       });
       setFios(mapped);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleApprove = async (fioId: string) => {
-    setActionLoading(fioId + "_approve");
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      await fioAPI.update(fioId, {
-        status: "approved",
-        approved_by: user?.id,
-        approved_date: new Date().toISOString().split("T")[0],
-      });
-      const fio = fios.find(f => f.id === fioId);
-      setFios(prev => prev.map(f => f.id === fioId ? { ...f, status: "approved" } : f));
-      activityLogAPI.create({ client_id: fio?.project?.client?.id, action_type: "fio_updated", description: `FIO approved — project: ${fio?.project?.name ?? ""}, foreman: ${foreman ? `${foreman.first_name} ${foreman.last_name}` : ""}` }).catch(() => {});
-      toast.success("FIO approved");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to approve");
-    } finally {
-      setActionLoading(null);
     }
   };
 
@@ -146,30 +146,51 @@ export function PayrollCrewDetail() {
   const totalPaid = fios.reduce((s, f) => s + f.totalPaid, 0);
   const totalRemaining = fios.reduce((s, f) => s + f.remaining, 0);
 
-  const filteredFIOs = filter === "all" ? fios : fios.filter(f => f.status === filter);
+  const statusFiltered = filter === "all" ? fios : fios.filter(f => f.status === filter);
+  const filteredFIOs = searchQuery.trim()
+    ? statusFiltered.filter(f => {
+        const q = searchQuery.toLowerCase();
+        const proj = (f.project?.name ?? "").toLowerCase();
+        const client = f.project?.client
+          ? `${f.project.client.first_name ?? ""} ${f.project.client.last_name ?? ""}`.trim().toLowerCase()
+          : "";
+        return proj.includes(q) || client.includes(q);
+      })
+    : statusFiltered;
 
   const filterCounts: Record<FIOFilter, number> = {
-    all: fios.length,
-    pending: fios.filter(f => f.status === "pending").length,
-    approved: fios.filter(f => f.status === "approved").length,
-    paid: fios.filter(f => f.status === "paid").length,
+    all:          fios.length,
+    draft:        fios.filter(f => f.status === "draft").length,
+    acknowledged: fios.filter(f => f.status === "acknowledged").length,
+    partial_paid: fios.filter(f => f.status === "partial_paid").length,
+    paid:         fios.filter(f => f.status === "paid").length,
   };
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
       {/* Back + Header */}
-      <div>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6">
         <Link to="/payroll" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3 no-underline">
           <ArrowLeft className="h-4 w-4" /> Back to Payroll
         </Link>
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">{name}</h1>
           <Badge variant="outline">Foreman</Badge>
+          {foreman.is_active === false && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
         </div>
         <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
           {foreman.phone && <span>{foreman.phone}</span>}
           {foreman.email && <span>{foreman.email}</span>}
+        </div>
+        <div className="relative mt-7">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search by project or client name…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 text-sm"
+          />
         </div>
       </div>
 
@@ -215,17 +236,17 @@ export function PayrollCrewDetail() {
 
       {/* Filter Tabs */}
       <div className="flex gap-2 border-b">
-        {(["all", "pending", "approved", "paid"] as FIOFilter[]).map((f) => (
+        {(["all", "draft", "acknowledged", "partial_paid", "paid"] as FIOFilter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors capitalize ${
+            className={`pb-3 px-3 text-sm font-medium border-b-2 transition-colors ${
               filter === f
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === "all" ? "All" : (STATUS_LABELS[f] ?? f)}
             <span className="ml-1.5 text-xs text-muted-foreground">({filterCounts[f]})</span>
           </button>
         ))}
@@ -246,7 +267,6 @@ export function PayrollCrewDetail() {
             const clientName = fio.project?.client
               ? `${fio.project.client.first_name ?? ""} ${fio.project.client.last_name ?? ""}`.trim()
               : "—";
-            const isApproving = actionLoading === fio.id + "_approve";
             const isMarkingPaid = actionLoading === fio.id + "_paid";
 
             return (
@@ -258,7 +278,7 @@ export function PayrollCrewDetail() {
                       <div className="flex items-center gap-2 mb-1">
                         <p className="font-semibold text-sm">{fio.project?.name ?? "—"}</p>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[fio.status] ?? "bg-gray-100 text-gray-600"}`}>
-                          {fio.status.charAt(0).toUpperCase() + fio.status.slice(1)}
+                          {STATUS_LABELS[fio.status] ?? fio.status}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -275,19 +295,8 @@ export function PayrollCrewDetail() {
                           View Client →
                         </Link>
                       )}
-                      {fio.status === "pending" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          disabled={isApproving}
-                          onClick={() => handleApprove(fio.id)}
-                        >
-                          {isApproving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                          Approve FIO
-                        </Button>
-                      )}
-                      {fio.status === "approved" && (
+                      {/* Mark as Paid — commented out; FIO modal owns this action
+                      {fio.status === "partial_paid" && fio.remaining === 0 && (
                         <Button
                           size="sm"
                           className="h-7 text-xs bg-green-600 hover:bg-green-700"
@@ -297,7 +306,7 @@ export function PayrollCrewDetail() {
                           {isMarkingPaid ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                           Mark as Paid
                         </Button>
-                      )}
+                      )} */}
                     </div>
                   </div>
 

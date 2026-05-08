@@ -11,7 +11,11 @@ CLAUDE.md
 session-notes.md
 TEST_CHECKLIST_APR25.md
 TEST-CHECKLIST-APR25.md
-
+FINAL-HANDOVER-CHECKLIST.md
+~$FLOW-TEST-CHECKLIST.xlsx
+FLOW-TEST-CHECKLIST.md
+FLOW-TEST-CHECKLIST.xlsx
+generate_checklist.py
 
 CRM_Test_Guide_Apr2026.docx
 generate_test_doc.py

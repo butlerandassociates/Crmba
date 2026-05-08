@@ -95,6 +95,14 @@ serve(async (req) => {
           description,
           created_at:  new Date().toISOString(),
         });
+        const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+        await supabase.from("notifications").insert({
+          type:     "email_bounced",
+          title:    "Email Bounced",
+          message:  `${clientName} — email to ${email} failed to deliver. Update their contact info.`,
+          link:     `/clients/${client.id}`,
+          metadata: { client_id: client.id, client_name: clientName, email, event_type: eventType },
+        });
         results.push({ email, logged: true, clientId: client.id });
       }
     }

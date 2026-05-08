@@ -10,7 +10,7 @@ export const filesAPI = {
   getByClient: async (client_id: string) => {
     const { data, error } = await supabase
       .from("client_files")
-      .select("*")
+      .select("*, uploader:profiles!client_files_user_id_fkey(first_name, last_name, role)")
       .eq("client_id", client_id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);

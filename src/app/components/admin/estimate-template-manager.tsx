@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -705,9 +705,9 @@ export function EstimateTemplateManager() {
                     </thead>
                     <tbody>
                       {editorSteps.map((step, stepIdx) => (
-                        <>
+                        <Fragment key={step.id ?? stepIdx}>
                           {/* Step header row */}
-                          <tr key={`step-${stepIdx}`} className="bg-muted/40 border-b border-t">
+                          <tr className="bg-muted/40 border-b border-t">
                             <td colSpan={8} className="px-3 py-1.5">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground shrink-0">Step {stepIdx + 1}</span>
@@ -772,10 +772,11 @@ export function EstimateTemplateManager() {
                               <td className="px-1.5 py-1.5 border-r">
                                 {(field.type === "radio" || field.type === "select") ? (
                                   <Input
-                                    value={Array.isArray(field.options) ? field.options.join(", ") : ""}
-                                    onChange={(e) =>
+                                    key={Array.isArray(field.options) ? field.options.join(",") : ""}
+                                    defaultValue={Array.isArray(field.options) ? field.options.join(", ") : ""}
+                                    onBlur={(e) =>
                                       updateField(stepIdx, fieldIdx, "options",
-                                        e.target.value.split(",").map((s: string) => s.trimStart()).filter(Boolean)
+                                        e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean)
                                       )
                                     }
                                     placeholder="Option 1, Option 2, Option 3"
@@ -807,14 +808,14 @@ export function EstimateTemplateManager() {
                           ))}
 
                           {/* Add question row */}
-                          <tr key={`add-${stepIdx}`} className="border-b bg-muted/10">
+                          <tr className="border-b bg-muted/10">
                             <td colSpan={8} className="px-3 py-1.5">
                               <Button variant="ghost" size="sm" onClick={() => addField(stepIdx)} className="h-7 text-xs text-muted-foreground hover:text-foreground">
                                 <Plus className="h-3 w-3 mr-1" /> Add Question to Step {stepIdx + 1}
                               </Button>
                             </td>
                           </tr>
-                        </>
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -862,7 +863,13 @@ export function EstimateTemplateManager() {
                           <td className="px-1.5 py-1.5 border-r">
                             <Select
                               value={rule.product_name || "_none"}
-                              onValueChange={(v) => updateRule(ruleIdx, "product_name", v === "_none" ? "" : v)}
+                              onValueChange={(v) => {
+                                const selected = dbProducts.find((p: any) => p.name === v);
+                                setEditorRules(editorRules.map((r, i) => i === ruleIdx
+                                  ? { ...r, product_name: v === "_none" ? "" : v, product_id: selected?.id ?? "" }
+                                  : r
+                                ));
+                              }}
                             >
                               <SelectTrigger className="h-8 text-xs border-0 shadow-none focus-visible:ring-1">
                                 <SelectValue placeholder="Select product" />
@@ -911,7 +918,12 @@ export function EstimateTemplateManager() {
                           <td className="px-1.5 py-1.5 border-r">
                             <Select
                               value={rule.conditional_field_id || "_none"}
-                              onValueChange={(v) => updateRule(ruleIdx, "conditional_field_id", v === "_none" ? "" : v)}
+                              onValueChange={(v) => {
+                                setEditorRules(editorRules.map((r, i) => i === ruleIdx
+                                  ? { ...r, conditional_field_id: v === "_none" ? "" : v, ...(v === "_none" ? { conditional_value: "" } : {}) }
+                                  : r
+                                ));
+                              }}
                             >
                               <SelectTrigger className="h-8 text-xs border-0 shadow-none focus-visible:ring-1">
                                 <SelectValue placeholder="Always" />

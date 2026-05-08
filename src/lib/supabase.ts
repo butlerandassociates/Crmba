@@ -8,6 +8,7 @@ export const supabase = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
     },
   }
 );
@@ -150,7 +151,7 @@ export interface EmailTemplate {
   updated_at: string;
 }
 
-export type EstimateStatus = "draft" | "saved" | "sent" | "accepted" | "declined";
+export type EstimateStatus = "draft" | "saved" | "sent" | "accepted" | "declined" | "voided";
 
 export interface Estimate {
   id: string;
@@ -170,6 +171,7 @@ export interface Estimate {
   sent_at: string | null;
   accepted_at: string | null;
   declined_at: string | null;
+  voided_at: string | null;
   created_at: string;
   updated_at: string;
   client?: Pick<Client, "first_name" | "last_name" | "email" | "phone" | "address" | "city" | "state" | "zip">;

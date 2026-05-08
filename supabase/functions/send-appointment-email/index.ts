@@ -228,12 +228,18 @@ serve(async (req) => {
 
     const typeName = apptType?.name ?? "Appointment";
 
-    // Check if this is the client's first appointment
-    const { count } = await supabaseClient
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("client_id", client_id);
-    const isFirstAppointment = (count ?? 0) <= 1;
+    // Show intake form only for Initial Appointment type AND client hasn't completed it yet
+    const isInitialType = typeName.toLowerCase().includes("initial");
+    let intakeFormCompleted = false;
+    if (isInitialType && client_id) {
+      const { data: clientData } = await supabaseClient
+        .from("clients")
+        .select("intake_form_completed")
+        .eq("id", client_id)
+        .maybeSingle();
+      intakeFormCompleted = clientData?.intake_form_completed ?? false;
+    }
+    const includeIntakeForm = isInitialType && !intakeFormCompleted;
 
     const intakeFormUrl = `${INTAKE_FORM_BASE}?entry.1284149011=${encodeURIComponent(client_id ?? "")}`;
 
@@ -256,7 +262,7 @@ serve(async (req) => {
       apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates",
       vars
     );
-    const html = buildHtml(bodyText, intakeFormUrl, isFirstAppointment);
+    const html = buildHtml(bodyText, intakeFormUrl, includeIntakeForm);
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",

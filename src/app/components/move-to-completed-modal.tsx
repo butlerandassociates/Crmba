@@ -8,7 +8,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
-import { Loader2, CheckCircle2, XCircle, DollarSign, HardHat, Camera, FileText, ClipboardCheck, Upload } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, DollarSign, HardHat, Camera, FileText, ClipboardCheck, Upload, AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { filesAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
@@ -43,6 +43,7 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
   });
   const [sitePhotoCount, setSitePhotoCount] = useState(0);
   const [uploading, setUploading]     = useState<Record<string, boolean>>({});
+  const [amberWarnings, setAmberWarnings] = useState<Array<{ id: string; label: string; detail: string }>>([]);
 
   const photoInputRef   = useRef<HTMLInputElement>(null);
   const certInputRef    = useRef<HTMLInputElement>(null);
@@ -55,7 +56,7 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
   const checkGates = async () => {
     setLoading(true);
     try {
-      const [paymentsRes, fioRes, filesRes] = await Promise.all([
+      const [paymentsRes, fioRes, filesRes, receiptsRes, estimateRes] = await Promise.all([
         supabase.from("project_payments")
           .select("id, is_paid, amount")
           .eq("client_id", client.id),
@@ -65,6 +66,14 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
         supabase.from("client_files")
           .select("id, file_type")
           .eq("client_id", client.id),
+        supabase.from("project_receipts")
+          .select("id, amount")
+          .eq("project_id", project.id),
+        supabase.from("estimates")
+          .select("id, line_items:estimate_line_items(fio_qty)")
+          .eq("client_id", client.id)
+          .eq("status", "accepted")
+          .maybeSingle(),
       ]);
 
       const payments = paymentsRes.data ?? [];
@@ -94,6 +103,35 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
         certificateUploaded:   files.some((f: any) => f.file_type === "certificate"),
         subcontractorUploaded: files.some((f: any) => f.file_type === "subcontractor"),
       });
+
+      // Amber warnings (informational only — do not block completion)
+      const warnings: Array<{ id: string; label: string; detail: string }> = [];
+
+      const proposalLaborFioQty = ((estimateRes.data as any)?.line_items ?? [])
+        .reduce((s: number, i: any) => s + (parseFloat(i.fio_qty) || 0), 0);
+      const fioAssignedQty = fios
+        .flatMap((fio: any) => fio.items ?? [])
+        .reduce((s: number, it: any) => s + (parseFloat(it.quantity) || 0), 0);
+
+      if (proposalLaborFioQty > 0 && fioAssignedQty < proposalLaborFioQty - 0.01) {
+        warnings.push({
+          id: "labor-gap",
+          label: "Labor not fully assigned to FIOs",
+          detail: `${fioAssignedQty.toFixed(1)} of ${proposalLaborFioQty.toFixed(1)} labor units assigned to a foreman`,
+        });
+      }
+
+      const receipts = receiptsRes.data ?? [];
+      if (receipts.length > 0) {
+        const total = receipts.reduce((s: number, r: any) => s + (parseFloat(r.amount) || 0), 0);
+        warnings.push({
+          id: "cost-attributions",
+          label: `${receipts.length} cost attribution${receipts.length > 1 ? "s" : ""} on record`,
+          detail: `Total: $${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — verify all costs are settled`,
+        });
+      }
+
+      setAmberWarnings(warnings);
     } catch (err) {
       console.error("Gate check failed:", err);
     } finally {
@@ -123,6 +161,8 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
     if (!allPassed) return;
     setSaving(true);
     try {
+      const { data: { user: completedUser } } = await supabase.auth.getUser();
+      const completedNow = new Date().toISOString();
       const { data: completedStage } = await supabase
         .from("pipeline_stages").select("id").ilike("name", "completed").maybeSingle();
       await supabase.from("clients").update({
@@ -130,7 +170,11 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
         ...(completedStage?.id ? { pipeline_stage_id: completedStage.id } : {}),
       }).eq("id", client.id);
       if (project?.id) {
-        await supabase.from("projects").update({ status: "completed" }).eq("id", project.id);
+        await supabase.from("projects").update({
+          status: "completed",
+          completed_at: completedNow,
+          completed_by: completedUser?.id ?? null,
+        }).eq("id", project.id);
       }
       await activityLogAPI.create({
         client_id: client.id,
@@ -266,6 +310,21 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
                 </div>
               );
             })
+          )}
+
+          {!loading && amberWarnings.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide px-1">Heads up</p>
+              {amberWarnings.map((w) => (
+                <div key={w.id} className="flex items-start gap-3 p-3 rounded-lg border bg-amber-50 border-amber-200">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">{w.label}</p>
+                    <p className="text-xs text-amber-700 mt-0.5">{w.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
 
           {!loading && !allPassed && (

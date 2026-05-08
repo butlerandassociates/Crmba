@@ -86,6 +86,7 @@ export function Financials() {
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0) + (p.salesRepCommission || 0), 0);
+  const totalNetProfit = totalProfit - totalCommissions;
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   // Monthly financial trends — sold + active + completed projects by created_at (last 6 months)
@@ -121,7 +122,7 @@ export function Financials() {
       </div>
 
       {/* Financial Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
@@ -163,6 +164,17 @@ export function Financials() {
           <CardContent>
             <div className="text-2xl font-bold">{avgProfitMargin.toFixed(1)}%</div>
             <p className="text-xs text-muted-foreground mt-1">Across all clients</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalNetProfit)}</div>
+            <p className="text-xs text-muted-foreground mt-1">GP minus all commissions</p>
           </CardContent>
         </Card>
       </div>
@@ -262,20 +274,22 @@ export function Financials() {
         const from  = fromDate ? new Date(fromDate + "T00:00:00") : null;
         const to    = toDate   ? new Date(toDate   + "T00:00:00") : null;
 
+        const parseDt = (d: string) => new Date(d.includes("T") ? d : `${d}T00:00:00`);
+
         // Outstanding (unpaid) — filter by due_date within range
         const outstanding = payments.filter((p) => {
-          const due = new Date(p.due_date); due.setHours(0,0,0,0);
+          const due = parseDt(p.due_date);
           if (from && due < from) return false;
           if (to   && due > to)   return false;
           return true;
         });
-        const overdue  = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d < today; });
-        const dueToday = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d.getTime() === today.getTime(); });
-        const upcoming = outstanding.filter((p) => { const d = new Date(p.due_date); d.setHours(0,0,0,0); return d > today; });
+        const overdue  = outstanding.filter((p) => parseDt(p.due_date) < today);
+        const dueToday = outstanding.filter((p) => parseDt(p.due_date).getTime() === today.getTime());
+        const upcoming = outstanding.filter((p) => parseDt(p.due_date) > today);
 
         // Collected (paid) — filter by paid_date within range
         const collected = paidPayments.filter((p) => {
-          const paid = new Date(p.paid_date); paid.setHours(0,0,0,0);
+          const paid = parseDt(p.paid_date);
           if (from && paid < from) return false;
           if (to   && paid > to)   return false;
           return true;
@@ -283,7 +297,7 @@ export function Financials() {
 
         const clientName = (p: any) => p.clients ? `${p.clients.first_name ?? ""} ${p.clients.last_name ?? ""}`.trim() : "—";
         const clientId   = (p: any) => p.client_id;
-        const fmtDate    = (d: string) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const fmtDate    = (d: string) => new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
         return (
           <Card>
@@ -353,7 +367,7 @@ export function Financials() {
                         </thead>
                         <tbody>
                           {outstanding.map((p) => {
-                            const due = new Date(p.due_date); due.setHours(0,0,0,0);
+                            const due = parseDt(p.due_date);
                             const isOverdue  = due < today;
                             const isDueToday = due.getTime() === today.getTime();
                             const diffDays   = Math.round((due.getTime() - today.getTime()) / 86400000);
@@ -459,10 +473,13 @@ export function Financials() {
                     <th className="text-right p-3 font-medium">Profit</th>
                     <th className="text-right p-3 font-medium">Margin</th>
                     <th className="text-right p-3 font-medium">Commission</th>
+                    <th className="text-right p-3 font-medium text-orange-600">Net Profit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {revenueProjects.map((project) => (
+                  {revenueProjects.map((project) => {
+                    const projectNetProfit = (project.grossProfit || 0) - (project.commission || 0) - (project.salesRepCommission || 0);
+                    return (
                     <tr key={project.id} className="border-b hover:bg-accent">
                       <td className="p-3">
                         <Link to={`/clients/${project.client?.id}`} className="hover:text-primary no-underline">
@@ -480,8 +497,10 @@ export function Financials() {
                       <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
                       <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
                       <td className="text-right p-3">{formatCurrency(project.commission  || 0)}</td>
+                      <td className="text-right p-3 font-medium text-orange-600">{formatCurrency(Math.max(0, projectNetProfit))}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot className="border-t-2">
                   <tr className="font-bold">
@@ -491,6 +510,7 @@ export function Financials() {
                     <td className="text-right p-3 text-green-600">{formatCurrency(totalProfit)}</td>
                     <td className="text-right p-3">{avgProfitMargin.toFixed(1)}%</td>
                     <td className="text-right p-3">{formatCurrency(totalCommissions)}</td>
+                    <td className="text-right p-3 text-orange-600">{formatCurrency(Math.max(0, totalNetProfit))}</td>
                   </tr>
                 </tfoot>
               </table>

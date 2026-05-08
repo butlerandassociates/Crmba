@@ -160,7 +160,7 @@ export function Pipeline() {
       clientId: c.id,
       clientName: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
       label: "Est. Close Date Passed",
-      description: `Expected to close by ${new Date(c.expected_close_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — update date & CP%`,
+      description: `Expected to close by ${new Date(c.expected_close_date.includes("T") ? c.expected_close_date : `${c.expected_close_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — update date & CP%`,
       severity: "amber" as const,
     })),
     ...overduePayments.map((pmt) => ({
@@ -170,7 +170,7 @@ export function Pipeline() {
         ? `${pmt.project.client.first_name ?? ""} ${pmt.project.client.last_name ?? ""}`.trim()
         : "—",
       label: "Payment Overdue",
-      description: `${pmt.label ?? "Payment"} — ${new Date(pmt.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      description: `${pmt.label ?? "Payment"} — ${new Date(pmt.due_date.includes("T") ? pmt.due_date : `${pmt.due_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
       severity: "red" as const,
     })),
   ];
@@ -311,7 +311,7 @@ export function Pipeline() {
                       {client.estimatedCloseDate && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Calendar className="h-3 w-3" />
-                          <span>Est: {new Date(client.estimatedCloseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          <span>Est: {new Date(client.estimatedCloseDate.includes("T") ? client.estimatedCloseDate : `${client.estimatedCloseDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                         </div>
                       )}
                     </div>
@@ -366,7 +366,7 @@ export function Pipeline() {
                       {client.contractSignedDate && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Calendar className="h-3 w-3" />
-                          <span>Signed: {new Date(client.contractSignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          <span>Signed: {new Date(client.contractSignedDate.includes("T") ? client.contractSignedDate : `${client.contractSignedDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                         </div>
                       )}
                     </div>
@@ -552,25 +552,29 @@ export function Pipeline() {
 
               <div className="space-y-2">
                 <div className="text-sm font-medium mb-2">Top Earners</div>
-                {salesReps.slice(0, 3).map((rep, idx) => {
-                  const repClients = soldClients.filter(c => c.salesRepId === rep.id);
-                  const commission = repClients.reduce((sum, c) => sum + ((c.totalRevenue || 0) * 0.05), 0);
-                  return (
+                {salesReps
+                  .map((rep) => {
+                    const repClients = soldClients.filter(c => c.salesRepId === rep.id);
+                    const commission = repClients.reduce((sum, c) => sum + ((c.totalRevenue || 0) * 0.05), 0);
+                    return { ...rep, commission };
+                  })
+                  .sort((a, b) => b.commission - a.commission)
+                  .slice(0, 3)
+                  .map((rep, idx) => (
                     <div key={rep.id} className="flex items-center justify-between p-2 bg-accent/50 rounded text-sm">
                       <div className="flex items-center gap-2">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                          idx === 0 ? 'bg-yellow-500 text-white' : 
-                          idx === 1 ? 'bg-gray-400 text-white' : 
+                          idx === 0 ? 'bg-yellow-500 text-white' :
+                          idx === 1 ? 'bg-gray-400 text-white' :
                           'bg-orange-600 text-white'
                         }`}>
                           {idx + 1}
                         </div>
                         <span>{rep.name}</span>
                       </div>
-                      <span className="font-semibold text-green-600">{formatCurrency(commission)}</span>
+                      <span className="font-semibold text-green-600">{formatCurrency(rep.commission)}</span>
                     </div>
-                  );
-                })}
+                  ))}
                 {salesReps.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
                     <Award className="h-7 w-7 mb-2 opacity-20" />
@@ -684,7 +688,7 @@ export function Pipeline() {
                         className="block text-xs text-blue-700 hover:opacity-75 no-underline"
                       >
                         • {client.name} - {formatCurrency(client.balanceDue || 0)} 
-                        {client.nextPaymentDate && ` - ${new Date(client.nextPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                        {client.nextPaymentDate && ` - ${new Date(client.nextPaymentDate.includes("T") ? client.nextPaymentDate : `${client.nextPaymentDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                       </Link>
                     ))}
                   </div>
@@ -705,7 +709,7 @@ export function Pipeline() {
                     <CheckCircle2 className="h-3 w-3 text-green-600 flex-shrink-0" />
                     <span className="text-muted-foreground">
                       <span className="font-medium text-foreground">{client.name}</span> contract signed
-                      {client.contractSignedDate && ` - ${new Date(client.contractSignedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                      {client.contractSignedDate && ` - ${new Date(client.contractSignedDate.includes("T") ? client.contractSignedDate : `${client.contractSignedDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                     </span>
                   </div>
                 ))}

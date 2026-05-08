@@ -40,6 +40,25 @@ export function PublicProposal() {
       status: "accepted",
       accepted_at: new Date().toISOString(),
     }).eq("id", id);
+    // Auto-void all draft/sent proposals for this client — only client-declined stays as "declined"
+    if (proposal?.client_id) {
+      supabase.from("estimates")
+        .update({ status: "voided", voided_at: new Date().toISOString() })
+        .eq("client_id", proposal.client_id)
+        .neq("id", id)
+        .in("status", ["draft", "sent"])
+        .select("id, title, estimate_number")
+        .then(({ data: voidedProposals }) => {
+          (voidedProposals ?? []).forEach((vp: any) => {
+            supabase.from("activity_log").insert({
+              client_id: proposal.client_id,
+              action_type: "status_changed",
+              description: `Proposal ${vp.title} — voided by accepted proposal ${proposal.title}`,
+              created_at: new Date().toISOString(),
+            }).then(() => {});
+          });
+        });
+    }
     const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
     supabase.from("notifications").insert({
       type: "proposal_accepted",
@@ -69,6 +88,7 @@ export function PublicProposal() {
       status: "declined",
       declined_at: new Date().toISOString(),
       decline_reason: declineReason.trim() || null,
+      declined_by: null,
     }).eq("id", id);
     const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
     supabase.from("notifications").insert({
@@ -103,9 +123,50 @@ export function PublicProposal() {
 
   if (!proposal) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#F5F3EF", fontFamily: "Inter, sans-serif" }}>
-        <p style={{ color: "#3A3A38" }}>Proposal not found.</p>
-      </div>
+      <>
+        <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+        <div style={{ minHeight: "100vh", background: "#F5F3EF", fontFamily: "Inter, sans-serif" }}>
+          <div style={{ background: "#0A0A0A" }}>
+            <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 32px", textAlign: "center" }}>
+              <img
+                src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
+                alt="Butler & Associates Construction"
+                style={{ height: 56, width: "auto", display: "block", margin: "0 auto 14px auto" }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+              <p style={{ color: "#BB984D", fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", margin: 0 }}>
+                Butler & Associates Construction, Inc.
+              </p>
+            </div>
+          </div>
+          <div style={{ height: 2, background: "linear-gradient(90deg, #BB984D, #8A7040)" }} />
+          <div style={{ maxWidth: 680, margin: "0 auto", padding: "80px 32px", textAlign: "center" }}>
+            <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#fff", border: "1px solid #e8e4dc", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px auto" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#BB984D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="9" y1="13" x2="15" y2="13"/>
+                <line x1="9" y1="17" x2="11" y2="17"/>
+              </svg>
+            </div>
+            <h2 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 30, fontWeight: 300, color: "#0A0A0A", margin: "0 0 10px 0" }}>Proposal Not Found</h2>
+            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#3A3A38", opacity: 0.65, lineHeight: 1.7, margin: "0 0 32px 0" }}>
+              This proposal link may have expired or is no longer available.<br />Please contact us if you believe this is an error.
+            </p>
+            <div style={{ borderTop: "1px solid #e8e4dc", paddingTop: 24 }}>
+              <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", opacity: 0.6, margin: "0 0 4px 0" }}>
+                Questions? Reach us at{" "}
+                <a href="mailto:info@butlerconstruction.co" style={{ color: "#BB984D", textDecoration: "none" }}>info@butlerconstruction.co</a>
+                {" "}or{" "}
+                <a href="tel:2566174691" style={{ color: "#BB984D", textDecoration: "none" }}>(256) 617-4691</a>
+              </p>
+              <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", opacity: 0.4, margin: "4px 0 0 0" }}>
+                6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
+              </p>
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -242,6 +303,9 @@ export function PublicProposal() {
                     {group.items.map((item: any, iIdx: number) => (
                       <div key={iIdx} style={{ padding: "8px 24px 8px 36px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
                         <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: 0, opacity: 0.6 }}>· {item.product_name ?? item.name}</p>
+                        {item.description && (
+                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", margin: "2px 0 0 10px", opacity: 0.45, lineHeight: 1.5 }}>{item.description}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -253,9 +317,14 @@ export function PublicProposal() {
                   {group.items.map((item: any, iIdx: number) => {
                     const lineTotal = item.total_price ?? (Number(item.quantity || 1) * Number(item.client_price || item.price_per_unit || 0));
                     return (
-                      <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
-                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}</p>
-                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 500, color: "#0A0A0A", margin: 0 }}>{formatCurrency(lineTotal)}</p>
+                      <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "14px 24px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
+                        <div>
+                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}</p>
+                          {item.description && (
+                            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p>
+                          )}
+                        </div>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 500, color: "#0A0A0A", margin: 0, flexShrink: 0, paddingLeft: 16 }}>{formatCurrency(lineTotal)}</p>
                       </div>
                     );
                   })}

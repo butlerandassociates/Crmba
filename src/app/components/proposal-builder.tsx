@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link, useNavigate } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -683,9 +683,9 @@ export function ProposalBuilder() {
                   </thead>
                   <tbody>
                     {Object.entries(groupedLineItems).map(([category, items]) => (
-                      <>
+                      <Fragment key={category}>
                         {/* Category section header */}
-                        <tr key={`cat-${category}`} className="bg-slate-100/80 border-y border-slate-200">
+                        <tr className="bg-slate-100/80 border-y border-slate-200">
                           <td colSpan={8} className="px-6 py-2.5">
                             <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{category}</span>
                           </td>
@@ -693,7 +693,7 @@ export function ProposalBuilder() {
                         {items.map((item) => {
                           const isExpanded = expandedRows.has(item.id);
                           return (
-                            <>
+                            <Fragment key={item.id}>
                               <tr key={item.id} className="border-b border-slate-100 hover:bg-primary/5 transition-colors group">
                                 <td className="px-6 py-4">
                                   <div className="font-semibold text-sm">{item.productName}</div>
@@ -721,7 +721,7 @@ export function ProposalBuilder() {
                                 <td className="px-4 py-4">
                                   <Input
                                     type="number"
-                                    value={item.pricePerUnit}
+                                    value={parseFloat(item.pricePerUnit.toFixed(2))}
                                     onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
                                     className="h-9 text-sm text-right w-32 ml-auto"
                                   />
@@ -773,16 +773,16 @@ export function ProposalBuilder() {
                                       <div className="h-3 w-px bg-border" />
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
-                                        <span className="font-semibold text-amber-600">{item.markupPercent}%</span>
+                                        <span className="font-semibold text-amber-600">{parseFloat(item.markupPercent.toFixed(2))}%</span>
                                       </div>
                                     </div>
                                   </td>
                                 </tr>
                               )}
-                            </>
+                            </Fragment>
                           );
                         })}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

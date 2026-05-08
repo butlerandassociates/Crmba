@@ -90,9 +90,11 @@ export function EditProjectDialog({
   const profileName = (p: any) =>
     `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
 
-  const nameErr   = !form.name.trim() ? "Project name is required." : form.name.trim().length < 2 ? "Min 2 characters." : "";
-  const clientErr = !form.client_id ? "Please select a client." : "";
-  const dateErr   = form.start_date && form.end_date && form.end_date < form.start_date ? "End date must be after start date." : "";
+  const nameErr      = !form.name.trim() ? "Project name is required." : form.name.trim().length < 2 ? "Min 2 characters." : "";
+  const clientErr    = !form.client_id ? "Please select a client." : "";
+  const dateErr      = form.start_date && form.end_date && form.end_date < form.start_date ? "End date must be after start date." : "";
+  const pmHasNoRate  = !!(form.project_manager_id && form.project_manager_id !== "none" && projectManagers.find((p) => p.id === form.project_manager_id)?.commission_rate === 0);
+  const repHasNoRate = !!(form.sales_rep_id && form.sales_rep_id !== "none" && salesReps.find((p) => p.id === form.sales_rep_id)?.commission_rate === 0);
 
   const handleSave = async () => {
     setTouched(true);
@@ -101,12 +103,19 @@ export function EditProjectDialog({
     setLoading(true);
     setError("");
     try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const assignNow = new Date().toISOString();
+
       const newValue = form.total_value ? parseFloat(form.total_value) : 0;
       const oldValue = project.total_value ?? 0;
 
       const newPmId = (form.project_manager_id && form.project_manager_id !== "none") ? form.project_manager_id : null;
       const oldPmId = project.project_manager_id ?? null;
       const pmChanged = newPmId !== oldPmId;
+
+      const newForemanId = (form.foreman_id && form.foreman_id !== "none") ? form.foreman_id : null;
+      const oldForemanId = project.foreman_id ?? null;
+      const foremanChanged = newForemanId !== oldForemanId;
 
       const newRepId = (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null;
       const oldRepId = project.sales_rep_id ?? null;
@@ -212,6 +221,31 @@ export function EditProjectDialog({
         }
       }
 
+      if (repChanged && ["sold", "active"].includes(project.status)) {
+        toast.warning("Commission was calculated for the original rep. Are you sure you meant to change this?");
+      }
+
+      // Record team assignment changes in history table (fire-and-forget)
+      const teamChanges: { role: string; oldId: string | null; newId: string | null }[] = [];
+      if (pmChanged) teamChanges.push({ role: "pm", oldId: oldPmId, newId: newPmId });
+      if (foremanChanged) teamChanges.push({ role: "foreman", oldId: oldForemanId, newId: newForemanId });
+      if (repChanged) teamChanges.push({ role: "sales_rep", oldId: oldRepId, newId: newRepId });
+      for (const change of teamChanges) {
+        if (change.oldId) {
+          void Promise.resolve(
+            supabase.from("project_team_assignments")
+              .update({ unassigned_at: assignNow, unassigned_by: currentUser?.id ?? null })
+              .eq("project_id", project.id).eq("role", change.role).is("unassigned_at", null)
+          ).catch(() => {});
+        }
+        if (change.newId) {
+          void Promise.resolve(
+            supabase.from("project_team_assignments")
+              .insert({ project_id: project.id, client_id: form.client_id, role: change.role, profile_id: change.newId, assigned_at: assignNow, assigned_by: currentUser?.id ?? null })
+          ).catch(() => {});
+        }
+      }
+
       onOpenChange(false);
       onSaved();
     } catch (err: any) {
@@ -300,43 +334,89 @@ export function EditProjectDialog({
           <div className="space-y-3">
             <Label className="text-sm font-semibold">Team</Label>
 
+            {/* PM — always editable; frozen only on completed */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Project Manager</Label>
-              <Select value={form.project_manager_id || "none"} onValueChange={(v) => set("project_manager_id", v)}>
-                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {projectManagers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {project.status === "completed" ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                  <span className="text-sm font-medium">{projectManagers.find((p) => p.id === form.project_manager_id) ? profileName(projectManagers.find((p) => p.id === form.project_manager_id)) : "—"}</span>
+                  <span className="inline-flex items-center rounded-full border border-muted-foreground/30 px-1.5 py-0 text-[10px] text-muted-foreground">Locked</span>
+                </div>
+              ) : (
+                <>
+                  <Select value={form.project_manager_id || "none"} onValueChange={(v) => set("project_manager_id", v)}>
+                    <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— None —</SelectItem>
+                      {projectManagers.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {pmHasNoRate && (() => {
+                    const pm = projectManagers.find((p) => p.id === form.project_manager_id);
+                    return (
+                      <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                        <span className="mt-0.5">🚫</span>
+                        <span><strong>{pm?.first_name} {pm?.last_name}</strong> has no commission rate set. Add their rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium text-red-800">Team settings</a> before saving.</span>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </div>
 
+            {/* Foreman — always editable; frozen only on completed */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Foreman</Label>
-              <Select value={form.foreman_id || "none"} onValueChange={(v) => set("foreman_id", v)}>
-                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {foremen.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {project.status === "completed" ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                  <span className="text-sm font-medium">{foremen.find((p) => p.id === form.foreman_id) ? profileName(foremen.find((p) => p.id === form.foreman_id)) : "—"}</span>
+                  <span className="inline-flex items-center rounded-full border border-muted-foreground/30 px-1.5 py-0 text-[10px] text-muted-foreground">Locked</span>
+                </div>
+              ) : (
+                <Select value={form.foreman_id || "none"} onValueChange={(v) => set("foreman_id", v)}>
+                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    {foremen.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
+            {/* Sales Rep — editable at any stage; warning toast after Sold; frozen only on completed */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Sales Rep</Label>
-              <Select value={form.sales_rep_id || "none"} onValueChange={(v) => set("sales_rep_id", v)}>
-                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {salesReps.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {project.status === "completed" ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                  <span className="text-sm font-medium">{salesReps.find((p) => p.id === form.sales_rep_id) ? profileName(salesReps.find((p) => p.id === form.sales_rep_id)) : "—"}</span>
+                  <span className="inline-flex items-center rounded-full border border-muted-foreground/30 px-1.5 py-0 text-[10px] text-muted-foreground">Locked</span>
+                </div>
+              ) : (
+                <>
+                  <Select value={form.sales_rep_id || "none"} onValueChange={(v) => set("sales_rep_id", v)}>
+                    <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— None —</SelectItem>
+                      {salesReps.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{profileName(p)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {repHasNoRate && (() => {
+                    const rep = salesReps.find((p) => p.id === form.sales_rep_id);
+                    return (
+                      <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                        <span className="mt-0.5">🚫</span>
+                        <span><strong>{rep?.first_name} {rep?.last_name}</strong> has no commission rate set. Add their rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium text-red-800">Team settings</a> before saving.</span>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </div>
           </div>
 
@@ -357,7 +437,7 @@ export function EditProjectDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={loading}>
+          <Button onClick={handleSave} disabled={loading || pmHasNoRate || repHasNoRate}>
             {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
           </Button>
         </DialogFooter>

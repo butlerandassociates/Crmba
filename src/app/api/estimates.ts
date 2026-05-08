@@ -101,6 +101,7 @@ export const estimatesAPI = {
     if (status === "sent")     updates.sent_at     = new Date().toISOString();
     if (status === "accepted") updates.accepted_at = new Date().toISOString();
     if (status === "declined") updates.declined_at = new Date().toISOString();
+    if (status === "voided")   updates.voided_at   = new Date().toISOString();
     const { data, error } = await supabase
       .from("estimates")
       .update(updates)

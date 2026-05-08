@@ -423,12 +423,17 @@ export function PipelineForecast() {
 
               <div className="space-y-2">
                 <div className="text-sm font-medium mb-2">Top Earners</div>
-                {salesReps.slice(0, 3).map((rep, idx) => {
-                  const repProjects = projects.filter(
-                    (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
-                  );
-                  const commission = repProjects.reduce((s, p) => s + (p.commission ?? 0), 0);
-                  return (
+                {salesReps
+                  .map((rep) => {
+                    const repProjects = projects.filter(
+                      (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
+                    );
+                    const commission = repProjects.reduce((s, p) => s + (p.commission ?? 0), 0);
+                    return { ...rep, commission };
+                  })
+                  .sort((a, b) => b.commission - a.commission)
+                  .slice(0, 3)
+                  .map((rep, idx) => (
                     <div key={rep.id} className="flex items-center justify-between p-2 bg-accent/50 rounded text-sm">
                       <div className="flex items-center gap-2">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
@@ -440,10 +445,9 @@ export function PipelineForecast() {
                         </div>
                         <span>{`${rep.first_name ?? ""} ${rep.last_name ?? ""}`.trim() || rep.email}</span>
                       </div>
-                      <span className="font-semibold text-green-600">{formatCurrency(commission)}</span>
+                      <span className="font-semibold text-green-600">{formatCurrency(rep.commission)}</span>
                     </div>
-                  );
-                })}
+                  ))}
                 {salesReps.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-8">
                     <Award className="h-8 w-8 mb-2 opacity-20" />
@@ -635,7 +639,7 @@ export function PipelineForecast() {
                         <Calendar className="h-3 w-3 text-orange-600 flex-shrink-0" />
                         <span className="font-medium">{clientDisplayName(client)}</span>
                         <span className="text-muted-foreground ml-auto">
-                          {new Date(client.appointment_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {new Date(client.appointment_date.includes("T") ? client.appointment_date : `${client.appointment_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </span>
                       </Link>
                     ))}

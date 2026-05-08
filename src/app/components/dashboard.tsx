@@ -39,7 +39,7 @@ export function Dashboard() {
   const [collectionsTab, setCollectionsTab] = useState<'today' | 'upcoming' | 'overdue'>('overdue');
   const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
-  const [dateRangeType, setDateRangeType] = useState<'month' | 'quarter' | 'year' | 'custom'>('month');
+  const [dateRangeType, setDateRangeType] = useState<'month' | 'last_month' | 'last_3_months' | 'year' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
@@ -158,20 +158,7 @@ export function Dashboard() {
   const activeClients = activeClientIds.size;
   const activeProjects = visibleProjects.filter((p) => p.status === "active").length;
 
-  // Revenue/GP = current month only, sold + active + completed (use created_at — when the sale was made)
-  const _now = new Date();
-  const _monthStart = new Date(_now.getFullYear(), _now.getMonth(), 1);
-  const _monthEnd = new Date(_now.getFullYear(), _now.getMonth() + 1, 0, 23, 59, 59);
-  const revenueProjects = visibleProjects.filter((p) => {
-    if (!["sold", "active", "completed"].includes(p.status)) return false;
-    const d = p.created_at ? new Date(p.created_at) : null;
-    return d && d >= _monthStart && d <= _monthEnd;
-  });
-  const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
-  const totalProfit = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const avgProfitMargin = revenueProjects.length > 0
-    ? revenueProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / revenueProjects.length
-    : 0;
+  // totalRevenue/totalProfit/avgProfitMargin derived from periodProjects below (after date range is computed)
 
   // Lead stats
   const newLeadsThisWeek = clients.filter((c) => {
@@ -227,10 +214,13 @@ export function Dashboard() {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
         break;
-      case 'quarter':
-        const currentQuarter = Math.floor(now.getMonth() / 3);
-        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
-        endDate = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0, 23, 59, 59);
+      case 'last_month':
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+        break;
+      case 'last_3_months':
+        startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
         break;
       case 'year':
         startDate = new Date(now.getFullYear(), 0, 1);
@@ -261,6 +251,11 @@ export function Dashboard() {
     return d >= startDate && d <= endDate;
   });
   const periodRevenue = periodProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const totalRevenue = periodRevenue;
+  const totalProfit = periodProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
+  const avgProfitMargin = periodProjects.length > 0
+    ? periodProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / periodProjects.length
+    : 0;
 
   const _curDate = new Date();
   const _curMonth = _curDate.getMonth();
@@ -281,9 +276,10 @@ export function Dashboard() {
     switch (dateRangeType) {
       case 'month':
         return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      case 'quarter':
-        const quarter = Math.floor(startDate.getMonth() / 3) + 1;
-        return `Q${quarter} ${startDate.getFullYear()}`;
+      case 'last_month':
+        return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      case 'last_3_months':
+        return 'Last 3 Months';
       case 'year':
         return startDate.getFullYear().toString();
       case 'custom':
@@ -318,6 +314,50 @@ export function Dashboard() {
       </div>
 
       {/* Stats Cards */}
+      {/* Date range row — only shown to admin (Sales Rep / PM see scoped data, no period picker) */}
+      {role !== "sales_rep" && role !== "project_manager" && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">Revenue &amp; profit for selected period</p>
+          <Popover open={dateRangeOpen} onOpenChange={(open) => { setDateRangeOpen(open); if (!open) setShowCustomPickers(false); }}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="h-7 text-xs gap-1 hover:bg-accent">
+                <CalendarIcon className="h-3 w-3" />
+                {getDateRangeLabel()}
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-4" align="end">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Select Period</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant={dateRangeType === 'month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>This Month</Button>
+                    <Button variant={dateRangeType === 'last_month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last Month</Button>
+                    <Button variant={dateRangeType === 'last_3_months' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_3_months'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last 3 Months</Button>
+                    <Button variant={dateRangeType === 'year' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('year'); setShowCustomPickers(false); setDateRangeOpen(false); }}>This Year</Button>
+                    <Button variant={dateRangeType === 'custom' ? 'default' : 'outline'} size="sm" className="col-span-2" onClick={() => { if (dateRangeType === 'custom') { setShowCustomPickers(!showCustomPickers); } else { setDateRangeType('custom'); setShowCustomPickers(true); } }}>Custom Range</Button>
+                  </div>
+                </div>
+                {dateRangeType === 'custom' && showCustomPickers && (
+                  <div className="space-y-3 pt-3 border-t">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Start Date</Label>
+                      <Calendar mode="single" selected={customStartDate} onSelect={setCustomStartDate} className="rounded-md border" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">End Date</Label>
+                      <Calendar mode="single" selected={customEndDate} onSelect={setCustomEndDate} className="rounded-md border" disabled={(date) => customStartDate ? date < customStartDate : false} />
+                    </div>
+                    {customStartDate && customEndDate && (
+                      <Button size="sm" className="w-full" onClick={() => setDateRangeOpen(false)}>Apply</Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -353,7 +393,7 @@ export function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Tap to view breakdown</p>
+              <p className="text-xs text-muted-foreground mt-1">{role !== "sales_rep" && role !== "project_manager" ? getDateRangeLabel() : "Tap to view breakdown"}</p>
             </CardContent>
           </Card>
         </Link>
@@ -470,116 +510,7 @@ export function Dashboard() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Revenue Goal Tracker</CardTitle>
-            <Popover open={dateRangeOpen} onOpenChange={(open) => {
-              setDateRangeOpen(open);
-              if (!open) {
-                setShowCustomPickers(false);
-              }
-            }}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="h-7 text-xs gap-1 hover:bg-accent"
-                >
-                  <CalendarIcon className="h-3 w-3" />
-                  {getDateRangeLabel()}
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-4" align="end">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold">Select Date Range</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        variant={dateRangeType === 'month' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => {
-                          setDateRangeType('month');
-                          setShowCustomPickers(false);
-                          setDateRangeOpen(false);
-                        }}
-                      >
-                        This Month
-                      </Button>
-                      <Button
-                        variant={dateRangeType === 'quarter' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => {
-                          setDateRangeType('quarter');
-                          setShowCustomPickers(false);
-                          setDateRangeOpen(false);
-                        }}
-                      >
-                        This Quarter
-                      </Button>
-                      <Button
-                        variant={dateRangeType === 'year' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => {
-                          setDateRangeType('year');
-                          setShowCustomPickers(false);
-                          setDateRangeOpen(false);
-                        }}
-                      >
-                        This Year
-                      </Button>
-                      <Button
-                        variant={dateRangeType === 'custom' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => {
-                          if (dateRangeType === 'custom') {
-                            // Toggle the custom pickers if already in custom mode
-                            setShowCustomPickers(!showCustomPickers);
-                          } else {
-                            // Switch to custom mode and show pickers
-                            setDateRangeType('custom');
-                            setShowCustomPickers(true);
-                          }
-                        }}
-                      >
-                        Custom
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  {dateRangeType === 'custom' && showCustomPickers && (
-                    <div className="space-y-3 pt-3 border-t">
-                      <div className="space-y-2">
-                        <Label className="text-xs">Start Date</Label>
-                        <Calendar
-                          mode="single"
-                          selected={customStartDate}
-                          onSelect={setCustomStartDate}
-                          className="rounded-md border"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs">End Date</Label>
-                        <Calendar
-                          mode="single"
-                          selected={customEndDate}
-                          onSelect={setCustomEndDate}
-                          className="rounded-md border"
-                          disabled={(date) => 
-                            customStartDate ? date < customStartDate : false
-                          }
-                        />
-                      </div>
-                      {customStartDate && customEndDate && (
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          onClick={() => setDateRangeOpen(false)}
-                        >
-                          Apply Custom Range
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+            <span className="text-xs text-muted-foreground">{getDateRangeLabel()}</span>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
@@ -667,14 +598,14 @@ export function Dashboard() {
             {/* Quick Stats */}
             <div className="border-t pt-3 grid grid-cols-2 gap-3 text-xs">
               <div>
-                <span className="text-muted-foreground">Projects This Month:</span>
-                <span className="ml-2 font-semibold">{currentMonthProjects.length}</span>
+                <span className="text-muted-foreground">Projects This Period:</span>
+                <span className="ml-2 font-semibold">{periodProjects.length}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Avg Contract:</span>
                 <span className="ml-2 font-semibold">
-                  {currentMonthProjects.length > 0
-                    ? formatCurrency(currentMonthRevenue / currentMonthProjects.length)
+                  {periodProjects.length > 0
+                    ? formatCurrency(periodRevenue / periodProjects.length)
                     : "$0"}
                 </span>
               </div>

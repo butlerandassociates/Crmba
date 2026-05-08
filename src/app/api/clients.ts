@@ -14,14 +14,14 @@ export const clientsAPI = {
         *,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
-        sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name),
+        sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active),
         projects(
           total_value, start_date, end_date, profit_margin, sales_rep_id, project_manager_id,
-          project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name),
-          foreman:profiles!projects_foreman_id_fkey(first_name, last_name),
-          sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name)
+          project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name, is_active),
+          foreman:profiles!projects_foreman_id_fkey(first_name, last_name, is_active),
+          sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name, is_active)
         ),
-        appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name)),
+        appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name, role)),
         project_payments(id, is_paid, amount),
         estimates(id, total, status, created_at)
       `)
@@ -63,9 +63,8 @@ export const clientsAPI = {
       const paidPayments  = payments.filter((p: any) => p.is_paid).length;
       const payment_progress_pct = totalPayments > 0 ? Math.round((paidPayments / totalPayments) * 100) : null;
 
-      const latestProposal = (c.estimates ?? [])
-        .filter((e: any) => e.status !== "declined")
-        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      const latestProposal = (c.estimates ?? []).find((e: any) => e.status === "accepted")
+        ?? (c.estimates ?? []).filter((e: any) => e.status !== "declined" && e.status !== "voided").sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
       return {
         ...c,
         project_total,
@@ -97,7 +96,7 @@ export const clientsAPI = {
   getById: async (id: string) => {
     const { data, error } = await supabase
       .from("clients")
-      .select(`*, lead_source:lead_sources(id,name), pipeline_stage:pipeline_stages(id,name,color,order_index)`)
+      .select(`*, lead_source:lead_sources(id,name), pipeline_stage:pipeline_stages(id,name,color,order_index), sales_rep:profiles!clients_sales_rep_id_fkey(id,first_name,last_name,commission_rate)`)
       .eq("id", id)
       .single();
     if (error) throw new Error(error.message);

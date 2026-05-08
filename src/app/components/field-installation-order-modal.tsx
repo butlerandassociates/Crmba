@@ -9,7 +9,17 @@ import {
   SheetTitle,
   SheetDescription,
 } from "./ui/sheet";
-import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
 import { fioAPI, notificationsAPI, activityLogAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
@@ -21,12 +31,13 @@ interface FIOModalProps {
   onOpenChange: (open: boolean) => void;
   project: any;
   onCrewPayment?: () => void;
+  onFioSaved?: () => void;
 }
 
 type View = "view" | "edit" | "pay_crew";
 
-export function FieldInstallationOrderModal({ open, onOpenChange, project, onCrewPayment }: FIOModalProps) {
-  const { can } = usePermissions();
+export function FieldInstallationOrderModal({ open, onOpenChange, project, onCrewPayment, onFioSaved }: FIOModalProps) {
+  const { can, role } = usePermissions();
   const [view, setView] = useState<View>("view");
   const [fioList, setFioList] = useState<any[]>([]);
   const [fio, setFio] = useState<any>(null);
@@ -44,6 +55,9 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
   const [editWorkDate, setEditWorkDate] = useState("");
   const [markingComplete, setMarkingComplete] = useState(false);
+  const [removingCrew, setRemovingCrew] = useState(false);
+  const [removeCrewTarget, setRemoveCrewTarget] = useState<any>(null);
+  const [removeItemTarget, setRemoveItemTarget] = useState<number | null>(null);
 
   // Pay Crew state
   const [completionPct, setCompletionPct] = useState<Record<string, number>>({});
@@ -87,10 +101,6 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
   const handleRecordPayment = async () => {
     if (!fio) return;
-    if (fio.status === "paid") {
-      toast.error("This FIO is already fully paid — no further payments can be recorded.");
-      return;
-    }
     const entries = (fio.items || [])
       .filter((item: any) => (completionPct[item.id] || 0) > 0)
       .map((item: any) => {
@@ -118,11 +128,16 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       });
 
       activityLogAPI.create({ client_id: project.client?.id, action_type: "crew_payment_submitted", description: `Crew payment submitted — ${foremanName} on ${projectName}, week ending ${weekEndingDate}` }).catch(() => {});
+      if (fio.status === "draft") {
+        fioAPI.update(fio.id, { status: "partial_paid" }).catch(() => {});
+        setFio((prev: any) => ({ ...prev, status: "partial_paid" }));
+      }
       toast.success("Payment recorded — submitted to admin for review");
       setCompletionPct({});
       setPayNotes("");
       loadCrewPayments(fio.id);
       onCrewPayment?.();
+      onFioSaved?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payment");
     } finally {
@@ -132,6 +147,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
   const loadFIO = async (selectFioId?: string) => {
     setLoading(true);
+    setItemErrors({});
     try {
       const list = await fioAPI.getByProject(project.id);
       setFioList(list);
@@ -145,6 +161,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         const init: Record<string, number> = {};
         (selected.items || []).forEach((item: any) => { init[item.id] = 0; });
         setCompletionPct(init);
+        loadCrewPayments(selected.id);
+        fetchLaborFromEstimate().then(setSuggestedItems);
         setView("view");
       } else {
         setFio(null);
@@ -153,7 +171,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         setSuggestedItems(items);
         setCheckedIds(new Set());
         setEditItems([]);
-        setView("edit");
+        setView(role === "sales_rep" ? "view" : "edit");
       }
     } catch (e) {
       console.error(e);
@@ -214,12 +232,13 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       }));
       if (fio) {
         const updatePayload: any = { work_date: editWorkDate || null };
-        if (!fio.foreman_id && reassignForemanId) updatePayload.foreman_id = reassignForemanId;
+        if (reassignForemanId && reassignForemanId !== fio.foreman_id) updatePayload.foreman_id = reassignForemanId;
         await fioAPI.update(fio.id, updatePayload);
         await fioAPI.updateItems(fio.id, items);
         activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `Field Installation Order updated — project: ${project.name ?? ""}` }).catch(() => {});
         toast.success("Field Installation Order updated");
         loadFIO(fio.id);
+        onFioSaved?.();
       } else {
         const created = await fioAPI.create(
           { project_id: project.id, foreman_id: foremanId, work_date: editWorkDate || undefined },
@@ -235,6 +254,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
         }).catch(() => {});
         toast.success("Field Installation Order created");
         loadFIO(created.id);
+        onFioSaved?.();
       }
       setView("view");
     } catch (err: any) {
@@ -484,8 +504,27 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
     return sum + total * (pct / 100);
   }, 0);
 
+  const getUpcomingSunday = () => {
+    const today = new Date();
+    const daysUntilSunday = today.getDay() === 0 ? 0 : 7 - today.getDay();
+    const d = new Date(today);
+    d.setDate(today.getDate() + daysUntilSunday);
+    return d.toISOString().split("T")[0];
+  };
+
+  // Mark as Paid gate — all items must reach 100% and balance must be $0
+  const totalCommitted = (fio?.items || []).reduce((sum: number, item: any) => sum + ((parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0)), 0);
+  const totalPaid = crewPayments.reduce((sum: number, p: any) => sum + (parseFloat(p.amount_paid) || 0), 0);
+  const itemCompletionMap: Record<string, number> = {};
+  crewPayments.forEach((p: any) => {
+    itemCompletionMap[p.fio_item_id] = (itemCompletionMap[p.fio_item_id] || 0) + (parseFloat(p.completion_pct) || 0);
+  });
+  const allItemsComplete = (fio?.items || []).length > 0 && (fio?.items || []).every((item: any) => (itemCompletionMap[item.id] || 0) >= 100);
+  const balanceClear = totalCommitted > 0 && Math.abs(totalCommitted - totalPaid) < 0.01;
+  const canMarkPaid = allItemsComplete && balanceClear;
+
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) { setView("view"); setEditItems([]); setEditWorkDate(""); setCompletionPct({}); setWeekEndingDate(""); setPayNotes(""); setReassignForemanId(""); } onOpenChange(o); }}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) { setView("view"); setEditItems([]); setEditWorkDate(""); setCompletionPct({}); setWeekEndingDate(getUpcomingSunday()); setPayNotes(""); setReassignForemanId(""); } onOpenChange(o); }}>
       <SheetContent side="right" className="w-full sm:max-w-3xl flex flex-col p-0 gap-0">
 
         {/* Header */}
@@ -505,8 +544,9 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                   <div className="mt-0.5">
                     <p className="text-sm text-muted-foreground">{project?.name ?? "—"}</p>
                     {fio?.foreman && (
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                         {`${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim()}
+                        {fio.foreman.is_active === false && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Inactive</span>}
                       </p>
                     )}
                   </div>
@@ -517,8 +557,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
             {/* Action buttons */}
             {view === "view" && fio && (
               <div className="flex gap-2">
-                {can("can_approve_fio_payments") && (
-                  <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); }}>
+                {can("can_approve_fio_payments") && fio.status !== "paid" && (
+                  <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); setReassignForemanId(fio.foreman_id || ""); }}>
                     <Edit className="h-4 w-4 mr-1.5" /> Edit
                   </Button>
                 )}
@@ -527,33 +567,45 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                   Export PDF
                 </Button>
                 {can("can_approve_fio_payments") && fio.status !== "paid" && (
-                  <Button variant="outline" size="sm" disabled={markingComplete} onClick={async () => {
-                    setMarkingComplete(true);
-                    try {
-                      await fioAPI.update(fio.id, { status: "paid", paid_date: new Date().toISOString().split("T")[0] });
-                      setFio({ ...fio, status: "paid" });
-                      activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO marked as paid — project: ${project.name ?? ""}` }).catch(() => {});
-                      toast.success("FIO marked as paid");
-                    } catch (err: any) {
-                      toast.error(err.message || "Failed to update status");
-                    } finally {
-                      setMarkingComplete(false);
-                    }
-                  }}>
+                  <span title={!canMarkPaid ? "All items 100% complete & balance $0" : undefined} className="inline-flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={markingComplete || !canMarkPaid}
+                    onClick={async () => {
+                      setMarkingComplete(true);
+                      try {
+                        const { data: { user: fioUser } } = await supabase.auth.getUser();
+                        const fioNow = new Date().toISOString();
+                        await fioAPI.update(fio.id, { status: "paid", paid_date: fioNow.split("T")[0], completed_by: fioUser?.id ?? null, completed_at: fioNow });
+                        setFio({ ...fio, status: "paid" });
+                        activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO marked as paid — project: ${project.name ?? ""}` }).catch(() => {});
+                        onFioSaved?.();
+                        toast.success("FIO marked as paid");
+                      } catch (err: any) {
+                        toast.error(err.message || "Failed to update status");
+                      } finally {
+                        setMarkingComplete(false);
+                      }
+                    }}
+                  >
                     {markingComplete ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
                     Mark as Paid
                   </Button>
+                  </span>
                 )}
-                <Button size="sm" onClick={() => { setView("pay_crew"); loadCrewPayments(fio.id); }}>
-                  <DollarSign className="h-4 w-4 mr-1.5" /> Pay Crew
-                </Button>
+                {role !== "sales_rep" && (
+                  <Button size="sm" onClick={() => { setView("pay_crew"); loadCrewPayments(fio.id); }}>
+                    <DollarSign className="h-4 w-4 mr-1.5" /> Pay Crew
+                  </Button>
+                )}
               </div>
             )}
           </div>
         </SheetHeader>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 pb-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -561,39 +613,91 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
           ) : (
           <>
-          {/* Crew Tabs — shown when 1+ FIOs exist or when adding a new crew, hidden during Pay Crew */}
+          {/* Crew Navigator — arrows when 2+ FIOs, hidden during Pay Crew */}
           {view !== "pay_crew" && (fioList.length > 0 || addingCrew) && (
-            <div className="flex items-center gap-2 flex-wrap mb-4 pb-4 border-b">
-              {fioList.map((f: any, i: number) => {
-                const foremanName = f.foreman
-                  ? `${f.foreman.first_name ?? ""} ${f.foreman.last_name ?? ""}`.trim()
-                  : `Crew ${i + 1}`;
-                const isSelected = !addingCrew && fio?.id === f.id;
+            <div className="sticky top-0 -mx-6 px-6 bg-background z-10 flex items-center gap-2 py-3 border-b mb-4">
+              {fioList.length > 1 && (
+                <button
+                  onClick={() => {
+                    const idx = fioList.findIndex((f: any) => f.id === fio?.id);
+                    if (idx <= 0) return;
+                    const prev = fioList[idx - 1];
+                    setAddingCrew(false);
+                    setFio(prev);
+                    setEditItems(prev.items || []);
+                    setEditWorkDate(prev.work_date || "");
+                    setReassignForemanId("");
+                    const init: Record<string, number> = {};
+                    (prev.items || []).forEach((item: any) => { init[item.id] = 0; });
+                    setCompletionPct(init);
+                    setView("view");
+                  }}
+                  disabled={fioList.findIndex((f: any) => f.id === fio?.id) <= 0 || addingCrew}
+                  className="p-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              )}
+
+              {/* Current crew pill */}
+              {!addingCrew && fio && (() => {
+                const idx = fioList.findIndex((f: any) => f.id === fio.id);
+                const foremanName = fio.foreman
+                  ? `${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim()
+                  : `Crew ${idx + 1}`;
                 return (
-                  <button
-                    key={f.id}
-                    onClick={() => {
-                      setAddingCrew(false);
-                      setFio(f);
-                      setEditItems(f.items || []);
-                      setEditWorkDate(f.work_date || "");
-                      setReassignForemanId("");
-                      const init: Record<string, number> = {};
-                      (f.items || []).forEach((item: any) => { init[item.id] = 0; });
-                      setCompletionPct(init);
-                      setView("view");
-                    }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover:border-primary hover:text-foreground"
-                    }`}
-                  >
-                    {foremanName}
-                    {f.status === "paid" && <span className="ml-1.5 text-[10px] opacity-70">✓ Paid</span>}
-                  </button>
+                  <div className="flex-1 flex items-center gap-2">
+                    <span className="px-3 py-1.5 rounded-full text-xs font-medium border bg-primary text-primary-foreground border-primary">
+                      {foremanName}
+                    </span>
+                    {fioList.length > 1 && (
+                      <span className="text-xs text-muted-foreground">{idx + 1} / {fioList.length}</span>
+                    )}
+                  </div>
                 );
-              })}
+              })()}
+
+              {/* Adding crew state pill */}
+              {addingCrew && (
+                <div className="flex-1">
+                  <span className="px-3 py-1.5 rounded-full text-xs font-medium border bg-primary text-primary-foreground border-primary">
+                    + New Crew
+                  </span>
+                </div>
+              )}
+
+              {fioList.length > 1 && (
+                <button
+                  onClick={() => {
+                    const idx = fioList.findIndex((f: any) => f.id === fio?.id);
+                    if (idx >= fioList.length - 1) return;
+                    const next = fioList[idx + 1];
+                    setAddingCrew(false);
+                    setFio(next);
+                    setEditItems(next.items || []);
+                    setEditWorkDate(next.work_date || "");
+                    setReassignForemanId("");
+                    const init: Record<string, number> = {};
+                    (next.items || []).forEach((item: any) => { init[item.id] = 0; });
+                    setCompletionPct(init);
+                    setView("view");
+                  }}
+                  disabled={fioList.findIndex((f: any) => f.id === fio?.id) >= fioList.length - 1 || addingCrew}
+                  className="p-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              )}
+
+              {can("can_approve_fio_payments") && fio && !addingCrew && crewPayments.length === 0 && (
+                <button
+                  disabled={removingCrew}
+                  onClick={() => setRemoveCrewTarget(fio)}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors border-red-200 text-red-500 hover:border-red-400 hover:text-red-700 disabled:opacity-40"
+                >
+                  {removingCrew ? "Removing…" : "Remove Crew"}
+                </button>
+              )}
               {can("can_approve_fio_payments") && (
                 <button
                   onClick={() => {
@@ -606,11 +710,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                     fetchLaborFromEstimate().then(setSuggestedItems);
                     setView("edit");
                   }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    addingCrew
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-dashed border-border text-muted-foreground hover:border-primary hover:text-foreground"
-                  }`}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors border-dashed border-border text-muted-foreground hover:border-primary hover:text-foreground"
                 >
                   + Add Crew
                 </button>
@@ -640,22 +740,32 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
           {view === "edit" ? (
             /* ── Edit / Create Mode ── */
             <div className="space-y-4">
-              {/* Reassign foreman — only shown when existing FIO has no foreman (e.g. after foreman was deleted) */}
-              {fio && !fio.foreman_id && (
-                <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <label className="text-sm font-medium shrink-0 text-amber-800">Assign Foreman <span className="text-destructive">*</span></label>
-                  <select
-                    value={reassignForemanId}
-                    onChange={(e) => setReassignForemanId(e.target.value)}
-                    className="h-8 rounded-md border border-amber-300 bg-background px-2 text-sm flex-1"
-                  >
-                    <option value="">— select foreman —</option>
-                    {foremen.map((f: any) => (
-                      <option key={f.id} value={f.id}>{f.first_name} {f.last_name}</option>
-                    ))}
-                  </select>
-                  <span className="text-xs text-amber-700">Previous foreman was removed</span>
-                </div>
+              {/* Foreman — locked once any crew payment exists (regardless of fio.status) */}
+              {fio && (
+                crewPayments.length > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <span className="font-medium">
+                      {foremen.find((f: any) => f.id === fio.foreman_id)
+                        ? `${foremen.find((f: any) => f.id === fio.foreman_id).first_name} ${foremen.find((f: any) => f.id === fio.foreman_id).last_name}`
+                        : "Crew Foreman"}
+                    </span>
+                    {" "}— Payments recorded under this foreman. Use <strong>+ Add Crew</strong> to assign additional crew.
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm font-medium shrink-0">Crew Foreman</label>
+                    <select
+                      value={reassignForemanId}
+                      onChange={(e) => setReassignForemanId(e.target.value)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-sm flex-1"
+                    >
+                      <option value="">— select foreman —</option>
+                      {foremen.map((f: any) => (
+                        <option key={f.id} value={f.id}>{f.first_name} {f.last_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
               )}
 
               {/* Work Date */}
@@ -736,7 +846,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                             <Input type="number" value={item.labor_cost_per_unit} onChange={(e) => updateItem(idx, "labor_cost_per_unit", e.target.value)} className="h-8 text-sm" />
                           </td>
                           <td className="px-1 py-1.5 text-center">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => removeItem(idx)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setRemoveItemTarget(idx)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </td>
@@ -746,9 +856,29 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                   </table>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={addItem}>
-                <Plus className="h-4 w-4 mr-1.5" /> Add Item
-              </Button>
+              {(() => {
+                const remaining = suggestedItems.filter(
+                  (s: any) => !editItems.some((e: any) => e.product_name === s.product_name)
+                );
+                return remaining.length > 0 ? (
+                  <select
+                    value=""
+                    className="h-8 text-sm rounded-md border border-input bg-background px-2 max-w-[260px]"
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      const s = remaining.find((x: any) => x.id === e.target.value);
+                      if (s) setEditItems((prev) => [...prev, { ...s, id: `new-${Date.now()}` }]);
+                    }}
+                  >
+                    <option value="">+ Add from proposal…</option>
+                    {remaining.map((s: any) => (
+                      <option key={s.id} value={s.id}>{s.product_name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-muted-foreground">All proposal labor items added.</p>
+                );
+              })()}
               {Object.keys(itemErrors).length > 0 && (
                 <p className="text-xs text-red-500 mt-1">
                   {Object.values(itemErrors)[0]} — highlighted rows above.
@@ -757,13 +887,15 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
               <div className="flex items-center justify-between pt-2 border-t">
                 <span className="font-semibold text-sm">Total: {formatCurrency(editTotal)}</span>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => { setView("view"); if (!fio) onOpenChange(false); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setItemErrors({}); setView("view"); if (!fio) onOpenChange(false); }}>
                     <X className="h-4 w-4 mr-1.5" /> Cancel
                   </Button>
-                  <Button size="sm" onClick={handleSave} disabled={saving}>
-                    {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
-                    {fio ? "Save Changes" : "Create FIO"}
-                  </Button>
+                  {role !== "sales_rep" && (
+                    <Button size="sm" onClick={handleSave} disabled={saving}>
+                      {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                      {fio ? "Save Changes" : "Create FIO"}
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -938,6 +1070,12 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
               })()}
             </div>
 
+          ) : !fio ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <FileDown className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No FIO created yet</p>
+              <p className="text-xs mt-1">An admin will create the Field Installation Order for this project.</p>
+            </div>
           ) : (
             /* ── View Mode — document preview ── */
             <div className="bg-gray-100 rounded-lg p-4">
@@ -959,7 +1097,6 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                       {fio?.work_date
                         ? `Work Date: ${new Date(fio.work_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
                         : `Created: ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
-                      {fio?.status && <Badge variant="outline" className="ml-2 capitalize text-xs">{fio.status}</Badge>}
                     </span>
                   </div>
 
@@ -1041,6 +1178,64 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
           )}
         </div>
       </SheetContent>
+
+      <AlertDialog open={removeItemTarget !== null} onOpenChange={(o) => { if (!o) setRemoveItemTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeItemTarget !== null && editItems[removeItemTarget]
+                ? <>Remove <span className="font-medium text-foreground">"{editItems[removeItemTarget].product_name || "this item"}"</span> from the list? This won't be permanent until you save.</>
+                : "Remove this item from the list?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (removeItemTarget !== null) { removeItem(removeItemTarget); setRemoveItemTarget(null); } }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!removeCrewTarget} onOpenChange={(o) => { if (!o) setRemoveCrewTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Crew?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove <strong>{removeCrewTarget?.foreman ? `${removeCrewTarget.foreman.first_name} ${removeCrewTarget.foreman.last_name}` : "this crew"}</strong> from the Field Installation Order, including all their line items. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removingCrew}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removingCrew}
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async () => {
+                setRemovingCrew(true);
+                try {
+                  await fioAPI.delete(removeCrewTarget.id);
+                  activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `Crew removed from FIO — project: ${project.name ?? ""}` }).catch(() => {});
+                  toast.success("Crew removed");
+                  onFioSaved?.();
+                  setRemoveCrewTarget(null);
+                  loadFIO();
+                } catch {
+                  toast.error("Failed to remove crew — please try again.");
+                } finally {
+                  setRemovingCrew(false);
+                }
+              }}
+            >
+              {removingCrew ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Remove Crew
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }

@@ -23,7 +23,7 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
   const fmt = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
   const fmtDate = (d: string) =>
-    new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const sentDate   = proposal?.sent_at || proposal?.created_at;
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
@@ -63,20 +63,6 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
   const taxLabel       = proposal?.tax_label ?? "Tax";
   const total          = subtotal + badAmount + taxAmount - discountAmount;
 
-  const MEANINGFUL_UNITS = ["sf", "sq ft", "lf", "cy"];
-  const unitPriority = (u: string) => {
-    const s = (u ?? "").toLowerCase();
-    if (s === "sf" || s === "sq ft") return 0;
-    if (s === "lf") return 1;
-    if (s === "cy") return 2;
-    return 99;
-  };
-  const getPrimaryQtyLabel = (items: LineGroup["items"]) => {
-    const m = items.filter(i => MEANINGFUL_UNITS.includes((i.unit ?? "").toLowerCase()));
-    if (!m.length) return null;
-    const best = [...m].sort((a, b) => unitPriority(a.unit) - unitPriority(b.unit))[0];
-    return `${best.qty} ${best.unit}`;
-  };
 
   // ── Shared JSX blocks ──────────────────────────────────────────────────────
 
@@ -158,7 +144,6 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
           {/* Column header */}
           <div id={preview ? undefined : "proposal-col-header"} style={{ background: B.black, padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, flex: 1 }}>Scope of Work</p>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, width: 100, textAlign: "center" as const }}>Qty</p>
             <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, width: 90, textAlign: "right" as const }}>Total</p>
           </div>
 
@@ -170,12 +155,10 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
             const borderTop = gIdx > 0 ? `1px solid ${B.border}` : "none";
             if (group.category) {
               const catTotal = group.items.reduce((s, i) => s + i.lineTotal, 0);
-              const qtyLabel = getPrimaryQtyLabel(group.items);
               return (
                 <div key={gIdx}>
                   <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff", borderTop }}>
                     <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, width: 100, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>{qtyLabel ?? ""}</p>
                     <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
                   {group.items.map((item, iIdx) => (
@@ -195,8 +178,7 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
                       <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.name}</p>
                       {item.description ? <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p> : null}
                     </div>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, width: 100, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>{item.qty}{item.unit ? " " + item.unit : ""}</p>
-                    <div style={{ width: 90 }} />
+                    <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(item.lineTotal)}</p>
                   </div>
                 ))}
               </div>

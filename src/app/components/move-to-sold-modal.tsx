@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usersAPI, fioAPI, activityLogAPI, projectPaymentsAPI } from "../utils/api";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { photosAPI } from "../api/files";
 import { toast } from "sonner";
 
@@ -61,10 +62,10 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
 
   // Step 3 — Payment schedule
-  const [paymentMilestones, setPaymentMilestones] = useState<{ label: string; amount: string; due_date: string }[]>([
-    { label: "Deposit", amount: "", due_date: "" },
-    { label: "Progress Payment", amount: "", due_date: "" },
-    { label: "Final Payment", amount: "", due_date: "" },
+  const [paymentMilestones, setPaymentMilestones] = useState<{ label: string; amount: string; due_date: string; is_deposit: boolean }[]>([
+    { label: "Deposit", amount: "", due_date: "", is_deposit: true },
+    { label: "Progress Payment", amount: "", due_date: "", is_deposit: false },
+    { label: "Final Payment", amount: "", due_date: "", is_deposit: false },
   ]);
 
   // Step 4 — Schedule
@@ -80,18 +81,21 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       setSelectedForeman(""); setSelectedPM(""); setSelectedSalesRep("");
       setSuggestedItems([]); setCheckedIds(new Set()); setSelectedItems([]);
       setPaymentMilestones([
-        { label: "Deposit", amount: "", due_date: "" },
-        { label: "Progress Payment", amount: "", due_date: "" },
-        { label: "Final Payment", amount: "", due_date: "" },
+        { label: "Deposit", amount: "", due_date: "", is_deposit: true },
+        { label: "Progress Payment", amount: "", due_date: "", is_deposit: false },
+        { label: "Final Payment", amount: "", due_date: "", is_deposit: false },
       ]);
       setStartDate(""); setEndDate("");
       return;
     }
+    // Pre-fill dates from existing project if already set
+    setStartDate(project?.start_date ? project.start_date.split("T")[0] : "");
+    setEndDate(project?.end_date ? project.end_date.split("T")[0] : "");
     usersAPI.getByRole("foreman").then(setForemen).catch(console.error);
     usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
+    // Pre-fill sales rep selection on open
     usersAPI.getByRole("sales_rep").then((reps) => {
       setSalesReps(reps);
-      // Pre-fill: project.sales_rep_id → client.sales_rep_id → first appointment assigned_to
       if (project?.sales_rep_id) {
         setSelectedSalesRep(project.sales_rep_id);
       } else if (client?.sales_rep_id) {
@@ -116,11 +120,19 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
     fetchLaborItems();
   }, [open]);
 
+  // Refresh lists only (no selection reset) when any profile is updated
+  const refreshProfileLists = () => {
+    usersAPI.getByRole("sales_rep").then(setSalesReps).catch(console.error);
+    usersAPI.getByRole("project_manager").then(setProjectManagers).catch(console.error);
+  };
+
+  useRealtimeRefetch(refreshProfileLists, ["profiles"], "move-to-sold-profiles");
+
   const fetchLaborItems = async () => {
     if (!client?.id) return;
     const { data: estimates } = await supabase
       .from("estimates").select("id").eq("client_id", client.id)
-      .order("created_at", { ascending: false }).limit(1);
+      .eq("status", "accepted").order("created_at", { ascending: false }).limit(1);
     if (!estimates || estimates.length === 0) return;
     const { data: items } = await supabase
       .from("estimate_line_items").select("*")
@@ -149,7 +161,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
   };
 
   const addMilestone = () =>
-    setPaymentMilestones((prev) => [...prev, { label: "", amount: "", due_date: "" }]);
+    setPaymentMilestones((prev) => [...prev, { label: "", amount: "", due_date: "", is_deposit: false }]);
 
   const removeMilestone = (i: number) =>
     setPaymentMilestones((prev) => prev.filter((_, idx) => idx !== i));
@@ -157,9 +169,14 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
   const updateMilestone = (i: number, key: string, value: string) =>
     setPaymentMilestones((prev) => prev.map((m, idx) => idx === i ? { ...m, [key]: value } : m));
 
+  const toggleDeposit = (i: number) =>
+    setPaymentMilestones((prev) => prev.map((m, idx) => ({ ...m, is_deposit: idx === i })));
+
   const docusignSigned = client?.docusign_status === "completed";
   const contractSatisfied = docusignSigned || alreadySignedExternally || !!docusignFile;
   const canProceedStep1 = contractSatisfied && !!depositFile;
+  const depositMilestone = paymentMilestones.find((m) => m.is_deposit);
+  const canProceedStep3 = !!depositMilestone && !!depositMilestone.label.trim() && parseFloat(depositMilestone.amount || "0") > 0;
   const canConfirm = !!startDate;
 
   const handleConfirm = async () => {
@@ -177,7 +194,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
       let estimateTitle = "";
       const { data: estimates } = await supabase
         .from("estimates").select("id, title, total, subtotal, total_cost").eq("client_id", client.id)
-        .order("created_at", { ascending: false }).limit(1);
+        .eq("status", "accepted").order("created_at", { ascending: false }).limit(1);
       if (estimates && estimates.length > 0) {
         estimateTitle = estimates[0].title || "";
         const subtotalVal = Number(estimates[0].subtotal || 0);
@@ -205,6 +222,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
 
       // 3. Create or update project — check for existing to prevent duplicates
       let projectId = project?.id;
+      const { data: { user: soldUser } } = await supabase.auth.getUser();
       const projectPayload = {
         foreman_id: selectedForeman || null,
         project_manager_id: selectedPM || null,
@@ -212,6 +230,8 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         start_date: startDate,
         end_date: endDate || null,
         status: "sold",
+        sold_at: new Date().toISOString(),
+        sold_by: soldUser?.id ?? null,
         ...financials,
       };
 
@@ -263,6 +283,24 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         }
       }
 
+      // 5. Record initial team assignments in history table (fire-and-forget)
+      const teamRoles: { role: string; profile_id: string | null }[] = [
+        { role: "pm", profile_id: selectedPM || null },
+        { role: "foreman", profile_id: selectedForeman || null },
+        { role: "sales_rep", profile_id: selectedSalesRep || null },
+      ];
+      for (const ta of teamRoles.filter((t) => t.profile_id)) {
+        void Promise.resolve(
+          supabase.from("project_team_assignments")
+            .update({ unassigned_at: new Date().toISOString(), unassigned_by: soldUser?.id ?? null })
+            .eq("project_id", projectId).eq("role", ta.role).is("unassigned_at", null)
+        ).catch(() => {});
+        void Promise.resolve(
+          supabase.from("project_team_assignments")
+            .insert({ project_id: projectId, client_id: client.id, role: ta.role, profile_id: ta.profile_id, assigned_at: new Date().toISOString(), assigned_by: soldUser?.id ?? null })
+        ).catch(() => {});
+      }
+
       // 6. Create FIO if labor items selected
       if (selectedItems.length > 0 && projectId) {
         await fioAPI.create(
@@ -288,6 +326,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           amount: parseFloat(m.amount) || 0,
           due_date: m.due_date || undefined,
           sort_order: i,
+          is_deposit: m.is_deposit,
         });
       }
 
@@ -296,6 +335,7 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
         .from("pipeline_stages").select("id").ilike("name", "sold").limit(1).maybeSingle();
       await supabase.from("clients").update({
         status: "sold",
+        ...(selectedSalesRep ? { sales_rep_id: selectedSalesRep } : {}),
         ...(soldStage?.id ? { pipeline_stage_id: soldStage.id } : {}),
       }).eq("id", client.id);
 
@@ -464,6 +504,17 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
                       ))}
                     </SelectContent>
                   </Select>
+                  {(() => {
+                    if (!selectedPM) return null;
+                    const pm = projectManagers.find((p) => p.id === selectedPM);
+                    if (!pm || pm.commission_rate !== 0) return null;
+                    return (
+                      <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                        <span className="mt-0.5">🚫</span>
+                        <span><strong>{pm.first_name} {pm.last_name}</strong> has no commission rate set. Add their rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium text-red-800">Team settings</a> before moving to Sold.</span>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Foreman</Label>
@@ -478,14 +529,53 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Sales Rep</Label>
-                  <Select value={selectedSalesRep} onValueChange={setSelectedSalesRep}>
-                    <SelectTrigger className="h-9"><SelectValue placeholder="Select Sales Rep" /></SelectTrigger>
-                    <SelectContent>
-                      {salesReps.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>{r.first_name} {r.last_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {(client?.sales_rep_id || project?.sales_rep_id) ? (
+                    <>
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                        {(() => {
+                          const rep = salesReps.find((r) => r.id === selectedSalesRep);
+                          return (
+                            <>
+                              <span className="text-sm font-medium">{rep ? `${rep.first_name} ${rep.last_name}` : "Assigned"}</span>
+                              <span className="inline-flex items-center rounded-full border border-muted-foreground/30 px-1.5 py-0 text-[10px] text-muted-foreground">Locked</span>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      {(() => {
+                        const rep = salesReps.find((r) => r.id === selectedSalesRep);
+                        if (!rep || rep.commission_rate !== 0) return null;
+                        return (
+                          <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                            <span className="mt-0.5">🚫</span>
+                            <span><strong>{rep.first_name} {rep.last_name}</strong> has no commission rate set. Add their rate in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium text-red-800">Team settings</a> before moving to Sold.</span>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      <Select value={selectedSalesRep} onValueChange={setSelectedSalesRep}>
+                        <SelectTrigger className="h-9"><SelectValue placeholder="Select Sales Rep" /></SelectTrigger>
+                        <SelectContent>
+                          {salesReps.map((r) => (
+                            <SelectItem key={r.id} value={r.id}>{r.first_name} {r.last_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {(() => {
+                        if (!selectedSalesRep) return null;
+                        const rep = salesReps.find((r) => r.id === selectedSalesRep);
+                        if (!rep || rep.commission_rate !== 0) return null;
+                        return (
+                          <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                            <span className="mt-0.5">🚫</span>
+                            <span><strong>{rep.first_name} {rep.last_name}</strong> has no commission rate set. You cannot move to Sold until their rate is added in <a href="/team" target="_blank" rel="noopener noreferrer" className="underline font-medium text-red-800">Team settings</a>.</span>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -520,32 +610,55 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Build the payment schedule based on the signed contract.</p>
               {paymentMilestones.map((m, i) => (
-                <div key={i} className="grid grid-cols-[2fr,1fr,1fr,auto] gap-2 items-end">
-                  <div className="space-y-1">
-                    {i === 0 && <Label className="text-xs">Milestone</Label>}
-                    <Input className="h-8 text-xs" placeholder="e.g. Deposit" value={m.label}
-                      onChange={(e) => updateMilestone(i, "label", e.target.value)} />
+                <div key={i} className="border rounded-lg p-3 space-y-2.5 bg-muted/10">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Milestone {i + 1}</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <span className="text-xs text-muted-foreground">Deposit</span>
+                        <input
+                          type="checkbox"
+                          title="Mark as deposit milestone"
+                          checked={m.is_deposit}
+                          onChange={() => toggleDeposit(i)}
+                          className="h-4 w-4 accent-primary"
+                        />
+                      </label>
+                      <button onClick={() => removeMilestone(i)} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {i === 0 && <Label className="text-xs">Amount ($)</Label>}
-                    <Input type="number" className="h-8 text-xs" placeholder="0.00" value={m.amount}
-                      onChange={(e) => updateMilestone(i, "amount", e.target.value)} />
+                  {/* Fields */}
+                  <div className="grid grid-cols-[2fr,1fr,1fr] gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Name{m.is_deposit && <span className="text-destructive ml-0.5">*</span>}</Label>
+                      <Input className={`h-8 text-xs ${m.is_deposit && !m.label.trim() ? "border-destructive" : ""}`} placeholder="e.g. Deposit" value={m.label}
+                        onChange={(e) => updateMilestone(i, "label", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Amount ($){m.is_deposit && <span className="text-destructive ml-0.5">*</span>}</Label>
+                      <Input type="number" className={`h-8 text-xs ${m.is_deposit && !m.amount ? "border-destructive" : ""}`} placeholder="0.00" value={m.amount}
+                        onChange={(e) => updateMilestone(i, "amount", e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Due Date</Label>
+                      <Input type="date" className="h-8 text-xs" value={m.due_date}
+                        onChange={(e) => updateMilestone(i, "due_date", e.target.value)} />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {i === 0 && <Label className="text-xs">Due Date</Label>}
-                    <Input type="date" className="h-8 text-xs" value={m.due_date}
-                      onChange={(e) => updateMilestone(i, "due_date", e.target.value)} />
-                  </div>
-                  <button onClick={() => removeMilestone(i)}
-                    className={`text-muted-foreground hover:text-destructive ${i === 0 ? "mt-5" : ""}`}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={addMilestone} className="w-full">
                 <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Milestone
               </Button>
               <p className="text-xs text-muted-foreground">Total: {fmt(paymentMilestones.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0))}</p>
+              {!canProceedStep3 && (
+                <p className="text-xs text-destructive">
+                  {!depositMilestone?.label.trim() && !depositMilestone?.amount ? "Deposit name and amount are required." : !depositMilestone?.label.trim() ? "Deposit name is required." : "Deposit amount is required."}
+                </p>
+              )}
             </div>
           )}
 
@@ -563,11 +676,16 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
                   <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9" min={startDate} />
                 </div>
               </div>
-              {selectedForeman && foremen.find((f) => f.id === selectedForeman) && (
+              {(selectedForeman || selectedPM || selectedSalesRep) && (
                 <div className="bg-muted/30 rounded-lg p-3 text-sm space-y-1">
-                  <p><span className="font-medium">Foreman:</span> {foremen.find((f) => f.id === selectedForeman)?.first_name} {foremen.find((f) => f.id === selectedForeman)?.last_name}</p>
+                  {selectedForeman && foremen.find((f) => f.id === selectedForeman) && (
+                    <p><span className="font-medium">Foreman:</span> {foremen.find((f) => f.id === selectedForeman)?.first_name} {foremen.find((f) => f.id === selectedForeman)?.last_name}</p>
+                  )}
                   {selectedPM && projectManagers.find((p) => p.id === selectedPM) && (
                     <p><span className="font-medium">PM:</span> {projectManagers.find((p) => p.id === selectedPM)?.first_name} {projectManagers.find((p) => p.id === selectedPM)?.last_name}</p>
+                  )}
+                  {selectedSalesRep && salesReps.find((r) => r.id === selectedSalesRep) && (
+                    <p><span className="font-medium">Sales Rep:</span> {salesReps.find((r) => r.id === selectedSalesRep)?.first_name} {salesReps.find((r) => r.id === selectedSalesRep)?.last_name}</p>
                   )}
                   {startDate && <p><span className="font-medium">Starts:</span> {new Date(startDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>}
                 </div>
@@ -586,7 +704,12 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           </Button>
           {step < TOTAL_STEPS ? (
             <Button size="sm"
-              disabled={step === 1 && !canProceedStep1}
+              disabled={
+                (step === 1 && !canProceedStep1) ||
+                (step === 2 && !!selectedPM && projectManagers.find((p) => p.id === selectedPM)?.commission_rate === 0) ||
+                (step === 2 && !!selectedSalesRep && salesReps.find((r) => r.id === selectedSalesRep)?.commission_rate === 0) ||
+                (step === 3 && !canProceedStep3)
+              }
               onClick={() => setStep(step + 1)}
             >
               Next <ChevronRight className="h-4 w-4 ml-1" />
