@@ -327,6 +327,8 @@ export function ProposalDetail() {
     setSaveTouched(true);
     if (titleErr || itemsErr || totalErr) return;
     setSaving(true);
+    // Snapshot state before any awaits so realtime refetches mid-save can't clobber it
+    const snapshot = [...editLineItems];
     try {
       await estimatesAPI.update(proposal.id, {
         title: editTitle,
@@ -338,8 +340,21 @@ export function ProposalDetail() {
         profit_margin: computedProfitMargin,
         ...(badOverride !== null ? { bad_amount: badOverride } : {}),
       });
+      // Delete items that were removed from editLineItems
+      const originalItemIds = (proposal.line_items ?? [])
+        .map((item: any) => item.id)
+        .filter(Boolean);
+      const keptItemIds = new Set(
+        snapshot
+          .filter((item) => item.id && !String(item.id).startsWith("new-"))
+          .map((item) => item.id)
+      );
+      const deletedIds = originalItemIds.filter((id: string) => !keptItemIds.has(id));
+      if (deletedIds.length > 0) {
+        await supabase.from("estimate_line_items").delete().in("id", deletedIds);
+      }
       // Insert new items (added via picker/custom form during this session)
-      const newItems = editLineItems.filter((item) => item.id?.startsWith("new-"));
+      const newItems = snapshot.filter((item) => item.id?.startsWith("new-"));
       if (newItems.length > 0) {
         await supabase.from("estimate_line_items").insert(
           newItems.map((item) => ({
@@ -361,7 +376,7 @@ export function ProposalDetail() {
       }
       // Update existing items
       await Promise.all(
-        editLineItems
+        snapshot
           .filter((item) => !item.id?.startsWith("new-"))
           .map((item) =>
             supabase.from("estimate_line_items").update({
@@ -388,7 +403,7 @@ export function ProposalDetail() {
         total_cost: computedTotalCost,
         gross_profit: computedGrossProfit,
         profit_margin: computedProfitMargin,
-        line_items: editLineItems,
+        line_items: snapshot,
       }));
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       toast.success("Proposal saved.");
@@ -940,7 +955,7 @@ export function ProposalDetail() {
 
       <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
 
-      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${emailMessage.replace(/\n/g, '<br>')}</p>
 
       <!-- Scope of Work summary -->
       ${scopeRows.length > 0 ? `
@@ -1897,7 +1912,7 @@ export function ProposalDetail() {
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
   <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
     <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
-    <p style="font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${emailMessage}</p>
+    <p style="font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${emailMessage.replace(/\n/g, '<br>')}</p>
     ${scopeRowsP.length > 0 ? `<div style="margin:0 0 28px 0;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Scope of Work</p><table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;"><tr style="background:#0A0A0A;"><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;">Item</td><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;text-align:right;">Amount</td></tr>${scopeHtmlP}<tr style="background:#F5F3EF;border-top:2px solid #E8E4DC;"><td style="padding:14px 16px;font-size:14px;font-weight:700;color:#0A0A0A;">Total Investment</td><td style="padding:14px 16px;font-size:22px;color:#BB984D;text-align:right;">${grandTotalP}</td></tr></table></div>` : ""}
     ${reviewsHtmlP}
     <div style="text-align:center;margin:0 0 24px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a></div>

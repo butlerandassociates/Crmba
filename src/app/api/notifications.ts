@@ -25,7 +25,7 @@ export const notificationsAPI = {
 
     const query = supabase
       .from("notifications")
-      .select("*, created_by_profile:profiles!notifications_created_by_fkey(first_name, last_name)")
+      .select("id, type, title, message, link, metadata, created_at, recipient_id")
       .eq("is_read", false)
       .order("created_at", { ascending: false });
 

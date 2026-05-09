@@ -46,7 +46,7 @@ function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boole
       <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
         Message from Butler &amp; Associates
       </p>
-      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;white-space:pre-line;margin:0 0 28px 0;">${body}</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${body.replace(/\n/g, '<br>')}</p>
 
       ${includeIntakeForm ? `
       <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:0 0 28px 0;background:#FAFAF8;">

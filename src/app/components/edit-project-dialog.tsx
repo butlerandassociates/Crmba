@@ -183,6 +183,14 @@ export function EditProjectDialog({
         ...commissionUpdates,
         ...repCommissionUpdates,
       });
+
+      // Sync FIO foreman assignment when foreman changes
+      if (foremanChanged) {
+        await supabase
+          .from("field_installation_orders")
+          .update({ foreman_id: newForemanId })
+          .eq("project_id", project.id);
+      }
       if (newValue !== oldValue) {
         activityLogAPI.create({ client_id: form.client_id, action_type: "project_value_updated", description: `Project value updated: $${oldValue.toLocaleString()} → $${newValue.toLocaleString()} — "${form.name.trim()}"` }).catch(() => {});
       } else {

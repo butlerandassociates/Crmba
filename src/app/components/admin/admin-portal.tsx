@@ -9,7 +9,7 @@ import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Link } from "react-router";
-import { FileText, List, Archive, Loader2, RotateCcw, FileBarChart2, Search } from "lucide-react";
+import { FileText, List, Archive, Loader2, RotateCcw, FileBarChart2, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "../ui/input";
 import { supabase } from "@/lib/supabase";
 import { activityLogAPI } from "../../utils/api";
@@ -21,6 +21,8 @@ function DiscardedClients() {
   const [loading, setLoading] = useState(true);
   const [reviving, setReviving] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [discardedPage, setDiscardedPage] = useState(0);
+  const DISCARDED_PAGE_SIZE = 10;
 
   const load = async () => {
     setLoading(true);
@@ -84,7 +86,7 @@ function DiscardedClients() {
           <Input
             placeholder="Search discarded clients..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setDiscardedPage(0); }}
             className="pl-9"
           />
         </div>
@@ -96,7 +98,11 @@ function DiscardedClients() {
         </div>
       )}
       <div className="space-y-2">
-      {filtered.map((client) => (
+      {(() => {
+        const totalPages = Math.ceil(filtered.length / DISCARDED_PAGE_SIZE);
+        const pagedFiltered = filtered.slice(discardedPage * DISCARDED_PAGE_SIZE, (discardedPage + 1) * DISCARDED_PAGE_SIZE);
+        return (<>
+      {pagedFiltered.map((client) => (
         <div key={client.id} className="flex items-center justify-between border rounded-lg px-4 py-3 bg-card">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -134,6 +140,22 @@ function DiscardedClients() {
           </Button>
         </div>
       ))}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
+          <span>{discardedPage * DISCARDED_PAGE_SIZE + 1}–{Math.min((discardedPage + 1) * DISCARDED_PAGE_SIZE, filtered.length)} of {filtered.length} clients</span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage === 0} onClick={() => setDiscardedPage((p) => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="px-2">{discardedPage + 1} / {totalPages}</span>
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage >= totalPages - 1} onClick={() => setDiscardedPage((p) => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+        </>);
+      })()}
       </div>
     </div>
   );

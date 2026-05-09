@@ -36,6 +36,8 @@ export function Dashboard() {
   const [clients, setClients] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [collections, setCollections] = useState<any[]>([]);
+  const [paidPayments, setPaidPayments] = useState<any[]>([]);
+  const [projectCostsMap, setProjectCostsMap] = useState<Record<string, { materials: number; labor: number; commissions: number }>>({});
   const [collectionsTab, setCollectionsTab] = useState<'today' | 'upcoming' | 'overdue'>('overdue');
   const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
@@ -97,6 +99,48 @@ export function Dashboard() {
         .not("due_date", "is", null)
         .order("due_date", { ascending: true });
       setCollections((paymentsData || []).filter((p: any) => !p.project?.client?.is_discarded));
+
+      // Fetch all paid payments for cash-basis revenue calculation
+      const { data: paidData } = await supabase
+        .from("project_payments")
+        .select(`amount, paid_date, project:projects(id, gross_profit, profit_margin, client:clients(is_discarded))`)
+        .eq("is_paid", true)
+        .not("paid_date", "is", null);
+      setPaidPayments((paidData || []).filter((p: any) => !p.project?.client?.is_discarded));
+
+      // Fetch actual costs per project for live GP calculation
+      const [{ data: receiptsData }, { data: crewData }, { data: commissionsData }] = await Promise.all([
+        supabase.from("project_receipts").select("project_id, amount"),
+        supabase
+          .from("fio_crew_payments")
+          .select("amount_paid, fio:field_installation_orders!inner(project_id)")
+          .eq("is_paid", true),
+        supabase
+          .from("commission_payments")
+          .select("project_id, amount")
+          .eq("status", "processed"),
+      ]);
+
+      const costsMap: Record<string, { materials: number; labor: number; commissions: number }> = {};
+      const ensure = (id: string) => {
+        if (!costsMap[id]) costsMap[id] = { materials: 0, labor: 0, commissions: 0 };
+      };
+      for (const r of receiptsData || []) {
+        ensure(r.project_id);
+        costsMap[r.project_id].materials += parseFloat(r.amount) || 0;
+      }
+      for (const c of crewData || []) {
+        const pid = (c.fio as any)?.project_id;
+        if (!pid) continue;
+        ensure(pid);
+        costsMap[pid].labor += parseFloat(c.amount_paid) || 0;
+      }
+      for (const cp of commissionsData || []) {
+        ensure(cp.project_id);
+        costsMap[cp.project_id].commissions += parseFloat(cp.amount) || 0;
+      }
+      setProjectCostsMap(costsMap);
+
       // Fetch revenue goal from company_settings
       const { data: settings } = await supabase.from("company_settings").select("monthly_revenue_goal").limit(1).maybeSingle();
       if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
@@ -107,7 +151,7 @@ export function Dashboard() {
     }
   };
 
-  useRealtimeRefetch(fetchData, ["clients", "project_payments", "projects", "company_settings"], "dashboard");
+  useRealtimeRefetch(fetchData, ["clients", "project_payments", "projects", "company_settings", "project_receipts", "fio_crew_payments", "commission_payments"], "dashboard");
 
   if (loading) {
     return (
@@ -153,6 +197,10 @@ export function Dashboard() {
       ? collections.filter((p: any) => visibleProjectIds.has(p.project?.id))
       : collections;
 
+  const visiblePaidPayments = (role === "project_manager" || role === "sales_rep") && currentProfileId
+    ? paidPayments.filter((p: any) => visibleProjectIds.has(p.project?.id))
+    : paidPayments;
+
   // Active Clients = clients with at least one active project
   const activeClientIds = new Set(visibleProjects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
   const activeClients = activeClientIds.size;
@@ -179,7 +227,7 @@ export function Dashboard() {
     return acc;
   }, {} as Record<string, number>);
 
-  // Monthly revenue chart — group projects by start_date month (last 6 months)
+  // Monthly revenue chart — cash basis: sum payments collected per month (last 6 months)
   const monthlyRevenueChart = (() => {
     const now = new Date();
     return Array.from({ length: 6 }, (_, i) => {
@@ -187,16 +235,22 @@ export function Dashboard() {
       const month = d.toLocaleString("en-US", { month: "short" });
       const y = d.getFullYear();
       const m = d.getMonth();
-      const monthProjects = visibleProjects.filter((p) => {
-        if (!["sold", "active", "completed"].includes(p.status)) return false;
-        const date = p.created_at ? new Date(p.created_at) : null;
+      const monthPayments = visiblePaidPayments.filter((p) => {
+        const date = p.paid_date ? new Date(p.paid_date) : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });
       return {
         id: `${y}-${m}`,
         month,
-        revenue: monthProjects.reduce((s, p) => s + (p.totalValue || 0), 0),
-        profit:  monthProjects.reduce((s, p) => s + (p.grossProfit || 0), 0),
+        revenue: monthPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0),
+        profit: monthPayments.reduce((s, p) => {
+          const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
+          if (!proj || !proj.totalValue || proj.totalValue === 0) return s;
+          const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+          const actualCosts = costs.materials + costs.labor + costs.commissions;
+          const liveGPRate = Math.max(0, (proj.totalValue - actualCosts) / proj.totalValue);
+          return s + (parseFloat(p.amount) || 0) * liveGPRate;
+        }, 0),
       };
     });
   })();
@@ -243,30 +297,37 @@ export function Dashboard() {
   
   const { startDate, endDate } = getDateRange();
   
-  // Calculate revenue based on selected date range (using project created_at — when the sale was made)
-  const periodProjects = visibleProjects.filter((p) => {
-    if (!["sold", "active", "completed"].includes(p.status)) return false;
-    const d = p.created_at ? new Date(p.created_at) : null;
+  // Cash-basis revenue: sum payments actually collected within the selected date range
+  const periodPayments = visiblePaidPayments.filter((p) => {
+    const d = p.paid_date ? new Date(p.paid_date) : null;
     if (!d) return false;
     return d >= startDate && d <= endDate;
   });
-  const periodRevenue = periodProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const periodRevenue = periodPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
   const totalRevenue = periodRevenue;
-  const totalProfit = periodProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const avgProfitMargin = periodProjects.length > 0
-    ? periodProjects.reduce((sum, p) => sum + (p.profitMargin || 0), 0) / periodProjects.length
-    : 0;
+  // GP: proportional to payments collected, using actual costs (materials + labor paid + paid commissions)
+  const totalProfit = periodPayments.reduce((sum, p) => {
+    const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
+    if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
+    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+    const actualCosts = costs.materials + costs.labor + costs.commissions;
+    const liveGPRate = Math.max(0, (proj.totalValue - actualCosts) / proj.totalValue);
+    return sum + (parseFloat(p.amount) || 0) * liveGPRate;
+  }, 0);
+  const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const periodProjectIds = new Set(periodPayments.map((p: any) => p.project?.id).filter(Boolean));
+  const periodProjects = visibleProjects.filter((p: any) => periodProjectIds.has(p.id));
 
   const _curDate = new Date();
   const _curMonth = _curDate.getMonth();
   const _curYear = _curDate.getFullYear();
-  const currentMonthProjects = visibleProjects.filter((p) => {
-    if (!["sold", "active", "completed"].includes(p.status)) return false;
-    const d = p.created_at ? new Date(p.created_at) : null;
-    if (!d) return false;
-    return d.getMonth() === _curMonth && d.getFullYear() === _curYear;
-  });
-  const currentMonthRevenue = currentMonthProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
+  const currentMonthRevenue = visiblePaidPayments
+    .filter((p) => {
+      const d = p.paid_date ? new Date(p.paid_date) : null;
+      if (!d) return false;
+      return d.getMonth() === _curMonth && d.getFullYear() === _curYear;
+    })
+    .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
   const revenueProgress = (periodRevenue / MONTHLY_REVENUE_GOAL) * 100;
   const remainingRevenue = MONTHLY_REVENUE_GOAL - periodRevenue;
@@ -300,7 +361,7 @@ export function Dashboard() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 overflow-x-hidden">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
@@ -664,7 +725,7 @@ export function Dashboard() {
                   <p className="text-xs text-muted-foreground mt-1">All clear for this period</p>
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="divide-y max-h-[320px] overflow-y-auto overflow-x-hidden">
                   {activeList.map((payment) => {
                     const clientName = payment.project?.client
                       ? `${payment.project.client.first_name ?? ''} ${payment.project.client.last_name ?? ''}`.trim()

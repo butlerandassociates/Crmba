@@ -8,7 +8,10 @@ import { supabase } from "@/lib/supabase";
 export const usersAPI = {
   /** All team members with their active project count. Pass includeInactive=true for admin pages. */
   getAll: async (includeInactive = false) => {
-    let query = supabase.from("profiles").select("*").order("first_name");
+    let query = supabase
+      .from("profiles")
+      .select("id, first_name, last_name, email, phone, role, is_active, commission_rate, insurance_expiration_date, permissions")
+      .order("first_name");
     if (!includeInactive) query = query.eq("is_active", true);
     const { data, error } = await query;
     if (error) throw new Error(error.message);

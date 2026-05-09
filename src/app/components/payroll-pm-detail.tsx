@@ -5,7 +5,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { ArrowLeft, TrendingUp, Clock, DollarSign, Edit2, Check, X, Loader2, Trash2, ChevronDown, ChevronUp, Plus, Search } from "lucide-react";
+import { ArrowLeft, TrendingUp, Clock, DollarSign, Edit2, Check, X, Loader2, Trash2, ChevronDown, ChevronUp, Plus, Search, AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
@@ -345,7 +345,7 @@ export function PayrollPMDetail() {
             ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
             : "—";
           const gpTotal = parseFloat(proj?.gross_profit) || 0;
-          const commissionTotal = parseFloat(proj?.commission) || 0;
+          const commissionTotal = group.items.reduce((s: number, i: any) => s + (parseFloat(i.amount) || 0), 0);
           const { owed, paid, remaining, pct, projPayouts } = group;
           const isAddPaymentOpen = !!expandedAddPayment[proj?.id];
           const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
@@ -411,7 +411,7 @@ export function PayrollPMDetail() {
                       <tr className="bg-muted/50 border-b">
                         <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Installment</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Source</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Commission</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Total Projected Commission</th>
                         <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
                         <th className="py-2 px-3" />
@@ -429,15 +429,9 @@ export function PayrollPMDetail() {
                               {pp?.percentage && <span className="text-xs text-muted-foreground ml-1">({pp.percentage}%)</span>}
                             </td>
                             <td className="py-2.5 px-3 text-xs">
-                              {pp ? (
-                                <span className="text-amber-600">
-                                  {pp.label ?? "Milestone"} · {fmtShort(parseFloat(pp.amount) || 0)}
-                                </span>
-                              ) : (
-                                <span className="text-blue-600">
-                                  Contract Signed · {fmtShort(parseFloat(proj?.total_value) || 0)}
-                                </span>
-                              )}
+                              <span className="text-blue-600">
+                                {pm.commission_rate}% of GP {fmtShort(gpTotal)}
+                              </span>
                             </td>
                             <td className="py-2.5 px-3 text-right font-semibold">
                               {isEditing ? (
@@ -528,6 +522,29 @@ export function PayrollPMDetail() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* GP Correction flag */}
+                {gpTotal > 0 && (pm.commission_rate ?? 0) > 0 && (() => {
+                  const expectedCommission = gpTotal * ((pm.commission_rate ?? 0) / 100);
+                  const delta = expectedCommission - commissionTotal;
+                  if (Math.abs(delta) < 0.01) return null;
+                  const overpaid = delta < 0;
+                  return (
+                    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-xs">
+                        <p className="font-semibold text-amber-800">Commission Correction Needed</p>
+                        <p className="text-amber-700 mt-0.5">
+                          Based on current GP of {fmtShort(gpTotal)}, expected total commission is {fmtShort(expectedCommission)}.{" "}
+                          {overpaid
+                            ? `Overpaid by ${fmtShort(Math.abs(delta))} — adjust installments down.`
+                            : `Underpaid by ${fmtShort(delta)} — adjust installments up.`
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Footer: + Add Payment | ▼ Payout History */}
                 {owed > 0 && (

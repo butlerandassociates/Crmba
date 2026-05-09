@@ -707,7 +707,12 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                     setEditItems([]);
                     setEditWorkDate("");
                     setCheckedIds(new Set());
-                    fetchLaborFromEstimate().then(setSuggestedItems);
+                    fetchLaborFromEstimate().then((items) => {
+                      const assignedNames = new Set(
+                        fioList.flatMap((f: any) => (f.items || []).map((i: any) => i.product_name))
+                      );
+                      setSuggestedItems(items.filter((item: any) => !assignedNames.has(item.product_name)));
+                    });
                     setView("edit");
                   }}
                   className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors border-dashed border-border text-muted-foreground hover:border-primary hover:text-foreground"
@@ -856,7 +861,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                   </table>
                 </div>
               )}
-              {(() => {
+              {!addingCrew && (() => {
                 const remaining = suggestedItems.filter(
                   (s: any) => !editItems.some((e: any) => e.product_name === s.product_name)
                 );

@@ -6,12 +6,17 @@
 import { supabase } from "@/lib/supabase";
 
 export const clientsAPI = {
-  /** List all active clients with lead source, pipeline stage, project total, and proposal forecast */
-  getAll: async () => {
-    const { data, error } = await supabase
+  /** List active clients for a given stage (or all stages if omitted) */
+  getAll: async (stage?: string) => {
+    let query = supabase
       .from("clients")
       .select(`
-        *,
+        id, first_name, last_name, email, phone, address,
+        status, pipeline_stage_id, lead_source_id, sales_rep_id,
+        created_at, updated_at, is_discarded,
+        docusign_status, appointment_met, appointment_scheduled,
+        appointment_date, appointment_end_date,
+        projected_value, closing_probability,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
         sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active),
@@ -27,6 +32,8 @@ export const clientsAPI = {
       `)
       .eq("is_discarded", false)
       .order("created_at", { ascending: false });
+    if (stage) query = query.eq("status", stage);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     return (data ?? []).map((c: any) => {
       const firstProject = (c.projects ?? [])[0];
@@ -59,9 +66,9 @@ export const clientsAPI = {
       const project_staff_label = `${salesRepName || "—"} / ${pmName || "—"}`;
 
       const payments = c.project_payments ?? [];
-      const totalPayments = payments.length;
-      const paidPayments  = payments.filter((p: any) => p.is_paid).length;
-      const payment_progress_pct = totalPayments > 0 ? Math.round((paidPayments / totalPayments) * 100) : null;
+      const totalAmount = payments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+      const paidAmount = payments.filter((p: any) => p.is_paid).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+      const payment_progress_pct = totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : null;
 
       const latestProposal = (c.estimates ?? []).find((e: any) => e.status === "accepted")
         ?? (c.estimates ?? []).filter((e: any) => e.status !== "declined" && e.status !== "voided").sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];

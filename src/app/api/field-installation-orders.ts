@@ -33,7 +33,10 @@ export const fioAPI = {
     if (items.length > 0) {
       const { error: itemsError } = await supabase
         .from("field_installation_order_items")
-        .insert(items.map((item, i) => ({ ...item, fio_id: created.id, sort_order: item.sort_order ?? i })));
+        .insert(items.map((item: any, i) => {
+          const { id, ...rest } = item;
+          return { ...rest, fio_id: created.id, sort_order: rest.sort_order ?? i };
+        }));
       if (itemsError) throw new Error(itemsError.message);
     }
     return created;

@@ -7,10 +7,11 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { PaymentStatementExport } from "./payment-receipt-export";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell, RadialBarChart, RadialBar, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
   ArrowLeft,
   Mail,
@@ -62,6 +63,7 @@ import {
   FileCheck2,
   FileX2,
   UserCheck,
+  Info,
 } from "lucide-react";
 import {
   Dialog,
@@ -143,6 +145,7 @@ export function ClientDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [clientProjects, setClientProjects] = useState<any[]>([]);
+  const [projectCommPayments, setProjectCommPayments] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
@@ -248,6 +251,9 @@ export function ClientDetail() {
     projectsAPI.getAll().then((all) => {
       const filtered = all.filter((p: any) => p.client_id === id);
       setClientProjects(filtered);
+      if (filtered[0]?.id) {
+        commissionPaymentsAPI.getAll({ project_id: filtered[0].id }).then(setProjectCommPayments).catch(console.error);
+      }
       // Stale data guard — zero out commission if assigned person was removed
       filtered.forEach((p: any) => {
         const dbUpdates: Record<string, number> = {};
@@ -354,7 +360,10 @@ export function ClientDetail() {
   const [savingNoteEdit, setSavingNoteEdit] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
-  const [activityPage, setActivityPage] = useState(1);
+  const [activityPage, setActivityPage] = useState(0);
+  const [activityHasMore, setActivityHasMore] = useState(false);
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false);
+  const [activityTotal, setActivityTotal] = useState(0);
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -652,10 +661,29 @@ export function ClientDetail() {
   const loadActivityLog = async () => {
     if (!id) return;
     try {
-      const data = await activityLogAPI.getByClient(id);
-      setActivityLog(data || []);
+      const { data, hasMore, total } = await activityLogAPI.getByClient(id, 0);
+      setActivityLog(data);
+      setActivityPage(0);
+      setActivityHasMore(hasMore);
+      setActivityTotal(total);
     } catch (error) {
       console.error("Failed to load activity log:", error);
+    }
+  };
+
+  const loadMoreActivity = async () => {
+    if (!id || activityLoadingMore) return;
+    try {
+      setActivityLoadingMore(true);
+      const nextPage = activityPage + 1;
+      const { data, hasMore } = await activityLogAPI.getByClient(id, nextPage);
+      setActivityLog((prev) => [...prev, ...data]);
+      setActivityPage(nextPage);
+      setActivityHasMore(hasMore);
+    } catch {
+      toast.error("Failed to load more activity");
+    } finally {
+      setActivityLoadingMore(false);
     }
   };
 
@@ -1859,8 +1887,14 @@ export function ClientDetail() {
               const cost = clientProjects[0]?.totalCosts ?? 0;
               const grossProfit = clientProjects[0]?.grossProfit ?? 0;
               const margin = clientProjects[0]?.profitMargin ?? 0;
-              const commission = clientProjects[0]?.commission ?? 0;
-              const salesRepCommission = clientProjects[0]?.salesRepCommission ?? 0;
+              const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
+              const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
+              const commission = pmProfileId
+                ? projectCommPayments.filter((cp: any) => cp.profile_id === pmProfileId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
+                : (clientProjects[0]?.commission ?? 0);
+              const salesRepCommission = repProfileId
+                ? projectCommPayments.filter((cp: any) => cp.profile_id === repProfileId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
+                : (clientProjects[0]?.salesRepCommission ?? 0);
               const salesRepName = clientProjects[0]?.salesRepName ?? "";
               const donutData = totalValue > 0
                 ? [
@@ -1890,7 +1924,7 @@ export function ClientDetail() {
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip
+                        <RechartsTooltip
                           formatter={(v: number) => formatCurrency(v)}
                           contentStyle={{ fontSize: 11, borderRadius: 6, border: "1px solid #e2e8f0" }}
                           wrapperStyle={{ zIndex: 20 }}
@@ -2093,28 +2127,50 @@ export function ClientDetail() {
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     GP %
                     <ChevronDown className={`h-3 w-3 transition-transform ${gpHealthOpen[project.id] ? "rotate-180" : ""}`} />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground" onClick={(e) => e.stopPropagation()} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-xs">
+                          Budgeted margin from the accepted proposal. Click to see the live Financial Health breakdown.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </p>
                   <p className="font-semibold text-base group-hover:text-primary transition-colors">
                     {(project.profitMargin ?? 0).toFixed(1)}%
                   </p>
                 </button>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">PM Commission</p>
-                <p className="font-semibold text-base text-blue-600">{formatCurrency(project.commission ?? 0)}</p>
-              </div>
-              {project.salesRepName && project.salesRepCommission > 0 && role !== "project_manager" && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Sales Rep Commission</p>
-                  <p className="font-semibold text-base text-purple-600">{formatCurrency(project.salesRepCommission)}</p>
-                </div>
-              )}
-              {((project.commission ?? 0) > 0 || (project.salesRepCommission ?? 0) > 0) && (project.grossProfit ?? 0) > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Net Profit</p>
-                  <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - (project.commission ?? 0) - (project.salesRepCommission ?? 0)))}</p>
-                </div>
-              )}
+              {(() => {
+                const pmId = project.project_manager_id ?? null;
+                const repId = project.sales_rep_id ?? null;
+                const pmComm = pmId
+                  ? projectCommPayments.filter((cp: any) => cp.profile_id === pmId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
+                  : (project.commission ?? 0);
+                const repComm = repId
+                  ? projectCommPayments.filter((cp: any) => cp.profile_id === repId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
+                  : (project.salesRepCommission ?? 0);
+                return (<>
+                  <div>
+                    <p className="text-xs text-muted-foreground">PM Commission</p>
+                    <p className="font-semibold text-base text-blue-600">{formatCurrency(pmComm)}</p>
+                  </div>
+                  {project.salesRepName && repComm > 0 && role !== "project_manager" && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sales Rep Commission</p>
+                      <p className="font-semibold text-base text-purple-600">{formatCurrency(repComm)}</p>
+                    </div>
+                  )}
+                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Net Profit</p>
+                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - pmComm - repComm))}</p>
+                    </div>
+                  )}
+                </>);
+              })()}
               <div>
                 <p className="text-xs text-muted-foreground">Start Date</p>
                 <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
@@ -2188,7 +2244,19 @@ export function ClientDetail() {
                       <p className="text-xs text-muted-foreground">{(project.profitMargin ?? 0).toFixed(1)}% margin</p>
                     </div>
                     <div className={`border rounded-lg p-3 ${liveGP >= budgetedGP ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
-                      <p className="text-xs text-muted-foreground">Live GP (based on cost attributions)</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        Live GP
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-pointer" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[240px] text-xs">
+                              Real-time GP based on costs recorded so far. Will decrease as material receipts are added and crew payments are recorded.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </p>
                       <p className={`font-bold text-base ${liveGP >= budgetedGP ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
                         {formatCurrency(liveGP)}
                       </p>
@@ -2493,8 +2561,8 @@ export function ClientDetail() {
             <CardTitle className="text-base flex items-center gap-2">
               <History className="h-4 w-4" />
               Activity Log
-              {activityLog.length > 0 && (
-                <span className="ml-auto text-xs font-normal text-muted-foreground">{activityLog.length} event{activityLog.length !== 1 ? "s" : ""}</span>
+              {activityTotal > 0 && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{activityTotal} event{activityTotal !== 1 ? "s" : ""}</span>
               )}
             </CardTitle>
           </CardHeader>
@@ -2613,6 +2681,21 @@ export function ClientDetail() {
                 <History className="h-8 w-8 mx-auto text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">No activity yet</p>
                 <p className="text-xs text-muted-foreground">Emails, appointments, status changes, and payments will appear here automatically.</p>
+              </div>
+            )}
+            {activityHasMore && (
+              <div className="pt-2 text-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadMoreActivity}
+                  disabled={activityLoadingMore}
+                  className="text-xs text-muted-foreground h-7"
+                >
+                  {activityLoadingMore
+                    ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Loading...</>
+                    : <><ChevronDown className="h-3 w-3 mr-1.5" />Load older activity</>}
+                </Button>
               </div>
             )}
           </CardContent>

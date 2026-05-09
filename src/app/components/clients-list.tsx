@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -43,6 +43,9 @@ export function ClientsList() {
 
   const location = useLocation();
   const stageFilter = new URLSearchParams(location.search).get("stage") ?? "";
+  // Keep a ref so the realtime callback (registered once at mount) always uses the latest stage
+  const stageRef = useRef(stageFilter);
+  stageRef.current = stageFilter;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [clients, setClients] = useState<any[]>([]);
@@ -286,13 +289,17 @@ export function ClientsList() {
     return errors;
   };
 
+  // One-time: load reference data that doesn't change with stage
   useEffect(() => {
-    fetchClients();
     fetchLeadSources();
     pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
   }, []);
 
-  useEffect(() => { clearSelection(); }, [stageFilter]);
+  // Refetch clients whenever the stage tab changes
+  useEffect(() => {
+    clearSelection();
+    fetchClients();
+  }, [stageFilter]);
 
   // Redirect PM/Sales Rep away from stages they cannot see
   useEffect(() => {
@@ -311,7 +318,7 @@ export function ClientsList() {
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const data = await clientsAPI.getAll();
+      const data = await clientsAPI.getAll(stageRef.current || undefined);
       setClients(data ?? []);
       setError(null);
     } catch (err: any) {

@@ -12,21 +12,28 @@ const attachPerformers = async (rows: any[]) => {
   return rows.map((r) => ({ ...r, performer: r.performed_by ? (map[r.performed_by] ?? null) : null }));
 };
 
+const ACTIVITY_PAGE_SIZE = 20;
+
 export const activityLogAPI = {
-  getByClient: async (clientId: string) => {
-    const { data, error } = await supabase
+  getByClient: async (clientId: string, page = 0) => {
+    const from = page * ACTIVITY_PAGE_SIZE;
+    const to   = from + ACTIVITY_PAGE_SIZE - 1;
+    const { data, error, count } = await supabase
       .from("activity_log")
-      .select("*")
+      .select("id, client_id, action_type, description, performed_by, created_at", { count: "exact" })
       .eq("client_id", clientId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(from, to);
     if (error) throw error;
-    return attachPerformers(data || []);
+    const withPerformers = await attachPerformers(data || []);
+    const total = count ?? 0;
+    return { data: withPerformers, hasMore: total > (page + 1) * ACTIVITY_PAGE_SIZE, total };
   },
 
   getByProject: async (projectId: string) => {
     const { data, error } = await supabase
       .from("activity_log")
-      .select("*")
+      .select("id, project_id, action_type, description, performed_by, created_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false });
     if (error) throw error;

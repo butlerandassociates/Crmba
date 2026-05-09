@@ -198,9 +198,11 @@ export function ProjectDetail() {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  // Calculate progress based on payments received
-  const paymentProgressPercentage = projectPayments.length > 0
-    ? projectPayments.filter(p => p.is_paid).reduce((sum, p) => sum + Number(p.percentage), 0)
+  // Calculate progress based on amounts received (not user-entered % label which may be 0)
+  const totalMilestoneAmount = projectPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+  const paidMilestoneAmount = projectPayments.filter(p => p.is_paid).reduce((sum, p) => sum + Number(p.amount), 0);
+  const paymentProgressPercentage = totalMilestoneAmount > 0
+    ? Math.round((paidMilestoneAmount / totalMilestoneAmount) * 100)
     : 0;
 
   const progressPercentage = project.status === "completed" ? 100 :

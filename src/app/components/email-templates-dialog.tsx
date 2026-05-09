@@ -11,7 +11,7 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Mail, Send, Loader2, Eye, Paperclip, Bold, Italic, Link, Unlink, Check, X } from "lucide-react";
+import { Mail, Send, Loader2, Eye, Paperclip, Bold, Italic, Link, Unlink, Check, X, List, ListOrdered } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -106,8 +106,10 @@ export function EmailTemplatesDialog({
     if (template) {
       setSelectedTemplate(templateId);
       setSubject(template.subject);
-      setBody(template.body);
-      if (bodyRef.current) bodyRef.current.innerHTML = template.body;
+      // Normalize: if template body is plain text (no HTML tags), convert \n → <br>
+      const htmlBody = template.body.includes("<") ? template.body : template.body.replace(/\n/g, "<br>");
+      setBody(htmlBody);
+      if (bodyRef.current) bodyRef.current.innerHTML = htmlBody;
     }
   };
 
@@ -124,6 +126,68 @@ export function EmailTemplatesDialog({
     document.execCommand(cmd, false, value);
     bodyRef.current?.focus();
     if (bodyRef.current) setBody(bodyRef.current.innerHTML);
+  };
+
+  const execListCmd = (type: "bullet" | "numbered") => {
+    if (!bodyRef.current) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const tag = type === "bullet" ? "ul" : "ol";
+
+    // Walk up from selection anchor to find an existing list inside the editor
+    let existingList: HTMLElement | null = null;
+    let node: Node | null = sel.getRangeAt(0).commonAncestorContainer;
+    while (node && node !== bodyRef.current) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        if (el.tagName === "UL" || el.tagName === "OL") { existingList = el; break; }
+      }
+      node = node.parentNode;
+    }
+
+    if (existingList) {
+      if (existingList.tagName.toLowerCase() === tag) {
+        // Same type clicked → remove list, put items back as <br>-separated text
+        const fragment = document.createDocumentFragment();
+        Array.from(existingList.querySelectorAll("li")).forEach((li, i, arr) => {
+          const span = document.createElement("span");
+          span.innerHTML = li.innerHTML;
+          fragment.appendChild(span);
+          if (i < arr.length - 1) fragment.appendChild(document.createElement("br"));
+        });
+        existingList.parentNode?.replaceChild(fragment, existingList);
+      } else {
+        // Different type clicked → switch ul↔ol, keep all items
+        const newList = document.createElement(tag);
+        newList.style.cssText = "margin:8px 0;padding-left:20px;";
+        while (existingList.firstChild) newList.appendChild(existingList.firstChild);
+        existingList.parentNode?.replaceChild(newList, existingList);
+      }
+      setBody(bodyRef.current.innerHTML);
+      bodyRef.current.focus();
+      return;
+    }
+
+    // No existing list — build one from the selection
+    const range = sel.getRangeAt(0);
+    if (range.collapsed) return;
+
+    const lines = sel.toString()
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return;
+
+    const items = lines.map((l) => `<li>${l}</li>`).join("");
+    document.execCommand("insertHTML", false, `<${tag} style="margin:8px 0;padding-left:20px;">${items}</${tag}>`);
+
+    // Remove the empty <div><br></div> the browser appends after the list
+    const empties = bodyRef.current.querySelectorAll("ul + div, ol + div");
+    empties.forEach((el) => { if (el.innerHTML.trim() === "<br>" || el.innerHTML.trim() === "") el.remove(); });
+
+    setBody(bodyRef.current.innerHTML);
+    bodyRef.current.focus();
   };
 
 
@@ -269,8 +333,8 @@ export function EmailTemplatesDialog({
             Message from Butler &amp; Associates
           </p>
           <div style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">
-            <style>ul{margin:8px 0;padding-left:20px;}li{margin:4px 0;}a{color:#BB984D;}</style>
-            ${body}
+            <style>ul{margin:8px 0;padding-left:20px;}ol{margin:8px 0;padding-left:20px;}li{margin:4px 0;}a{color:#BB984D;}</style>
+            ${body.includes("<") ? body : body.replace(/\n/g, "<br>")}
           </div>
           <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
             Questions? Reply to this email or reach us at
@@ -448,6 +512,23 @@ export function EmailTemplatesDialog({
                   <div className="w-px h-4 bg-border mx-1" />
                   <button
                     type="button"
+                    onMouseDown={(e) => { e.preventDefault(); execListCmd("bullet"); }}
+                    className="p-1.5 rounded hover:bg-muted transition-colors"
+                    title="Bullet list"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); execListCmd("numbered"); }}
+                    className="p-1.5 rounded hover:bg-muted transition-colors"
+                    title="Numbered list"
+                  >
+                    <ListOrdered className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <button
+                    type="button"
                     onMouseDown={(e) => { e.preventDefault(); handleLinkButtonClick(); }}
                     className={`p-1.5 rounded transition-colors ${linkInputOpen ? "bg-muted text-primary" : "hover:bg-muted"}`}
                     title="Insert link"
@@ -501,7 +582,7 @@ export function EmailTemplatesDialog({
                 suppressContentEditableWarning
                 onInput={() => { if (bodyRef.current) setBody(bodyRef.current.innerHTML); }}
                 onBlur={() => setFieldTouched((p) => ({ ...p, body: true }))}
-                className="min-h-[280px] px-3 py-2 text-sm font-['Lato',sans-serif] leading-relaxed focus:outline-none [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-0.5"
+                className="min-h-[280px] px-3 py-2 text-sm font-['Lato',sans-serif] leading-relaxed focus:outline-none [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5"
                 style={{ whiteSpace: "pre-wrap" }}
                 onClick={(e) => {
                   const target = e.target as HTMLElement;

@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { Plus, Edit, Trash2, Search, Loader2, Package } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Loader2, Package, ChevronLeft, ChevronRight } from "lucide-react";
 // OLD: imported from mock data — replaced with DB
 // import { products } from "../../data/estimate-templates";
 import { productsAPI } from "../../utils/api";
@@ -45,6 +45,8 @@ const emptyForm = {
 export function ProductManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [productPage, setProductPage] = useState(0);
+  const PRODUCT_PAGE_SIZE = 10;
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [newProduct, setNewProduct] = useState(emptyForm);
@@ -98,6 +100,12 @@ export function ProductManager() {
       selectedCategory === "all" || product.category_id === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  const totalProductPages = Math.ceil(filteredProducts.length / PRODUCT_PAGE_SIZE);
+  const pagedProducts = filteredProducts.slice(
+    productPage * PRODUCT_PAGE_SIZE,
+    (productPage + 1) * PRODUCT_PAGE_SIZE
+  );
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -328,11 +336,11 @@ export function ProductManager() {
             <Input
               placeholder="Search products..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setProductPage(0); }}
               className="pl-10 w-56"
             />
           </div>
-          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+          <Select value={selectedCategory} onValueChange={(v) => { setSelectedCategory(v); setProductPage(0); }}>
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
@@ -583,6 +591,7 @@ export function ProductManager() {
               <SkeletonTable rows={6} cols={5} />
             </div>
           ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-b bg-muted/50">
@@ -614,7 +623,7 @@ export function ProductManager() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredProducts.map((product) => {
+                {pagedProducts.map((product) => {
                   const cost = Number(product.material_cost) + Number(product.labor_cost);
                   const price = getProductPrice(product);
                   const profit = price - cost;
@@ -682,6 +691,23 @@ export function ProductManager() {
               </tbody>
             </table>
           </div>
+          {totalProductPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <span className="text-xs text-muted-foreground">
+                {productPage * PRODUCT_PAGE_SIZE + 1}–{Math.min((productPage + 1) * PRODUCT_PAGE_SIZE, filteredProducts.length)} of {filteredProducts.length} products
+              </span>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setProductPage((p) => p - 1)} disabled={productPage === 0}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">Page {productPage + 1} of {totalProductPages}</span>
+                <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setProductPage((p) => p + 1)} disabled={productPage >= totalProductPages - 1}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
           )}
 
           {!loading && filteredProducts.length === 0 && (
