@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck, Building2, User } from "lucide-react";
+import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck, Building2, User, Eye } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -28,7 +28,7 @@ interface PurchaseOrdersSheetProps {
   onSave?: () => void;
 }
 
-type View = "list" | "create" | "detail";
+type View = "list" | "create" | "detail" | "preview";
 
 const STATUS_CONFIG = {
   draft:     { label: "Draft",     className: "bg-gray-100 text-gray-700" },
@@ -672,7 +672,8 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
             {view !== "list" && (
               <button
                 onClick={() => {
-                  if (view === "create" && isEditing) { resetForm(); setView("detail"); }
+                  if (view === "preview") { setView("create"); }
+                  else if (view === "create" && isEditing) { resetForm(); setView("detail"); }
                   else { setView("list"); setSelectedPo(null); }
                 }}
                 className="text-muted-foreground hover:text-foreground transition-colors"
@@ -682,7 +683,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
             )}
             <div>
               <SheetTitle className="text-base">
-                {view === "list" ? "Purchase Orders" : view === "create" ? (isEditing ? "Edit Purchase Order" : "New Purchase Order") : `PO — ${selectedPo?.supplier_name}`}
+                {view === "list" ? "Purchase Orders" : view === "create" ? (isEditing ? "Edit Purchase Order" : "New Purchase Order") : view === "preview" ? "Email Preview" : `PO — ${selectedPo?.supplier_name}`}
               </SheetTitle>
               <SheetDescription className="text-xs mt-0.5">
                 {client?.first_name} {client?.last_name}
@@ -1194,6 +1195,19 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
               )}
             </div>
           )}
+
+          {/* ── PREVIEW VIEW ── */}
+          {view === "preview" && (
+            <div className="px-4 py-4 bg-muted/30 h-full">
+              <iframe
+                srcDoc={buildPoEmailHtml()}
+                className="w-full border-0 rounded-lg shadow-sm"
+                style={{ minHeight: "700px", height: "100%" }}
+                title="Email Preview"
+                sandbox="allow-same-origin"
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer — detail */}
@@ -1233,7 +1247,11 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
 
         {/* Footer — create */}
         {view === "create" && (
-          <div className="px-6 py-4 border-t flex justify-end gap-2">
+          <div className="px-6 py-4 border-t flex justify-between gap-2">
+            <Button variant="outline" size="sm" onClick={() => setView("preview")}>
+              <Eye className="h-4 w-4 mr-1.5" />Preview Email
+            </Button>
+            <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => { resetForm(); setView(isEditing ? "detail" : "list"); }}>Cancel</Button>
             {isEditing ? (
               <>
@@ -1262,6 +1280,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                 )}
               </>
             )}
+            </div>
           </div>
         )}
       </SheetContent>
