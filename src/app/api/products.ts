@@ -10,7 +10,7 @@ export const productsAPI = {
   getAll: async () => {
     const { data, error } = await supabase
       .from("products_services")
-      .select(`*, category:service_categories(id, name)`)
+      .select(`*, category:service_categories(id, name), supplier:suppliers(id, supplier_name, poc_name, email)`)
       .eq("is_active", true)
       .order("name");
     if (error) throw new Error(error.message);

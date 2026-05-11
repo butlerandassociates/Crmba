@@ -21,10 +21,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { Plus, Edit, Trash2, Search, Loader2, Package, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Loader2, Package, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
 // OLD: imported from mock data — replaced with DB
 // import { products } from "../../data/estimate-templates";
 import { productsAPI } from "../../utils/api";
+import { suppliersAPI, Supplier } from "../../api/suppliers";
 import { Textarea } from "../ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -40,6 +41,7 @@ const emptyForm = {
   description: "",
   salesTaxApplicable: false,
   additionalCosts: "",
+  supplier_id: "",
 };
 
 export function ProductManager() {
@@ -57,6 +59,7 @@ export function ProductManager() {
   const [units, setUnits] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [addTouched, setAddTouched] = useState(false);
   const [editTouched, setEditTouched] = useState(false);
@@ -75,6 +78,8 @@ export function ProductManager() {
           setGlobalMarkup(String(data.global_markup_percent ?? "50"));
         }
       });
+
+    suppliersAPI.getAll().then(setSuppliers).catch(() => {});
 
     Promise.all([productsAPI.getAll(), productsAPI.getCategories()])
       .then(([prods, cats]) => {
@@ -160,6 +165,7 @@ export function ProductManager() {
         price_per_unit: (newMaterial + newLabor) * (1 + newMarkup / 100),
         sales_tax_rate: newProduct.salesTaxApplicable ? 9 : null,
         description: newProduct.description || null,
+        supplier_id: newProduct.supplier_id || null,
         is_active: true,
       });
       // Re-fetch to get joined category object
@@ -185,6 +191,7 @@ export function ProductManager() {
       category_id: product.category_id ?? "",
       salesTaxApplicable: product.sales_tax_rate != null,
       additionalCosts: "",
+      supplier_id: product.supplier_id ?? "",
     });
   };
 
@@ -229,6 +236,7 @@ export function ProductManager() {
         price_per_unit: (editMaterial + editLabor) * (1 + editMarkup / 100),
         sales_tax_rate: editingProduct.salesTaxApplicable ? 9 : null,
         description: editingProduct.description || null,
+        supplier_id: editingProduct.supplier_id || null,
       });
 
       // Update product_name snapshot in connected wizard calc_rules
@@ -500,6 +508,27 @@ export function ProductManager() {
                 />
               </div>
 
+              <div className="space-y-1.5">
+                <Label>Default Supplier <span className="text-muted-foreground font-normal text-xs">(Optional)</span></Label>
+                <Select
+                  value={newProduct.supplier_id || "__none__"}
+                  onValueChange={(v) => setNewProduct({ ...newProduct, supplier_id: v === "__none__" ? "" : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select supplier (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No supplier</SelectItem>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.supplier_name}{s.poc_name ? ` — ${s.poc_name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">When building a PO, this supplier will be auto-suggested for this material.</p>
+              </div>
+
               {newProduct.materialCost && newProduct.markupPercent && (
                 <div className="p-4 bg-muted rounded-lg space-y-3">
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -632,8 +661,12 @@ export function ProductManager() {
                       <td className="p-3">
                         <div className="font-medium text-sm">{product.name}</div>
                         {product.description && (
-                          <div className="text-xs text-muted-foreground">
-                            {product.description}
+                          <div className="text-xs text-muted-foreground">{product.description}</div>
+                        )}
+                        {product.supplier?.supplier_name && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                            <Building2 className="h-3 w-3 shrink-0" />
+                            {product.supplier.supplier_name}
                           </div>
                         )}
                       </td>
@@ -909,6 +942,27 @@ export function ProductManager() {
                     setEditingProduct({ ...editingProduct, description: e.target.value })
                   }
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Default Supplier <span className="text-muted-foreground font-normal text-xs">(Optional)</span></Label>
+                <Select
+                  value={editingProduct.supplier_id || "__none__"}
+                  onValueChange={(v) => setEditingProduct({ ...editingProduct, supplier_id: v === "__none__" ? "" : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select supplier (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No supplier</SelectItem>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.supplier_name}{s.poc_name ? ` — ${s.poc_name}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">When building a PO, this supplier will be auto-suggested for this material.</p>
               </div>
 
               <div className="p-4 bg-muted rounded-lg">

@@ -86,10 +86,10 @@ export function ChangeOrderBuilder() {
         setDbProducts(prods);
         setCategories(cats);
 
-        // Load accepted proposal with line items
+        // Load accepted proposal with line items + financial fields needed for live totals
         const { data: prop } = await supabase
           .from("estimates")
-          .select("id, title, total, subtotal, estimate_number, line_items:estimate_line_items(id, product_name, category, quantity, client_price, total_price, sort_order)")
+          .select("id, title, total, subtotal, bad_amount, tax_amount, discount_amount, discount_percentage, stripe_fee_enabled, estimate_number, line_items:estimate_line_items(id, product_name, category, labor_cost, quantity, client_price, total_price, sort_order)")
           .eq("client_id", clientId)
           .eq("status", "accepted")
           .order("accepted_at", { ascending: false })
@@ -173,7 +173,11 @@ export function ChangeOrderBuilder() {
   };
 
   const removeItem = (id: string) => {
-    if (items.length === 1) return;
+    if (items.length === 1) {
+      // Can't remove the last row — reset it to empty so the form stays valid
+      setItems([EMPTY_ITEM()]);
+      return;
+    }
     setItems(prev => prev.filter(i => i.id !== id));
   };
 
@@ -185,9 +189,10 @@ export function ChangeOrderBuilder() {
     const markup       = product.markup_percentage ?? 0;
     const costPerUnit  = materialCost + laborCost;
     const unitPrice    = costPerUnit * (1 + markup / 100);
+    const categoryName = product.category?.name || "Materials";
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      return { ...item, description: product.name, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
+      return { ...item, category: categoryName, description: product.name, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
     }));
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
@@ -384,36 +389,57 @@ export function ChangeOrderBuilder() {
   // ── Computed ──────────────────────────────────────────────────────────────
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
   const originalTotal = proposal?.total || 0;
-
-  // Effective subtotal = proposal items (after mods) + new CO items
-  const effectiveProposalSubtotal = (proposal?.line_items || []).reduce((s: number, li: any) => {
-    const mod = modifications[li.id];
-    if (mod?.action === 'delete') return s;
-    if (mod?.action === 'edit') return s + Number(mod.total_price || 0);
-    return s + Number(li.total_price || 0);
-  }, 0);
-  const newCoSubtotal = items.filter(i => i.description.trim()).reduce((s, i) => s + Number(i.total || 0), 0);
-  const liveSubtotal = effectiveProposalSubtotal + newCoSubtotal;
-
-  // Live BAD — qualifying items from both proposal (after mods) and new CO items
-  const proposalBadQualifying = (proposal?.line_items || []).reduce((s: number, li: any) => {
-    const mod = modifications[li.id];
-    if (mod?.action === 'delete') return s;
-    if (!BAD_CATEGORIES.includes(li.category)) return s;
-    if (mod?.action === 'edit') return s + Number(mod.total_price || 0);
-    return s + Number(li.total_price || 0);
-  }, 0);
-  const coBadQualifying = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
-  const liveBad = Math.round((proposalBadQualifying + coBadQualifying) * 0.015 * 1.5 * 100) / 100;
   const originalBad = proposal?.bad_amount ?? 0;
-
-  // Live tax — scale proportionally (preserves $0 for unknown zip)
-  const origSubtotal = proposal?.subtotal || 0;
-  const taxRatio = origSubtotal > 0 ? (proposal?.tax_amount || 0) / origSubtotal : 0;
-  const liveTax = Math.round(liveSubtotal * taxRatio * 100) / 100;
   const originalTax = proposal?.tax_amount ?? 0;
 
-  const newTotal = liveSubtotal + liveBad + liveTax;
+  // Subtotal — stored proposal.subtotal as base + deltas from mods + new CO items
+  // (avoids floating-point gap between stored subtotal and sum of individual line_item.total_price)
+  const modSubtotalDelta = Object.values(modifications).reduce((s: number, mod: any) => {
+    const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
+    if (!li) return s;
+    if (mod.action === 'delete') return s - Number(li.total_price || 0);
+    if (mod.action === 'edit') return s + (Number(mod.total_price || 0) - Number(li.total_price || 0));
+    return s;
+  }, 0);
+  const newCoSubtotal = items.filter(i => i.description.trim()).reduce((s, i) => s + Number(i.total || 0), 0);
+  const liveSubtotal = (proposal?.subtotal || 0) + modSubtotalDelta + newCoSubtotal;
+
+  // Discount — preserve original; if % discount recompute proportionally with new subtotal
+  const discountPct = proposal?.discount_percentage || 0;
+  const originalDiscountAmount = proposal?.discount_amount || 0;
+  const liveDiscountAmount = discountPct > 0
+    ? Math.round(liveSubtotal * (discountPct / 100) * 100) / 100
+    : originalDiscountAmount;
+  const liveSubtotalAfterDiscount = liveSubtotal - liveDiscountAmount;
+
+  // BAD — stored bad_amount as base + apply deltas from each change (preserves manual overrides)
+  // Delta from edits/deletes of existing qualifying proposal items
+  const modBadDelta = Object.values(modifications).reduce((s: number, mod: any) => {
+    const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
+    if (!li) return s;
+    const qualifies = BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0;
+    if (!qualifies) return s;
+    if (mod.action === 'delete') return s + (-Number(li.total_price || 0) * 0.015 * 1.5);
+    if (mod.action === 'edit') return s + ((Number(mod.total_price || 0) - Number(li.total_price || 0)) * 0.015 * 1.5);
+    return s;
+  }, 0);
+  // Delta from new qualifying CO items
+  const coBadQualifying = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
+  const coBadDelta = coBadQualifying * 0.015 * 1.5;
+  const liveBad = Math.round((originalBad + modBadDelta + coBadDelta) * 100) / 100;
+
+  // Tax — scale proportionally using ratio from original (preserves $0 for unknown zip)
+  const origSubtotalForTax = (proposal?.subtotal || 0) - (proposal?.discount_amount || 0);
+  const taxRatio = origSubtotalForTax > 0 ? (proposal?.tax_amount || 0) / origSubtotalForTax : 0;
+  const liveTax = Math.round(liveSubtotalAfterDiscount * taxRatio * 100) / 100;
+
+  // CC Processing Fee — recompute from live pre-stripe total (2.9% + $0.30 flat)
+  const livePreStripeTotal = liveSubtotalAfterDiscount + liveBad + liveTax;
+  const liveStripeFee = proposal?.stripe_fee_enabled
+    ? Math.round((livePreStripeTotal * 0.029 + 0.30) * 100) / 100
+    : 0;
+
+  const newTotal = livePreStripeTotal + liveStripeFee;
   const coImpact = newTotal - originalTotal;
 
   // Group proposal line items by category
@@ -546,7 +572,11 @@ export function ChangeOrderBuilder() {
                       <div className="flex gap-2">
                         <Select
                           value={pickerState[item.id]?.categoryId || ""}
-                          onValueChange={catId => setPickerState(prev => ({ ...prev, [item.id]: { categoryId: catId } }))}
+                          onValueChange={catId => {
+                            const catName = categories.find((c: any) => c.id === catId)?.name || "Materials";
+                            setPickerState(prev => ({ ...prev, [item.id]: { categoryId: catId } }));
+                            updateItem(item.id, "category", catName);
+                          }}
                         >
                           <SelectTrigger className="h-8 text-xs flex-1 bg-blue-50 border-blue-200 text-blue-700">
                             <SelectValue placeholder="Browse by category…" />
@@ -822,7 +852,7 @@ export function ChangeOrderBuilder() {
                     <div className="px-4 py-2 bg-muted/20 space-y-1">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>Subtotal</span>
-                        <span className="tabular-nums">{fmt(effectiveProposalSubtotal + newCoSubtotal)}</span>
+                        <span className="tabular-nums">{fmt(liveSubtotal)}</span>
                       </div>
                       {liveBad > 0 && (
                         <div className="flex justify-between text-xs text-muted-foreground">

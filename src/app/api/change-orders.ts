@@ -72,7 +72,7 @@ export const changeOrdersAPI = {
     // 1. Find the accepted estimate with all financial fields
     const { data: estimate, error: estError } = await supabase
       .from("estimates")
-      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin")
+      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin, stripe_fee_enabled")
       .eq("client_id", clientId)
       .eq("status", "accepted")
       .order("accepted_at", { ascending: false })
@@ -153,7 +153,13 @@ export const changeOrdersAPI = {
     const taxRatio = origSubtotalAfterDiscount > 0 ? (estimate.tax_amount || 0) / origSubtotalAfterDiscount : 0;
     const newTaxAmount = subtotalAfterDiscount * taxRatio;
 
-    const newTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount;
+    // Recalculate CC processing fee if enabled (2.9% + $0.30 flat)
+    const preStripeTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount;
+    const newStripeFee = estimate.stripe_fee_enabled
+      ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100
+      : 0;
+
+    const newTotal = preStripeTotal + newStripeFee;
 
     // Recalculate gross profit & margin (cost side stays the same)
     const totalCost = estimate.total_cost || 0;
@@ -167,6 +173,7 @@ export const changeOrdersAPI = {
         discount_amount: newDiscountAmount,
         bad_amount: newBadAmount,
         tax_amount: newTaxAmount,
+        stripe_fee_amount: newStripeFee,
         total: newTotal,
         gross_profit: newGrossProfit,
         profit_margin: newProfitMargin,

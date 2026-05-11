@@ -24,6 +24,7 @@ import { PublicProposal } from "./components/public-proposal";
 import { DataMigration } from "./components/admin/data-migration";
 import { ListManagement } from "./components/admin/list-management";
 import { WarrantyManager } from "./components/admin/warranty-manager";
+import { SuppliersManager } from "./components/admin/suppliers-manager";
 import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
 import { DocuSignLoadingPreview } from "./components/docusign-loading-preview";
@@ -77,6 +78,7 @@ export const router = createBrowserRouter([
       { path: "admin/data-migration",                 Component: G("can_view_admin_portal", DataMigration) },
       { path: "admin/list-management",                Component: G("can_view_admin_portal", ListManagement) },
       { path: "admin/warranty",                       Component: G("can_view_admin_portal", WarrantyManager) },
+      { path: "admin/suppliers",                      Component: G("can_view_admin_portal", SuppliersManager) },
       { path: "pipeline",                             Component: G("can_view_pipeline", PipelineForecast) },
       { path: "cost-attributions",                    Component: G("can_view_cost_attributions", CostAttributionsAll) },
       { path: "payroll",                              Component: G("can_view_payroll", Payroll) },

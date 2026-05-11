@@ -25,6 +25,8 @@ export { changeOrdersAPI }                               from "../api/change-ord
 export { notificationsAPI }                              from "../api/notifications";
 export { warrantyAPI }                                   from "../api/warranty";
 export type { WarrantySection, WarrantyItem }            from "../api/warranty";
+export { suppliersAPI }                                  from "../api/suppliers";
+export type { Supplier }                                 from "../api/suppliers";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";
