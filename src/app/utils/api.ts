@@ -23,6 +23,8 @@ export { commissionPaymentsAPI }                         from "../api/commission
 export { purchaseOrdersAPI }                             from "../api/purchase-orders";
 export { changeOrdersAPI }                               from "../api/change-orders";
 export { notificationsAPI }                              from "../api/notifications";
+export { warrantyAPI }                                   from "../api/warranty";
+export type { WarrantySection, WarrantyItem }            from "../api/warranty";
 
 // Legacy migration helper (no-op — data already in Supabase)
 import { supabase } from "@/lib/supabase";

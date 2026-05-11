@@ -1,9 +1,11 @@
-import React from "react";
+import type { WarrantySection } from "../api/warranty";
 
 interface ProposalExportProps {
   proposal: any;
   client: any;
   reviews?: { reviewer_name: string; rating: number; review_text: string }[];
+  warrantySections?: WarrantySection[];
+  warrantyDisclaimer?: string;
   preview?: boolean;
 }
 
@@ -19,7 +21,7 @@ export const B = {
   cg:     "'Cormorant Garamond', serif",
 };
 
-export function ProposalExport({ proposal, client, reviews = [], preview = false }: ProposalExportProps) {
+export function ProposalExport({ proposal, client, reviews = [], warrantySections = [], warrantyDisclaimer = "", preview = false }: ProposalExportProps) {
   const fmt = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
   const fmtDate = (d: string) =>
@@ -57,11 +59,15 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
 
   const subtotal       = proposal?.subtotal ?? groupedItems.flatMap(g => g.items).reduce((s, i) => s + i.lineTotal, 0);
   const discountAmount = proposal?.discount_amount ?? 0;
+  const discountPct    = proposal?.discount_percentage ?? 0;
+  const discountLabel  = proposal?.discount_label ?? null;
+  const discountType   = proposal?.discount_type ?? "percent";
   const badAmount      = proposal?.bad_amount ?? 0;
   const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
   const taxAmount      = proposal?.tax_amount ?? 0;
   const taxLabel       = proposal?.tax_label ?? "Tax";
-  const total          = subtotal + badAmount + taxAmount - discountAmount;
+  const stripeFeeAmt   = proposal?.stripe_fee_amount ?? 0;
+  const total          = subtotal + badAmount + taxAmount - discountAmount + stripeFeeAmt;
 
 
   // ── Shared JSX blocks ──────────────────────────────────────────────────────
@@ -156,7 +162,7 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
             if (group.category) {
               const catTotal = group.items.reduce((s, i) => s + i.lineTotal, 0);
               return (
-                <div key={gIdx}>
+                <div key={gIdx} data-group="true">
                   <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff", borderTop }}>
                     <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
                     <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
@@ -171,7 +177,7 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
               );
             }
             return (
-              <div key={gIdx}>
+              <div key={gIdx} data-group="true">
                 {group.items.map((item, iIdx) => (
                   <div key={iIdx} style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff", borderBottom: `1px solid ${B.bg}` }}>
                     <div style={{ flex: 1 }}>
@@ -186,32 +192,43 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
           })}
 
           {/* Totals */}
-          <div style={{ borderTop: `2px solid ${B.border}` }}>
+          <div data-groups-end="true" style={{ borderTop: `2px solid ${B.border}` }}>
+            {/* All totals in one group — page-break never orphans Subtotal from the adjustments below */}
+            <div data-group="true">
             <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
               <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Subtotal</p>
               <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</p>
             </div>
-            {discountAmount > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Discount{proposal?.discount_pct ? ` (${proposal.discount_pct}%)` : ""}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>− {fmt(discountAmount)}</p>
+              {discountAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>
+                    {discountLabel || (discountType === "percent" && discountPct > 0 ? `Discount (${discountPct}%)` : "Discount")}
+                  </p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>− {fmt(discountAmount)}</p>
+                </div>
+              )}
+              {stripeFeeAmt > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>CC Processing Fee (2.9% + $0.30)</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(stripeFeeAmt)}</p>
+                </div>
+              )}
+              {badAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{badLabel}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(badAmount)}</p>
+                </div>
+              )}
+              {taxAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(taxAmount)}</p>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "26px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
+                <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>Total Investment{taxAmount > 0 ? " + Tax" : ""}</p>
+                <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 400, color: B.gold, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
               </div>
-            )}
-            {badAmount > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{badLabel}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(badAmount)}</p>
-              </div>
-            )}
-            {taxAmount > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(taxAmount)}</p>
-              </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "26px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
-              <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>Total Investment{taxAmount > 0 ? " + Tax" : ""}</p>
-              <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 400, color: B.gold, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
             </div>
           </div>
         </div>
@@ -244,12 +261,12 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
           <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 20px 0" }}>
             By signing below, you authorize Butler & Associates Construction, Inc. to proceed with the scope of work outlined in this proposal under the agreed terms.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
-            <div>
+          <div style={{ display: "flex" }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
               <div style={{ borderBottom: "1px solid rgba(0,0,0,0.45)", height: 36, marginBottom: 6 }} />
               <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Client Signature</p>
             </div>
-            <div>
+            <div style={{ flex: 1, paddingLeft: 16 }}>
               <div style={{ borderBottom: "1px solid rgba(0,0,0,0.45)", height: 36, marginBottom: 6 }} />
               <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Date</p>
             </div>
@@ -258,6 +275,58 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
       </div>
     </div>
   );
+
+  const body3 = warrantySections.length > 0 ? (
+    <div id={preview ? undefined : "proposal-page-body-3"} style={{ background: B.bg }}>
+      <div style={{ padding: "36px 48px" }}>
+        {/* Title */}
+        <div style={{ textAlign: "center" as const, marginBottom: 24 }}>
+          <p style={{ fontFamily: B.lato, fontSize: 20, fontWeight: 700, color: B.black, margin: "0 0 6px 0", letterSpacing: "0.05em", textTransform: "uppercase" as const }}>
+            Warranty Coverage
+          </p>
+          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
+            Butler & Associates Construction, Inc.
+          </p>
+        </div>
+        <div style={{ height: 1, background: B.gold, opacity: 0.35, marginBottom: 22 }} />
+        {/* Intro */}
+        <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.75, color: B.text, margin: "0 0 28px 0", opacity: 0.85 }}>
+          Butler & Associates Construction, Inc. warrants all labor and craftsmanship for the periods specified below, measured from the project completion date. This warranty applies exclusively to workmanship — material defects are addressed solely through manufacturer warranties.
+        </p>
+        {/* Sections */}
+        {warrantySections.map((section) => (
+          <div key={section.id} data-group="true" style={{ marginBottom: 24 }}>
+            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 10px 0" }}>
+              {section.title}
+            </p>
+            <div style={{ border: `1px solid ${B.border}`, borderRadius: 6, overflow: "hidden" }}>
+              {/* Header row — flexbox, explicit widths so html2canvas doesn't hang on fr units */}
+              <div style={{ background: B.black, display: "flex", padding: "10px 16px" }}>
+                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "25%", flexShrink: 0 }}>Scope Item</p>
+                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "50%", flexShrink: 0 }}>Craftsmanship & Labor</p>
+                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "25%", flexShrink: 0 }}>Material Defects</p>
+              </div>
+              {section.items.map((item, idx) => (
+                <div key={item.id} style={{ display: "flex", padding: "10px 16px", background: idx % 2 === 0 ? "#fff" : B.rowAlt, borderTop: `1px solid ${B.border}` }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 600, color: B.black, margin: 0, width: "25%", flexShrink: 0, paddingRight: 8 }}>{item.scope_item}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, lineHeight: 1.65, width: "50%", flexShrink: 0, paddingRight: 8 }}>{item.labor_text}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, opacity: 0.65, fontStyle: "italic", width: "25%", flexShrink: 0 }}>{item.material_note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {/* Disclaimer */}
+        {warrantyDisclaimer && (
+          <div style={{ marginTop: 8, padding: "14px 18px", background: "#fff", border: `1px solid ${B.border}`, borderRadius: 6 }}>
+            <p style={{ fontFamily: B.inter, fontSize: 10, lineHeight: 1.75, color: B.text, margin: 0, fontStyle: "italic", opacity: 0.72 }}>
+              {warrantyDisclaimer}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   // ── Preview mode: page-by-page view matching PDF layout ───────────────────
   if (preview) {
@@ -274,6 +343,13 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
           {body2}
           {pageFooter}
         </div>
+        {body3 && (
+          <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
+            {pageHeader}
+            {body3}
+            {pageFooter}
+          </div>
+        )}
       </div>
     );
   }
@@ -285,6 +361,12 @@ export function ProposalExport({ proposal, client, reviews = [], preview = false
       {body1}
       <div style={{ height: 16, background: "#525659" }} className="screen-only" />
       {body2}
+      {body3 && (
+        <>
+          <div style={{ height: 16, background: "#525659" }} className="screen-only" />
+          {body3}
+        </>
+      )}
       {pageFooter}
     </div>
   );

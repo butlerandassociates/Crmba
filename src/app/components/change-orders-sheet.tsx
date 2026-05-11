@@ -381,21 +381,63 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
           root.querySelectorAll?.("link[rel='stylesheet'], style").forEach((s) => s.remove());
         },
       });
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
       const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height / canvas.width) * pageW;
-      let remaining = imgH;
-      let yOffset = 0;
-      pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
-      remaining -= pageH;
-      while (remaining > 2) {
-        yOffset -= pageH;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, yOffset, pageW, imgH);
-        remaining -= pageH;
+
+      // Canvas px → PDF pt conversion
+      const pxPerPt = canvas.width / pageW;
+      const totalImgHPt = canvas.height / pxPerPt;
+
+      // Scan backward from cutPx to find the last whitespace row
+      const findSafeCutPx = (cutPx: number, lookbackPx = 120): number => {
+        const ctx = canvas.getContext("2d")!;
+        const stripX = Math.floor(canvas.width * 0.1);
+        const stripW = Math.floor(canvas.width * 0.8);
+        for (let y = cutPx; y >= Math.max(0, cutPx - lookbackPx); y--) {
+          const d = ctx.getImageData(stripX, y, stripW, 1).data;
+          let clear = true;
+          for (let p = 0; p < d.length; p += 4) {
+            if (d[p] < 195 || d[p + 1] < 195 || d[p + 2] < 195) { clear = false; break; }
+          }
+          if (clear) return y;
+        }
+        return cutPx;
+      };
+
+      let consumedPt = 0;
+      let firstPage = true;
+
+      while (consumedPt < totalImgHPt - 1) {
+        const remainPt = totalImgHPt - consumedPt;
+        let sliceHPt: number;
+
+        if (remainPt <= pageH) {
+          sliceHPt = remainPt;
+        } else {
+          const cutPx = Math.round((consumedPt + pageH) * pxPerPt);
+          const safePx = findSafeCutPx(cutPx);
+          sliceHPt = Math.max(safePx / pxPerPt - consumedPt, pageH * 0.3);
+        }
+
+        const srcY = Math.round(consumedPt * pxPerPt);
+        const srcH = Math.min(Math.round(sliceHPt * pxPerPt), canvas.height - srcY);
+        if (srcH <= 0) break;
+
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width;
+        slice.height = srcH;
+        slice.getContext("2d")!.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        const renderHPt = (srcH / canvas.width) * pageW;
+
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, renderHPt);
+
+        consumedPt += srcH / pxPerPt;
       }
+
       pdf.save(`ChangeOrder-${selectedCo.title?.replace(/\s+/g, "-") ?? "CO"}.pdf`);
       activityLogAPI.create({ client_id: client.id, action_type: "co_pdf_exported", description: `Change order PDF exported: "${selectedCo.title}"` }).catch(() => {});
     } catch (err) {

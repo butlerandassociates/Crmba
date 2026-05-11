@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
@@ -122,6 +122,13 @@ export function ProposalBuilder() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // Savings & Fees
+  const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent");
+  const [discountValue, setDiscountValue] = useState(0);
+  const [discountLabel, setDiscountLabel] = useState("");
+  const [stripeFeeEnabled, setStripeFeeEnabled] = useState(false);
+  const [showSavingsDialog, setShowSavingsDialog] = useState(false);
 
   // Custom item form
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -287,7 +294,12 @@ export function ProposalBuilder() {
       const taxAmountVal = taxableVal * (taxRate / 100);
 
       // Use badPrice from component scope — respects manual override if set
-      const totalVal = subtotalVal + (hasBad ? badPrice : 0) + taxAmountVal;
+      const discountAmtVal = discountType === "percent"
+        ? Math.round(subtotalVal * discountValue / 100 * 100) / 100
+        : Math.min(discountValue, subtotalVal);
+      const preStripeVal = subtotalVal + (hasBad ? badPrice : 0) + taxAmountVal - discountAmtVal;
+      const stripeFeeVal = stripeFeeEnabled ? Math.round((preStripeVal * 0.029 + 0.30) * 100) / 100 : 0;
+      const totalVal = preStripeVal + stripeFeeVal;
 
       const estimate = {
         client_id: clientId,
@@ -302,6 +314,12 @@ export function ProposalBuilder() {
         gross_profit: grossProfitVal,
         profit_margin: profitMarginVal,
         bad_amount: hasBad && badPrice > 0 ? badPrice : null,
+        discount_type: discountType,
+        discount_percentage: discountType === "percent" ? discountValue : 0,
+        discount_amount: discountAmtVal,
+        discount_label: discountLabel || null,
+        stripe_fee_enabled: stripeFeeEnabled,
+        stripe_fee_amount: stripeFeeVal,
         wizard_inputs: Object.keys(wizardInputs).length > 0 ? wizardInputs : undefined,
       };
 
@@ -370,7 +388,12 @@ export function ProposalBuilder() {
   const badPrice = badOverride !== null ? badOverride : badPriceAuto;
   const hasBad = badPriceAuto > 0;
 
-  const total = subtotal + (hasBad ? badPrice : 0) + tax;
+  const discountAmt = discountType === "percent"
+    ? Math.round(subtotal * discountValue / 100 * 100) / 100
+    : Math.min(discountValue, subtotal);
+  const preStripeTotal = subtotal + (hasBad ? badPrice : 0) + tax - discountAmt;
+  const stripeFeeAmt = stripeFeeEnabled ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100 : 0;
+  const total = preStripeTotal + stripeFeeAmt;
 
   // Calculate cost (what it costs you)
   const totalCost = lineItems.reduce((sum, item) => sum + (item.quantity * item.costPerUnit), 0);
@@ -400,10 +423,16 @@ export function ProposalBuilder() {
               <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
             </div>
           </div>
-          <Button onClick={handleSaveProposal} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-            {saving ? "Saving..." : "Save Proposal"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowSavingsDialog(true)}>
+              <BadgePercent className="h-4 w-4 mr-2" />
+              Savings & Fees
+            </Button>
+            <Button onClick={handleSaveProposal} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              {saving ? "Saving..." : "Save Proposal"}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -920,6 +949,20 @@ export function ProposalBuilder() {
                   </div>
                 </div>
 
+                {discountAmt > 0 && (
+                  <div className="flex justify-between text-sm items-center">
+                    <span className="text-muted-foreground">
+                      {discountLabel || (discountType === "percent" ? `Discount (${discountValue}%)` : "Discount")}
+                    </span>
+                    <span className="font-semibold text-green-700">− {formatCurrency(discountAmt)}</span>
+                  </div>
+                )}
+                {stripeFeeEnabled && stripeFeeAmt > 0 && (
+                  <div className="flex justify-between text-sm items-center">
+                    <span className="text-muted-foreground">CC Processing Fee (2.9% + $0.30)</span>
+                    <span className="font-semibold">{formatCurrency(stripeFeeAmt)}</span>
+                  </div>
+                )}
                 <Separator />
                 <div className="flex justify-between text-lg">
                   <span className="font-bold">Total</span>
@@ -983,6 +1026,81 @@ export function ProposalBuilder() {
             <Button variant="destructive" onClick={() => { if (pendingDeleteId) { removeLineItem(pendingDeleteId); setPendingDeleteId(null); } }}>
               Remove
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Savings & Fees Dialog */}
+      <Dialog open={showSavingsDialog} onOpenChange={setShowSavingsDialog}>
+        <DialogContent className="max-w-md p-0 gap-0">
+          <DialogHeader className="px-6 py-5 border-b">
+            <DialogTitle>Savings & Fees</DialogTitle>
+            <DialogDescription>Apply a discount or pass the credit card processing fee to the client</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-5 space-y-6">
+            {/* Discount */}
+            <div className="space-y-3">
+              <p className="text-sm font-semibold">Discount</p>
+              <div className="flex gap-2">
+                <div className="flex border rounded-md overflow-hidden shrink-0">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${discountType === "percent" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent"}`}
+                    onClick={() => setDiscountType("percent")}
+                  >%</button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors border-l ${discountType === "fixed" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent"}`}
+                    onClick={() => setDiscountType("fixed")}
+                  >$</button>
+                </div>
+                <Input
+                  type="number"
+                  min="0"
+                  step={discountType === "percent" ? "0.1" : "1"}
+                  value={discountValue || ""}
+                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                  placeholder={discountType === "percent" ? "e.g. 5" : "e.g. 500"}
+                  className="flex-1"
+                />
+              </div>
+              {discountAmt > 0 && (
+                <p className="text-xs text-muted-foreground">= {formatCurrency(discountAmt)} off subtotal</p>
+              )}
+              <div>
+                <Label className="text-sm text-muted-foreground">Custom Label (optional)</Label>
+                <Input
+                  value={discountLabel}
+                  onChange={(e) => setDiscountLabel(e.target.value)}
+                  placeholder="e.g. Loyalty Discount, Promotional Offer…"
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            {/* Stripe processing fee */}
+            <div className="space-y-2 border-t pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">Credit Card Processing Fee</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Passes Stripe fee (2.9% + $0.30) to client</p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="builder-stripe-fee-toggle"
+                  checked={stripeFeeEnabled}
+                  onChange={(e) => setStripeFeeEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border cursor-pointer accent-primary"
+                />
+              </div>
+              {stripeFeeEnabled && stripeFeeAmt > 0 && (
+                <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2">
+                  Fee added to total: <span className="font-semibold text-foreground">{formatCurrency(stripeFeeAmt)}</span>
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end">
+            <Button onClick={() => setShowSavingsDialog(false)}>Done</Button>
           </div>
         </DialogContent>
       </Dialog>

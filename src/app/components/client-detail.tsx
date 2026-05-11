@@ -322,7 +322,7 @@ export function ClientDetail() {
   const [editPaymentOpen, setEditPaymentOpen] = useState(false);
   const [editPayment, setEditPayment] = useState<any>(null);
   const [savingPayment, setSavingPayment] = useState(false);
-  const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "" };
+  const EMPTY_PAYMENT = { label: "", amount: "", due_date: "", notes: "", stripe_fee_enabled: false };
   const [newPayment, setNewPayment] = useState(EMPTY_PAYMENT);
   const [paidForm, setPaidForm] = useState({ payment_method: "", notes: "", paid_date: new Date().toISOString().split("T")[0] });
   const [downloadingStatement, setDownloadingStatement] = useState(false);
@@ -543,29 +543,53 @@ export function ClientDetail() {
     const THEAD_GAP = 6; // pt gap above repeated column header
 
     const slotH = pageH - headerH - footerH;
-    // Page 1 can use full slot; page 2+ must fit thead + gap inside slot
-    const slotP1   = slotH;
-    const slotP2   = slotH - theadH - THEAD_GAP;
-    const p1Body   = Math.min(slotP1, bodyH);
-    const remaining = Math.max(0, bodyH - p1Body);
-    const extraPages = remaining > 0 ? Math.ceil(remaining / Math.max(1, slotP2)) : 0;
-    const totalPages = 1 + extraPages;
+    const slotP1 = slotH;
+    const slotP2 = slotH - theadH - THEAD_GAP;
+
+    const findSafeCutPx = (src: HTMLCanvasElement, desiredPx: number, searchBackPx: number): number => {
+      if (desiredPx >= src.height) return src.height;
+      const ctx = src.getContext("2d")!;
+      const stripW = 120, stripX = Math.floor((src.width - stripW) / 2);
+      const scanTop = Math.max(0, desiredPx - searchBackPx);
+      const scanH = desiredPx - scanTop;
+      if (scanH <= 1) return desiredPx;
+      const { data } = ctx.getImageData(stripX, scanTop, stripW, scanH);
+      for (let dy = scanH - 1; dy >= 0; dy--) {
+        let clear = true;
+        for (let x = 0; x < stripW; x += 6) {
+          const i = (dy * stripW + x) * 4;
+          if (data[i] < 195 || data[i + 1] < 195 || data[i + 2] < 195) { clear = false; break; }
+        }
+        if (clear) return scanTop + dy;
+      }
+      return desiredPx;
+    };
 
     const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
     const pageImages: string[] = [];
     let bodyConsumedPt = 0;
+    let page = 0;
 
     const hImg  = headerCanvas.toDataURL("image/jpeg", 0.93);
     const fImg  = footerCanvas.toDataURL("image/jpeg", 0.93);
     const thImg = theadCanvas  ? theadCanvas.toDataURL("image/jpeg", 0.93) : null;
 
-    for (let page = 0; page < totalPages; page++) {
+    while (bodyConsumedPt < bodyH - 1) {
       if (page > 0) pdf.addPage();
 
       const availSlot = page === 0 ? slotP1 : slotP2;
-      const sliceHpt  = Math.min(availSlot, bodyH - bodyConsumedPt);
-      const srcYpx    = Math.round(bodyConsumedPt * pxPerPt);
-      const sliceHpx  = Math.round(sliceHpt * pxPerPt);
+      const remaining = bodyH - bodyConsumedPt;
+      let sliceHpt: number;
+      if (remaining <= availSlot + 1) {
+        sliceHpt = remaining;
+      } else {
+        const consumedPx  = Math.round(bodyConsumedPt * pxPerPt);
+        const idealCutPx  = consumedPx + Math.round(availSlot * pxPerPt);
+        const safeCutPx   = findSafeCutPx(bodyCanvas, idealCutPx, Math.round(60 * pxPerPt));
+        sliceHpt = Math.max((safeCutPx - consumedPx) / pxPerPt, availSlot * 0.4);
+      }
+      const srcYpx  = Math.round(bodyConsumedPt * pxPerPt);
+      const sliceHpx = Math.round(sliceHpt * pxPerPt);
 
       // ── Compose preview page canvas ──────────────────────────────────
       const pgW = headerCanvas.width;
@@ -2080,9 +2104,22 @@ export function ClientDetail() {
                       <div className="text-right shrink-0 flex items-center gap-2">
                         <div className="text-sm font-semibold">{formatCurrency(proposal.total)}</div>
                         {can("can_delete_proposals") && (
-                          <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.preventDefault(); setProposalToDelete(proposal); }}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          proposal.status === "accepted" ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button variant="ghost" size="sm" className="h-7 px-1.5 text-muted-foreground cursor-not-allowed" disabled onClick={(e) => e.preventDefault()}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>Accepted proposals cannot be deleted. Revert to draft first.</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button variant="ghost" size="sm" className="h-7 px-1.5 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.preventDefault(); setProposalToDelete(proposal); }}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )
                         )}
                       </div>
                     </Link>
@@ -2796,7 +2833,13 @@ export function ClientDetail() {
                                   {payment.label}
                                   {payment.is_deposit && <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full no-underline" style={{ textDecoration: "none" }}>Deposit</span>}
                                 </p>
-                                <p className="text-xs text-muted-foreground">{pctOfTotal}% · {formatCurrency(payment.amount)}{payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {pctOfTotal}% · {formatCurrency(payment.amount)}
+                                  {payment.stripe_fee_enabled && payment.base_amount > 0 && payment.base_amount !== payment.amount && (
+                                    <span className="ml-1 text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1 py-0.5">base {formatCurrency(payment.base_amount)} + CC fee</span>
+                                  )}
+                                  {payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}
+                                </p>
                                 {payment.is_paid && payment.payment_method && (
                                   <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
                                 )}
@@ -2961,9 +3004,23 @@ export function ClientDetail() {
             </DialogHeader>
             <div className="space-y-3 px-6 py-4">
               <div className="space-y-1.5"><Label>Label</Label><Input placeholder="e.g. Deposit, Progress Payment, Final" value={newPayment.label} onChange={(e) => setNewPayment((p) => ({ ...p, label: e.target.value }))} /></div>
-              <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} /></div>
+              <div className="space-y-1.5">
+                <Label>Amount ($)</Label>
+                <Input type="number" placeholder="0.00" value={newPayment.amount} onChange={(e) => setNewPayment((p) => ({ ...p, amount: e.target.value }))} />
+                {newPayment.stripe_fee_enabled && parseFloat(newPayment.amount) > 0 && (() => {
+                  const base = parseFloat(newPayment.amount) || 0;
+                  const fee = Math.round((base * 0.029 + 0.30) * 100) / 100;
+                  return <p className="text-xs text-muted-foreground">Client pays: <span className="font-semibold text-foreground">{formatCurrency(base + fee)}</span> (base {formatCurrency(base)} + CC fee {formatCurrency(fee)})</p>;
+                })()}
+              </div>
               <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment((p) => ({ ...p, due_date: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Notes</Label><Input placeholder="Optional note" value={newPayment.notes} onChange={(e) => setNewPayment((p) => ({ ...p, notes: e.target.value }))} /></div>
+              <div className="flex items-center gap-2.5 pt-1">
+                <input type="checkbox" id="new-stripe-fee" className="h-4 w-4 accent-primary cursor-pointer"
+                  checked={newPayment.stripe_fee_enabled}
+                  onChange={(e) => setNewPayment((p) => ({ ...p, stripe_fee_enabled: e.target.checked }))} />
+                <label htmlFor="new-stripe-fee" className="text-sm font-medium cursor-pointer">Pass CC processing fee to client (2.9% + $0.30)</label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
@@ -2973,7 +3030,20 @@ export function ClientDetail() {
                 if (!project?.id) { toast.error("No project found — create a project first before adding milestones."); return; }
                 setSavingPayment(true);
                 try {
-                  const created = await projectPaymentsAPI.create({ project_id: project.id, client_id: client.id, label: newPayment.label, amount: parseFloat(newPayment.amount) || 0, due_date: newPayment.due_date || undefined, notes: newPayment.notes || undefined, sort_order: clientPayments.length });
+                  const baseAmt = parseFloat(newPayment.amount) || 0;
+                  const feeAmt = newPayment.stripe_fee_enabled ? Math.round((baseAmt * 0.029 + 0.30) * 100) / 100 : 0;
+                  const totalAmt = baseAmt + feeAmt;
+                  const created = await projectPaymentsAPI.create({
+                    project_id: project.id,
+                    client_id: client.id,
+                    label: newPayment.label,
+                    amount: totalAmt,
+                    base_amount: baseAmt,
+                    stripe_fee_enabled: newPayment.stripe_fee_enabled,
+                    due_date: newPayment.due_date || undefined,
+                    notes: newPayment.notes || undefined,
+                    sort_order: clientPayments.length,
+                  });
                   setClientPayments((prev) => [...prev, created]);
                   setAddPaymentOpen(false);
                   toast.success("Payment added.");
@@ -3074,7 +3144,25 @@ export function ClientDetail() {
             </DialogHeader>
             <div className="space-y-3 px-6 py-4">
               <div className="space-y-1.5"><Label>Label</Label><Input value={editPayment?.label ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, label: e.target.value }))} /></div>
-              <div className="space-y-1.5"><Label>Amount ($)</Label><Input type="number" value={editPayment?.amount ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, amount: e.target.value }))} /></div>
+              <div className="space-y-1.5">
+                <Label>Amount ($) {editPayment?.stripe_fee_enabled ? <span className="text-xs font-normal text-muted-foreground ml-1">— enter base (fee auto-added)</span> : ""}</Label>
+                <Input type="number" value={editPayment?.stripe_fee_enabled ? (editPayment?.base_amount ?? editPayment?.amount ?? "") : (editPayment?.amount ?? "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (editPayment?.stripe_fee_enabled) {
+                      const base = parseFloat(val) || 0;
+                      const fee = Math.round((base * 0.029 + 0.30) * 100) / 100;
+                      setEditPayment((p: any) => ({ ...p, base_amount: val, amount: String(base + fee) }));
+                    } else {
+                      setEditPayment((p: any) => ({ ...p, amount: val, base_amount: val }));
+                    }
+                  }} />
+                {editPayment?.stripe_fee_enabled && parseFloat(editPayment?.base_amount ?? editPayment?.amount ?? 0) > 0 && (() => {
+                  const base = parseFloat(editPayment?.base_amount ?? editPayment?.amount ?? 0) || 0;
+                  const fee = Math.round((base * 0.029 + 0.30) * 100) / 100;
+                  return <p className="text-xs text-muted-foreground">Client pays: <span className="font-semibold text-foreground">{formatCurrency(base + fee)}</span> (base {formatCurrency(base)} + CC fee {formatCurrency(fee)})</p>;
+                })()}
+              </div>
               <div className="space-y-1.5"><Label>Due Date</Label><Input type="date" value={editPayment?.due_date ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, due_date: e.target.value }))} /></div>
               <div className="space-y-1.5"><Label>Notes</Label><Input placeholder="Optional note" value={editPayment?.notes ?? ""} onChange={(e) => setEditPayment((p: any) => ({ ...p, notes: e.target.value }))} /></div>
               <div className="flex items-center gap-2.5">
@@ -3083,6 +3171,17 @@ export function ClientDetail() {
                   onChange={(e) => setEditPayment((p: any) => ({ ...p, is_deposit: e.target.checked }))} />
                 <label htmlFor="edit-is-deposit" className="text-sm font-medium cursor-pointer">Mark as deposit milestone</label>
               </div>
+              <div className="flex items-center gap-2.5">
+                <input type="checkbox" id="edit-stripe-fee" className="h-4 w-4 accent-primary cursor-pointer"
+                  checked={editPayment?.stripe_fee_enabled ?? false}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    const curAmt = parseFloat(editPayment?.base_amount ?? editPayment?.amount ?? 0) || 0;
+                    const fee = enabled ? Math.round((curAmt * 0.029 + 0.30) * 100) / 100 : 0;
+                    setEditPayment((p: any) => ({ ...p, stripe_fee_enabled: enabled, base_amount: String(curAmt), amount: String(curAmt + fee) }));
+                  }} />
+                <label htmlFor="edit-stripe-fee" className="text-sm font-medium cursor-pointer">Pass CC processing fee to client (2.9% + $0.30)</label>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditPaymentOpen(false)}>Cancel</Button>
@@ -3090,10 +3189,21 @@ export function ClientDetail() {
                 if (!editPayment) return;
                 setSavingPayment(true);
                 try {
-                  const updated = await projectPaymentsAPI.update(editPayment.id, { label: editPayment.label, amount: parseFloat(editPayment.amount) || 0, due_date: editPayment.due_date || undefined, notes: editPayment.notes || undefined, is_deposit: editPayment.is_deposit ?? false });
+                  const baseAmt = parseFloat(editPayment.base_amount ?? editPayment.amount) || 0;
+                  const feeAmt = editPayment.stripe_fee_enabled ? Math.round((baseAmt * 0.029 + 0.30) * 100) / 100 : 0;
+                  const totalAmt = editPayment.stripe_fee_enabled ? baseAmt + feeAmt : parseFloat(editPayment.amount) || 0;
+                  const updated = await projectPaymentsAPI.update(editPayment.id, {
+                    label: editPayment.label,
+                    amount: totalAmt,
+                    base_amount: baseAmt,
+                    stripe_fee_enabled: editPayment.stripe_fee_enabled ?? false,
+                    due_date: editPayment.due_date || undefined,
+                    notes: editPayment.notes || undefined,
+                    is_deposit: editPayment.is_deposit ?? false,
+                  });
                   setClientPayments((prev) => prev.map((p) => p.id === editPayment.id ? { ...p, ...updated } : p));
                   setEditPaymentOpen(false);
-                  activityLogAPI.create({ client_id: id!, action_type: "payment_milestone_added", description: `Payment milestone updated: "${editPayment.label}" — $${(parseFloat(editPayment.amount) || 0).toLocaleString()}` }).then(loadActivityLog).catch(() => {});
+                  activityLogAPI.create({ client_id: id!, action_type: "payment_milestone_added", description: `Payment milestone updated: "${editPayment.label}" — $${totalAmt.toLocaleString()}` }).then(loadActivityLog).catch(() => {});
                   toast.success("Milestone updated");
                 } catch (err: any) {
                   toast.error(err.message || "Failed to update");
@@ -3978,21 +4088,18 @@ export function ClientDetail() {
       </AlertDialog>
 
       {/* Delete Proposal Confirmation */}
-      <Dialog open={!!proposalToDelete} onOpenChange={(open) => !open && setProposalToDelete(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete Proposal</DialogTitle>
-            <DialogDescription>
+      <AlertDialog open={!!proposalToDelete} onOpenChange={(open) => { if (!open) setProposalToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Proposal?</AlertDialogTitle>
+            <AlertDialogDescription>
               Are you sure you want to delete &quot;{proposalToDelete?.title}&quot;? This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setProposalToDelete(null)} disabled={deletingProposal}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingProposal}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deletingProposal}
               onClick={async () => {
                 setDeletingProposal(true);
@@ -4006,12 +4113,12 @@ export function ClientDetail() {
                 }
               }}
             >
-              {deletingProposal ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+              {deletingProposal && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Map Sheet */}
       <Sheet open={mapOpen} onOpenChange={setMapOpen}>

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { Loader2, CheckCircle2, XCircle, ThumbsUp, ThumbsDown } from "lucide-react";
+import { warrantyAPI } from "../api/warranty";
+import type { WarrantySection } from "../api/warranty";
 
 export function PublicProposal() {
   const { id } = useParams();
@@ -12,6 +14,14 @@ export function PublicProposal() {
   const [declineReason, setDeclineReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<"accepted" | "declined" | null>(null);
+  const [warrantySections, setWarrantySections] = useState<WarrantySection[]>([]);
+  const [warrantyDisclaimer, setWarrantyDisclaimer] = useState("");
+
+  useEffect(() => {
+    warrantyAPI.getAll()
+      .then(({ sections, disclaimer }) => { setWarrantySections(sections); setWarrantyDisclaimer(disclaimer); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -425,6 +435,52 @@ export function PublicProposal() {
                   Decline Proposal
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Warranty Coverage */}
+          {warrantySections.length > 0 && (
+            <div style={{ marginBottom: 36 }}>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <p style={{ fontFamily: "Lato, sans-serif", fontSize: 18, fontWeight: 700, color: "#0A0A0A", margin: "0 0 6px 0", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  Warranty Coverage
+                </p>
+                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "#BB984D", margin: 0 }}>
+                  Butler & Associates Construction, Inc.
+                </p>
+              </div>
+              <div style={{ height: 1, background: "linear-gradient(90deg, transparent, #BB984D, transparent)", marginBottom: 18 }} />
+              <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, lineHeight: 1.75, color: "#3A3A38", margin: "0 0 24px 0", opacity: 0.85 }}>
+                Butler & Associates Construction, Inc. warrants all labor and craftsmanship for the periods specified below, measured from the project completion date. This warranty applies exclusively to workmanship — material defects are addressed solely through manufacturer warranties.
+              </p>
+              {warrantySections.map((section) => (
+                <div key={section.id} style={{ marginBottom: 20 }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "#BB984D", margin: "0 0 10px 0" }}>
+                    {section.title}
+                  </p>
+                  <div style={{ border: "1px solid #e8e4dc", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ background: "#0A0A0A", display: "grid", gridTemplateColumns: "1fr 2fr 1fr", padding: "10px 16px", gap: 12 }}>
+                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 600, color: "#BB984D", margin: 0 }}>Scope Item</p>
+                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 600, color: "#BB984D", margin: 0 }}>Craftsmanship & Labor</p>
+                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 9, fontWeight: 600, color: "#BB984D", margin: 0 }}>Material Defects</p>
+                    </div>
+                    {section.items.map((item, idx) => (
+                      <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", padding: "10px 16px", gap: 12, background: idx % 2 === 0 ? "#fff" : "#FAFAF8", borderTop: "1px solid #e8e4dc" }}>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 600, color: "#0A0A0A", margin: 0 }}>{item.scope_item}</p>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", margin: 0, lineHeight: 1.65 }}>{item.labor_text}</p>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", margin: 0, opacity: 0.65, fontStyle: "italic" }}>{item.material_note}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {warrantyDisclaimer && (
+                <div style={{ padding: "14px 18px", background: "#fff", border: "1px solid #e8e4dc", borderRadius: 8 }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, lineHeight: 1.75, color: "#3A3A38", margin: 0, fontStyle: "italic", opacity: 0.72 }}>
+                    {warrantyDisclaimer}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

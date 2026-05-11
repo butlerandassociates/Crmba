@@ -35,6 +35,8 @@ export const projectPaymentsAPI = {
     label: string;
     percentage?: number;
     amount: number;
+    base_amount?: number;
+    stripe_fee_enabled?: boolean;
     sort_order?: number;
     notes?: string;
     due_date?: string;
@@ -55,6 +57,8 @@ export const projectPaymentsAPI = {
     label?: string;
     percentage?: number;
     amount?: number;
+    base_amount?: number;
+    stripe_fee_enabled?: boolean;
     is_paid?: boolean;
     paid_date?: string | null;
     notes?: string;

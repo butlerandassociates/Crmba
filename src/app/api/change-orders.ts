@@ -17,17 +17,18 @@ export const changeOrdersAPI = {
     return data || [];
   },
 
-  /** Create a CO with items */
+  /** Create a CO with items and optional modifications */
   create: async (
     co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string; status?: string },
-    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[]
+    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[],
+    modifications?: any[]
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
     const costImpact = items.reduce((s, i) => s + i.total, 0);
 
     const { data: created, error } = await supabase
       .from("change_orders")
-      .insert({ ...co, cost_impact: costImpact, submitted_by: user?.id })
+      .insert({ ...co, cost_impact: costImpact, submitted_by: user?.id, modifications: modifications ?? [] })
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -61,12 +62,13 @@ export const changeOrdersAPI = {
 
   /**
    * Merge an approved CO into the client's accepted proposal.
-   * - Appends CO line items to estimate_line_items
+   * - Applies modifications (edits/deletions) to existing line items
+   * - Appends new CO line items to estimate_line_items
    * - Fully recalculates: subtotal → discount → tax → total → gross_profit → profit_margin
    * - Updates project: total_value, gross_profit, profit_margin, commission
    * - Sets CO status → "merged"
    */
-  mergeApproved: async (co: any, clientId: string) => {
+  mergeApproved: async (co: any, clientId: string, modifications?: { action: 'edit' | 'delete'; estimate_item_id: string; quantity?: number; client_price?: number; total_price?: number }[]) => {
     // 1. Find the accepted estimate with all financial fields
     const { data: estimate, error: estError } = await supabase
       .from("estimates")
@@ -79,7 +81,21 @@ export const changeOrdersAPI = {
     if (estError) throw new Error(estError.message);
     if (!estimate) throw new Error("No accepted proposal found for this client.");
 
-    // 2. Get current max sort_order in estimate_line_items
+    // 2. Apply modifications to existing line items (edit/delete)
+    const mods = modifications ?? (co.modifications ?? []);
+    for (const mod of mods) {
+      if (mod.action === "delete") {
+        await supabase.from("estimate_line_items").delete().eq("id", mod.estimate_item_id);
+      } else if (mod.action === "edit") {
+        await supabase.from("estimate_line_items").update({
+          quantity: mod.quantity,
+          client_price: mod.client_price,
+          total_price: mod.total_price,
+        }).eq("id", mod.estimate_item_id);
+      }
+    }
+
+    // 3. Get current max sort_order in estimate_line_items (after modifications)
     const { data: maxSortRow } = await supabase
       .from("estimate_line_items")
       .select("sort_order")
@@ -89,7 +105,7 @@ export const changeOrdersAPI = {
       .maybeSingle();
     const startSort = (maxSortRow?.sort_order ?? 0) + 1;
 
-    // 3. Insert CO items into estimate_line_items
+    // 4. Insert new CO items into estimate_line_items
     const coItems: any[] = co.items || [];
     if (coItems.length > 0) {
       const { error: liError } = await supabase
@@ -110,9 +126,19 @@ export const changeOrdersAPI = {
       if (liError) throw new Error(liError.message);
     }
 
-    // 4. Recalculate all estimate financials
-    const costImpact = co.cost_impact || 0;
-    const newSubtotal = (estimate.subtotal || 0) + costImpact;
+    // 5. Re-sum subtotal from all remaining line items (accurate after edits/deletes/additions)
+    const { data: allLineItems } = await supabase
+      .from("estimate_line_items")
+      .select("total_price, category, labor_cost")
+      .eq("estimate_id", estimate.id);
+    const newSubtotal = (allLineItems ?? []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
+
+    // Recalculate BAD (Base, Aggregate & Disposal) — 1.5% of qualifying subtotals × 1.5 markup
+    const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
+    const badQualifying = (allLineItems ?? [])
+      .filter((li: any) => BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0)
+      .reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
+    const newBadAmount = Math.round(badQualifying * 0.015 * 1.5 * 100) / 100;
 
     // Recalculate discount amount if a % discount is applied
     const discountPct = estimate.discount_percentage || 0;
@@ -122,11 +148,12 @@ export const changeOrdersAPI = {
 
     const subtotalAfterDiscount = newSubtotal - newDiscountAmount;
 
-    // Recalculate tax
-    const taxRate = estimate.tax_rate || 0;
-    const newTaxAmount = subtotalAfterDiscount * (taxRate / 100);
+    // Recalculate tax — preserve ratio from original (if tax was $0, keep $0)
+    const origSubtotalAfterDiscount = (estimate.subtotal || 0) - (estimate.discount_amount || 0);
+    const taxRatio = origSubtotalAfterDiscount > 0 ? (estimate.tax_amount || 0) / origSubtotalAfterDiscount : 0;
+    const newTaxAmount = subtotalAfterDiscount * taxRatio;
 
-    const newTotal = subtotalAfterDiscount + newTaxAmount;
+    const newTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount;
 
     // Recalculate gross profit & margin (cost side stays the same)
     const totalCost = estimate.total_cost || 0;
@@ -138,6 +165,7 @@ export const changeOrdersAPI = {
       .update({
         subtotal: newSubtotal,
         discount_amount: newDiscountAmount,
+        bad_amount: newBadAmount,
         tax_amount: newTaxAmount,
         total: newTotal,
         gross_profit: newGrossProfit,
@@ -191,16 +219,17 @@ export const changeOrdersAPI = {
     return { updatedCo, newEstimateTotal: newTotal };
   },
 
-  /** Update a draft CO — replaces items */
+  /** Update a draft CO — replaces items and saves modifications */
   update: async (
     id: string,
     co: { title: string; reason?: string; timeline_impact?: string; approval_verified?: boolean; approval_file_url?: string },
-    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[]
+    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[],
+    modifications?: any[]
   ) => {
     const costImpact = items.reduce((s, i) => s + i.total, 0);
     const { data, error } = await supabase
       .from("change_orders")
-      .update({ ...co, cost_impact: costImpact, updated_at: new Date().toISOString() })
+      .update({ ...co, cost_impact: costImpact, modifications: modifications ?? [], updated_at: new Date().toISOString() })
       .eq("id", id)
       .select()
       .single();

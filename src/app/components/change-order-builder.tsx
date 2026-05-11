@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, Upload, X, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, Upload, X, AlertTriangle, Edit2, RotateCcw, Info } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -9,9 +9,9 @@ import { Badge } from "./ui/badge";
 import { Separator } from "./ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { changeOrdersAPI } from "../api/change-orders";
-import { estimatesAPI } from "../api/estimates";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -52,6 +52,13 @@ export function ChangeOrderBuilder() {
   // Product picker per row
   const [pickerState, setPickerState] = useState<Record<string, { categoryId: string }>>({});
 
+  // Modifications to existing proposal items
+  type Modification = { action: 'edit' | 'delete'; estimate_item_id: string; original_quantity: number; original_client_price: number; original_total: number; quantity: number; client_price: number; total_price: number };
+  const [modifications, setModifications] = useState<Record<string, Modification>>({});
+  const [editingProposalItemId, setEditingProposalItemId] = useState<string | null>(null);
+  const [editQty, setEditQty] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+
   // Approval gate
   const [approvalVerified, setApprovalVerified] = useState(false);
   const [approvalFile, setApprovalFile]         = useState<File | null>(null);
@@ -62,6 +69,7 @@ export function ChangeOrderBuilder() {
   const [showProposal, setShowProposal] = useState(true);
   const [saving, setSaving]             = useState(false);
   const [merging, setMerging]           = useState(false);
+  const [showApplyConfirm, setShowApplyConfirm] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -119,6 +127,11 @@ export function ChangeOrderBuilder() {
                 unit_price: i.unit_price || 0,
                 total: i.total || 0,
               })));
+            }
+            if (Array.isArray(co.modifications) && co.modifications.length > 0) {
+              const modsMap: Record<string, any> = {};
+              co.modifications.forEach((mod: any) => { modsMap[mod.estimate_item_id] = mod; });
+              setModifications(modsMap);
             }
           }
         } else {
@@ -179,6 +192,36 @@ export function ChangeOrderBuilder() {
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
 
+  // ── Proposal item modifications ──────────────────────────────────────────
+  const handleDeleteProposalItem = (li: any) => {
+    setModifications(prev => ({
+      ...prev,
+      [li.id]: { action: 'delete', estimate_item_id: li.id, original_quantity: li.quantity, original_client_price: li.client_price, original_total: li.total_price, quantity: li.quantity, client_price: li.client_price, total_price: li.total_price },
+    }));
+    setEditingProposalItemId(null);
+  };
+
+  const handleStartEditProposalItem = (li: any) => {
+    const existing = modifications[li.id];
+    setEditingProposalItemId(li.id);
+    setEditQty(String(existing?.quantity ?? li.quantity ?? 1));
+    setEditPrice(String(existing?.client_price ?? li.client_price ?? 0));
+  };
+
+  const handleSaveProposalItemEdit = (li: any) => {
+    const qty = parseFloat(editQty) || 0;
+    const price = parseFloat(editPrice) || 0;
+    setModifications(prev => ({
+      ...prev,
+      [li.id]: { action: 'edit', estimate_item_id: li.id, original_quantity: li.quantity, original_client_price: li.client_price, original_total: li.total_price, quantity: qty, client_price: price, total_price: qty * price },
+    }));
+    setEditingProposalItemId(null);
+  };
+
+  const handleRestoreProposalItem = (itemId: string) => {
+    setModifications(prev => { const next = { ...prev }; delete next[itemId]; return next; });
+  };
+
   // ── File upload ───────────────────────────────────────────────────────────
   const handleApprovalFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -205,7 +248,10 @@ export function ChangeOrderBuilder() {
   const validate = () => {
     setTouched(true);
     if (!coTitle.trim()) { toast.error("Change order name is required."); return false; }
-    if (items.some(i => !i.description.trim())) { toast.error("All line items need a description."); return false; }
+    const filledItems = items.filter(i => i.description.trim());
+    const hasMods = Object.keys(modifications).length > 0;
+    if (filledItems.length === 0 && !hasMods) { toast.error("Add at least one line item or modify an existing proposal item."); return false; }
+    if (filledItems.some(i => !i.description.trim())) { toast.error("All line items need a description."); return false; }
     return true;
   };
 
@@ -223,18 +269,20 @@ export function ChangeOrderBuilder() {
         approval_verified: approvalVerified,
         approval_file_url: approvalFileUrl || undefined,
       };
-      const coItems = items.map(i => ({
+      // Filter out empty placeholder rows before saving
+      const coItems = items.filter(i => i.description.trim()).map(i => ({
         category: i.category,
         description: i.description,
         quantity: Number(i.quantity),
         unit_price: Number(i.unit_price),
         total: Number(i.total),
       }));
+      const modsArray = Object.values(modifications);
       if (isEdit && existingCO) {
-        await changeOrdersAPI.update(existingCO.id, coData as any, coItems);
+        await changeOrdersAPI.update(existingCO.id, coData as any, coItems, modsArray);
         toast.success("Change order updated.");
       } else {
-        const created = await changeOrdersAPI.create(coData, coItems);
+        const created = await changeOrdersAPI.create(coData, coItems, modsArray);
         // Save approval fields on newly created CO then redirect to its edit URL
         if (approvalFileUrl || approvalVerified) {
           await supabase.from("change_orders").update({
@@ -276,7 +324,7 @@ export function ChangeOrderBuilder() {
         approval_verified: true,
         approval_file_url: approvalFileUrl,
       };
-      const coItems = items.map(i => ({
+      const coItems = items.filter(i => i.description.trim()).map(i => ({
         category: i.category,
         description: i.description,
         quantity: Number(i.quantity),
@@ -315,8 +363,8 @@ export function ChangeOrderBuilder() {
         co = { ...created, items: coItems };
       }
 
-      // Merge into proposal
-      const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(co, clientId!);
+      // Merge into proposal (pass modifications so edits/deletes are applied)
+      const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(co, clientId!, Object.values(modifications));
 
       activityLogAPI.create({
         client_id: clientId!,
@@ -334,9 +382,39 @@ export function ChangeOrderBuilder() {
   };
 
   // ── Computed ──────────────────────────────────────────────────────────────
+  const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
   const originalTotal = proposal?.total || 0;
-  const coImpact      = items.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
-  const newTotal      = originalTotal + coImpact;
+
+  // Effective subtotal = proposal items (after mods) + new CO items
+  const effectiveProposalSubtotal = (proposal?.line_items || []).reduce((s: number, li: any) => {
+    const mod = modifications[li.id];
+    if (mod?.action === 'delete') return s;
+    if (mod?.action === 'edit') return s + Number(mod.total_price || 0);
+    return s + Number(li.total_price || 0);
+  }, 0);
+  const newCoSubtotal = items.filter(i => i.description.trim()).reduce((s, i) => s + Number(i.total || 0), 0);
+  const liveSubtotal = effectiveProposalSubtotal + newCoSubtotal;
+
+  // Live BAD — qualifying items from both proposal (after mods) and new CO items
+  const proposalBadQualifying = (proposal?.line_items || []).reduce((s: number, li: any) => {
+    const mod = modifications[li.id];
+    if (mod?.action === 'delete') return s;
+    if (!BAD_CATEGORIES.includes(li.category)) return s;
+    if (mod?.action === 'edit') return s + Number(mod.total_price || 0);
+    return s + Number(li.total_price || 0);
+  }, 0);
+  const coBadQualifying = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
+  const liveBad = Math.round((proposalBadQualifying + coBadQualifying) * 0.015 * 1.5 * 100) / 100;
+  const originalBad = proposal?.bad_amount ?? 0;
+
+  // Live tax — scale proportionally (preserves $0 for unknown zip)
+  const origSubtotal = proposal?.subtotal || 0;
+  const taxRatio = origSubtotal > 0 ? (proposal?.tax_amount || 0) / origSubtotal : 0;
+  const liveTax = Math.round(liveSubtotal * taxRatio * 100) / 100;
+  const originalTax = proposal?.tax_amount ?? 0;
+
+  const newTotal = liveSubtotal + liveBad + liveTax;
+  const coImpact = newTotal - originalTotal;
 
   // Group proposal line items by category
   const proposalGroups = (() => {
@@ -390,7 +468,7 @@ export function ChangeOrderBuilder() {
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
             Save Draft
           </Button>
-          <Button size="sm" onClick={handleApplyToProposal} disabled={merging || saving || !canMerge}
+          <Button size="sm" onClick={() => { if (!validate()) return; setShowApplyConfirm(true); }} disabled={merging || saving || !canMerge}
             className="bg-green-600 hover:bg-green-700 text-white">
             {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
             Apply to Proposal
@@ -543,6 +621,22 @@ export function ChangeOrderBuilder() {
             {/* CO Totals */}
             <div className="border-t pt-4 space-y-1">
               <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Subtotal</span>
+                <span className="tabular-nums">{fmt(liveSubtotal)}</span>
+              </div>
+              {liveBad > 0 && (
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1">Base, Aggregate &amp; Disposal{liveBad !== originalBad && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
+                  <span className="tabular-nums">{fmt(liveBad)}</span>
+                </div>
+              )}
+              {liveTax > 0 && (
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1">Sales Tax{liveTax !== originalTax && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
+                  <span className="tabular-nums">{fmt(liveTax)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Original Contract Total</span>
                 <span className="tabular-nums">{fmt(originalTotal)}</span>
               </div>
@@ -655,25 +749,97 @@ export function ChangeOrderBuilder() {
                           <div className="px-4 py-2 bg-muted/30 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                             {cat}
                           </div>
-                          {catItems.map((li: any) => (
-                            <div key={li.id} className="px-4 py-2 flex justify-between gap-2 text-sm">
-                              <div className="flex-1 min-w-0">
-                                <p className="truncate">{li.product_name}</p>
-                                {li.quantity && (
-                                  <p className="text-xs text-muted-foreground">Qty: {li.quantity}</p>
+                          {catItems.map((li: any) => {
+                            const mod = modifications[li.id];
+                            const isDeleted = mod?.action === 'delete';
+                            const isEdited = mod?.action === 'edit';
+                            const isEditingThis = editingProposalItemId === li.id;
+                            const displayQty = isEdited ? mod.quantity : li.quantity;
+                            const displayPrice = isEdited ? mod.client_price : li.client_price;
+                            const displayTotal = isEdited ? mod.total_price : li.total_price;
+                            return (
+                              <div key={li.id} className={`px-4 py-2.5 border-b last:border-0 text-sm transition-colors ${isDeleted ? 'bg-red-50/60' : isEdited ? 'bg-yellow-50/60' : ''}`}>
+                                {isEditingThis ? (
+                                  <div className="space-y-2">
+                                    <p className="text-xs font-medium truncate">{li.product_name}</p>
+                                    <div className="flex gap-1.5">
+                                      <div className="flex-1">
+                                        <p className="text-[10px] text-muted-foreground mb-0.5">Qty</p>
+                                        <Input type="number" min="0" step="0.01" value={editQty} onChange={e => setEditQty(e.target.value)} className="h-7 text-xs" autoFocus />
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="text-[10px] text-muted-foreground mb-0.5">Unit Price</p>
+                                        <Input type="number" min="0" step="0.01" value={editPrice} onChange={e => setEditPrice(e.target.value)} className="h-7 text-xs" />
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <Button size="sm" className="h-6 text-xs px-2" onClick={() => handleSaveProposalItemEdit(li)}>Save</Button>
+                                      <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => setEditingProposalItemId(null)}>Cancel</Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex justify-between gap-2 items-start">
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`truncate text-xs font-medium ${isDeleted ? 'line-through text-muted-foreground' : ''}`}>{li.product_name}</p>
+                                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                        <p className="text-[10px] text-muted-foreground">
+                                          Qty: {displayQty}
+                                          {isEdited && mod.original_quantity !== mod.quantity && (
+                                            <span className="line-through ml-1 opacity-50">{li.quantity}</span>
+                                          )}
+                                        </p>
+                                        {isDeleted && <span className="text-[10px] px-1 rounded bg-red-100 text-red-600 font-medium">Removed</span>}
+                                        {isEdited && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">Modified</span>}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                      <span className={`tabular-nums text-xs ${isDeleted ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}>
+                                        {fmt(displayTotal || 0)}
+                                      </span>
+                                      {isDeleted ? (
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-green-600" title="Restore" onClick={() => handleRestoreProposalItem(li.id)}>
+                                          <RotateCcw className="h-3 w-3" />
+                                        </Button>
+                                      ) : (
+                                        <>
+                                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-blue-600" title="Edit" onClick={() => handleStartEditProposalItem(li)}>
+                                            <Edit2 className="h-3 w-3" />
+                                          </Button>
+                                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" title="Remove" onClick={() => handleDeleteProposalItem(li)}>
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                              <span className="tabular-nums text-muted-foreground shrink-0">
-                                {fmt(li.total_price || 0)}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ))
                     )}
-                    <div className="px-4 py-3 bg-muted/20 flex justify-between text-sm font-semibold">
-                      <span>Proposal Total</span>
-                      <span className="tabular-nums">{fmt(proposal.total)}</span>
+                    <div className="px-4 py-2 bg-muted/20 space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Subtotal</span>
+                        <span className="tabular-nums">{fmt(effectiveProposalSubtotal + newCoSubtotal)}</span>
+                      </div>
+                      {liveBad > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>BAD{liveBad !== originalBad && <span className="ml-1 text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
+                          <span className="tabular-nums">{fmt(liveBad)}</span>
+                        </div>
+                      )}
+                      {liveTax > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Sales Tax</span>
+                          <span className="tabular-nums">{fmt(liveTax)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-semibold pt-1 border-t">
+                        <span>New Total</span>
+                        <span className="tabular-nums text-primary">{fmt(newTotal)}</span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -685,6 +851,58 @@ export function ChangeOrderBuilder() {
       </div>
         </div>
       </div>
+
+      {/* Apply to Proposal — confirmation dialog */}
+      <AlertDialog open={showApplyConfirm} onOpenChange={setShowApplyConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply Change Order to Proposal?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p className="text-muted-foreground">This will permanently update the accepted proposal. Review the changes below before confirming.</p>
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                  {items.filter(i => i.description.trim()).length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-green-700 font-medium">+ {items.filter(i => i.description.trim()).length} new item{items.filter(i => i.description.trim()).length > 1 ? "s" : ""} added</span>
+                      <span className="tabular-nums text-green-700">{fmt(newCoSubtotal)}</span>
+                    </div>
+                  )}
+                  {Object.values(modifications).filter(m => m.action === 'edit').length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-yellow-700 font-medium">~ {Object.values(modifications).filter(m => m.action === 'edit').length} item{Object.values(modifications).filter(m => m.action === 'edit').length > 1 ? "s" : ""} modified</span>
+                      <span className="tabular-nums text-yellow-700">{fmt(Object.values(modifications).filter(m => m.action === 'edit').reduce((s, m) => s + (m.total_price - m.original_total), 0))}</span>
+                    </div>
+                  )}
+                  {Object.values(modifications).filter(m => m.action === 'delete').length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-red-600 font-medium">− {Object.values(modifications).filter(m => m.action === 'delete').length} item{Object.values(modifications).filter(m => m.action === 'delete').length > 1 ? "s" : ""} removed</span>
+                      <span className="tabular-nums text-red-600">−{fmt(Object.values(modifications).filter(m => m.action === 'delete').reduce((s, m) => s + m.original_total, 0))}</span>
+                    </div>
+                  )}
+                  {liveBad !== originalBad && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>BAD adjusted</span>
+                      <span className="tabular-nums">{liveBad > originalBad ? "+" : ""}{fmt(liveBad - originalBad)}</span>
+                    </div>
+                  )}
+                  <div className="border-t pt-1.5 flex justify-between font-semibold">
+                    <span>New Contract Total</span>
+                    <span className="tabular-nums text-primary">{fmt(newTotal)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3 shrink-0" />This cannot be undone. Use Change Orders to make further adjustments.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={merging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleApplyToProposal} disabled={merging} className="bg-green-600 hover:bg-green-700">
+              {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+              Confirm &amp; Apply
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

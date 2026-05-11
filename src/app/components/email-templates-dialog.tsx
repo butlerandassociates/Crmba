@@ -243,6 +243,12 @@ export function EmailTemplatesDialog({
             colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
 
+      // Collect group positions before html2canvas (DOM layout is still intact)
+      const body1Rect = body1El.getBoundingClientRect();
+      const groupStartsPx: number[] = Array.from(
+        body1El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
+      ).map((el) => Math.round((el.getBoundingClientRect().top - body1Rect.top) * SCALE));
+
       const [hdrC, body1C, body2C, ftrC, colC] = await Promise.all([
         html2canvas(hdrEl,    { ...opts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...opts, backgroundColor: "#F5F3EF" }),
@@ -275,6 +281,25 @@ export function EmailTemplatesDialog({
         return out;
       };
 
+      const findSafeCutPx = (src: HTMLCanvasElement, desiredPx: number, searchBackPx: number): number => {
+        if (desiredPx >= src.height) return src.height;
+        const ctx = src.getContext("2d")!;
+        const stripW = 120, stripX = Math.floor((src.width - stripW) / 2);
+        const scanTop = Math.max(0, desiredPx - searchBackPx);
+        const scanH = desiredPx - scanTop;
+        if (scanH <= 1) return desiredPx;
+        const { data } = ctx.getImageData(stripX, scanTop, stripW, scanH);
+        for (let dy = scanH - 1; dy >= 0; dy--) {
+          let clear = true;
+          for (let x = 0; x < stripW; x += 6) {
+            const i = (dy * stripW + x) * 4;
+            if (data[i] < 195 || data[i + 1] < 195 || data[i + 2] < 195) { clear = false; break; }
+          }
+          if (clear) return scanTop + dy;
+        }
+        return desiredPx;
+      };
+
       const renderPages = (bodyC: HTMLCanvasElement, showCol: boolean, startPage: number): number => {
         const bodyH = toPt(bodyC);
         let consumed = 0, pageIdx = startPage;
@@ -282,7 +307,32 @@ export function EmailTemplatesDialog({
           if (pageIdx > 0) pdf.addPage();
           const isFirst = pageIdx === startPage;
           const avail = (!isFirst && showCol) ? slotCol : slotFull;
-          const sliceH = Math.min(avail, bodyH - consumed);
+          const remaining = bodyH - consumed;
+          let sliceH: number;
+          if (remaining <= avail + 1) {
+            sliceH = remaining;
+          } else {
+            const consumedPx  = Math.round(consumed * pxPerPt);
+            const idealCutPx  = consumedPx + Math.round(avail * pxPerPt);
+            const groupEndsE  = groupStartsPx.map((_, i) =>
+              i + 1 < groupStartsPx.length ? groupStartsPx[i + 1] : bodyC.height
+            );
+            const splitIdxE   = groupStartsPx.findIndex(
+              (start, i) => idealCutPx > start && idealCutPx < groupEndsE[i]
+            );
+            const orphanZonePx = Math.round(75 * pxPerPt);
+            const orphanedE   = groupStartsPx
+              .filter((g) => g >= idealCutPx - orphanZonePx && g < idealCutPx)
+              .sort((a, b) => a - b)[0];
+            const cutBeforeE  = splitIdxE !== -1 ? groupStartsPx[splitIdxE] : orphanedE;
+            let safeCutPx: number;
+            if (cutBeforeE !== undefined && cutBeforeE > consumedPx + Math.round(avail * 0.3 * pxPerPt)) {
+              safeCutPx = findSafeCutPx(bodyC, cutBeforeE - 2, Math.round(30 * pxPerPt));
+            } else {
+              safeCutPx = findSafeCutPx(bodyC, idealCutPx, Math.round(90 * pxPerPt));
+            }
+            sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+          }
           const sc = slice(bodyC, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
           pdf.setFillColor(245, 243, 239);
           pdf.rect(0, 0, pageW, pageH, "F");

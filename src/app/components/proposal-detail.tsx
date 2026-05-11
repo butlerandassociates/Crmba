@@ -33,8 +33,10 @@ import {
   Paperclip,
   RotateCcw,
   Ban,
+  BadgePercent,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
+import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard";
@@ -147,8 +149,17 @@ export function ProposalDetail() {
   const [reverting, setReverting] = useState(false);
   const [showRevertDialog, setShowRevertDialog] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [warrantySections, setWarrantySections] = useState<WarrantySection[]>([]);
+  const [warrantyDisclaimer, setWarrantyDisclaimer] = useState("");
   const [attachProposalPdf, setAttachProposalPdf] = useState(true);
   const [clientHasAcceptedProposal, setClientHasAcceptedProposal] = useState(false);
+
+  // Savings & Fees
+  const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent");
+  const [discountValue, setDiscountValue] = useState(0);
+  const [discountLabel, setDiscountLabel] = useState("");
+  const [stripeFeeEnabled, setStripeFeeEnabled] = useState(false);
+  const [showSavingsDialog, setShowSavingsDialog] = useState(false);
 
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
@@ -160,6 +171,9 @@ export function ProposalDetail() {
       .eq("is_active", true)
       .order("sort_order")
       .then(({ data }) => setReviews(data ?? []));
+    warrantyAPI.getAll()
+      .then(({ sections, disclaimer }) => { setWarrantySections(sections); setWarrantyDisclaimer(disclaimer); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -169,6 +183,11 @@ export function ProposalDetail() {
       setEditTitle(est.title ?? "");
       setEditDescription(est.description ?? "");
       setEditLineItems(est.line_items ?? []);
+      const dtype = (est.discount_type as "percent" | "fixed") ?? "percent";
+      setDiscountType(dtype);
+      setDiscountValue(dtype === "fixed" ? (est.discount_amount ?? 0) : (est.discount_percentage ?? 0));
+      setDiscountLabel(est.discount_label ?? "");
+      setStripeFeeEnabled(est.stripe_fee_enabled ?? false);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
         supabase.from("estimates")
@@ -227,7 +246,16 @@ export function ProposalDetail() {
     .reduce((sum, item) => sum + Number(item.quantity) * Number(item.client_price), 0);
   const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * 1.5 * 100) / 100;
   const activeBad = badOverride !== null ? badOverride : (isDirty ? badPriceAuto : (proposal?.bad_amount ?? 0));
-  const computedTotal = computedSubtotal + activeBad + (proposal?.tax_amount ?? 0);
+  // Scale tax proportionally with subtotal changes (preserves $0 tax for unknown zip)
+  const origSubtotal = proposal?.subtotal || 0;
+  const taxRatio = origSubtotal > 0 ? (proposal?.tax_amount ?? 0) / origSubtotal : 0;
+  const activeTax = isDirty ? Math.round(computedSubtotal * taxRatio * 100) / 100 : (proposal?.tax_amount ?? 0);
+  const discountAmt = discountType === "percent"
+    ? Math.round(computedSubtotal * discountValue / 100 * 100) / 100
+    : Math.min(discountValue, computedSubtotal);
+  const preStripeTotal = computedSubtotal + activeBad + activeTax - discountAmt;
+  const stripeFeeAmt = stripeFeeEnabled ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100 : 0;
+  const computedTotal = preStripeTotal + stripeFeeAmt;
   const computedTotalCost = editLineItems.reduce(
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
@@ -302,8 +330,15 @@ export function ProposalDetail() {
       (sum, item) => sum + (Number(item.quantity) * Number(item.client_price ?? item.pricePerUnit ?? 0)),
       0
     );
-    const newTotal = newSubtotal + (proposal.tax_amount ?? 0) + activeBad;
-    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal }).eq("id", proposal.id);
+    const wizBadQualifying = updatedItems
+      .filter((item) => BAD_CATEGORIES.includes(item.category) || Number(item.labor_cost ?? 0) > 0)
+      .reduce((s, item) => s + Number(item.quantity) * Number(item.client_price ?? item.pricePerUnit ?? 0), 0);
+    const wizBad = badOverride !== null ? badOverride : Math.round(wizBadQualifying * 0.015 * 1.5 * 100) / 100;
+    const wizOrigSubtotal = proposal.subtotal || 0;
+    const wizTaxRatio = wizOrigSubtotal > 0 ? (proposal.tax_amount ?? 0) / wizOrigSubtotal : 0;
+    const wizTax = Math.round(newSubtotal * wizTaxRatio * 100) / 100;
+    const newTotal = newSubtotal + wizBad + wizTax;
+    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax }).eq("id", proposal.id);
     setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
 
     // Save wizard inputs so we can pre-fill next time
@@ -338,7 +373,14 @@ export function ProposalDetail() {
         total_cost: computedTotalCost,
         gross_profit: computedGrossProfit,
         profit_margin: computedProfitMargin,
-        ...(badOverride !== null ? { bad_amount: badOverride } : {}),
+        bad_amount: activeBad,
+        tax_amount: activeTax,
+        discount_type: discountType,
+        discount_percentage: discountType === "percent" ? discountValue : 0,
+        discount_amount: discountAmt,
+        discount_label: discountLabel || null,
+        stripe_fee_enabled: stripeFeeEnabled,
+        stripe_fee_amount: stripeFeeAmt,
       });
       // Delete items that were removed from editLineItems
       const originalItemIds = (proposal.line_items ?? [])
@@ -404,6 +446,12 @@ export function ProposalDetail() {
         gross_profit: computedGrossProfit,
         profit_margin: computedProfitMargin,
         line_items: snapshot,
+        discount_type: discountType,
+        discount_percentage: discountType === "percent" ? discountValue : 0,
+        discount_amount: discountAmt,
+        discount_label: discountLabel || null,
+        stripe_fee_enabled: stripeFeeEnabled,
+        stripe_fee_amount: stripeFeeAmt,
       }));
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       toast.success("Proposal saved.");
@@ -472,6 +520,28 @@ export function ProposalDetail() {
     });
   };
 
+  // Scans backwards from desiredPx to find a row of pixels that's all background/whitespace.
+  // Returns the safe cut position (canvas px). Falls back to desiredPx if nothing found.
+  const findSafeCutPx = (src: HTMLCanvasElement, desiredPx: number, searchBackPx: number): number => {
+    if (desiredPx >= src.height) return src.height;
+    const ctx = src.getContext("2d")!;
+    const stripW = 120;
+    const stripX = Math.floor((src.width - stripW) / 2);
+    const scanTop = Math.max(0, desiredPx - searchBackPx);
+    const scanH = desiredPx - scanTop;
+    if (scanH <= 1) return desiredPx;
+    const { data } = ctx.getImageData(stripX, scanTop, stripW, scanH);
+    for (let dy = scanH - 1; dy >= 0; dy--) {
+      let rowClear = true;
+      for (let x = 0; x < stripW; x += 6) {
+        const i = (dy * stripW + x) * 4;
+        if (data[i] < 195 || data[i + 1] < 195 || data[i + 2] < 195) { rowClear = false; break; }
+      }
+      if (rowClear) return scanTop + dy;
+    }
+    return desiredPx;
+  };
+
   const handleDownload = async () => {
     const container = document.getElementById("proposal-export-content");
     if (!container) return;
@@ -485,6 +555,10 @@ export function ProposalDetail() {
       })));
 
       const SCALE = 2;
+      // Populated inside onclone (accurate layout in html2canvas iframe)
+      const groupStartsCanvasPx: number[] = [];
+      let   groupsEndCanvasPx = -1;
+      const groupStartsCanvasPx3: number[] = [];
       const baseOpts = {
         scale: SCALE,
         useCORS: true,
@@ -496,6 +570,23 @@ export function ProposalDetail() {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
           Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
+          // Measure group positions while in the cloned iframe — getBoundingClientRect is reliable here
+          if (el.id === "proposal-page-body") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              groupStartsCanvasPx.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+            const endEl = el.querySelector("[data-groups-end]") as HTMLElement | null;
+            if (endEl) {
+              groupsEndCanvasPx = Math.round((endEl.getBoundingClientRect().top - bodyRect.top) * SCALE);
+            }
+          }
+          if (el.id === "proposal-page-body-3") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              groupStartsCanvasPx3.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
         },
       };
 
@@ -503,16 +594,18 @@ export function ProposalDetail() {
       const hdrEl    = q("proposal-page-header");
       const body1El  = q("proposal-page-body");
       const body2El  = q("proposal-page-body-2");
+      const body3El  = q("proposal-page-body-3");
       const ftrEl    = q("proposal-page-footer");
       const colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas, body3Canvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
 
       const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -552,18 +645,59 @@ export function ProposalDetail() {
         bodyCanvas: HTMLCanvasElement,
         showCol: boolean,
         startPage: number,
+        groupStarts: number[] = groupStartsCanvasPx,
+        groupsEnd: number = groupsEndCanvasPx,
       ): number => {
         const bodyH  = toPt(bodyCanvas);
         let consumed = 0;
         let pageIdx  = startPage;
         while (consumed < bodyH - 1) {
           if (pageIdx > 0) pdf.addPage();
-          const isFirst = pageIdx === startPage;
-          const avail   = (!isFirst && showCol) ? slotCol : slotFull;
-          const sliceH  = Math.min(avail, bodyH - consumed);
+          const isFirst  = pageIdx === startPage;
+          const avail    = (!isFirst && showCol) ? slotCol : slotFull;
+          const remaining = bodyH - consumed;
+          let sliceH: number;
+          if (remaining <= avail + 1) {
+            sliceH = remaining;
+          } else {
+            const consumedPx  = Math.round(consumed * pxPerPt);
+            const idealCutPx  = consumedPx + Math.round(avail * pxPerPt);
+            const lastGroupEnd = groupsEnd > 0 ? groupsEnd : bodyCanvas.height;
+            const groupEnds = groupStarts.map((start, i) => {
+              if (i + 1 < groupStarts.length) return groupStarts[i + 1];
+              if (groupsEnd > 0 && start >= groupsEnd) return bodyCanvas.height;
+              return lastGroupEnd;
+            });
+            const splitIdxRaw = groupStarts.findIndex(
+              (start, i) => idealCutPx > start && idealCutPx < groupEnds[i]
+            );
+            const splitGroupFits = splitIdxRaw !== -1 &&
+              (groupEnds[splitIdxRaw] - groupStarts[splitIdxRaw]) <= Math.round(avail * pxPerPt);
+            const isTotalsBodyGroup = splitIdxRaw !== -1 &&
+              groupsEnd > 0 && groupStarts[splitIdxRaw] >= groupsEnd;
+            const blankThreshold = isTotalsBodyGroup ? 0.50 : 0.25;
+            const maxBlankPx = Math.round(avail * blankThreshold * pxPerPt);
+            const splitIdx = (splitGroupFits && (idealCutPx - groupStarts[splitIdxRaw]) <= maxBlankPx)
+              ? splitIdxRaw : -1;
+            const orphanZonePx = Math.round(75 * pxPerPt);
+            const orphanStart = groupStarts
+              .filter((g) => g >= idealCutPx - orphanZonePx && g < idealCutPx)
+              .sort((a, b) => a - b)[0];
+            const cutBeforePx = splitIdx !== -1 ? groupStarts[splitIdx] : orphanStart;
+            let safeCutPx: number;
+            const minCutPx = splitIdx !== -1
+              ? consumedPx + 4
+              : consumedPx + Math.round(avail * 0.3 * pxPerPt);
+            if (cutBeforePx !== undefined && cutBeforePx > minCutPx) {
+              safeCutPx = findSafeCutPx(bodyCanvas, cutBeforePx - 2, Math.round(30 * pxPerPt));
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, 1);
+            } else {
+              safeCutPx = findSafeCutPx(bodyCanvas, idealCutPx, Math.round(90 * pxPerPt));
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+            }
+          }
           const sliceCanvas = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
 
-          // Fill page with body bg so no white gaps between header/body/footer
           pdf.setFillColor(245, 243, 239);
           pdf.rect(0, 0, pageW, pageH, "F");
 
@@ -584,14 +718,15 @@ export function ProposalDetail() {
         return pageIdx;
       };
 
-      const nextPage = renderBodyPages(body1Canvas, true, 0);
-      renderBodyPages(body2Canvas, false, nextPage);
+      const nextPage  = renderBodyPages(body1Canvas, true, 0);
+      const nextPage2 = renderBodyPages(body2Canvas, false, nextPage);
+      if (body3Canvas) renderBodyPages(body3Canvas, false, nextPage2, groupStartsCanvasPx3, -1);
 
       pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
-    } catch (err) {
+    } catch (err: any) {
       console.error("PDF generation error:", err);
-      toast.error("Failed to generate PDF — please try again.");
+      toast.error(`PDF failed: ${err?.message ?? String(err) ?? "unknown error"}`);
     } finally {
       setDownloading(false);
     }
@@ -610,6 +745,10 @@ export function ProposalDetail() {
       })));
 
       const SCALE = 2;
+      // Populated inside onclone (accurate layout in html2canvas iframe)
+      const previewGroupStartsPx: number[] = [];
+      let   previewGroupsEndPx = -1;
+      const previewGroupStartsPx3: number[] = [];
       const h2cOpts = {
         scale: SCALE, useCORS: true, allowTaint: false, logging: false,
         imageTimeout: 10000, removeContainer: true,
@@ -617,21 +756,39 @@ export function ProposalDetail() {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
           Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
+          // Measure group positions while in the cloned iframe — getBoundingClientRect is reliable here
+          if (el.id === "proposal-page-body") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              previewGroupStartsPx.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+            const endEl = el.querySelector("[data-groups-end]") as HTMLElement | null;
+            if (endEl) {
+              previewGroupsEndPx = Math.round((endEl.getBoundingClientRect().top - bodyRect.top) * SCALE);
+            }
+          }
+          if (el.id === "proposal-page-body-3") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              previewGroupStartsPx3.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
         },
       };
 
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
-            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
-            colHdrEl = q("proposal-col-header");
+            body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
 
-      const [hdrC, body1C, body2C, ftrC, colC] = await Promise.all([
+      const [hdrC, body1C, body2C, ftrC, colC, body3C] = await Promise.all([
         html2canvas(hdrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(ftrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...h2cOpts, backgroundColor: "#0A0A0A" }),
+        body3El ? html2canvas(body3El, { ...h2cOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
 
       const pageW_pt = 595.28, pageH_pt = 841.89;
@@ -658,13 +815,58 @@ export function ProposalDetail() {
 
       const pages: string[] = [];
 
-      const renderToPages = (bodyCanvas: HTMLCanvasElement, showCol: boolean) => {
+      const renderToPages = (
+        bodyCanvas: HTMLCanvasElement,
+        showCol: boolean,
+        groupStarts: number[] = previewGroupStartsPx,
+        groupsEnd: number = previewGroupsEndPx,
+      ) => {
         const bodyH = toPt(bodyCanvas);
         let consumed = 0, pageNum = 0;
         while (consumed < bodyH - 1) {
-          const needsCol = pageNum > 0 && showCol;
-          const avail    = needsCol ? slotCol : slotFull;
-          const sliceH   = Math.min(avail, bodyH - consumed);
+          const needsCol  = pageNum > 0 && showCol;
+          const avail     = needsCol ? slotCol : slotFull;
+          const remaining = bodyH - consumed;
+          let sliceH: number;
+          if (remaining <= avail + 1) {
+            sliceH = remaining;
+          } else {
+            const consumedPx   = Math.round(consumed * pxPerPt);
+            const idealCutPx   = consumedPx + Math.round(avail * pxPerPt);
+            const lastGroupEndP = groupsEnd > 0 ? groupsEnd : bodyCanvas.height;
+            const groupEndsP = groupStarts.map((start, i) => {
+              if (i + 1 < groupStarts.length) return groupStarts[i + 1];
+              if (groupsEnd > 0 && start >= groupsEnd) return bodyCanvas.height;
+              return lastGroupEndP;
+            });
+            const splitIdxPRaw = groupStarts.findIndex(
+              (start, i) => idealCutPx > start && idealCutPx < groupEndsP[i]
+            );
+            const splitGroupFitsP = splitIdxPRaw !== -1 &&
+              (groupEndsP[splitIdxPRaw] - groupStarts[splitIdxPRaw]) <= Math.round(avail * pxPerPt);
+            const isTotalsBodyGroupP = splitIdxPRaw !== -1 &&
+              groupsEnd > 0 && groupStarts[splitIdxPRaw] >= groupsEnd;
+            const blankThresholdP = isTotalsBodyGroupP ? 0.50 : 0.25;
+            const maxBlankPxP = Math.round(avail * blankThresholdP * pxPerPt);
+            const splitIdxP = (splitGroupFitsP && (idealCutPx - groupStarts[splitIdxPRaw]) <= maxBlankPxP)
+              ? splitIdxPRaw : -1;
+            const orphanZonePx = Math.round(75 * pxPerPt);
+            const orphanStartP = groupStarts
+              .filter((g) => g >= idealCutPx - orphanZonePx && g < idealCutPx)
+              .sort((a, b) => a - b)[0];
+            const cutBeforeP   = splitIdxP !== -1 ? groupStarts[splitIdxP] : orphanStartP;
+            let safeCutPx: number;
+            const minCutPxP = splitIdxP !== -1
+              ? consumedPx + 4
+              : consumedPx + Math.round(avail * 0.3 * pxPerPt);
+            if (cutBeforeP !== undefined && cutBeforeP > minCutPxP) {
+              safeCutPx = findSafeCutPx(bodyCanvas, cutBeforeP - 2, Math.round(30 * pxPerPt));
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, 1);
+            } else {
+              safeCutPx = findSafeCutPx(bodyCanvas, idealCutPx, Math.round(90 * pxPerPt));
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+            }
+          }
           const slice    = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
 
           const page = document.createElement("canvas");
@@ -691,9 +893,11 @@ export function ProposalDetail() {
 
       renderToPages(body1C, true);
       renderToPages(body2C, false);
+      if (body3C) renderToPages(body3C, false, previewGroupStartsPx3, -1);
       setPreviewPages(pages);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Preview generation error:", err);
+      toast.error(`Preview failed: ${err?.message ?? String(err) ?? "unknown error"}`);
     } finally {
       setPreviewLoading(false);
     }
@@ -812,16 +1016,17 @@ export function ProposalDetail() {
 
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
-            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
-            colHdrEl = q("proposal-col-header");
+            body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas, body3Canvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
+        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
 
       const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -882,8 +1087,9 @@ export function ProposalDetail() {
         return pageIdx;
       };
 
-      const nextPage = renderPages(body1Canvas, true, 0);
-      renderPages(body2Canvas, false, nextPage);
+      const nextPage  = renderPages(body1Canvas, true, 0);
+      const nextPage2 = renderPages(body2Canvas, false, nextPage);
+      if (body3Canvas) renderPages(body3Canvas, false, nextPage2);
 
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
@@ -1153,6 +1359,13 @@ export function ProposalDetail() {
                 Revert to Draft
               </Button>
             )
+          )}
+
+          {!isLocked && (
+            <Button variant="outline" size="sm" onClick={() => setShowSavingsDialog(true)}>
+              <BadgePercent className="h-4 w-4 mr-2" />
+              Savings & Fees
+            </Button>
           )}
 
           {!isLocked && (
@@ -1520,6 +1733,20 @@ export function ProposalDetail() {
               <span className="text-muted-foreground">{proposal.tax_label ?? "Tax"}</span>
               <span className="font-semibold">{formatCurrency(proposal.tax_amount ?? 0)}</span>
             </div>
+            {discountAmt > 0 && (
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">
+                  {discountLabel || (discountType === "percent" ? `Discount (${discountValue}%)` : "Discount")}
+                </span>
+                <span className="font-semibold text-green-700">− {formatCurrency(discountAmt)}</span>
+              </div>
+            )}
+            {stripeFeeEnabled && stripeFeeAmt > 0 && (
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">CC Processing Fee (2.9% + $0.30)</span>
+                <span className="font-semibold">{formatCurrency(stripeFeeAmt)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-lg pt-2 border-t">
               <span className="font-bold">Total</span>
               <span className="font-bold text-green-600">{formatCurrency(computedTotal)}</span>
@@ -1995,10 +2222,103 @@ export function ProposalDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Savings & Fees Dialog */}
+      <Dialog open={showSavingsDialog} onOpenChange={setShowSavingsDialog}>
+        <DialogContent className="max-w-md p-0 gap-0">
+          <DialogHeader className="px-6 py-5 border-b">
+            <DialogTitle>Savings & Fees</DialogTitle>
+            <DialogDescription>Apply a discount or pass the credit card processing fee to the client</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-5 space-y-6">
+            {/* Discount */}
+            <div className="space-y-3">
+              <p className="text-sm font-semibold">Discount</p>
+              <div className="flex gap-2">
+                <div className="flex border rounded-md overflow-hidden shrink-0">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${discountType === "percent" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent"}`}
+                    onClick={() => setDiscountType("percent")}
+                  >%</button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors border-l ${discountType === "fixed" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent"}`}
+                    onClick={() => setDiscountType("fixed")}
+                  >$</button>
+                </div>
+                <Input
+                  type="number"
+                  min="0"
+                  step={discountType === "percent" ? "0.1" : "1"}
+                  value={discountValue || ""}
+                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                  placeholder={discountType === "percent" ? "e.g. 5" : "e.g. 500"}
+                  className="flex-1"
+                />
+              </div>
+              {discountAmt > 0 && (
+                <p className="text-xs text-muted-foreground">= {formatCurrency(discountAmt)} off subtotal</p>
+              )}
+              <div>
+                <Label className="text-sm text-muted-foreground">Custom Label (optional)</Label>
+                <Input
+                  value={discountLabel}
+                  onChange={(e) => setDiscountLabel(e.target.value)}
+                  placeholder="e.g. Loyalty Discount, Promotional Offer…"
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            {/* Stripe processing fee */}
+            <div className="space-y-2 border-t pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">Credit Card Processing Fee</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Passes Stripe fee (2.9% + $0.30) to client</p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="stripe-fee-toggle"
+                  checked={stripeFeeEnabled}
+                  onChange={(e) => setStripeFeeEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border cursor-pointer accent-primary"
+                />
+              </div>
+              {stripeFeeEnabled && stripeFeeAmt > 0 && (
+                <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2">
+                  Fee added to total: <span className="font-semibold text-foreground">{formatCurrency(stripeFeeAmt)}</span>
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end">
+            <Button onClick={() => setShowSavingsDialog(false)}>Done</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Off-screen export content for download — NOT hidden so html2canvas can capture it */}
       <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>
         <div id="proposal-export-content">
-          <ProposalExport proposal={proposal} client={client} reviews={reviews} />
+          <ProposalExport
+            proposal={{
+              ...proposal,
+              subtotal: computedSubtotal,
+              bad_amount: activeBad,
+              tax_amount: activeTax,
+              discount_amount: discountAmt,
+              discount_percentage: discountType === "percent" ? discountValue : 0,
+              discount_label: discountLabel || null,
+              discount_type: discountType,
+              stripe_fee_amount: stripeFeeAmt,
+              stripe_fee_enabled: stripeFeeEnabled,
+              total: computedTotal,
+            }}
+            client={client}
+            reviews={reviews}
+            warrantySections={warrantySections}
+            warrantyDisclaimer={warrantyDisclaimer}
+          />
         </div>
       </div>
     </div>
