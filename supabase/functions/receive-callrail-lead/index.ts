@@ -14,6 +14,7 @@ const TRACKING_NUMBER_MAP: Record<string, string> = {
   "2568046283": "Instagram",
   "2564641523": "Website",
   "2563842964": "Yelp",
+  "2564455451": "Google LSA",
 };
 
 // Strip all non-digit characters, then remove leading US country code 1 from 11-digit numbers
