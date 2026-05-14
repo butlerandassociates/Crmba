@@ -64,6 +64,10 @@ import {
   FileX2,
   UserCheck,
   Info,
+  Globe,
+  Copy,
+  RefreshCw,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
@@ -87,6 +91,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI, usersAPI, commissionPaymentsAPI } from "../utils/api";
+import { changeOrdersAPI } from "../api/change-orders";
 import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
 import { MoveToActiveModal } from "./move-to-active-modal";
@@ -147,6 +152,7 @@ export function ClientDetail() {
   const [clientProjects, setClientProjects] = useState<any[]>([]);
   const [projectCommPayments, setProjectCommPayments] = useState<any[]>([]);
   const [clientProposals, setClientProposals] = useState<any[]>([]);
+  const [clientCOs, setClientCOs] = useState<any[]>([]);
   const [proposalToDelete, setProposalToDelete] = useState<any>(null);
   const [deletingProposal, setDeletingProposal] = useState(false);
   const justMovedToSoldRef = useRef(false);
@@ -274,6 +280,7 @@ export function ClientDetail() {
       });
     }).catch(console.error);
     estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error);
+    changeOrdersAPI.getByClient(id).then(setClientCOs).catch(console.error);
     appointmentsAPI.getByClient(id).then(setClientAppointments).catch(console.error);
     leadSourcesAPI.getAll().then(setLeadSources).catch(console.error);
     pipelineStagesAPI.getAll().then(setPipelineStages).catch(console.error);
@@ -380,6 +387,10 @@ export function ClientDetail() {
   const [savingSelling, setSavingSelling] = useState(false);
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopePopoverOpen, setScopePopoverOpen] = useState(false);
+  const [portalDialogOpen, setPortalDialogOpen] = useState(false);
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [portalGenerating, setPortalGenerating] = useState(false);
+  const [portalCopied, setPortalCopied] = useState(false);
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 5;
   
@@ -510,6 +521,7 @@ export function ClientDetail() {
   };
 
   const buildStatementPages = async (): Promise<{ pageImages: string[]; pdf: jsPDF } | null> => {
+    await document.fonts.ready;
     const SCALE = 2;
     const baseOpts = { scale: SCALE, useCORS: true, allowTaint: false, logging: false };
     const headerEl = document.getElementById("payment-stmt-header");
@@ -1096,6 +1108,59 @@ export function ClientDetail() {
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleOpenPortalDialog = async () => {
+    setPortalDialogOpen(true);
+    // Load existing active token for this client
+    const { data } = await supabase
+      .from("client_portal_tokens")
+      .select("token")
+      .eq("client_id", id)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (data?.token) setPortalToken(data.token);
+  };
+
+  const handleGeneratePortalToken = async () => {
+    if (!id) return;
+    setPortalGenerating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase.rpc("generate_portal_token", {
+        p_client_id: id,
+        p_created_by: user?.id ?? null,
+      });
+      if (error) throw new Error(error.message);
+      // Also enable portal_enabled on the active project
+      const proj = clientProjects[0];
+      if (proj) {
+        await supabase.from("projects").update({ portal_enabled: true }).eq("id", proj.id);
+      }
+      const generatedToken = data as string;
+      setPortalToken(generatedToken);
+      // Log to activity
+      const portalUrl = `${window.location.origin}/portal/${generatedToken}`;
+      activityLogAPI.create({
+        client_id: id!,
+        action_type: "portal_link_generated",
+        description: `Client portal link generated: ${portalUrl}`,
+      }).then(loadActivityLog).catch(() => {});
+      toast.success("Portal link generated!");
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to generate link");
+    } finally {
+      setPortalGenerating(false);
+    }
+  };
+
+  const handleCopyPortalLink = () => {
+    if (!portalToken) return;
+    const url = `${window.location.origin}/portal/${portalToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setPortalCopied(true);
+      setTimeout(() => setPortalCopied(false), 2000);
+    });
   };
 
   const handleMarkIndividualAsMet = async (apptId: string) => {
@@ -2127,6 +2192,75 @@ export function ClientDetail() {
               )}
               </div>
             </div>
+
+            {/* ── Change Order History ── */}
+            {(() => {
+              const mergedCOs = clientCOs
+                .filter((co: any) => co.status === "merged")
+                .sort((a: any, b: any) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+              if (mergedCOs.length === 0) return null;
+              const totalCOImpact = mergedCOs.reduce((s: number, co: any) => {
+                if (co.pre_merge_total != null && co.post_merge_total != null) {
+                  return s + (Number(co.post_merge_total) - Number(co.pre_merge_total));
+                }
+                return s + Number(co.cost_impact || 0);
+              }, 0);
+              const acceptedForHistory = clientProposals.find((p: any) => p.status === "accepted");
+              const currentProposalTotal = Number(acceptedForHistory?.total ?? 0);
+              // Fallback when pre_merge_total is null (CO merged before that field existed)
+              const originalContract = mergedCOs[0]?.pre_merge_total != null
+                ? Number(mergedCOs[0].pre_merge_total)
+                : (currentProposalTotal > 0 ? currentProposalTotal - totalCOImpact : null);
+              const currentContract = mergedCOs[mergedCOs.length - 1]?.post_merge_total != null
+                ? Number(mergedCOs[mergedCOs.length - 1].post_merge_total)
+                : (currentProposalTotal > 0 ? currentProposalTotal : null);
+              return (
+                <div className="border-t mt-4 pt-3">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2 flex items-center gap-1">
+                    <History className="h-3 w-3" /> Change Order History
+                  </p>
+                  <div className="space-y-1 max-h-[140px] overflow-y-auto thin-scroll pr-1">
+                    {mergedCOs.map((co: any) => {
+                      const impact = co.pre_merge_total != null && co.post_merge_total != null
+                        ? Number(co.post_merge_total) - Number(co.pre_merge_total)
+                        : Number(co.cost_impact || 0);
+                      return (
+                        <button
+                          key={co.id}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent/60 transition-colors text-left"
+                          onClick={() => navigate(`/clients/${id}/change-order/${co.id}`)}
+                        >
+                          <ClipboardEdit className="h-3.5 w-3.5 shrink-0 text-purple-500" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium truncate block">{co.title}</span>
+                            <span className="text-[10px] text-muted-foreground">{new Date(co.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                          </div>
+                          <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {impact >= 0 ? "+" : ""}{formatCurrency(impact)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {originalContract != null && currentContract != null && (
+                    <div className="mt-2 pt-2 border-t grid grid-cols-3 gap-1 text-center">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wide text-muted-foreground">Original</p>
+                        <p className="text-xs font-semibold">{formatCurrency(originalContract)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wide text-muted-foreground">CO Impact</p>
+                        <p className={`text-xs font-semibold ${totalCOImpact >= 0 ? "text-green-600" : "text-red-600"}`}>{totalCOImpact >= 0 ? "+" : ""}{formatCurrency(totalCOImpact)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wide text-muted-foreground">Current</p>
+                        <p className="text-xs font-bold text-green-600">{formatCurrency(currentContract)}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -2389,7 +2523,7 @@ export function ClientDetail() {
       {clientProjects.length > 0 && ["sold", "active", "completed"].includes(client.status) && (() => {
         const tileClass = "flex items-center gap-3 border rounded-lg p-4 hover:bg-accent/40 transition-colors text-left";
         return (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <button onClick={() => setPurchaseOrdersOpen(true)} className={tileClass} disabled={isReadOnlyCompleted}>
               <div className="h-9 w-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0"><Package className="h-5 w-5 text-amber-600" /></div>
               <div><p className="font-semibold text-sm">Purchase Orders</p><p className="text-xs text-muted-foreground">{isReadOnlyCompleted ? "View only" : "Order materials"}</p></div>
@@ -2410,6 +2544,12 @@ export function ClientDetail() {
               <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
               <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
             </button>
+            {can("can_view_admin_portal") && (
+              <button onClick={handleOpenPortalDialog} className={tileClass}>
+                <div className="h-9 w-9 rounded-lg bg-sky-50 border border-sky-200 flex items-center justify-center shrink-0"><Globe className="h-5 w-5 text-sky-600" /></div>
+                <div><p className="font-semibold text-sm">Client Portal</p><p className="text-xs text-muted-foreground">Generate client link</p></div>
+              </button>
+            )}
           </div>
         );
       })()}
@@ -2648,6 +2788,7 @@ export function ClientDetail() {
                     : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
                     : type === "project_value_updated"   ? <TrendingUp className="h-3.5 w-3.5 text-green-600" />
                     : type === "project_updated"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
+                    : type === "portal_link_generated"  ? <Globe className="h-3.5 w-3.5 text-sky-500" />
                     : type === "fio_updated"             ? <HardHat className="h-3.5 w-3.5 text-yellow-500" />
                     : type === "crew_payment_submitted"  ? <DollarSign className="h-3.5 w-3.5 text-amber-500" />
                     : type.includes("pdf_exported")      ? <FileDown className="h-3.5 w-3.5 text-slate-400" />
@@ -4425,6 +4566,80 @@ export function ClientDetail() {
         }}
       />
 
+
+      {/* Client Portal Dialog */}
+      <Dialog open={portalDialogOpen} onOpenChange={(v) => { setPortalDialogOpen(v); if (!v) setPortalToken(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5 text-sky-600" />
+              Client Portal Link
+            </DialogTitle>
+            <DialogDescription>
+              Generate a secure, tokenized link for {client?.first_name} {client?.last_name} to view their project portal.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            {portalToken ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg border text-sm font-mono break-all">
+                  <span className="flex-1 text-xs text-muted-foreground">{window.location.origin}/portal/{portalToken}</span>
+                  <button
+                    onClick={handleCopyPortalLink}
+                    className="shrink-0 p-1.5 hover:bg-accent rounded"
+                    title="Copy link"
+                  >
+                    {portalCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This link gives the client read-only access to their project overview, payments, documents, and field updates.
+                  It stays active until revoked or a new link is generated.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyPortalLink}
+                    className="flex-1 h-9 px-4 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 flex items-center justify-center gap-2"
+                  >
+                    {portalCopied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> Copy Link</>}
+                  </button>
+                  <a
+                    href={`${window.location.origin}/portal/${portalToken}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
+                  >
+                    <ExternalLink className="h-4 w-4" /> Preview
+                  </a>
+                </div>
+                <div className="border-t pt-3">
+                  <button
+                    onClick={handleGeneratePortalToken}
+                    disabled={portalGenerating}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${portalGenerating ? "animate-spin" : ""}`} />
+                    {portalGenerating ? "Regenerating…" : "Regenerate link (revokes current)"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  No portal link exists yet. Generate one to give this client access to their project portal.
+                </p>
+                <button
+                  onClick={handleGeneratePortalToken}
+                  disabled={portalGenerating}
+                  className="w-full h-10 bg-sky-600 text-white rounded-md text-sm font-semibold hover:bg-sky-700 flex items-center justify-center gap-2"
+                >
+                  {portalGenerating ? <><RefreshCw className="h-4 w-4 animate-spin" /> Generating…</> : <><Globe className="h-4 w-4" /> Generate Portal Link</>}
+                </button>
+              </div>
+            )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>

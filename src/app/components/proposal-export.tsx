@@ -89,20 +89,6 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
     </div>
   );
 
-  const pageFooter = (
-    <div id={preview ? undefined : "proposal-page-footer"} style={{ background: B.black }}>
-      <div style={{ padding: "14px 48px 18px", textAlign: "center" as const }}>
-        <p style={{ fontFamily: B.inter, fontSize: 11, color: "rgba(255,255,255,0.65)", margin: "0 0 4px 0" }}>
-          <span style={{ color: B.gold }}>info@butlerconstruction.co</span>
-          &nbsp;·&nbsp;
-          <span style={{ color: B.gold }}>(256) 617-4691</span>
-        </p>
-        <p style={{ fontFamily: B.inter, fontSize: 9, letterSpacing: "0.10em", color: "rgba(255,255,255,0.45)", margin: 0 }}>
-          6275 University Drive NW, Suite 37-314, Huntsville, AL 35806
-        </p>
-      </div>
-    </div>
-  );
 
   const body1 = (
     <div id={preview ? undefined : "proposal-page-body"} style={{ background: B.bg }}>
@@ -168,7 +154,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
                   {group.items.map((item, iIdx) => (
-                    <div key={iIdx} style={{ padding: "10px 24px 10px 36px", background: "#fff", borderTop: `1px solid ${B.bg}` }}>
+                    <div key={iIdx} style={{ padding: "10px 24px 10px 36px", background: "#fff" }}>
                       <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.6 }}>· {item.name}</p>
                       {item.description ? <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "3px 0 0 10px", opacity: 0.45, lineHeight: 1.5 }}>{item.description}</p> : null}
                     </div>
@@ -179,7 +165,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
             return (
               <div key={gIdx} data-group="true">
                 {group.items.map((item, iIdx) => (
-                  <div key={iIdx} style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff", borderBottom: `1px solid ${B.bg}` }}>
+                  <div key={iIdx} style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff" }}>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.name}</p>
                       {item.description ? <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p> : null}
@@ -336,18 +322,15 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
         <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
           {pageHeader}
           {body1}
-          {pageFooter}
         </div>
         <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
           {pageHeader}
           {body2}
-          {pageFooter}
         </div>
         {body3 && (
           <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
             {pageHeader}
             {body3}
-            {pageFooter}
           </div>
         )}
       </div>
@@ -367,7 +350,6 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
           {body3}
         </>
       )}
-      {pageFooter}
     </div>
   );
 }

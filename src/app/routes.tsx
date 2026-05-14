@@ -1,4 +1,5 @@
 import { createBrowserRouter } from "react-router";
+import { ClientPortalPage } from "./portal/pages/ClientPortalPage";
 import { RootLayout } from "./components/root-layout";
 import { Dashboard } from "./components/dashboard";
 import { ClientsList } from "./components/clients-list";
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
       { index: true, Component: ClientDashboard },
     ],
   },
+  { path: "/portal/:token",            Component: ClientPortalPage },
   { path: "/p/:id",                    Component: PublicProposal },
   { path: "/docusign-callback",        Component: DocuSignCallback },
   { path: "/login",                    Component: LoginPage },

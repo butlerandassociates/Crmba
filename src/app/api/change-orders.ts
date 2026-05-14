@@ -72,7 +72,7 @@ export const changeOrdersAPI = {
     // 1. Find the accepted estimate with all financial fields
     const { data: estimate, error: estError } = await supabase
       .from("estimates")
-      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin, stripe_fee_enabled")
+      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin, stripe_fee_enabled, bad_amount")
       .eq("client_id", clientId)
       .eq("status", "accepted")
       .order("accepted_at", { ascending: false })
@@ -81,8 +81,17 @@ export const changeOrdersAPI = {
     if (estError) throw new Error(estError.message);
     if (!estimate) throw new Error("No accepted proposal found for this client.");
 
+    const preMergeTotal = Number(estimate.total || 0);
+
     // 2. Apply modifications to existing line items (edit/delete)
     const mods = modifications ?? (co.modifications ?? []);
+
+    // Fetch original line items BEFORE modifications — needed for BAD delta calculation
+    const { data: originalLineItems } = await supabase
+      .from("estimate_line_items")
+      .select("id, category, labor_cost, total_price")
+      .eq("estimate_id", estimate.id);
+
     for (const mod of mods) {
       if (mod.action === "delete") {
         await supabase.from("estimate_line_items").delete().eq("id", mod.estimate_item_id);
@@ -133,12 +142,22 @@ export const changeOrdersAPI = {
       .eq("estimate_id", estimate.id);
     const newSubtotal = (allLineItems ?? []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
 
-    // Recalculate BAD (Base, Aggregate & Disposal) — 1.5% of qualifying subtotals × 1.5 markup
+    // BAD — stored-base + delta (full recalculation is wrong: labor_cost not stored on all qualifying items)
     const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
-    const badQualifying = (allLineItems ?? [])
-      .filter((li: any) => BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0)
-      .reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
-    const newBadAmount = Math.round(badQualifying * 0.015 * 1.5 * 100) / 100;
+    const originalBad = Number(estimate.bad_amount || 0);
+    const modBadDelta = mods.reduce((s: number, mod: any) => {
+      const li = (originalLineItems ?? []).find((l: any) => l.id === mod.estimate_item_id);
+      if (!li) return s;
+      const qualifies = BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0;
+      if (!qualifies) return s;
+      if (mod.action === "delete") return s + (-Number(li.total_price || 0) * 0.015 * 1.5);
+      if (mod.action === "edit") return s + ((Number(mod.total_price || 0) - Number(li.total_price || 0)) * 0.015 * 1.5);
+      return s;
+    }, 0);
+    const coBadQualifying = coItems
+      .filter((i: any) => i.description?.trim() && BAD_CATEGORIES.includes(i.category))
+      .reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+    const newBadAmount = Math.round((originalBad + modBadDelta + coBadQualifying * 0.015 * 1.5) * 100) / 100;
 
     // Recalculate discount amount if a % discount is applied
     const discountPct = estimate.discount_percentage || 0;
@@ -214,10 +233,15 @@ export const changeOrdersAPI = {
       }
     }
 
-    // 6. Mark CO as merged
+    // 6. Mark CO as merged + save pre/post totals for before-vs-after display
     const { data: updatedCo, error: coUpdateError } = await supabase
       .from("change_orders")
-      .update({ status: "merged", updated_at: new Date().toISOString() })
+      .update({
+        status: "merged",
+        pre_merge_total: preMergeTotal,
+        post_merge_total: newTotal,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", co.id)
       .select()
       .single();

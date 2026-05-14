@@ -1,0 +1,124 @@
+/* Portal CSS variables — light mode */
+:root {
+  --portal-bg:         #FFFFFF;
+  --portal-page:       #FAFAFA;
+  --portal-panel:      #FFFFFF;
+  --portal-panel2:     #F5F5F4;
+  --portal-ink:        #0B0C0E;
+  --portal-ink2:       #3F4651;
+  --portal-ink3:       #6B7280;
+  --portal-ink4:       #9AA0A6;
+  --portal-line:       #EAEAEA;
+  --portal-line-soft:  #F2F2F2;
+  --portal-green:      #16A75C;
+  --portal-green-soft: #E5F6EC;
+  --portal-gold:       #B8924B;
+  --portal-gold-soft:  #F4ECDC;
+  --portal-amber:      #C77E18;
+  --portal-amber-soft: #FBEFD8;
+  --portal-red:        #D14343;
+  --portal-red-soft:   #FBE6E6;
+}
+
+/* Root — full viewport, no admin nav */
+.portal-root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--portal-bg);
+  color: var(--portal-ink);
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Desktop: sidebar + main */
+.portal-desktop {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.portal-sidebar {
+  width: 256px;
+  background: var(--portal-panel);
+  border-right: 1px solid var(--portal-line);
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.portal-main {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--portal-page);
+}
+
+/* Mobile: hidden by default on desktop */
+.portal-mobile {
+  display: none;
+}
+
+/* Mobile pill tabs */
+.portal-mobile-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  background: var(--portal-panel);
+  border-bottom: 1px solid var(--portal-line);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.portal-mobile-tab {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border: 1px solid var(--portal-line);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--portal-ink2);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.portal-mobile-tab.active {
+  background: var(--portal-ink);
+  color: var(--portal-panel);
+  border-color: var(--portal-ink);
+  font-weight: 600;
+}
+
+.portal-mobile-content {
+  padding: 0 16px 64px;
+  background: var(--portal-page);
+}
+
+/* Mobile hero adjustments */
+@media (max-width: 768px) {
+  .portal-desktop {
+    display: none;
+  }
+  .portal-mobile {
+    display: block;
+  }
+}
+
+/* Override Hero padding on mobile */
+@media (max-width: 768px) {
+  .portal-mobile .portal-hero-inner {
+    padding: 24px 16px 20px !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+  .portal-mobile .portal-stats-strip {
+    width: 100% !important;
+    flex-shrink: unset !important;
+  }
+  .portal-mobile h1 {
+    font-size: 26px !important;
+  }
+}

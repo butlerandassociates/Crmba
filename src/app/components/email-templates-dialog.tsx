@@ -220,11 +220,14 @@ export function EmailTemplatesDialog({
     if (!container) return null;
     try {
       const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
-      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-      })));
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
 
       const SCALE = 2;
       const opts = {

@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, Upload, X, AlertTriangle, Edit2, RotateCcw, Info } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, Upload, X, AlertTriangle, Edit2, RotateCcw, Info, Download, Eye, XCircle } from "lucide-react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import { ChangeOrderExport } from "./change-order-export";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -10,6 +13,7 @@ import { Separator } from "./ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
+import { Dialog, DialogContent } from "./ui/dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { changeOrdersAPI } from "../api/change-orders";
 import { supabase } from "@/lib/supabase";
@@ -69,7 +73,14 @@ export function ChangeOrderBuilder() {
   const [showProposal, setShowProposal] = useState(true);
   const [saving, setSaving]             = useState(false);
   const [merging, setMerging]           = useState(false);
+  const [downloading, setDownloading]   = useState(false);
+  const [deleting, setDeleting]         = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPreview, setShowPreview]   = useState(false);
+  const [previewPages, setPreviewPages] = useState<string[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -311,6 +322,26 @@ export function ChangeOrderBuilder() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!existingCO) return;
+    setDeleting(true);
+    try {
+      await changeOrdersAPI.delete(existingCO.id);
+      activityLogAPI.create({
+        client_id: clientId!,
+        action_type: "change_order_voided",
+        description: `Change order "${existingCO.title}" deleted`,
+      }).catch(() => {});
+      toast.success("Change order deleted.");
+      navigate(`/clients/${clientId}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete — please try again.");
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const handleApplyToProposal = async () => {
     if (!validate()) return;
     if (!approvalVerified) { toast.error("Please confirm you have received client approval before applying."); return; }
@@ -383,6 +414,136 @@ export function ChangeOrderBuilder() {
       toast.error(err.message || "Failed to apply — please try again.");
     } finally {
       setMerging(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const element = exportRef.current;
+    if (!element) return;
+    setDownloading(true);
+    try {
+      const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
+
+      const canvas = await html2canvas(element as HTMLElement, {
+        scale: 2, useCORS: true, allowTaint: false, logging: false,
+        imageTimeout: 10000, removeContainer: true,
+        onclone: (_doc, el) => {
+          const root = el.getRootNode() as Document;
+          root.querySelectorAll?.("link[rel='stylesheet'], style").forEach((s) => s.remove());
+        },
+      });
+
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const pxPerPt = canvas.width / pageW;
+      const totalImgHPt = canvas.height / pxPerPt;
+
+      const findSafeCutPx = (cutPx: number, lookbackPx = 120): number => {
+        const ctx = canvas.getContext("2d")!;
+        const stripX = Math.floor(canvas.width * 0.1);
+        const stripW = Math.floor(canvas.width * 0.8);
+        for (let y = cutPx; y >= Math.max(0, cutPx - lookbackPx); y--) {
+          const d = ctx.getImageData(stripX, y, stripW, 1).data;
+          let clear = true;
+          for (let p = 0; p < d.length; p += 4) {
+            if (d[p] < 195 || d[p + 1] < 195 || d[p + 2] < 195) { clear = false; break; }
+          }
+          if (clear) return y;
+        }
+        return cutPx;
+      };
+
+      let consumedPt = 0;
+      let firstPage = true;
+      while (consumedPt < totalImgHPt - 1) {
+        const remainPt = totalImgHPt - consumedPt;
+        let sliceHPt: number;
+        if (remainPt <= pageH) {
+          sliceHPt = remainPt;
+        } else {
+          const cutPx = Math.round((consumedPt + pageH) * pxPerPt);
+          const safePx = findSafeCutPx(cutPx);
+          sliceHPt = Math.max(safePx / pxPerPt - consumedPt, pageH * 0.3);
+        }
+        const srcY = Math.round(consumedPt * pxPerPt);
+        const srcH = Math.min(Math.round(sliceHPt * pxPerPt), canvas.height - srcY);
+        if (srcH <= 0) break;
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width;
+        slice.height = srcH;
+        slice.getContext("2d")!.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        const renderHPt = (srcH / canvas.width) * pageW;
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, renderHPt);
+        consumedPt += srcH / pxPerPt;
+      }
+
+      pdf.save(`ChangeOrder-${coTitle.trim().replace(/\s+/g, "-") || "CO"}.pdf`);
+      if (clientId) activityLogAPI.create({ client_id: clientId, action_type: "co_pdf_exported", description: `Change order PDF exported: "${coTitle.trim()}"` }).catch(() => {});
+    } catch (err) {
+      console.error("PDF export error:", err);
+      toast.error("Failed to generate PDF — please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    const element = exportRef.current;
+    if (!element) return;
+    setPreviewPages([]);
+    setShowPreview(true);
+    setPreviewLoading(true);
+    try {
+      const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
+
+      const canvas = await html2canvas(element as HTMLElement, {
+        scale: 2, useCORS: true, allowTaint: false, logging: false,
+        imageTimeout: 10000, removeContainer: true,
+        onclone: (_doc, el) => {
+          const root = el.getRootNode() as Document;
+          root.querySelectorAll?.("link[rel='stylesheet'], style").forEach((s) => s.remove());
+        },
+      });
+
+      // Slice canvas into A4-height pages
+      const A4_RATIO = 841.89 / 595.28;
+      const pageHeightPx = Math.round(canvas.width * A4_RATIO);
+      const pages: string[] = [];
+      let offsetY = 0;
+      while (offsetY < canvas.height) {
+        const sliceH = Math.min(pageHeightPx, canvas.height - offsetY);
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width;
+        slice.height = sliceH;
+        slice.getContext("2d")!.drawImage(canvas, 0, offsetY, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+        pages.push(slice.toDataURL("image/jpeg", 0.92));
+        offsetY += sliceH;
+      }
+      setPreviewPages(pages);
+    } catch {
+      toast.error("Failed to generate preview — please try again.");
+      setShowPreview(false);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -473,7 +634,8 @@ export function ChangeOrderBuilder() {
     );
   }
 
-  const canMerge = !!(proposal && approvalVerified && approvalFileUrl);
+  const isMerged = existingCO?.status === "merged";
+  const canMerge = !!(proposal && approvalVerified && approvalFileUrl && !isMerged);
 
   return (
     <div className="h-full flex flex-col bg-muted/20">
@@ -488,17 +650,44 @@ export function ChangeOrderBuilder() {
             <p className="text-xs text-muted-foreground truncate">{client.first_name} {client.last_name}</p>
             <p className="font-semibold text-sm truncate">{isEdit ? "Edit Change Order" : "New Change Order"}</p>
           </div>
+          {isEdit && existingCO && existingCO.status !== "merged" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-destructive hover:text-destructive hover:bg-red-50"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleting || saving || merging}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-            Save Draft
+          {!isMerged && (
+            <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging || downloading}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              Save Draft
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handlePreview} disabled={downloading || saving || merging || !coTitle.trim()}>
+            <span className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Preview
+            </span>
           </Button>
-          <Button size="sm" onClick={() => { if (!validate()) return; setShowApplyConfirm(true); }} disabled={merging || saving || !canMerge}
-            className="bg-green-600 hover:bg-green-700 text-white">
-            {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-            Apply to Proposal
+          <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={downloading || saving || merging || !coTitle.trim()}>
+            <span className="flex items-center gap-2">
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Export PDF
+            </span>
           </Button>
+          {!isMerged && (
+            <Button size="sm" onClick={() => { if (!validate()) return; setShowApplyConfirm(true); }} disabled={merging || saving || downloading || !canMerge}
+              className="bg-green-600 hover:bg-green-700 text-white">
+              {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+              Apply to Proposal
+            </Button>
+          )}
         </div>
       </div>
 
@@ -508,6 +697,17 @@ export function ChangeOrderBuilder() {
 
         {/* ── Left: CO Form ─────────────────────────────────────────────── */}
         <div className="xl:col-span-2 h-full overflow-y-auto py-8 space-y-6">
+
+          {/* Merged read-only banner */}
+          {isMerged && (
+            <div className="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+              <Check className="h-4 w-4 text-purple-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-purple-800">This change order has been merged</p>
+                <p className="text-xs text-purple-700 mt-0.5">It is now part of the accepted proposal and cannot be edited. You can preview or export the PDF.</p>
+              </div>
+            </div>
+          )}
 
           {/* CO Details */}
           <div className="bg-background border rounded-lg p-6 space-y-4">
@@ -882,6 +1082,114 @@ export function ChangeOrderBuilder() {
         </div>
       </div>
 
+      {/* Off-screen export for PDF generation */}
+      <div style={{ position: "absolute", left: -9999, top: 0, width: 794, pointerEvents: "none", opacity: 0 }}>
+        <div ref={exportRef}>
+          <ChangeOrderExport
+            co={{
+              title: coTitle,
+              reason: coDescription,
+              timeline_impact: timelineImpact,
+              created_at: existingCO?.created_at || new Date().toISOString(),
+              cost_impact: items.filter(i => i.description.trim()).reduce((s, i) => s + Number(i.total), 0),
+              items: items.filter(i => i.description.trim()).map(i => ({
+                description: i.description,
+                category: i.category,
+                quantity: Number(i.quantity),
+                unit_price: Number(i.unit_price),
+                total: Number(i.total),
+              })),
+            }}
+            client={client}
+            originalTotal={isMerged && existingCO?.pre_merge_total != null
+              ? Number(existingCO.pre_merge_total)
+              : (originalTotal || undefined)}
+            newTotal={isMerged && existingCO?.post_merge_total != null
+              ? Number(existingCO.post_merge_total)
+              : (originalTotal ? newTotal : undefined)}
+          />
+        </div>
+      </div>
+
+      {/* PDF Preview Dialog */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="h-[95vh] p-0 overflow-hidden flex flex-col gap-0 [&>button:last-child]:hidden" style={{ width: 900, maxWidth: "95vw" }}>
+          <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-3 bg-[#3c3c3c] text-white shrink-0">
+            <span className="text-sm font-medium opacity-80">
+              Change Order — {coTitle || "Preview"}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-white text-gray-900 border-white h-7 text-xs hover:bg-transparent hover:text-white hover:border-white"
+                onClick={handleExportPDF}
+                disabled={downloading}
+              >
+                <span className="flex items-center gap-1.5">
+                  {downloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                  {downloading ? "Generating…" : "Download PDF"}
+                </span>
+              </Button>
+              <button onClick={() => setShowPreview(false)} className="ml-1 opacity-60 hover:opacity-100 transition-opacity">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll">
+            <div className="py-8 flex flex-col items-center gap-6">
+              {previewLoading ? (
+                <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <span className="text-sm">Generating preview…</span>
+                </div>
+              ) : previewPages.map((url, i) => (
+                <img key={i} src={url} alt={`Page ${i + 1}`} style={{ width: 794, display: "block", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }} />
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Change Order?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p className="text-muted-foreground">
+                  This will permanently delete <strong>"{existingCO?.title}"</strong>. This cannot be undone.
+                </p>
+                {existingCO?.status === "approved" && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <p>This change order has already been <strong>approved</strong>. Deleting it will not affect the proposal — the approval is simply discarded.</p>
+                  </div>
+                )}
+                {existingCO?.status === "pending_client" && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <p>This change order was <strong>sent to the client</strong> for review. Make sure to notify them it has been cancelled.</p>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive hover:bg-destructive/90 text-white"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete Change Order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Apply to Proposal — confirmation dialog */}
       <AlertDialog open={showApplyConfirm} onOpenChange={setShowApplyConfirm}>
         <AlertDialogContent>
@@ -891,6 +1199,10 @@ export function ChangeOrderBuilder() {
               <div className="space-y-3 text-sm">
                 <p className="text-muted-foreground">This will permanently update the accepted proposal. Review the changes below before confirming.</p>
                 <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                  <div className="flex justify-between text-sm text-muted-foreground pb-1.5 border-b">
+                    <span>Current Contract Total</span>
+                    <span className="tabular-nums">{fmt(originalTotal)}</span>
+                  </div>
                   {items.filter(i => i.description.trim()).length > 0 && (
                     <div className="flex justify-between">
                       <span className="text-green-700 font-medium">+ {items.filter(i => i.description.trim()).length} new item{items.filter(i => i.description.trim()).length > 1 ? "s" : ""} added</span>

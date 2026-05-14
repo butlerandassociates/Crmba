@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck, Building2, User, Eye } from "lucide-react";
+import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck, Building2, User, Eye, FileDown, Mail } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
+import jsPDF from "jspdf";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -71,6 +72,17 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const [confirmRemoveLine, setConfirmRemoveLine] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  // PDF preview dialog
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfPreviewHtml, setPdfPreviewHtml] = useState("");
+
+  // Email confirmation dialog
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [pendingSend, setPendingSend] = useState<"create" | "update" | "existing" | null>(null);
+  const [extraCCs, setExtraCCs] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState("");
+  const [ccInputError, setCcInputError] = useState("");
 
   // Supplier combobox state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -193,6 +205,9 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     setErrors({});
     setIsEditing(false);
     setConfirmDelete(false);
+    setExtraCCs([]);
+    setCcInput("");
+    setCcInputError("");
   };
 
   const handleEditPo = (po: any) => {
@@ -233,7 +248,13 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     supplier_email: selectedSupplier?.email ?? undefined,
   });
 
-  const handleUpdatePo = async (sendNow = false) => {
+  const buildCcList = (extra: string[] = []): string[] => {
+    const locked: string[] = ["info@butlerconstruction.co"];
+    if (pmProfile?.email) locked.push(pmProfile.email);
+    return [...locked, ...extra.filter((e) => !locked.includes(e))];
+  };
+
+  const handleUpdatePo = async (sendNow = false, ccList: string[] = []) => {
     if (!selectedPo?.id) return;
     const supplierName = selectedSupplier?.supplier_name ?? supplierSearch.trim();
     const newErrors: Record<string, string> = {};
@@ -279,6 +300,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
               : "Purchase Order from Butler & Associates Construction",
             html,
             from_name: "Butler & Associates Construction",
+            cc: buildCcList(ccList),
           }),
         }).catch(() => {});
         notificationsAPI.create({
@@ -309,7 +331,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
     }
   };
 
-  const handleSendExistingPo = async () => {
+  const handleSendExistingPo = async (ccList: string[] = []) => {
     if (!selectedPo?.id) return;
     if (!selectedPo.supplier_email) { toast.error("This supplier has no email address on file — edit the PO or update the supplier"); return; }
     if (!selectedPo.delivery_date) { toast.error("A delivery date is required before sending — edit the PO to add one"); return; }
@@ -366,7 +388,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
       await fetch(`https://${projectId}.supabase.co/functions/v1/send-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ to: supplierEmail, subject: "Purchase Order from Butler & Associates Construction", html, from_name: "Butler & Associates Construction" }),
+        body: JSON.stringify({ to: supplierEmail, subject: "Purchase Order from Butler & Associates Construction", html, from_name: "Butler & Associates Construction", cc: buildCcList(ccList) }),
       }).catch(() => {});
       setSelectedPo((prev: any) => ({ ...prev, status: "sent" }));
       setPos((prev) => prev.map((p) => p.id === selectedPo.id ? { ...p, status: "sent" } : p));
@@ -508,7 +530,148 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
 </body></html>`;
   };
 
-  const handleCreate = async (sendNow = false) => {
+  const buildPdfHtml = (po: any): string => {
+    const GOLD = "#BB984D";
+    const BLACK = "#0A0A0A";
+    const LOGO = `https://${projectId}.supabase.co/storage/v1/object/public/assets/ba-logo.png`;
+    const fmtDate = (d: string) => d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const pmFullName = pmProfile ? `${pmProfile.first_name ?? ""} ${pmProfile.last_name ?? ""}`.trim() : "Butler & Associates";
+    const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
+    const clientAddr = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
+    const rows = (po.items || []).map((item: any, idx: number) => `
+      <tr style="background:${idx % 2 === 0 ? "#fff" : "#FAFAF8"};border-bottom:1px solid #E8E4DC;">
+        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;">${item.product_name}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;opacity:0.65;">${item.color || "—"}</td>
+        <td style="padding:10px 14px;text-align:center;font-size:13px;color:#3A3A38;">${item.quantity}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;opacity:0.65;">${item.unit}</td>
+      </tr>`).join("");
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Inter,Arial,sans-serif;font-size:13px;color:#3A3A38;background:#fff;min-height:1123px;display:flex;flex-direction:column;}table{border-collapse:collapse;width:100%;}.content{flex:1;}</style>
+</head><body><div class="content">
+<div style="background:${BLACK};padding:28px 32px;text-align:center;">
+  <img src="${LOGO}" alt="Butler &amp; Associates" style="height:52px;width:auto;display:block;margin:0 auto 12px auto;background:${BLACK};" />
+  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 6px 0;">Butler &amp; Associates Construction, Inc.</p>
+  <p style="font-size:14px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;color:#fff;margin:0;">Purchase Order</p>
+</div>
+<div style="height:2px;background:linear-gradient(90deg,${GOLD},#8A7040);"></div>
+<div style="padding:28px 32px;border-bottom:1px solid #E8E4DC;">
+  <table><tr>
+    <td style="width:33%;vertical-align:top;padding-right:16px;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Deliver To</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${clientName}</p>
+      ${clientAddr ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${clientAddr}</p>` : ""}
+    </td>
+    <td style="width:34%;vertical-align:top;padding:0 16px;border-left:1px solid #E8E4DC;border-right:1px solid #E8E4DC;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Ordered By</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${pmFullName}</p>
+      ${pmProfile?.phone ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${pmProfile.phone}</p>` : ""}
+      <p style="font-size:12px;opacity:0.65;margin:4px 0 0;">Butler &amp; Associates Construction</p>
+    </td>
+    <td style="width:33%;vertical-align:top;padding-left:16px;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Supplier</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${po.supplier_name || "—"}</p>
+      ${po.supplier_poc_name ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${po.supplier_poc_name}</p>` : ""}
+      ${po.supplier_email ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${po.supplier_email}</p>` : ""}
+    </td>
+  </tr></table>
+</div>
+<div style="padding:20px 32px;background:#FAFAF8;border-bottom:1px solid #E8E4DC;">
+  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 10px 0;">Requested Delivery</p>
+  <table style="width:auto;"><tr>
+    <td style="padding-right:40px;vertical-align:top;">
+      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Date</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${po.delivery_date ? fmtDate(po.delivery_date) : "To be confirmed"}</p>
+    </td>
+    <td style="vertical-align:top;">
+      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Time Window</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${po.delivery_time === "morning" ? "Morning (8am–12pm)" : po.delivery_time === "afternoon" ? "Afternoon (12pm–4pm)" : "Late Afternoon (4pm–6pm)"}</p>
+    </td>
+    <td style="padding-left:40px;vertical-align:top;">
+      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Issued</p>
+      <p style="font-size:14px;font-weight:600;margin:0;">${today}</p>
+    </td>
+  </tr></table>
+</div>
+<div style="padding:24px 32px;">
+  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 12px 0;">Materials</p>
+  <table style="border:1px solid #E8E4DC;">
+    <thead><tr style="background:${BLACK};">
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Material</th>
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Color / Spec</th>
+      <th style="padding:10px 14px;text-align:center;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Qty</th>
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Unit</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>
+${po.notes ? `<div style="padding:0 32px 24px;"><div style="border:1px solid #E8E4DC;border-radius:4px;padding:14px 16px;background:#FAFAF8;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Delivery Notes</p><p style="font-size:13px;line-height:1.6;margin:0;">${po.notes}</p></div></div>` : ""}
+</div>
+<div style="margin-top:auto;padding:20px 32px;border-top:1px solid #E8E4DC;text-align:center;">
+  <p style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:${GOLD};margin:0 0 4px 0;">Butler &amp; Associates Construction, Inc.</p>
+  <p style="font-size:11px;opacity:0.55;margin:0;">info@butlerconstruction.co · (256) 617-4691</p>
+</div>
+</body></html>`;
+  };
+
+  const handlePreviewPdf = () => {
+    const po = {
+      supplier_name: (selectedSupplier?.supplier_name ?? supplierSearch.trim()) || "—",
+      supplier_poc_name: selectedSupplier?.poc_name ?? null,
+      supplier_email: selectedSupplier?.email ?? null,
+      delivery_date: deliveryDate || null,
+      delivery_time: deliveryTime,
+      notes: notes || null,
+      items: materials.filter((m) => m.product_name.trim() && m.product_name !== "__pick__"),
+    };
+    setPdfPreviewHtml(buildPdfHtml(po));
+    setShowPdfPreview(true);
+  };
+
+  const exportPDF = (po: any) => {
+    const html = buildPdfHtml(po);
+
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:0;visibility:hidden;";
+    document.body.appendChild(iframe);
+    const iDoc = iframe.contentDocument!;
+    iDoc.open(); iDoc.write(html); iDoc.close();
+
+    setTimeout(async () => {
+      try {
+        const { default: h2c } = await import("html2canvas");
+        const canvas = await h2c(iDoc.body, { scale: 2, useCORS: true, backgroundColor: "#fff", width: 794 });
+        document.body.removeChild(iframe);
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        pdf.addImage(imgData, "PNG", 0, 0, 210, 297);
+        pdf.save(`PO-${po.supplier_name?.replace(/[^a-z0-9]/gi, "-") ?? "Order"}-${project?.name?.replace(/[^a-z0-9]/gi, "-") ?? ""}.pdf`);
+        activityLogAPI.create({ client_id: client?.id, action_type: "po_pdf_exported", description: `PO PDF exported — supplier: ${po.supplier_name}` }).catch(() => {});
+      } catch {
+        document.body.removeChild(iframe);
+        toast.error("Failed to export PDF — please try again.");
+      }
+    }, 600);
+  };
+
+  const openSendDialog = (action: "create" | "update" | "existing") => {
+    setExtraCCs([]);
+    setCcInput("");
+    setCcInputError("");
+    setPendingSend(action);
+    setShowEmailDialog(true);
+  };
+
+  const handleConfirmSend = async () => {
+    if (!pendingSend) return;
+    setShowEmailDialog(false);
+    if (pendingSend === "create") await handleCreate(true, extraCCs);
+    else if (pendingSend === "update") await handleUpdatePo(true, extraCCs);
+    else await handleSendExistingPo(extraCCs);
+    setPendingSend(null);
+  };
+
+  const handleCreate = async (sendNow = false, ccList: string[] = []) => {
     const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
     const newErrors: Record<string, string> = {};
     const supplierName = selectedSupplier?.supplier_name ?? supplierSearch.trim();
@@ -560,6 +723,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
             subject: "Purchase Order from Butler & Associates Construction",
             html,
             from_name: "Butler & Associates Construction",
+            cc: buildCcList(ccList),
           }),
         }).catch(() => {});
 
@@ -664,6 +828,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const pmName = pmProfile ? `${pmProfile.first_name ?? ""} ${pmProfile.last_name ?? ""}`.trim() : null;
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0">
         {/* Header */}
@@ -1099,6 +1264,70 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                   />
                 </CardContent>
               </Card>
+
+              {/* Card 5: Email CC */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Email CC</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">Always included</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex items-center text-xs bg-muted px-2.5 py-1 rounded-full">info@butlerconstruction.co</span>
+                      {pmProfile?.email && (
+                        <span className="inline-flex items-center text-xs bg-muted px-2.5 py-1 rounded-full">
+                          {pmProfile.first_name} {pmProfile.last_name} ({pmProfile.email})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">Add CC</p>
+                    {extraCCs.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {extraCCs.map((cc) => (
+                          <span key={cc} className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                            {cc}
+                            <button onClick={() => setExtraCCs((prev) => prev.filter((c) => c !== cc))} className="hover:text-destructive ml-0.5">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        className={`h-9 text-sm flex-1 ${ccInputError ? "border-destructive" : ""}`}
+                        placeholder="email@example.com"
+                        value={ccInput}
+                        onChange={(e) => { setCcInput(e.target.value); setCcInputError(""); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const val = ccInput.trim();
+                            if (!val) return;
+                            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { setCcInputError("Enter a valid email"); return; }
+                            if (extraCCs.includes(val)) { setCcInputError("Already added"); return; }
+                            setExtraCCs((prev) => [...prev, val]);
+                            setCcInput("");
+                          }
+                        }}
+                      />
+                      <Button size="sm" variant="outline" className="h-9 shrink-0" onClick={() => {
+                        const val = ccInput.trim();
+                        if (!val) return;
+                        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { setCcInputError("Enter a valid email"); return; }
+                        if (extraCCs.includes(val)) { setCcInputError("Already added"); return; }
+                        setExtraCCs((prev) => [...prev, val]);
+                        setCcInput("");
+                      }}>Add</Button>
+                    </div>
+                    {ccInputError && <p className="text-xs text-destructive mt-1">{ccInputError}</p>}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -1233,11 +1462,17 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                   </Button>
                 ) : null}
                 {role === "admin" && selectedPo.status === "draft" && (
-                  <Button size="sm" disabled={sending} onClick={handleSendExistingPo}>
+                  <Button size="sm" disabled={sending} onClick={() => openSendDialog("existing")}>
                     {sending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
                     Send to Supplier
                   </Button>
                 )}
+                <Button size="sm" variant="outline" onClick={() => { setPdfPreviewHtml(buildPdfHtml(selectedPo)); setShowPdfPreview(true); }}>
+                  <Eye className="h-4 w-4 mr-1.5" />Preview PDF
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => exportPDF(selectedPo)}>
+                  <FileDown className="h-4 w-4 mr-1.5" />Export PDF
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => handleEditPo(selectedPo)}>
                   <Pencil className="h-4 w-4 mr-1.5" />Edit
                 </Button>
@@ -1260,7 +1495,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                   Update PO
                 </Button>
                 {role === "admin" && (
-                  <Button size="sm" disabled={saving} onClick={() => handleUpdatePo(true)}>
+                  <Button size="sm" disabled={saving} onClick={() => handleUpdatePo(true, extraCCs)}>
                     {sending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
                     {selectedPo?.status === "draft" ? "Update & Send" : "Update & Resend"}
                   </Button>
@@ -1273,7 +1508,7 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
                   Save as Draft
                 </Button>
                 {role === "admin" && (
-                  <Button size="sm" disabled={saving} onClick={() => handleCreate(true)}>
+                  <Button size="sm" disabled={saving} onClick={() => handleCreate(true, extraCCs)}>
                     {sending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
                     Send to Supplier
                   </Button>
@@ -1284,6 +1519,29 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
           </div>
         )}
       </SheetContent>
+
+      {/* PDF preview dialog */}
+      <Dialog open={showPdfPreview} onOpenChange={setShowPdfPreview}>
+        <DialogContent className="sm:max-w-[640px] flex flex-col p-0 gap-0 max-h-[92vh]">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <DialogTitle>PDF Preview</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto overflow-x-hidden bg-muted/30 flex justify-center p-4">
+            {/* wrapper clips the 794px iframe via overflow:hidden so no horizontal scroll leaks out */}
+            <div style={{ width: "576px", height: "816px", overflow: "hidden", flexShrink: 0, borderRadius: "4px", boxShadow: "0 2px 16px rgba(0,0,0,0.15)" }}>
+              <iframe
+                srcDoc={pdfPreviewHtml}
+                style={{ width: "794px", height: "1125px", border: 0, background: "#fff", transform: "scale(0.725)", transformOrigin: "top left", display: "block" }}
+                title="PDF Preview"
+                sandbox="allow-same-origin"
+              />
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t shrink-0 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowPdfPreview(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Remove line confirmation dialog */}
       <Dialog open={!!confirmRemoveLine} onOpenChange={(open) => { if (!open) setConfirmRemoveLine(null); }}>
@@ -1328,5 +1586,102 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
         </DialogContent>
       </Dialog>
     </Sheet>
+
+    {/* Email confirmation dialog — outside Sheet to avoid Radix portal nesting issue */}
+    <Dialog open={showEmailDialog} onOpenChange={(open) => { if (!open) { setShowEmailDialog(false); setPendingSend(null); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Send Purchase Order</DialogTitle>
+          <DialogDescription>Confirm recipients before sending the purchase order to the supplier.</DialogDescription>
+        </DialogHeader>
+        <div className="px-6 py-4 space-y-4">
+          {/* To */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">To</p>
+            <div className="flex items-center gap-2 h-9 px-3 border rounded-md bg-muted/30">
+              <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-sm truncate">
+                {pendingSend === "existing"
+                  ? selectedPo?.supplier_poc_name
+                    ? `${selectedPo.supplier_poc_name} <${selectedPo.supplier_email}>`
+                    : (selectedPo?.supplier_email || "—")
+                  : selectedSupplier?.poc_name
+                    ? `${selectedSupplier.poc_name} <${selectedSupplier.email}>`
+                    : (selectedSupplier?.email || "—")}
+              </span>
+            </div>
+          </div>
+          {/* CC */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Always included</p>
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              <span className="inline-flex items-center text-xs bg-muted px-2.5 py-1 rounded-full">info@butlerconstruction.co</span>
+              {pmProfile?.email && (
+                <span className="inline-flex items-center text-xs bg-muted px-2.5 py-1 rounded-full">
+                  {pmProfile.first_name} {pmProfile.last_name} ({pmProfile.email})
+                </span>
+              )}
+            </div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add CC</p>
+            {extraCCs.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {extraCCs.map((cc) => (
+                  <span key={cc} className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                    {cc}
+                    <button onClick={() => setExtraCCs((prev) => prev.filter((c) => c !== cc))} className="hover:text-destructive ml-0.5">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                className={`h-9 text-sm flex-1 ${ccInputError ? "border-destructive" : ""}`}
+                placeholder="email@example.com"
+                value={ccInput}
+                onChange={(e) => { setCcInput(e.target.value); setCcInputError(""); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const val = ccInput.trim();
+                    if (!val) return;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { setCcInputError("Enter a valid email"); return; }
+                    if (extraCCs.includes(val)) { setCcInputError("Already added"); return; }
+                    setExtraCCs((prev) => [...prev, val]);
+                    setCcInput("");
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 shrink-0"
+                onClick={() => {
+                  const val = ccInput.trim();
+                  if (!val) return;
+                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { setCcInputError("Enter a valid email"); return; }
+                  if (extraCCs.includes(val)) { setCcInputError("Already added"); return; }
+                  setExtraCCs((prev) => [...prev, val]);
+                  setCcInput("");
+                }}
+              >
+                Add
+              </Button>
+            </div>
+            {ccInputError && <p className="text-xs text-destructive">{ccInputError}</p>}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 pb-4">
+          <Button variant="outline" size="sm" onClick={() => { setShowEmailDialog(false); setPendingSend(null); }}>Cancel</Button>
+          <Button size="sm" onClick={handleConfirmSend} disabled={sending || saving}>
+            {(sending || saving) ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
+            <span className="min-w-[80px]">{(sending || saving) ? "Sending…" : "Confirm Send"}</span>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

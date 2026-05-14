@@ -167,7 +167,7 @@ export function CostAttributionsAll() {
                     const uploaderName = r.uploader ? `${r.uploader.first_name ?? ""} ${r.uploader.last_name ?? ""}`.trim() : "—";
                     const gp           = r.gp_pct;
                     const projected    = r.projected_gp;
-                    const gpColor      = gp === null ? "text-muted-foreground" : projected !== null && gp < projected - 5 ? "text-red-600 font-semibold" : projected !== null && gp < projected ? "text-amber-600 font-semibold" : "text-green-600 font-semibold";
+                    const gpColor      = gp === null ? "text-muted-foreground" : projected !== null && gp < projected - 5 ? "text-red-600 font-semibold" : projected !== null && gp < projected - 0.1 ? "text-amber-600 font-semibold" : "text-green-600 font-semibold";
                     return (
                       <tr
                         key={r.id}

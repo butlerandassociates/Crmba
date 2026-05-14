@@ -312,7 +312,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     if (!selectedCo) return;
     setMerging(true);
     try {
-      const { newEstimateTotal } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
+      const { newEstimateTotal, updatedCo } = await changeOrdersAPI.mergeApproved(selectedCo, client.id);
       setMergedTotal(newEstimateTotal);
       // Sync project total_value so financials stay accurate
       if (project?.id) {
@@ -320,7 +320,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       }
       activityLogAPI.create({ client_id: client.id, action_type: "co_merged", description: `Change order "${selectedCo.title}" merged — new contract total: ${formatCurrency(newEstimateTotal)}` }).catch(() => {});
       toast.success(`Merged into proposal. New contract total: ${formatCurrency(newEstimateTotal)}`);
-      const merged = { ...selectedCo, status: "merged" };
+      const merged = updatedCo ? updatedCo : { ...selectedCo, status: "merged" };
       setCos((prev) => prev.map((c) => c.id === selectedCo.id ? merged : c));
       setSelectedCo(merged);
       loadAcceptedProposal();
@@ -363,11 +363,14 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     setDownloading(true);
     try {
       const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
-      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-      })));
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
 
       const canvas = await html2canvas(element as HTMLElement, {
         scale: 2,
@@ -918,12 +921,31 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                 {/* Merged confirmation */}
                 {selectedCo.status === "merged" && (
                   <div className="space-y-3">
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
-                      <Check className="h-4 w-4 text-purple-600 shrink-0" />
-                      <p className="text-sm text-purple-800">
-                        Merged into the approved proposal. Contract total updated.
-                        {mergedTotal && <strong> New total: {formatCurrency(mergedTotal)}</strong>}
-                      </p>
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Check className="h-4 w-4 text-purple-600 shrink-0" />
+                        <p className="text-sm font-semibold text-purple-800">Merged into approved proposal</p>
+                      </div>
+                      {(selectedCo.pre_merge_total != null && selectedCo.post_merge_total != null) ? (
+                        <div className="text-xs text-purple-700 space-y-1 pl-6">
+                          <div className="flex justify-between">
+                            <span>Contract before</span>
+                            <span className="tabular-nums font-medium">{formatCurrency(selectedCo.pre_merge_total)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>CO impact</span>
+                            <span className={`tabular-nums font-semibold ${(selectedCo.post_merge_total - selectedCo.pre_merge_total) >= 0 ? "text-green-700" : "text-red-700"}`}>
+                              {(selectedCo.post_merge_total - selectedCo.pre_merge_total) >= 0 ? "+" : ""}{formatCurrency(selectedCo.post_merge_total - selectedCo.pre_merge_total)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between border-t border-purple-200 pt-1 mt-1">
+                            <span className="font-semibold">New contract total</span>
+                            <span className="tabular-nums font-bold text-purple-900">{formatCurrency(selectedCo.post_merge_total)}</span>
+                          </div>
+                        </div>
+                      ) : mergedTotal ? (
+                        <p className="text-xs text-purple-700 pl-6">New total: <strong>{formatCurrency(mergedTotal)}</strong></p>
+                      ) : null}
                     </div>
                     {project?.id && (
                       <Button variant="outline" className="w-full" onClick={async () => {

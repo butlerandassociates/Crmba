@@ -113,8 +113,7 @@ export function Dashboard() {
         supabase.from("project_receipts").select("project_id, amount"),
         supabase
           .from("fio_crew_payments")
-          .select("amount_paid, fio:field_installation_orders!inner(project_id)")
-          .eq("is_paid", true),
+          .select("amount_paid, fio:field_installation_orders!inner(project_id)"),
         supabase
           .from("commission_payments")
           .select("project_id, amount")

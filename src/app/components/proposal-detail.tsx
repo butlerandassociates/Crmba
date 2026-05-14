@@ -219,8 +219,13 @@ export function ProposalDetail() {
           Number(item.client_price ?? item.price_per_unit) !== Number(orig.client_price ?? orig.price_per_unit)
         );
       });
-    setIsDirty(titleChanged || descChanged || itemsChanged);
-  }, [editTitle, editDescription, editLineItems, proposal]);
+    const feesChanged =
+      discountValue !== (proposal.discount_type === "fixed" ? (proposal.discount_amount ?? 0) : (proposal.discount_percentage ?? 0)) ||
+      discountType !== ((proposal.discount_type as "percent" | "fixed") ?? "percent") ||
+      discountLabel !== (proposal.discount_label ?? "") ||
+      stripeFeeEnabled !== (proposal.stripe_fee_enabled ?? false);
+    setIsDirty(titleChanged || descChanged || itemsChanged || feesChanged);
+  }, [editTitle, editDescription, editLineItems, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal]);
 
   useEffect(() => {
     if (showPreview && proposal) {
@@ -398,13 +403,14 @@ export function ProposalDetail() {
       // Insert new items (added via picker/custom form during this session)
       const newItems = snapshot.filter((item) => item.id?.startsWith("new-"));
       if (newItems.length > 0) {
-        await supabase.from("estimate_line_items").insert(
+        const { error: insertErr } = await supabase.from("estimate_line_items").insert(
           newItems.map((item) => ({
             estimate_id: proposal.id,
             name: item.product_name ?? item.name,
             product_name: item.product_name ?? item.name,
             category: item.category ?? null,
             quantity: Number(item.quantity),
+            fio_qty: item.fio_qty ?? 0,
             unit: item.unit ?? "",
             client_price: Number(item.client_price),
             price_per_unit: Number(item.client_price),
@@ -415,6 +421,7 @@ export function ProposalDetail() {
             markup_percent: item.markup_percent ?? 0,
           }))
         );
+        if (insertErr) throw new Error(insertErr.message);
       }
       // Update existing items
       await Promise.all(
@@ -548,11 +555,14 @@ export function ProposalDetail() {
     setDownloading(true);
     try {
       const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
-      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-      })));
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
 
       const SCALE = 2;
       // Populated inside onclone (accurate layout in html2canvas iframe)
@@ -595,15 +605,13 @@ export function ProposalDetail() {
       const body1El  = q("proposal-page-body");
       const body2El  = q("proposal-page-body-2");
       const body3El  = q("proposal-page-body-3");
-      const ftrEl    = q("proposal-page-footer");
       const colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
+      if (!hdrEl || !body1El || !body2El || !colHdrEl) return;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas, body3Canvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, body2Canvas, colHdrCanvas, body3Canvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
         body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
@@ -616,19 +624,18 @@ export function ProposalDetail() {
       const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
 
       const hdrH = toPt(hdrCanvas);
-      const ftrH = toPt(ftrCanvas);
       const colH = toPt(colHdrCanvas);
       const colW = colHdrCanvas.width / pxPerPt;
       const colX = (pageW - colW) / 2;
       const COL_GAP = 4;
 
-      const PAD      = 10; // pt gap between header/footer edges and body content
-      const slot     = pageH - hdrH - ftrH;
+      const PAD      = 10;
+      const BOTTOM_PAD = 48; // professional bottom margin replacing removed footer
+      const slot     = pageH - hdrH - BOTTOM_PAD;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
       const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
-      const fImg   = ftrCanvas.toDataURL("image/jpeg", 0.93);
       const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
 
       // Slice srcCanvas rows [yPx, yPx+hPx) into a new canvas — fully synchronous
@@ -710,7 +717,6 @@ export function ProposalDetail() {
           }
 
           pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
-          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
 
           consumed += sliceH;
           pageIdx++;
@@ -738,11 +744,14 @@ export function ProposalDetail() {
     setPreviewLoading(true);
     try {
       const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
-      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-      })));
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
 
       const SCALE = 2;
       // Populated inside onclone (accurate layout in html2canvas iframe)
@@ -779,14 +788,13 @@ export function ProposalDetail() {
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
-            ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return;
+            colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !colHdrEl) return;
 
-      const [hdrC, body1C, body2C, ftrC, colC, body3C] = await Promise.all([
+      const [hdrC, body1C, body2C, colC, body3C] = await Promise.all([
         html2canvas(hdrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(ftrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...h2cOpts, backgroundColor: "#0A0A0A" }),
         body3El ? html2canvas(body3El, { ...h2cOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
@@ -797,11 +805,11 @@ export function ProposalDetail() {
       const pageH_px = Math.round(pageH_pt * pxPerPt);
 
       const toPt  = (c: HTMLCanvasElement) => c.height / pxPerPt;
-      const hdrH  = toPt(hdrC), ftrH = toPt(ftrC), colH = toPt(colC);
+      const hdrH  = toPt(hdrC), colH = toPt(colC);
       const colW  = colC.width / pxPerPt;
       const colX  = (pageW_pt - colW) / 2;
-      const COL_GAP = 4, PAD = 10;
-      const slot    = pageH_pt - hdrH - ftrH;
+      const COL_GAP = 4, PAD = 10, BOTTOM_PAD = 48;
+      const slot    = pageH_pt - hdrH - BOTTOM_PAD;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
@@ -883,7 +891,6 @@ export function ProposalDetail() {
             bodyY_px = Math.round((hdrH + PAD + colH + COL_GAP) * pxPerPt);
           }
           ctx.drawImage(slice, 0, bodyY_px);
-          ctx.drawImage(ftrC, 0, Math.round((pageH_pt - ftrH) * pxPerPt));
 
           pages.push(page.toDataURL("image/jpeg", 0.92));
           consumed += sliceH;
@@ -997,11 +1004,14 @@ export function ProposalDetail() {
     if (!container) return null;
     try {
       const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
-      await Promise.all(imgs.map((img) => new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-      })));
+      await Promise.all([
+        document.fonts.ready,
+        ...imgs.map((img) => new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        })),
+      ]);
 
       const SCALE = 2;
       const baseOpts = {
@@ -1017,14 +1027,13 @@ export function ProposalDetail() {
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
-            ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
+            colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !body2El || !colHdrEl) return null;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, ftrCanvas, colHdrCanvas, body3Canvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, body2Canvas, colHdrCanvas, body3Canvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
         html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(ftrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
         body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
       ]);
@@ -1037,19 +1046,17 @@ export function ProposalDetail() {
       const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
 
       const hdrH = toPt(hdrCanvas);
-      const ftrH = toPt(ftrCanvas);
       const colH = toPt(colHdrCanvas);
       const colW = colHdrCanvas.width / pxPerPt;
       const colX = (pageW - colW) / 2;
       const COL_GAP = 4;
 
-      const PAD      = 10;
-      const slot     = pageH - hdrH - ftrH;
+      const PAD = 10, BOTTOM_PAD = 48;
+      const slot     = pageH - hdrH - BOTTOM_PAD;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
       const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
-      const fImg   = ftrCanvas.toDataURL("image/jpeg", 0.93);
       const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
 
       const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
@@ -1080,7 +1087,6 @@ export function ProposalDetail() {
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
           pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
-          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
           consumed += sliceH;
           pageIdx++;
         }
