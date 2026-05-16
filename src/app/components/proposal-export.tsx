@@ -29,27 +29,34 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
 
   const sentDate   = proposal?.sent_at || proposal?.created_at;
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
+  const clientAddr = [
+    client?.address,
+    [client?.city, client?.state, client?.zip].filter(Boolean).join(", "),
+  ].filter(Boolean).join(", ");
+
+  const validUntilDate = sentDate
+    ? new Date(new Date(sentDate.includes("T") ? sentDate : `${sentDate}T00:00:00`).getTime() + 30 * 24 * 60 * 60 * 1000)
+    : null;
 
   type LineGroup = {
     category: string | null;
-    items: { name: string; qty: number; unit: string; lineTotal: number; description?: string }[];
+    items: { name: string; qty: number; unit: string; lineTotal: number }[];
   };
 
   const groupedItems = (() => {
     const map: Record<string, LineGroup> = {};
     const flat: LineGroup = { category: null, items: [] };
     for (const item of (proposal?.line_items ?? [])) {
-      const cat         = item.category ?? null;
-      const name        = item.product_name ?? item.name ?? "Item";
-      const qty         = Number(item.quantity || 1);
-      const unit        = item.unit ?? "";
-      const lineTotal   = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
-      const description = item.description ?? "";
+      const cat       = item.category ?? null;
+      const name      = item.product_name ?? item.name ?? "Item";
+      const qty       = Number(item.quantity || 1);
+      const unit      = item.unit ?? "";
+      const lineTotal = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
       if (cat) {
         if (!map[cat]) map[cat] = { category: cat, items: [] };
-        map[cat].items.push({ name, qty, unit, lineTotal, description });
+        map[cat].items.push({ name, qty, unit, lineTotal });
       } else {
-        flat.items.push({ name, qty, unit, lineTotal, description });
+        flat.items.push({ name, qty, unit, lineTotal });
       }
     }
     const result: LineGroup[] = Object.values(map);
@@ -65,155 +72,189 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
   const badAmount      = proposal?.bad_amount ?? 0;
   const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
   const taxAmount      = proposal?.tax_amount ?? 0;
-  const taxLabel       = proposal?.tax_label ?? "Tax";
+  const taxLabel       = "Sales Tax";
+  const taxRate        = proposal?.tax_rate ?? 0;
   const stripeFeeAmt   = proposal?.stripe_fee_amount ?? 0;
   const total          = subtotal + badAmount + taxAmount - discountAmount + stripeFeeAmt;
 
-
-  // ── Shared JSX blocks ──────────────────────────────────────────────────────
+  // ── Shared blocks ──────────────────────────────────────────────────────────
 
   const pageHeader = (
     <div id={preview ? undefined : "proposal-page-header"}>
-      <div style={{ background: B.black, padding: "28px 32px", textAlign: "center" as const }}>
-        <img
-          src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
-          alt="Butler & Associates Construction"
-          style={{ height: 56, width: "auto", display: "block", margin: "0 auto 14px auto" }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-        />
-        <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
-          Butler & Associates Construction, Inc.
-        </p>
+      <div style={{ background: B.black, padding: "24px 40px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <img
+            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
+            alt="B&A"
+            style={{ height: 52, width: "auto", flexShrink: 0 }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+          <div>
+            <p style={{ fontFamily: B.lato, fontSize: 18, fontWeight: 500, color: "#fff", margin: "0 0 4px 0" }}>
+              Butler &amp; Associates Construction, Inc.
+            </p>
+            <p style={{ fontFamily: B.inter, fontSize: 11, color: "rgba(255,255,255,0.65)", margin: "0 0 2px 0" }}>
+              6275 University Drive NW, Suite 37-314, Huntsville, AL 35806
+            </p>
+            <p style={{ fontFamily: B.inter, fontSize: 11, color: "rgba(255,255,255,0.65)", margin: 0 }}>
+              (256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co
+            </p>
+          </div>
+        </div>
+        <div style={{ textAlign: "right" as const, flexShrink: 0 }}>
+          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 4px 0" }}>
+            PROPOSAL
+          </p>
+          <p style={{ fontFamily: B.lato, fontSize: 26, fontWeight: 500, color: "#fff", margin: 0 }}>
+            #{proposal?.estimate_number ?? "—"}
+          </p>
+        </div>
       </div>
-      <div style={{ height: 2, background: `linear-gradient(90deg, ${B.gold}, #8A7040)` }} />
     </div>
   );
 
+  // kept for PDF generator — must exist with this id, renders as invisible 1px strip
+  const colHeader = (
+    <div id={preview ? undefined : "proposal-col-header"} style={{ height: 1, overflow: "hidden", background: "#fff" }} />
+  );
+
+  const pageFooter = (
+    <div id={preview ? undefined : "proposal-page-footer"}>
+      <div style={{ background: B.black, padding: "8px 40px", textAlign: "center" as const }}>
+        <p style={{ fontFamily: B.inter, fontSize: 9, color: "rgba(255,255,255,0.5)", margin: 0, letterSpacing: "0.06em" }}>
+          Butler &amp; Associates Construction, Inc. &nbsp;·&nbsp; (256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co
+        </p>
+      </div>
+    </div>
+  );
+
+  // ── Page 1: Scope ─────────────────────────────────────────────────────────
 
   const body1 = (
-    <div id={preview ? undefined : "proposal-page-body"} style={{ background: B.bg }}>
-      <div style={{ padding: "36px 48px" }}>
+    <div id={preview ? undefined : "proposal-page-body"} style={{ background: "#fff" }}>
+      <div style={{ padding: "24px 40px" }}>
 
-        {/* Estimate # + client */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 }}>
-          <div>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 6px 0" }}>Proposal Prepared For</p>
-            <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 300, color: B.black, margin: "0 0 4px 0", lineHeight: 1.2 }}>{clientName || "—"}</p>
-            {client?.address && <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "2px 0", opacity: 0.75 }}>{client.address}</p>}
-            {(client?.city || client?.state || client?.zip) && (
-              <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "2px 0", opacity: 0.75 }}>{[client?.city, client?.state, client?.zip].filter(Boolean).join(", ")}</p>
-            )}
-            {client?.phone && <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "2px 0", opacity: 0.75 }}>{client.phone}</p>}
-            {client?.email && <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "2px 0", opacity: 0.75 }}>{client.email}</p>}
-          </div>
-          <div style={{ textAlign: "right" as const }}>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 4px 0" }}>Estimate</p>
-            <p style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 700, color: B.black, margin: "0 0 6px 0" }}>#{proposal?.estimate_number ?? "—"}</p>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: B.text, margin: "0 0 3px 0", opacity: 0.7 }}>Sent On</p>
-            <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{sentDate ? fmtDate(sentDate) : "—"}</p>
-          </div>
-        </div>
-
-        {/* From */}
-        <div style={{ marginBottom: 32, padding: "16px 20px", background: "#fff", border: `1px solid ${B.border}`, borderRadius: 6 }}>
-          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 8px 0" }}>From</p>
-          <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 14, color: B.black, margin: "0 0 3px 0" }}>Butler & Associates Construction, Inc.</p>
-          <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 2px 0", opacity: 0.75 }}>6275 University Drive NW, Suite 37-314, Huntsville, AL 35806</p>
-          <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.75 }}>Phone: (256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co</p>
-        </div>
-
-        {/* Project title + description */}
-        {(proposal?.title || proposal?.description) && (
-          <div style={{ marginBottom: 28 }}>
-            {proposal?.title && <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 700, color: B.black, margin: "0 0 6px 0" }}>{proposal.title}</p>}
-            {proposal?.description && <p style={{ fontFamily: B.inter, fontSize: 13, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.8 }}>{proposal.description}</p>}
-          </div>
+        {/* Project title */}
+        {proposal?.title && (
+          <h2 style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 400, color: B.black, margin: "0 0 24px 0" }}>
+            {proposal.title}
+          </h2>
         )}
 
-        {/* Scope of Work table */}
-        <div style={{ background: "#fff", borderRadius: 6, overflow: "hidden", border: `1px solid ${B.border}` }}>
-
-          {/* Column header */}
-          <div id={preview ? undefined : "proposal-col-header"} style={{ background: B.black, padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, flex: 1 }}>Scope of Work</p>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0, width: 90, textAlign: "right" as const }}>Total</p>
+        {/* 2-col: Prepared For + Proposal Details */}
+        <div style={{ display: "flex", gap: 40, marginBottom: 28 }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: "#999", margin: "0 0 8px 0" }}>Prepared For</p>
+            <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: "0 0 6px 0" }}>{clientName || "—"}</p>
+            {clientAddr && <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, lineHeight: 1.6 }}>{clientAddr}</p>}
           </div>
+          <div style={{ width: "auto", textAlign: "right"as const }}>
+            <p style={{ paddingRight:"30px" ,fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: "#999", margin: "0 0 8px 0" }}>Proposal Details</p>
+            <div style={{ display: "flex", gap: 16, justifyContent: "flex-end" as const }}>
+              <div style={{ textAlign: "left" as const }}>
+                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65, margin: "0 0 4px 0" }}>Date:</p>
+                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65, margin: 0 }}>Valid Until:</p>
+              </div>
+              <div style={{ textAlign: "right" as const }}>
+                <p style={{ fontFamily: B.lato, fontSize: 12, fontWeight: 500, color: B.black, margin: "0 0 4px 0" }}>{sentDate ? fmtDate(sentDate) : "—"}</p>
+                <p style={{ fontFamily: B.lato, fontSize: 12, fontWeight: 500, color: B.black, margin: 0 }}>
+                  {validUntilDate ? validUntilDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
+        <div style={{ borderBottom: "1px solid #E0E0E0", marginBottom: 24 }} />
+
+        {/* Project Scope heading */}
+        <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 20px 0" }}>
+          Project Scope
+        </p>
+
+        {/* Categories */}
+        <div style={{ marginBottom: 28 }}>
           {groupedItems.length === 0 && (
-            <div style={{ padding: "24px", textAlign: "center" as const, color: B.text, opacity: 0.5, fontSize: 13 }}>No line items</div>
+            <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, opacity: 0.45, textAlign: "center" as const, margin: 0 }}>No line items</p>
           )}
-
           {groupedItems.map((group, gIdx) => {
-            const borderTop = gIdx > 0 ? `1px solid ${B.border}` : "none";
             if (group.category) {
               const catTotal = group.items.reduce((s, i) => s + i.lineTotal, 0);
               return (
-                <div key={gIdx} data-group="true">
-                  <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff", borderTop }}>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 600, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
+                <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", padding: "8px 0 12px 0", borderBottom: "1px solid #C8C4BC", marginBottom: 12 }}>
+                    <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#999", margin: 0, width: 110, textAlign: "center" as const }}>QTY</p>
+                    <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
                   {group.items.map((item, iIdx) => (
-                    <div key={iIdx} style={{ padding: "10px 24px 10px 36px", background: "#fff" }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.6 }}>· {item.name}</p>
-                      {item.description ? <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "3px 0 0 10px", opacity: 0.45, lineHeight: 1.5 }}>{item.description}</p> : null}
+                    <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
+                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, flex: 1 }}>{item.name}</p>
+                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
+                        {item.qty}{item.unit ? ` ${item.unit}` : ""}
+                      </p>
+                      <div style={{ width: 90 }} />
                     </div>
                   ))}
                 </div>
               );
             }
             return (
-              <div key={gIdx} data-group="true">
+              <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
                 {group.items.map((item, iIdx) => (
-                  <div key={iIdx} style={{ display: "flex", alignItems: "center", padding: "20px 24px", background: "#fff" }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 13, color: B.black, margin: 0 }}>{item.name}</p>
-                      {item.description ? <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p> : null}
-                    </div>
-                    <p style={{ fontFamily: B.inter, fontSize: 13, fontWeight: 700, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(item.lineTotal)}</p>
+                  <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "4px 0" }}>
+                    <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0, flex: 1 }}>{item.name}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
+                      {item.qty}{item.unit ? ` ${item.unit}` : ""}
+                    </p>
+                    <div style={{ width: 90 }} />
                   </div>
                 ))}
               </div>
             );
           })}
+        </div>
 
-          {/* Totals */}
-          <div data-groups-end="true" style={{ borderTop: `2px solid ${B.border}` }}>
-            {/* All totals in one group — page-break never orphans Subtotal from the adjustments below */}
-            <div data-group="true">
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-              <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>Subtotal</p>
-              <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</p>
-            </div>
+        {/* Totals */}
+        <div data-group="true">
+          <div style={{ borderTop: "1px solid #E0E0E0", paddingTop: 16, display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ width: 300 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.7 }}>Subtotal</p>
+                <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</p>
+              </div>
               {discountAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.7 }}>
                     {discountLabel || (discountType === "percent" && discountPct > 0 ? `Discount (${discountPct}%)` : "Discount")}
                   </p>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>− {fmt(discountAmount)}</p>
                 </div>
               )}
-              {stripeFeeAmt > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>CC Processing Fee (2.9% + $0.30)</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(stripeFeeAmt)}</p>
-                </div>
-              )}
               {badAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{badLabel}</p>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.7 }}>{badLabel}</p>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(badAmount)}</p>
                 </div>
               )}
               {taxAmount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0 }}>{taxLabel}</p>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.7 }}>
+                    {taxLabel}
+                  </p>
                   <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(taxAmount)}</p>
                 </div>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "26px 24px", background: B.bg, borderTop: `1px solid ${B.border}` }}>
-                <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 700, color: B.black, margin: 0 }}>Total Investment{taxAmount > 0 ? " + Tax" : ""}</p>
-                <p style={{ fontFamily: B.cg, fontSize: 28, fontWeight: 400, color: B.gold, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
+              {stripeFeeAmt > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, opacity: 0.7 }}>CC Processing Fee (2.9% + $0.30)</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(stripeFeeAmt)}</p>
+                </div>
+              )}
+              <div style={{ borderTop: "1px solid #E0E0E0", marginTop: 6 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0" }}>
+                <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 500, color: B.black, margin: 0 }}>Total</p>
+                <p style={{ fontFamily: B.lato, fontSize: 16, fontWeight: 500, color: B.black, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</p>
               </div>
             </div>
           </div>
@@ -223,133 +264,218 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
     </div>
   );
 
-  const body2 = (
-    <div id={preview ? undefined : "proposal-page-body-2"} style={{ background: B.bg }}>
-      <div style={{ padding: "36px 48px" }}>
-        <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 20px 0" }}>
-          What Our Clients Say
-        </p>
-        {reviews.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 12, marginBottom: 40 }}>
-            {reviews.map((r) => (
-              <div key={r.reviewer_name} style={{ background: "#fff", border: `1px solid ${B.border}`, borderRadius: 8, padding: "14px 20px", display: "flex", alignItems: "flex-start", gap: 20 }}>
-                <div style={{ minWidth: 130, flexShrink: 0, borderRight: `1px solid ${B.border}`, paddingRight: 20 }}>
-                  <p style={{ fontFamily: B.lato, fontWeight: 700, fontSize: 12, color: B.black, margin: "0 0 4px 0" }}>{r.reviewer_name}</p>
-                  <p style={{ color: B.gold, fontSize: 12, margin: 0, lineHeight: 1 }}>{"★".repeat(r.rating)}</p>
+  // ── Signature lines only (used in preview content) ────────────────────────
+
+  const sigLinesJSX = (
+    <div style={{ borderTop: "1px solid #E0E0E0", paddingTop: 24 }}>
+      <div style={{ display: "flex", gap: 40 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 52, borderBottom: "1px solid #C8C4BC", marginBottom: 10 }} />
+          <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: "0 0 20px 0" }}>Client Signature</p>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+            <span style={{ fontFamily: B.inter, fontSize: 11, color: "#717182", whiteSpace: "nowrap" as const }}>Date:</span>
+            <div style={{ width: 110, borderBottom: "1px solid #C8C4BC", marginBottom: -5, marginTop: 25 }} />
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 52, borderBottom: "1px solid #C8C4BC", marginBottom: 10 }} />
+          <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: "0 0 20px 0" }}>Contractor Signature</p>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+            <span style={{ fontFamily: B.inter, fontSize: 11, color: "#717182", whiteSpace: "nowrap" as const }}>Date:</span>
+            <div style={{ width: 110, borderBottom: "1px solid #C8C4BC", marginBottom: -5, marginTop: 25 }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Full sig block for PDF capture (sig lines + thank you) ─────────────────
+
+  const sigJSX = (
+    <>
+      {sigLinesJSX}
+      
+    </>
+  );
+
+  // ── Last-page footer: thank you note — white background, like change order ──
+
+  const lastPageFooter = (
+    <div style={{ borderTop: "1px solid #E0E0E0", padding: "10px 40px 16px 40px", textAlign: "center" as const, background: "#fff" }}>
+      <p style={{ fontFamily: B.inter, fontSize: 10, color: "#717182", margin: 0, lineHeight: 1.5 }}>
+        Thank you for considering Butler &amp; Associates Construction, Inc. for your project. We look forward to working with you.
+      </p>
+    </div>
+  );
+
+  // ── Page 2: Warranty + Reviews (no signature — sig drawn separately in PDF) ─
+
+  const warrantyReviews = (
+    <>
+      {/* Warranty */}
+      {warrantySections.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 6px 0" }}>
+            Warranty Coverage
+          </p>
+          <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.75, color: B.text, margin: "0 0 20px 0", opacity: 0.8 }}>
+            Butler &amp; Associates Construction, Inc. warrants all labor and craftsmanship for the periods specified below, measured from the project completion date. Material defects are addressed through manufacturer warranties.
+          </p>
+          <div style={{ border: "1px solid #E0E0E0", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ background: B.black, display: "flex", padding: "9px 16px" }}>
+              <p style={{ paddingBottom: 10, fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "25%", flexShrink: 0 }}>Scope Item</p>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "50%", flexShrink: 0 }}>Craftsmanship &amp; Labor</p>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "25%", flexShrink: 0 }}>Material Defects</p>
+            </div>
+            {warrantySections.map((section) => (
+              <div key={section.id}>
+                <div style={{ background: "#F5F5F5", padding: "0 16px",paddingBottom: 10, borderTop: "1px solid #E0E0E0" }}>
+                  <span style={{ fontFamily: B.inter, fontSize: 8, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold }}>{section.title}</span>
                 </div>
-                <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.85, flex: 1 }}>{r.review_text}</p>
+                {section.items.map((item, idx) => (
+                  <div key={item.id} style={{ display: "flex", padding: "9px 16px", background: idx % 2 === 0 ? "#fff" : "#F9F9F9", borderTop: "1px solid #E0E0E0" }}>
+                    <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, color: B.black, margin: 0, width: "25%", flexShrink: 0, paddingRight: 8 }}>{item.scope_item}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, lineHeight: 1.65, width: "50%", flexShrink: 0, paddingRight: 8 }}>{item.labor_text}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, opacity: 0.6, fontStyle: "italic", width: "25%", flexShrink: 0 }}>{item.material_note}</p>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
-        )}
-        <div style={{ borderTop: `1px solid ${B.border}`, paddingTop: 28, marginTop: 40 }}>
-          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 16px 0" }}>Authorization</p>
-          <p style={{ fontFamily: B.inter, fontSize: 13, color: B.text, margin: "0 0 20px 0" }}>
-            By signing below, you authorize Butler & Associates Construction, Inc. to proceed with the scope of work outlined in this proposal under the agreed terms.
+          {warrantyDisclaimer && (
+            <div data-group="true" style={{ padding: "12px 16px", background: "#F9F9F9", border: "1px solid #E0E0E0", borderRadius: 4 }}>
+              <p style={{ fontFamily: B.inter, fontSize: 10, lineHeight: 1.75, color: B.text, margin: 0, fontStyle: "italic", opacity: 0.7 }}>
+                {warrantyDisclaimer}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reviews */}
+      {reviews.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 16px 0" }}>
+            What Our Clients Say
           </p>
-          <div style={{ display: "flex" }}>
-            <div style={{ flex: 1, paddingRight: 16 }}>
-              <div style={{ borderBottom: "1px solid rgba(0,0,0,0.45)", height: 36, marginBottom: 6 }} />
-              <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Client Signature</p>
-            </div>
-            <div style={{ flex: 1, paddingLeft: 16 }}>
-              <div style={{ borderBottom: "1px solid rgba(0,0,0,0.45)", height: 36, marginBottom: 6 }} />
-              <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.7 }}>Date</p>
-            </div>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12 }}>
+            {reviews.map((r) => (
+              <div key={r.reviewer_name} style={{ flex: "1 1 calc(50% - 6px)", border: "1px solid #E0E0E0", borderRadius: 6, padding: "14px 16px", boxSizing: "border-box" as const }}>
+                <p style={{ fontFamily: B.lato, fontWeight: 500, fontSize: 13, color: B.black, margin: "0 0 3px 0" }}>{r.reviewer_name}</p>
+                <p style={{ color: B.gold, fontSize: 13, margin: "0 0 10px 0" }}>{"★".repeat(r.rating)}</p>
+                <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.8 }}>{r.review_text}</p>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 
-  const body3 = warrantySections.length > 0 ? (
-    <div id={preview ? undefined : "proposal-page-body-3"} style={{ background: B.bg }}>
-      <div style={{ padding: "36px 48px" }}>
-        {/* Title */}
-        <div style={{ textAlign: "center" as const, marginBottom: 24 }}>
-          <p style={{ fontFamily: B.lato, fontSize: 20, fontWeight: 700, color: B.black, margin: "0 0 6px 0", letterSpacing: "0.05em", textTransform: "uppercase" as const }}>
-            Warranty Coverage
-          </p>
-          <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: 0 }}>
-            Butler & Associates Construction, Inc.
-          </p>
-        </div>
-        <div style={{ height: 1, background: B.gold, opacity: 0.35, marginBottom: 22 }} />
-        {/* Intro */}
-        <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.75, color: B.text, margin: "0 0 28px 0", opacity: 0.85 }}>
-          Butler & Associates Construction, Inc. warrants all labor and craftsmanship for the periods specified below, measured from the project completion date. This warranty applies exclusively to workmanship — material defects are addressed solely through manufacturer warranties.
-        </p>
-        {/* Sections */}
-        {warrantySections.map((section) => (
-          <div key={section.id} data-group="true" style={{ marginBottom: 24 }}>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 10px 0" }}>
-              {section.title}
-            </p>
-            <div style={{ border: `1px solid ${B.border}`, borderRadius: 6, overflow: "hidden" }}>
-              {/* Header row — flexbox, explicit widths so html2canvas doesn't hang on fr units */}
-              <div style={{ background: B.black, display: "flex", padding: "10px 16px" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "25%", flexShrink: 0 }}>Scope Item</p>
-                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "50%", flexShrink: 0 }}>Craftsmanship & Labor</p>
-                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: B.gold, margin: 0, letterSpacing: "0.05em", width: "25%", flexShrink: 0 }}>Material Defects</p>
-              </div>
-              {section.items.map((item, idx) => (
-                <div key={item.id} style={{ display: "flex", padding: "10px 16px", background: idx % 2 === 0 ? "#fff" : B.rowAlt, borderTop: `1px solid ${B.border}` }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 600, color: B.black, margin: 0, width: "25%", flexShrink: 0, paddingRight: 8 }}>{item.scope_item}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, lineHeight: 1.65, width: "50%", flexShrink: 0, paddingRight: 8 }}>{item.labor_text}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, opacity: 0.65, fontStyle: "italic", width: "25%", flexShrink: 0 }}>{item.material_note}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-        {/* Disclaimer */}
-        {warrantyDisclaimer && (
-          <div style={{ marginTop: 8, padding: "14px 18px", background: "#fff", border: `1px solid ${B.border}`, borderRadius: 6 }}>
-            <p style={{ fontFamily: B.inter, fontSize: 10, lineHeight: 1.75, color: B.text, margin: 0, fontStyle: "italic", opacity: 0.72 }}>
-              {warrantyDisclaimer}
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  ) : null;
-
-  // ── Preview mode: page-by-page view matching PDF layout ───────────────────
+  // ── Preview mode ───────────────────────────────────────────────────────────
   if (preview) {
-    const pageShadow = "0 2px 12px rgba(0,0,0,0.4)";
+    const shadow = "0 2px 12px rgba(0,0,0,0.4)";
     return (
       <div style={{ fontFamily: B.inter, color: B.black, fontSize: 13, display: "flex", flexDirection: "column" as const, gap: 24 }}>
-        <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
+        <div style={{ background: "#fff", boxShadow: shadow, overflow: "hidden" }}>
           {pageHeader}
           {body1}
+          {pageFooter}
         </div>
-        <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
+        {/* Page 2: minHeight so it fills A4 but never clips */}
+        <div style={{ background: "#fff", boxShadow: shadow, overflow: "hidden", display: "flex", flexDirection: "column" as const, minHeight: "29.7cm" }}>
           {pageHeader}
-          {body2}
-        </div>
-        {body3 && (
-          <div style={{ background: B.bg, boxShadow: pageShadow, overflow: "hidden" }}>
-            {pageHeader}
-            {body3}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, background: "#fff" }}>
+            <div style={{ padding: "24px 40px", flex: 1, display: "flex", flexDirection: "column" as const }}>
+              {warrantyReviews}
+              <div style={{ marginTop: "auto" }}>{sigLinesJSX}</div>
+            </div>
           </div>
-        )}
+          {lastPageFooter}
+        </div>
       </div>
     );
   }
 
-  // ── PDF capture mode: flat structure with named IDs ───────────────────────
+  // ── PDF capture mode ───────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: B.inter, color: B.black, width: "100%", background: B.bg, fontSize: 13 }}>
+    <div style={{ fontFamily: B.inter, color: B.black, width: "100%", background: "#fff", fontSize: 13 }}>
       {pageHeader}
+      {colHeader}
       {body1}
+      {pageFooter}
       <div style={{ height: 16, background: "#525659" }} className="screen-only" />
-      {body2}
-      {body3 && (
-        <>
-          <div style={{ height: 16, background: "#525659" }} className="screen-only" />
-          {body3}
-        </>
+
+      {/* body-2: warranty only — conditional, skipped entirely if no warranty */}
+      {warrantySections.length > 0 && (
+        <div id="proposal-page-body-2" style={{ background: "#fff" }}>
+          <div style={{ padding: "16px 40px 24px 40px" }}>
+            <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 6px 0" }}>
+              Warranty Coverage
+            </p>
+            <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.75, color: B.text, margin: "0 0 20px 0", opacity: 0.8 }}>
+              Butler &amp; Associates Construction, Inc. warrants all labor and craftsmanship for the periods specified below, measured from the project completion date. Material defects are addressed through manufacturer warranties.
+            </p>
+            <div style={{ border: "1px solid #E0E0E0", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ background: B.black, display: "flex", padding: "9px 16px" }}>
+                <p style={{ paddingBottom: 10, fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "25%", flexShrink: 0 }}>Scope Item</p>
+                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "50%", flexShrink: 0 }}>Craftsmanship &amp; Labor</p>
+                <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, color: B.gold, margin: 0, letterSpacing: "0.08em", width: "25%", flexShrink: 0 }}>Material Defects</p>
+              </div>
+              {warrantySections.map((section) => (
+                <div key={section.id} data-group="true">
+                  <div style={{ background: "#F5F5F5", padding: "0 16px", paddingBottom: 10, borderTop: "1px solid #E0E0E0" }}>
+                    <span style={{ fontFamily: B.inter, fontSize: 8, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.gold }}>{section.title}</span>
+                  </div>
+                  {section.items.map((item, idx) => (
+                    <div key={item.id} style={{ display: "flex", padding: "9px 16px", background: idx % 2 === 0 ? "#fff" : "#F9F9F9", borderTop: "1px solid #E0E0E0" }}>
+                      <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, color: B.black, margin: 0, width: "25%", flexShrink: 0, paddingRight: 8 }}>{item.scope_item}</p>
+                      <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, lineHeight: 1.65, width: "50%", flexShrink: 0, paddingRight: 8 }}>{item.labor_text}</p>
+                      <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: 0, opacity: 0.6, fontStyle: "italic", width: "25%", flexShrink: 0 }}>{item.material_note}</p>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            {warrantyDisclaimer && (
+              <div data-group="true" style={{ padding: "12px 16px", background: "#F9F9F9", border: "1px solid #E0E0E0", borderRadius: 4 }}>
+                <p style={{ fontFamily: B.inter, fontSize: 10, lineHeight: 1.75, color: B.text, margin: 0, fontStyle: "italic", opacity: 0.7 }}>
+                  {warrantyDisclaimer}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
+
+      {/* body-3: reviews + sig — always renders, always starts on a fresh page */}
+      <div id="proposal-page-body-3" style={{ background: "#fff" }}>
+        <div style={{ padding: "24px 40px" }}>
+          {reviews.length > 0 && (
+            <div style={{ marginBottom: 40 }}>
+              <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 16px 0" }}>
+                What Our Clients Say
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 12 }}>
+                {reviews.map((r) => (
+                  <div key={r.reviewer_name} data-group="true" style={{ flex: "1 1 calc(50% - 6px)", border: "1px solid #E0E0E0", borderRadius: 6, padding: "14px 16px", boxSizing: "border-box" as const }}>
+                    <p style={{ fontFamily: B.lato, fontWeight: 500, fontSize: 13, color: B.black, margin: "0 0 3px 0" }}>{r.reviewer_name}</p>
+                    <p style={{ color: B.gold, fontSize: 13, margin: "0 0 10px 0" }}>{"★".repeat(r.rating)}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 11, lineHeight: 1.7, color: B.text, margin: 0, opacity: 0.8 }}>{r.review_text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {sigJSX}
+        </div>
+      </div>
+
+      <div id="proposal-last-footer" style={{ borderTop: "1px solid #E0E0E0", background: "#fff", padding: "10px 40px", paddingBottom: "20px", textAlign: "center" as const }}>
+        <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, margin: 0, opacity: 0.55 }}>
+          Thank you for considering Butler &amp; Associates Construction, Inc. for your project. We look forward to working with you.
+        </p>
+      </div>
     </div>
   );
 }

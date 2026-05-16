@@ -366,17 +366,17 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   <div style="max-width:680px;margin:32px auto;">
     <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px 16px;text-align:center;">
       <img src="https://${projectId}.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="52" style="height:52px;width:auto;display:block;margin:0 auto 10px auto;background:#0A0A0A;" />
-      <p style="font-size:13px;font-weight:600;color:#BB984D;margin:0 0 6px 0;letter-spacing:0.04em;">Butler &amp; Associates Construction, Inc.</p>
-      <p style="font-size:14px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;color:#ffffff;margin:0;">Purchase Order</p>
+      <p style="font-size:13px;font-weight:500;color:#BB984D;margin:0 0 6px 0;letter-spacing:0.04em;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-size:14px;font-weight:500;letter-spacing:0.24em;text-transform:uppercase;color:#ffffff;margin:0;">Purchase Order</p>
     </div>
     <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
     <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;">
       <div style="padding:28px 32px;border-bottom:1px solid #E8E4DC;"><table style="width:100%;border-collapse:collapse;"><tr>
-        <td style="width:33%;vertical-align:top;padding-right:16px;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Deliver To</p><p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${clientName}</p>${clientAddress ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${clientAddress}</p>` : ""}</td>
-        <td style="width:34%;vertical-align:top;padding:0 16px;border-left:1px solid #E8E4DC;border-right:1px solid #E8E4DC;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Ordered By</p><p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${pmFullName}</p>${pmPhone ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${pmPhone}</p>` : ""}<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">Butler &amp; Associates Construction</p></td>
-        <td style="width:33%;vertical-align:top;padding-left:16px;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Supplier</p><p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${supplierName}</p>${supplierPoc ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierPoc}</p>` : ""}${supplierEmail ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierEmail}</p>` : ""}</td>
+        <td style="width:33%;vertical-align:top;padding-right:16px;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Deliver To</p><p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${clientName}</p>${clientAddress ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${clientAddress}</p>` : ""}</td>
+        <td style="width:34%;vertical-align:top;padding:0 16px;border-left:1px solid #E8E4DC;border-right:1px solid #E8E4DC;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Ordered By</p><p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${pmFullName}</p>${pmPhone ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${pmPhone}</p>` : ""}<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">Butler &amp; Associates Construction</p></td>
+        <td style="width:33%;vertical-align:top;padding-left:16px;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Supplier</p><p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${supplierName}</p>${supplierPoc ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierPoc}</p>` : ""}${supplierEmail ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierEmail}</p>` : ""}</td>
       </tr></table></div>
-      <div style="padding:20px 32px;background:#FAFAF8;border-bottom:1px solid #E8E4DC;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Requested Delivery</p><table style="border-collapse:collapse;"><tr><td style="padding-right:40px;vertical-align:top;"><p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Date</p><p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${deliveryLabel}</p></td><td style="vertical-align:top;"><p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Time Window</p><p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${timeLabel}</p></td></tr></table></div>
+      <div style="padding:20px 32px;background:#FAFAF8;border-bottom:1px solid #E8E4DC;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Requested Delivery</p><table style="border-collapse:collapse;"><tr><td style="padding-right:40px;vertical-align:top;"><p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Date</p><p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${deliveryLabel}</p></td><td style="vertical-align:top;"><p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Time Window</p><p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${timeLabel}</p></td></tr></table></div>
       <div style="padding:24px 32px;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 12px 0;">Materials</p><table style="width:100%;border-collapse:collapse;border:1px solid #E8E4DC;overflow:hidden;"><thead><tr style="background:#0A0A0A;"><th style="padding:10px 12px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#BB984D;">Material</th><th style="padding:10px 12px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#BB984D;">Color / Spec</th><th style="padding:10px 12px;text-align:center;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#BB984D;">Qty</th><th style="padding:10px 12px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#BB984D;">Unit</th></tr></thead><tbody>${rowsHtml2}</tbody></table></div>
       ${selectedPo.notes ? `<div style="padding:0 32px 24px;"><div style="border:1px solid #E8E4DC;border-radius:4px;padding:14px 16px;background:#FAFAF8;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Delivery Notes</p><p style="font-size:13px;color:#3A3A38;line-height:1.6;margin:0;">${selectedPo.notes}</p></div></div>` : ""}
       <div style="padding:20px 32px;border-top:1px solid #E8E4DC;text-align:center;"><p style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0 0 4px 0;">Butler &amp; Associates Construction, Inc.</p><p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0;">Questions? <a href="mailto:info@butlerconstruction.co" style="color:#BB984D;text-decoration:none;">info@butlerconstruction.co</a></p></div>
@@ -469,8 +469,8 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   <div style="max-width:680px;margin:32px auto;">
     <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:24px 32px 16px;text-align:center;">
       <img src="https://${projectId}.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="52" style="height:52px;width:auto;display:block;margin:0 auto 10px auto;background:#0A0A0A;" />
-      <p style="font-size:13px;font-weight:600;color:#BB984D;margin:0 0 6px 0;letter-spacing:0.04em;">Butler &amp; Associates Construction, Inc.</p>
-      <p style="font-size:14px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;color:#ffffff;margin:0;">Purchase Order</p>
+      <p style="font-size:13px;font-weight:500;color:#BB984D;margin:0 0 6px 0;letter-spacing:0.04em;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-size:14px;font-weight:500;letter-spacing:0.24em;text-transform:uppercase;color:#ffffff;margin:0;">Purchase Order</p>
     </div>
     <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
     <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;">
@@ -478,18 +478,18 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
         <table style="width:100%;border-collapse:collapse;"><tr>
           <td style="width:33%;vertical-align:top;padding-right:16px;">
             <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Deliver To</p>
-            <p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${clientName}</p>
+            <p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${clientName}</p>
             ${clientAddress ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${clientAddress}</p>` : ""}
           </td>
           <td style="width:34%;vertical-align:top;padding:0 16px;border-left:1px solid #E8E4DC;border-right:1px solid #E8E4DC;">
             <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Ordered By</p>
-            <p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${pmFullName}</p>
+            <p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${pmFullName}</p>
             ${pmPhone ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${pmPhone}</p>` : ""}
             <p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">Butler &amp; Associates Construction</p>
           </td>
           <td style="width:33%;vertical-align:top;padding-left:16px;">
             <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Supplier</p>
-            <p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${supplierName}</p>
+            <p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${supplierName}</p>
             ${supplierPoc ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierPoc}</p>` : ""}
             ${supplierEmail ? `<p style="font-size:13px;color:#3A3A38;opacity:0.65;margin:4px 0 0;">${supplierEmail}</p>` : ""}
           </td>
@@ -500,11 +500,11 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
         <table style="border-collapse:collapse;"><tr>
           <td style="padding-right:40px;vertical-align:top;">
             <p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Date</p>
-            <p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${deliveryLabel}</p>
+            <p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${deliveryLabel}</p>
           </td>
           <td style="vertical-align:top;">
             <p style="font-size:11px;color:#3A3A38;opacity:0.55;margin:0 0 3px;">Time Window</p>
-            <p style="font-size:14px;font-weight:600;color:#3A3A38;margin:0;">${timeLabel}</p>
+            <p style="font-size:14px;font-weight:500;color:#3A3A38;margin:0;">${timeLabel}</p>
           </td>
         </tr></table>
       </div>
@@ -533,83 +533,95 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
   const buildPdfHtml = (po: any): string => {
     const GOLD = "#BB984D";
     const BLACK = "#0A0A0A";
+    const BG = "#F5F3EF";
+    const TEXT = "#3A3A38";
+    const BORDER = "#E8E4DC";
     const LOGO = `https://${projectId}.supabase.co/storage/v1/object/public/assets/ba-logo.png`;
     const fmtDate = (d: string) => d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const pmFullName = pmProfile ? `${pmProfile.first_name ?? ""} ${pmProfile.last_name ?? ""}`.trim() : "Butler & Associates";
     const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
-    const clientAddr = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
+    const clientAddr = [client?.address, [client?.city, client?.state, client?.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ");
+    const timeLabel = po.delivery_time === "morning" ? "Morning (8am–12pm)" : po.delivery_time === "afternoon" ? "Afternoon (12pm–4pm)" : "Late Afternoon (4pm–6pm)";
     const rows = (po.items || []).map((item: any, idx: number) => `
-      <tr style="background:${idx % 2 === 0 ? "#fff" : "#FAFAF8"};border-bottom:1px solid #E8E4DC;">
-        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;">${item.product_name}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;opacity:0.65;">${item.color || "—"}</td>
-        <td style="padding:10px 14px;text-align:center;font-size:13px;color:#3A3A38;">${item.quantity}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#3A3A38;opacity:0.65;">${item.unit}</td>
+      <tr style="background:${idx % 2 === 0 ? "#fff" : "#FAFAF8"};border-bottom:1px solid ${BORDER};">
+        <td style="padding:10px 14px;font-size:12px;color:${TEXT};vertical-align:middle;line-height:1.4;">${item.product_name}</td>
+        <td style="padding:10px 14px;font-size:12px;color:${TEXT};opacity:0.65;vertical-align:middle;line-height:1.4;">${item.color || "—"}</td>
+        <td style="padding:10px 14px;text-align:center;font-size:12px;color:${TEXT};vertical-align:middle;line-height:1.4;">${item.quantity}</td>
+        <td style="padding:10px 14px;font-size:12px;color:${TEXT};opacity:0.65;vertical-align:middle;line-height:1.4;">${item.unit}</td>
       </tr>`).join("");
     return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Inter,Arial,sans-serif;font-size:13px;color:#3A3A38;background:#fff;min-height:1123px;display:flex;flex-direction:column;}table{border-collapse:collapse;width:100%;}.content{flex:1;}</style>
-</head><body><div class="content">
-<div style="background:${BLACK};padding:28px 32px;text-align:center;">
-  <img src="${LOGO}" alt="Butler &amp; Associates" style="height:52px;width:auto;display:block;margin:0 auto 12px auto;background:${BLACK};" />
-  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 6px 0;">Butler &amp; Associates Construction, Inc.</p>
-  <p style="font-size:14px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;color:#fff;margin:0;">Purchase Order</p>
+<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Inter,Arial,sans-serif;font-size:13px;color:${TEXT};background:#fff;min-height:1123px;display:flex;flex-direction:column;}table{border-collapse:collapse;width:100%;}.body{flex:1;}a{color:inherit;text-decoration:none;}</style>
+</head><body>
+<!-- HEADER -->
+<div style="background:${BLACK};padding:24px 40px;display:flex;justify-content:space-between;align-items:flex-start;">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <img src="${LOGO}" alt="B&amp;A" style="height:52px;width:auto;flex-shrink:0;" onerror="this.style.display='none'" />
+    <div>
+      <p style="font-family:Lato,sans-serif;font-size:18px;font-weight:500;color:#fff;margin:0 0 4px 0;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-size:11px;color:rgba(255,255,255,0.65);margin:0 0 2px 0;">6275 University Drive NW, Suite 37-314, Huntsville, AL 35806</p>
+      <p style="font-size:11px;color:rgba(255,255,255,0.65);margin:0;">(256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co</p>
+    </div>
+  </div>
+  <div style="text-align:right;flex-shrink:0;">
+    <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 4px 0;">PURCHASE ORDER</p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.75);margin:0;">${today}</p>
+  </div>
 </div>
 <div style="height:2px;background:linear-gradient(90deg,${GOLD},#8A7040);"></div>
-<div style="padding:28px 32px;border-bottom:1px solid #E8E4DC;">
-  <table><tr>
-    <td style="width:33%;vertical-align:top;padding-right:16px;">
-      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Deliver To</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${clientName}</p>
-      ${clientAddr ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${clientAddr}</p>` : ""}
-    </td>
-    <td style="width:34%;vertical-align:top;padding:0 16px;border-left:1px solid #E8E4DC;border-right:1px solid #E8E4DC;">
-      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Ordered By</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${pmFullName}</p>
-      ${pmProfile?.phone ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${pmProfile.phone}</p>` : ""}
-      <p style="font-size:12px;opacity:0.65;margin:4px 0 0;">Butler &amp; Associates Construction</p>
-    </td>
-    <td style="width:33%;vertical-align:top;padding-left:16px;">
-      <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Supplier</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${po.supplier_name || "—"}</p>
-      ${po.supplier_poc_name ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${po.supplier_poc_name}</p>` : ""}
-      ${po.supplier_email ? `<p style="font-size:12px;opacity:0.65;margin:4px 0 0;">${po.supplier_email}</p>` : ""}
-    </td>
-  </tr></table>
-</div>
-<div style="padding:20px 32px;background:#FAFAF8;border-bottom:1px solid #E8E4DC;">
-  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 10px 0;">Requested Delivery</p>
-  <table style="width:auto;"><tr>
-    <td style="padding-right:40px;vertical-align:top;">
-      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Date</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${po.delivery_date ? fmtDate(po.delivery_date) : "To be confirmed"}</p>
-    </td>
-    <td style="vertical-align:top;">
-      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Time Window</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${po.delivery_time === "morning" ? "Morning (8am–12pm)" : po.delivery_time === "afternoon" ? "Afternoon (12pm–4pm)" : "Late Afternoon (4pm–6pm)"}</p>
-    </td>
-    <td style="padding-left:40px;vertical-align:top;">
-      <p style="font-size:11px;opacity:0.55;margin:0 0 3px;">Issued</p>
-      <p style="font-size:14px;font-weight:600;margin:0;">${today}</p>
-    </td>
-  </tr></table>
-</div>
-<div style="padding:24px 32px;">
-  <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 12px 0;">Materials</p>
-  <table style="border:1px solid #E8E4DC;">
-    <thead><tr style="background:${BLACK};">
-      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Material</th>
-      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Color / Spec</th>
-      <th style="padding:10px 14px;text-align:center;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Qty</th>
-      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">Unit</th>
+<!-- BODY -->
+<div class="body" style="padding:28px 40px;">
+  <!-- Deliver To / Ordered By / Supplier -->
+  <div style="display:flex;gap:0;margin-bottom:24px;border:1px solid ${BORDER};border-radius:4px;overflow:hidden;">
+    <div style="flex:1;padding:16px 20px;background:#fff;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 8px 0;">Deliver To</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0 0 5px 0;">${clientName || "—"}</p>
+      ${clientAddr ? `<p style="font-size:12px;color:${TEXT};opacity:0.65;margin:0;line-height:1.6;">${clientAddr}</p>` : ""}
+    </div>
+    <div style="width:1px;background:${BORDER};"></div>
+    <div style="flex:1;padding:16px 20px;background:#fff;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 8px 0;">Ordered By</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0 0 5px 0;">${pmFullName}</p>
+      ${pmProfile?.phone ? `<p style="font-size:12px;color:${TEXT};opacity:0.65;margin:0 0 4px 0;">${pmProfile.phone}</p>` : ""}
+      <p style="font-size:12px;color:${TEXT};opacity:0.65;margin:0;">Butler &amp; Associates Construction</p>
+    </div>
+    <div style="width:1px;background:${BORDER};"></div>
+    <div style="flex:1;padding:16px 20px;background:#fff;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 8px 0;">Supplier</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0 0 5px 0;">${po.supplier_name || "—"}</p>
+      ${po.supplier_poc_name ? `<p style="font-size:12px;color:${TEXT};opacity:0.65;margin:0 0 4px 0;">${po.supplier_poc_name}</p>` : ""}
+      ${po.supplier_email ? `<p style="font-size:12px;color:${TEXT};opacity:0.65;margin:0;">${po.supplier_email}</p>` : ""}
+    </div>
+  </div>
+  <!-- Delivery Details -->
+  <div style="display:flex;gap:0;margin-bottom:24px;padding:16px 20px;background:${BG};border:1px solid ${BORDER};border-radius:4px;">
+    <div style="flex:1;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 5px 0;">Delivery Date</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0;">${po.delivery_date ? fmtDate(po.delivery_date) : "To be confirmed"}</p>
+    </div>
+    <div style="width:1px;background:${BORDER};margin:0 20px;"></div>
+    <div style="flex:1;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 5px 0;">Time Window</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0;">${timeLabel}</p>
+    </div>
+    <div style="width:1px;background:${BORDER};margin:0 20px;"></div>
+    <div style="flex:1;">
+      <p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:#999;margin:0 0 5px 0;">Date Issued</p>
+      <p style="font-family:Lato,sans-serif;font-size:14px;font-weight:500;color:${BLACK};margin:0;">${today}</p>
+    </div>
+  </div>
+  <!-- Materials -->
+  <p style="font-size:10px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:${BLACK};margin:0 0 12px 0;">Materials</p>
+  <table style="border:1px solid ${BORDER};margin-bottom:${po.notes ? "20px" : "0"};">
+    <thead><tr style="background:#fff;border-bottom:2px solid ${BORDER};">
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#999;vertical-align:middle;">Material</th>
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#999;vertical-align:middle;">Color / Spec</th>
+      <th style="padding:10px 14px;text-align:center;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#999;vertical-align:middle;">Qty</th>
+      <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:#999;vertical-align:middle;">Unit</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
-</div>
-${po.notes ? `<div style="padding:0 32px 24px;"><div style="border:1px solid #E8E4DC;border-radius:4px;padding:14px 16px;background:#FAFAF8;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Delivery Notes</p><p style="font-size:13px;line-height:1.6;margin:0;">${po.notes}</p></div></div>` : ""}
-</div>
-<div style="margin-top:auto;padding:20px 32px;border-top:1px solid #E8E4DC;text-align:center;">
-  <p style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:${GOLD};margin:0 0 4px 0;">Butler &amp; Associates Construction, Inc.</p>
-  <p style="font-size:11px;opacity:0.55;margin:0;">info@butlerconstruction.co · (256) 617-4691</p>
+  ${po.notes ? `<div style="border:1px solid ${BORDER};border-radius:4px;padding:14px 16px;background:#FAFAF8;"><p style="font-size:9px;font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:${GOLD};margin:0 0 8px 0;">Delivery Notes</p><p style="font-size:12px;line-height:1.6;color:${TEXT};margin:0;">${po.notes}</p></div>` : ""}
 </div>
 </body></html>`;
   };

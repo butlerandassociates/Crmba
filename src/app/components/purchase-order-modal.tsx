@@ -180,7 +180,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
     updateItem(idx, "product_id", estimateItem.product_id || "");
   };
 
-  const exportPDF = (po: any) => {
+  const exportPDF = async (po: any) => {
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const GOLD = "#BB984D";
     const BLACK = "#0A0A0A";
@@ -197,7 +197,7 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
 <title>Purchase Order — ${po.supplier_name}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px 48px;}@page{margin:0;}table{border-collapse:collapse;width:100%;}</style>
+<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:#fff;padding:40px 48px;}@page{margin:0;}table{border-collapse:collapse;width:100%;}a{color:inherit;text-decoration:none;}</style>
 </head><body style="display:flex;flex-direction:column;min-height:100vh;">
 <div style="background:${BLACK};padding:28px 32px;text-align:center;">
   <img src="${LOGO}" alt="Butler &amp; Associates" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;" />
@@ -215,23 +215,23 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   </div>
 </div>
 <div style="margin-bottom:20px;font-size:12px;">
-  <span style="color:#6b7280;">Project: </span><span style="font-weight:600;">${project.name ?? "—"}</span>
+  <span style="color:#6b7280;">Project: </span><span style="font-weight:500;">${project.name ?? "—"}</span>
   ${project.clientName ? `&nbsp;&nbsp;<span style="color:#6b7280;">Client: </span><span>${project.clientName}</span>` : ""}
 </div>
 <div style="margin-bottom:24px;">
-  <h3 style="font-size:15px;font-weight:bold;margin-bottom:12px;">Materials &amp; Products</h3>
+  <h3 style="font-size:15px;font-weight:500;margin-bottom:12px;">Materials &amp; Products</h3>
   <table>
     <thead>
-      <tr style="background:${BLACK};color:#fff;">
-        <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:bold;">Product / Material</th>
-        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:80px;">Unit</th>
-        <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:bold;width:80px;">Qty</th>
+      <tr style="background:#fff;border-bottom:2px solid #e5e7eb;">
+        <th style="padding:10px 14px;text-align:left;font-size:10px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.08em;">Product / Material</th>
+        <th style="padding:10px 14px;text-align:center;font-size:10px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.08em;width:80px;">Unit</th>
+        <th style="padding:10px 14px;text-align:center;font-size:10px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.08em;width:80px;">Qty</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
 </div>
-${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font-size:13px;margin-bottom:8px;">Notes</div><p style="font-size:12px;line-height:1.65;color:#374151;">${po.notes}</p></div>` : ""}
+${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:500;font-size:13px;margin-bottom:8px;">Notes</div><p style="font-size:12px;line-height:1.65;color:#374151;">${po.notes}</p></div>` : ""}
 <div style="flex:1;"></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:48px;">
   <div>
@@ -245,17 +245,28 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
     <div style="font-size:11px;color:#6b7280;">Signature / Date</div>
   </div>
 </div>
-<div style="margin-top:48px;text-align:center;font-size:10px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:12px;">
-  Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
-</div>
 </body></html>`;
 
-    const win = window.open("", "_blank");
-    if (!win) { toast.error("Popup blocked — allow popups and try again."); return; }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    win.onload = () => { win.print(); };
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:0;visibility:hidden;";
+    document.body.appendChild(iframe);
+    const iDoc = iframe.contentDocument!;
+    iDoc.open(); iDoc.write(html); iDoc.close();
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const { default: h2c } = await import("html2canvas");
+      const canvas = await h2c(iDoc.body, { scale: 2, useCORS: true, backgroundColor: "#fff", width: 794 });
+      document.body.removeChild(iframe);
+      const imgData = canvas.toDataURL("image/png");
+      const { default: jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      pdf.addImage(imgData, "PNG", 0, 0, 210, 297);
+      pdf.save(`PO-${po.supplier_name?.replace(/[^a-z0-9]/gi, "-") ?? "Order"}.pdf`);
+    } catch {
+      document.body.removeChild(iframe);
+      toast.error("Failed to export PDF — please try again.");
+      return;
+    }
     activityLogAPI.create({ client_id: project.client?.id, action_type: "po_pdf_exported", description: `Purchase order PDF exported — supplier: ${po.supplier_name}` }).catch(() => {});
   };
 
@@ -421,10 +432,10 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
                     <h3 className="text-[14px] font-bold mb-3">Materials &amp; Products</h3>
                     <table className="w-full border-collapse text-xs">
                       <thead>
-                        <tr className="bg-[#111111] text-white">
-                          <th className="py-2.5 px-3 text-left font-semibold">Product / Material</th>
-                          <th className="py-2.5 px-3 text-center font-semibold w-16">Unit</th>
-                          <th className="py-2.5 px-3 text-center font-semibold w-14">Qty</th>
+                        <tr className="bg-white border-b-2 border-gray-200">
+                          <th className="py-2.5 px-3 text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide">Product / Material</th>
+                          <th className="py-2.5 px-3 text-center text-[10px] font-medium text-gray-400 uppercase tracking-wide w-16">Unit</th>
+                          <th className="py-2.5 px-3 text-center text-[10px] font-medium text-gray-400 uppercase tracking-wide w-14">Qty</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -464,10 +475,6 @@ ${po.notes ? `<div style="margin-bottom:32px;"><div style="font-weight:bold;font
                     </div>
                   </div>
 
-                  {/* Footer */}
-                  <div className="text-center text-[10px] text-gray-400 border-t border-gray-200 pt-3">
-                    Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
-                  </div>
                 </div>
               </div>
             ) : (

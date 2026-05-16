@@ -522,19 +522,17 @@ export function ClientDetail() {
 
   const buildStatementPages = async (): Promise<{ pageImages: string[]; pdf: jsPDF } | null> => {
     await document.fonts.ready;
-    const SCALE = 2;
+    const SCALE = 3;
     const baseOpts = { scale: SCALE, useCORS: true, allowTaint: false, logging: false };
     const headerEl = document.getElementById("payment-stmt-header");
     const bodyEl   = document.getElementById("payment-stmt-body");
-    const footerEl = document.getElementById("payment-stmt-footer");
     const theadEl  = document.getElementById("payment-stmt-thead");
-    if (!headerEl || !bodyEl || !footerEl) return null;
+    if (!headerEl || !bodyEl) return null;
 
-    const [headerCanvas, bodyCanvas, footerCanvas, theadCanvas] = await Promise.all([
+    const [headerCanvas, bodyCanvas, theadCanvas] = await Promise.all([
       html2canvas(headerEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }),
-      html2canvas(bodyEl   as HTMLElement, { ...baseOpts, backgroundColor: "#F5F3EF" }),
-      html2canvas(footerEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }),
-      theadEl ? html2canvas(theadEl as HTMLElement, { ...baseOpts, backgroundColor: "#0A0A0A" }) : Promise.resolve(null),
+      html2canvas(bodyEl   as HTMLElement, { ...baseOpts, backgroundColor: "#ffffff" }),
+      theadEl ? html2canvas(theadEl as HTMLElement, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
     ]);
 
     const pageW = 595.28; // A4 pt
@@ -544,7 +542,6 @@ export function ClientDetail() {
     const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
 
     const headerH = toPt(headerCanvas);
-    const footerH = toPt(footerCanvas);
     const bodyH   = toPt(bodyCanvas);
 
     // thead is narrower (table has 48px padding each side inside 794px container)
@@ -554,7 +551,7 @@ export function ClientDetail() {
     const theadX  = (pageW - theadW) / 2; // matches the 48px table padding
     const THEAD_GAP = 6; // pt gap above repeated column header
 
-    const slotH = pageH - headerH - footerH;
+    const slotH = pageH - headerH;
     const slotP1 = slotH;
     const slotP2 = slotH - theadH - THEAD_GAP;
 
@@ -582,9 +579,8 @@ export function ClientDetail() {
     let bodyConsumedPt = 0;
     let page = 0;
 
-    const hImg  = headerCanvas.toDataURL("image/jpeg", 0.93);
-    const fImg  = footerCanvas.toDataURL("image/jpeg", 0.93);
-    const thImg = theadCanvas  ? theadCanvas.toDataURL("image/jpeg", 0.93) : null;
+    const hImg  = headerCanvas.toDataURL("image/jpeg", 0.97);
+    const thImg = theadCanvas  ? theadCanvas.toDataURL("image/jpeg", 0.97) : null;
 
     while (bodyConsumedPt < bodyH - 1) {
       if (page > 0) pdf.addPage();
@@ -610,23 +606,22 @@ export function ClientDetail() {
       pc.width  = pgW;
       pc.height = pgH;
       const ctx = pc.getContext("2d")!;
-      ctx.fillStyle = "#F5F3EF";
+      ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, pgW, pgH);
 
       const hHpx   = Math.round(headerH * pxPerPt);
-      const fHpx   = Math.round(footerH * pxPerPt);
-      const thHpx  = theadCanvas ? theadCanvas.height : 0;    // natural height (no scaling)
-      const thXpx  = theadCanvas ? Math.round((pgW - theadCanvas.width) / 2) : 0; // x = 48px*SCALE padding
+      const thHpx  = theadCanvas ? theadCanvas.height : 0;
+      const thXpx  = theadCanvas ? Math.round((pgW - theadCanvas.width) / 2) : 0;
       const gapPx  = Math.round(THEAD_GAP * pxPerPt);
 
       // Header
       ctx.drawImage(headerCanvas, 0, 0, pgW, hHpx);
       let curY = hHpx;
 
-      // Repeated column header on page 2+ — placed with same padding as table
+      // Repeated column header on page 2+
       if (page > 0 && theadCanvas) {
         curY += gapPx;
-        ctx.drawImage(theadCanvas, thXpx, curY);  // draw at natural size with x-offset
+        ctx.drawImage(theadCanvas, thXpx, curY);
         curY += thHpx;
       }
 
@@ -637,9 +632,7 @@ export function ClientDetail() {
       sliceC.getContext("2d")!.drawImage(bodyCanvas, 0, srcYpx, bodyCanvas.width, sliceHpx, 0, 0, bodyCanvas.width, sliceHpx);
       ctx.drawImage(sliceC, 0, curY, pgW, sliceHpx);
 
-      // Footer
-      ctx.drawImage(footerCanvas, 0, pgH - fHpx, pgW, fHpx);
-      pageImages.push(pc.toDataURL("image/jpeg", 0.90));
+      pageImages.push(pc.toDataURL("image/jpeg", 0.92));
 
       // ── PDF page ─────────────────────────────────────────────────────
       pdf.addImage(hImg, "JPEG", 0, 0, pageW, headerH);
@@ -647,18 +640,17 @@ export function ClientDetail() {
 
       if (page > 0 && thImg && theadCanvas) {
         pdfY += THEAD_GAP;
-        pdf.addImage(thImg, "JPEG", theadX, pdfY, theadW, theadH); // x-offset matches table padding
+        pdf.addImage(thImg, "JPEG", theadX, pdfY, theadW, theadH);
         pdfY += theadH;
       }
 
-      const sliceDataUrl = sliceC.toDataURL("image/jpeg", 0.93);
+      const sliceDataUrl = sliceC.toDataURL("image/jpeg", 0.97);
       pdf.addImage(sliceDataUrl, "JPEG", 0, pdfY, pageW, sliceHpt);
       pdfY += sliceHpt;
 
-      const gapH = pageH - footerH - pdfY;
-      if (gapH > 0) { pdf.setFillColor(245, 243, 239); pdf.rect(0, pdfY, pageW, gapH, "F"); }
+      const gapH = pageH - pdfY;
+      if (gapH > 0) { pdf.setFillColor(255, 255, 255); pdf.rect(0, pdfY, pageW, gapH, "F"); }
 
-      pdf.addImage(fImg, "JPEG", 0, pageH - footerH, pageW, footerH);
       bodyConsumedPt += sliceHpt;
     }
 
@@ -1985,6 +1977,10 @@ export function ClientDetail() {
                 ? projectCommPayments.filter((cp: any) => cp.profile_id === repProfileId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
                 : (clientProjects[0]?.salesRepCommission ?? 0);
               const salesRepName = clientProjects[0]?.salesRepName ?? "";
+              const salesRepRate = clientProjects[0]?.salesRepCommissionRate ?? 0;
+              const projectedSalesRepCommission = grossProfit > 0 && salesRepRate > 0
+                ? Math.round(grossProfit * (salesRepRate / 100) * 100) / 100
+                : 0;
               const donutData = totalValue > 0
                 ? [
                     { name: "Cost", value: cost < 0 ? 0 : cost },
@@ -2050,16 +2046,21 @@ export function ClientDetail() {
                         <div className="text-sm font-semibold text-blue-600">{formatCurrency(commission)}</div>
                       </div>
                     )}
-                    {salesRepCommission > 0 && salesRepName && role !== "project_manager" && (
+                    {salesRepName && role !== "project_manager" && (
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Sales Rep Commission</div>
-                        <div className="text-sm font-semibold text-purple-600">{formatCurrency(salesRepCommission)}</div>
+                        <div className="text-sm font-semibold text-purple-600">
+                          {formatCurrency(projectedSalesRepCommission > 0 ? projectedSalesRepCommission : salesRepCommission)}
+                        </div>
+                        {projectedSalesRepCommission > 0 && salesRepCommission > 0 && salesRepCommission < projectedSalesRepCommission && (
+                          <div className="text-[10px] text-muted-foreground">{formatCurrency(salesRepCommission)} paid so far</div>
+                        )}
                       </div>
                     )}
-                    {grossProfit > 0 && (commission > 0 || salesRepCommission > 0) && (
+                    {grossProfit > 0 && (commission > 0 || projectedSalesRepCommission > 0 || salesRepCommission > 0) && (
                       <div className="pt-1 border-t">
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Net Profit</div>
-                        <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - salesRepCommission))}</div>
+                        <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - (projectedSalesRepCommission > 0 ? projectedSalesRepCommission : salesRepCommission)))}</div>
                       </div>
                     )}
                   </div>
@@ -2325,16 +2326,34 @@ export function ClientDetail() {
                   : (project.salesRepCommission ?? 0);
                 return (<>
                   <div>
-                    <p className="text-xs text-muted-foreground">PM Commission</p>
-                    <p className="font-semibold text-base text-blue-600">{formatCurrency(pmComm)}</p>
+                    <p className="text-xs text-muted-foreground">Start Date</p>
+                    <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
                   </div>
-                  {project.salesRepName && repComm > 0 && role !== "project_manager" && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">End Date</p>
+                    <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Project Manager</p>
+                    <p className="font-medium">{project.projectManagerName || "—"}</p>
+                    {role !== "project_manager" && (
+                      <p className="text-xs font-semibold text-blue-600 mt-0.5">{formatCurrency(pmComm)}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Foreman</p>
+                    <p className="font-medium">{project.foremanName || "—"}</p>
+                  </div>
+                  {project.salesRepName && (
                     <div>
-                      <p className="text-xs text-muted-foreground">Sales Rep Commission</p>
-                      <p className="font-semibold text-base text-purple-600">{formatCurrency(repComm)}</p>
+                      <p className="text-xs text-muted-foreground">Sales Rep</p>
+                      <p className="font-medium">{project.salesRepName}</p>
+                      {role !== "project_manager" && (
+                        <p className="text-xs font-semibold text-purple-600 mt-0.5">{formatCurrency(repComm)}</p>
+                      )}
                     </div>
                   )}
-                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && (
+                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && role !== "project_manager" && (
                     <div>
                       <p className="text-xs text-muted-foreground">Net Profit</p>
                       <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - pmComm - repComm))}</p>
@@ -2342,28 +2361,6 @@ export function ClientDetail() {
                   )}
                 </>);
               })()}
-              <div>
-                <p className="text-xs text-muted-foreground">Start Date</p>
-                <p className="font-medium">{project.startDate ? formatDate(project.startDate) : "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">End Date</p>
-                <p className="font-medium">{project.endDate ? formatDate(project.endDate) : "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Project Manager</p>
-                <p className="font-medium">{project.projectManagerName || "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Foreman</p>
-                <p className="font-medium">{project.foremanName || "—"}</p>
-              </div>
-              {project.salesRepName && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Sales Rep</p>
-                  <p className="font-medium">{project.salesRepName}</p>
-                </div>
-              )}
             </div>
             {/* ── GP Health Panel ── */}
             {gpHealthOpen[project.id] && (() => {

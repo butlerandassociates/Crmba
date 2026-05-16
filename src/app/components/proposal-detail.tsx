@@ -3,7 +3,7 @@ import { formatCurrency } from "@/app/utils/format";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { useParams, Link, useNavigate } from "react-router";
+import { useParams, Link, useNavigate, useBlocker } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -34,6 +34,7 @@ import {
   RotateCcw,
   Ban,
   BadgePercent,
+  Check,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
@@ -142,8 +143,22 @@ export function ProposalDetail() {
   const [wizardCategory, setWizardCategory] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
 
+  // Custom sections + rename
+  const [customSections, setCustomSections] = useState<string[]>([]);
+  const [renamingCat, setRenamingCat] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
+  const [deletingCat, setDeletingCat] = useState<string | null>(null);
+
+  // Append wizard (wizard on saved drafts)
+  const [showAppendWizard, setShowAppendWizard] = useState(false);
+  const [appendWizardCategory, setAppendWizardCategory] = useState("");
+  const [appendTemplate, setAppendTemplate] = useState<any>(null);
+
   const [isDirty, setIsDirty] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingReload, setPendingReload] = useState(false);
   const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
   const [markingAccepted, setMarkingAccepted] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -183,6 +198,7 @@ export function ProposalDetail() {
       setEditTitle(est.title ?? "");
       setEditDescription(est.description ?? "");
       setEditLineItems(est.line_items ?? []);
+      setCustomSections((est.wizard_inputs?._customSections ?? []) as string[]);
       const dtype = (est.discount_type as "percent" | "fixed") ?? "percent";
       setDiscountType(dtype);
       setDiscountValue(dtype === "fixed" ? (est.discount_amount ?? 0) : (est.discount_percentage ?? 0));
@@ -227,6 +243,35 @@ export function ProposalDetail() {
     setIsDirty(titleChanged || descChanged || itemsChanged || feesChanged);
   }, [editTitle, editDescription, editLineItems, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal]);
 
+  // Block in-app navigation (browser back, nav links) — shows custom Save/Leave dialog
+  const blocker = useBlocker(isDirty);
+  useEffect(() => {
+    if (blocker.state === "blocked") setShowUnsavedDialog(true);
+  }, [blocker.state]);
+
+  // Intercept Ctrl+R and F5 — show custom dialog instead of browser reload
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!isDirty) return;
+      if ((e.ctrlKey && e.key === "r") || e.key === "F5") {
+        e.preventDefault();
+        setPendingReload(true);
+        setShowUnsavedDialog(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isDirty]);
+
+  // Fallback for browser reload button (can't show custom modal — native dialog only)
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   useEffect(() => {
     if (showPreview && proposal) {
       setPreviewPages([]);
@@ -238,7 +283,12 @@ export function ProposalDetail() {
     if (!id) return;
     estimatesAPI.getById(id).then((est) => {
       setProposal(est);
-      setEditLineItems(est.line_items ?? []);
+      // Preserve any unsaved local items (new-* ids) so realtime events from
+      // wizard DB writes don't wipe out items the user just added via picker
+      setEditLineItems((prev) => {
+        const unsaved = prev.filter((li) => String(li.id ?? "").startsWith("new-"));
+        return [...(est.line_items ?? []), ...unsaved];
+      });
     }).catch(console.error);
   }, ["estimates", "estimate_line_items"], "proposal-detail");
 
@@ -274,8 +324,14 @@ export function ProposalDetail() {
     );
   };
 
+  const getWizardType = (cat: string): string => {
+    const map = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
+    return map[cat] ?? cat;
+  };
+
   const handleWizardEdit = (category: string) => {
-    const template = templates.find((t: any) => t.category === category);
+    const wizardType = getWizardType(category);
+    const template = templates.find((t: any) => t.category === wizardType) ?? templates.find((t: any) => t.category === category);
     setActiveTemplate(template ?? null);
     setWizardCategory(category);
     setShowWizard(true);
@@ -356,6 +412,91 @@ export function ProposalDetail() {
     toast.success(`${wizardCategory} items updated`);
   };
 
+  const handleRenameCategory = async (oldCat: string, newCat: string) => {
+    const trimmed = newCat.trim();
+    if (!trimmed || trimmed === oldCat) { setRenamingCat(null); return; }
+    setEditLineItems((prev) => prev.map((li) => li.category === oldCat ? { ...li, category: trimmed } : li));
+    const updatedCustomSections = customSections.map((s) => s === oldCat ? trimmed : s);
+    setCustomSections(updatedCustomSections);
+    const existingMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
+    const originalType = existingMap[oldCat] ?? oldCat;
+    const updatedMap = { ...existingMap };
+    delete updatedMap[oldCat];
+    if (originalType !== trimmed) updatedMap[trimmed] = originalType;
+    const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _wizardTypeMap: updatedMap, _customSections: updatedCustomSections };
+    await supabase.from("estimate_line_items").update({ category: trimmed }).eq("estimate_id", proposal.id).eq("category", oldCat);
+    await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    setRenamingCat(null);
+  };
+
+  const saveCustomSections = async (sections: string[]) => {
+    const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _customSections: sections };
+    await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+  };
+
+  const handleDeleteCategory = async (cat: string) => {
+    const itemsInCat = editLineItems.filter((li) => li.category === cat);
+    const dbIds = itemsInCat.map((li) => li.id).filter((id: any) => id && !String(id).startsWith("new-"));
+    if (dbIds.length > 0) {
+      await supabase.from("estimate_line_items").delete().in("id", dbIds);
+    }
+    setEditLineItems((prev) => prev.filter((li) => li.category !== cat));
+    const updatedCustomSections = customSections.filter((s) => s !== cat);
+    setCustomSections(updatedCustomSections);
+    const existingMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
+    const updatedMap = { ...existingMap };
+    delete updatedMap[cat];
+    const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _wizardTypeMap: updatedMap, _customSections: updatedCustomSections };
+    await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    setDeletingCat(null);
+    toast.success(`"${cat}" section removed.`);
+  };
+
+  const handleWizardAppend = async (items: any[], formData?: Record<string, any>) => {
+    if (!proposal?.id) return;
+    const newRows = items.map((item, i) => ({
+      estimate_id: proposal.id,
+      category: appendWizardCategory,
+      name: item.productName,
+      product_name: item.productName,
+      description: item.description ?? null,
+      quantity: item.quantity,
+      fio_qty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
+      unit: item.unit,
+      material_cost: item.materialCost ?? 0,
+      labor_cost: item.laborCost ?? 0,
+      markup_percent: item.markupPercent ?? 0,
+      client_price: Math.round((item.pricePerUnit ?? 0) * 100) / 100,
+      total_price: Math.round((item.quantity ?? 0) * (item.pricePerUnit ?? 0) * 100) / 100,
+      sort_order: editLineItems.length + i,
+    }));
+    const { data: inserted, error: insertError } = await supabase.from("estimate_line_items").insert(newRows).select();
+    if (insertError) { toast.error("Failed to add wizard items — please try again."); return; }
+    const freshItems = inserted ?? newRows.map((r, i) => ({ ...r, id: `new-${Date.now()}-${i}` }));
+    const updatedItems = [...editLineItems, ...freshItems];
+    setEditLineItems(updatedItems);
+    setCustomSections((prev) => prev.filter((s) => s !== appendWizardCategory));
+    const newSubtotal = updatedItems.reduce((sum, it) => sum + (Number(it.quantity) * Number(it.client_price ?? 0)), 0);
+    const wizBadQualifying = updatedItems.filter((it) => BAD_CATEGORIES.includes(it.category) || Number(it.labor_cost ?? 0) > 0).reduce((s, it) => s + Number(it.quantity) * Number(it.client_price ?? 0), 0);
+    const wizBad = badOverride !== null ? badOverride : Math.round(wizBadQualifying * 0.015 * 1.5 * 100) / 100;
+    const origSubtotal = proposal.subtotal || 0;
+    const taxRatio = origSubtotal > 0 ? (proposal.tax_amount ?? 0) / origSubtotal : 0;
+    const wizTax = Math.round(newSubtotal * taxRatio * 100) / 100;
+    const newTotal = newSubtotal + wizBad + wizTax;
+    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
+    if (formData) {
+      const updatedInputs = { ...(proposal.wizard_inputs ?? {}), [appendWizardCategory]: formData };
+      await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+      setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    }
+    setShowAppendWizard(false);
+    toast.success(`${appendWizardCategory} items added`);
+  };
+
   const isLocked = proposal?.status === "accepted" || proposal?.status === "voided";
 
   const titleErr = !editTitle.trim() ? "Proposal title is required." : "";
@@ -430,6 +571,7 @@ export function ProposalDetail() {
           .map((item) =>
             supabase.from("estimate_line_items").update({
               product_name: item.product_name ?? item.name,
+              category: item.category ?? null,
               unit: item.unit ?? "",
               quantity: item.quantity,
               client_price: Number(item.client_price),
@@ -443,23 +585,10 @@ export function ProposalDetail() {
             }).eq("id", item.id)
           )
       );
-      setProposal((p: any) => ({
-        ...p,
-        title: editTitle,
-        description: editDescription,
-        subtotal: computedSubtotal,
-        total: computedTotal,
-        total_cost: computedTotalCost,
-        gross_profit: computedGrossProfit,
-        profit_margin: computedProfitMargin,
-        line_items: snapshot,
-        discount_type: discountType,
-        discount_percentage: discountType === "percent" ? discountValue : 0,
-        discount_amount: discountAmt,
-        discount_label: discountLabel || null,
-        stripe_fee_enabled: stripeFeeEnabled,
-        stripe_fee_amount: stripeFeeAmt,
-      }));
+      // Refresh from DB to replace new-* ids with real DB ids — prevents duplicates from realtime merge
+      const fresh = await estimatesAPI.getById(proposal.id);
+      setProposal(fresh);
+      setEditLineItems(fresh.line_items ?? []);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       toast.success("Proposal saved.");
     } catch (err: any) {
@@ -564,10 +693,11 @@ export function ProposalDetail() {
         })),
       ]);
 
-      const SCALE = 2;
+      const SCALE = 3;
       // Populated inside onclone (accurate layout in html2canvas iframe)
       const groupStartsCanvasPx: number[] = [];
       let   groupsEndCanvasPx = -1;
+      const groupStartsCanvasPx2: number[] = [];
       const groupStartsCanvasPx3: number[] = [];
       const baseOpts = {
         scale: SCALE,
@@ -580,7 +710,6 @@ export function ProposalDetail() {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
           Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
-          // Measure group positions while in the cloned iframe — getBoundingClientRect is reliable here
           if (el.id === "proposal-page-body") {
             const bodyRect = el.getBoundingClientRect();
             Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
@@ -590,6 +719,12 @@ export function ProposalDetail() {
             if (endEl) {
               groupsEndCanvasPx = Math.round((endEl.getBoundingClientRect().top - bodyRect.top) * SCALE);
             }
+          }
+          if (el.id === "proposal-page-body-2") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              groupStartsCanvasPx2.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
           }
           if (el.id === "proposal-page-body-3") {
             const bodyRect = el.getBoundingClientRect();
@@ -605,15 +740,15 @@ export function ProposalDetail() {
       const body1El  = q("proposal-page-body");
       const body2El  = q("proposal-page-body-2");
       const body3El  = q("proposal-page-body-3");
+      const lastFtrEl = q("proposal-last-footer");
       const colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !colHdrEl) return;
+      if (!hdrEl || !body1El || !colHdrEl) return;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, colHdrCanvas, body3Canvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, colHdrCanvas, lastFtrCanvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
-        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#ffffff" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
-        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
+        lastFtrEl ? html2canvas(lastFtrEl, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -623,20 +758,27 @@ export function ProposalDetail() {
       const pxPerPt = body1Canvas.width / pageW;
       const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
 
-      const hdrH = toPt(hdrCanvas);
+      const hdrH    = toPt(hdrCanvas);
+      const lastFtrH = lastFtrCanvas ? toPt(lastFtrCanvas) : 48;
       const colH = toPt(colHdrCanvas);
       const colW = colHdrCanvas.width / pxPerPt;
       const colX = (pageW - colW) / 2;
       const COL_GAP = 4;
 
       const PAD      = 10;
-      const BOTTOM_PAD = 48; // professional bottom margin replacing removed footer
+      const BOTTOM_PAD = lastFtrH;
       const slot     = pageH - hdrH - BOTTOM_PAD;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
-      const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
-      const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
+      const [body2Canvas, body3Canvas] = await Promise.all([
+        body2El ? html2canvas(body2El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+      ]);
+
+      const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.97);
+      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.97) : null;
+      const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.97);
 
       // Slice srcCanvas rows [yPx, yPx+hPx) into a new canvas — fully synchronous
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
@@ -705,7 +847,7 @@ export function ProposalDetail() {
           }
           const sliceCanvas = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
 
-          pdf.setFillColor(245, 243, 239);
+          pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
 
           pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
@@ -716,7 +858,7 @@ export function ProposalDetail() {
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
 
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
 
           consumed += sliceH;
           pageIdx++;
@@ -725,8 +867,10 @@ export function ProposalDetail() {
       };
 
       const nextPage  = renderBodyPages(body1Canvas, true, 0);
-      const nextPage2 = renderBodyPages(body2Canvas, false, nextPage);
+      const nextPage2 = body2Canvas ? renderBodyPages(body2Canvas, false, nextPage, groupStartsCanvasPx2) : nextPage;
       if (body3Canvas) renderBodyPages(body3Canvas, false, nextPage2, groupStartsCanvasPx3, -1);
+
+      if (lastFtrImg) pdf.addImage(lastFtrImg, "JPEG", 0, pageH - lastFtrH, pageW, lastFtrH);
 
       pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
@@ -753,10 +897,11 @@ export function ProposalDetail() {
         })),
       ]);
 
-      const SCALE = 2;
+      const SCALE = 3;
       // Populated inside onclone (accurate layout in html2canvas iframe)
       const previewGroupStartsPx: number[] = [];
       let   previewGroupsEndPx = -1;
+      const previewGroupStartsPx2: number[] = [];
       const previewGroupStartsPx3: number[] = [];
       const h2cOpts = {
         scale: SCALE, useCORS: true, allowTaint: false, logging: false,
@@ -765,7 +910,6 @@ export function ProposalDetail() {
           const root = el.getRootNode() as Document;
           Array.from(root.querySelectorAll('link[rel="stylesheet"], style')).forEach((s) => s.remove());
           Array.from(root.querySelectorAll('.screen-only')).forEach((s) => (s as HTMLElement).style.display = 'none');
-          // Measure group positions while in the cloned iframe — getBoundingClientRect is reliable here
           if (el.id === "proposal-page-body") {
             const bodyRect = el.getBoundingClientRect();
             Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
@@ -775,6 +919,12 @@ export function ProposalDetail() {
             if (endEl) {
               previewGroupsEndPx = Math.round((endEl.getBoundingClientRect().top - bodyRect.top) * SCALE);
             }
+          }
+          if (el.id === "proposal-page-body-2") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              previewGroupStartsPx2.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
           }
           if (el.id === "proposal-page-body-3") {
             const bodyRect = el.getBoundingClientRect();
@@ -788,15 +938,16 @@ export function ProposalDetail() {
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            lastFtrElPrev = q("proposal-last-footer"),
             colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !colHdrEl) return;
+      if (!hdrEl || !body1El || !colHdrEl) return;
 
-      const [hdrC, body1C, body2C, colC, body3C] = await Promise.all([
+      // Capture header, body1, colHeader, last-footer first to compute page slot dimensions
+      const [hdrC, body1C, colC, lastFtrC] = await Promise.all([
         html2canvas(hdrEl,    { ...h2cOpts, backgroundColor: "#0A0A0A" }),
-        html2canvas(body1El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(body2El,  { ...h2cOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body1El,  { ...h2cOpts, backgroundColor: "#ffffff" }),
         html2canvas(colHdrEl, { ...h2cOpts, backgroundColor: "#0A0A0A" }),
-        body3El ? html2canvas(body3El, { ...h2cOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
+        lastFtrElPrev ? html2canvas(lastFtrElPrev, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const pageW_pt = 595.28, pageH_pt = 841.89;
@@ -806,12 +957,18 @@ export function ProposalDetail() {
 
       const toPt  = (c: HTMLCanvasElement) => c.height / pxPerPt;
       const hdrH  = toPt(hdrC), colH = toPt(colC);
+      const lastFtrH_prev = lastFtrC ? toPt(lastFtrC) : 48;
       const colW  = colC.width / pxPerPt;
       const colX  = (pageW_pt - colW) / 2;
-      const COL_GAP = 4, PAD = 10, BOTTOM_PAD = 48;
-      const slot    = pageH_pt - hdrH - BOTTOM_PAD;
+      const COL_GAP = 4, PAD = 10;
+      const slot    = pageH_pt - hdrH - lastFtrH_prev;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
+
+      const [body2C, body3C] = await Promise.all([
+        body2El ? html2canvas(body2El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body3El ? html2canvas(body3El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+      ]);
 
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -881,7 +1038,7 @@ export function ProposalDetail() {
           page.width = pageW_px; page.height = pageH_px;
           const ctx = page.getContext("2d")!;
 
-          ctx.fillStyle = "#F5F3EF";
+          ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, pageW_px, pageH_px);
           ctx.drawImage(hdrC, 0, 0);
 
@@ -892,15 +1049,29 @@ export function ProposalDetail() {
           }
           ctx.drawImage(slice, 0, bodyY_px);
 
-          pages.push(page.toDataURL("image/jpeg", 0.92));
+          pages.push(page.toDataURL("image/jpeg", 0.96));
           consumed += sliceH;
           pageNum++;
         }
       };
 
       renderToPages(body1C, true);
-      renderToPages(body2C, false);
+      if (body2C) renderToPages(body2C, false, previewGroupStartsPx2);
       if (body3C) renderToPages(body3C, false, previewGroupStartsPx3, -1);
+
+      // Draw last-page footer (dark bar + thank you) on the very last preview page
+      if (lastFtrC && pages.length > 0) {
+        const lastImg = new Image();
+        lastImg.src = pages[pages.length - 1];
+        await new Promise<void>((res) => { lastImg.onload = () => res(); });
+        const lastCanvas = document.createElement("canvas");
+        lastCanvas.width = pageW_px; lastCanvas.height = pageH_px;
+        const ctx2 = lastCanvas.getContext("2d")!;
+        ctx2.drawImage(lastImg, 0, 0);
+        ctx2.drawImage(lastFtrC, 0, pageH_px - lastFtrC.height);
+        pages[pages.length - 1] = lastCanvas.toDataURL("image/jpeg", 0.96);
+      }
+
       setPreviewPages(pages);
     } catch (err: any) {
       console.error("Preview generation error:", err);
@@ -1013,7 +1184,7 @@ export function ProposalDetail() {
         })),
       ]);
 
-      const SCALE = 2;
+      const SCALE = 3;
       const baseOpts = {
         scale: SCALE, useCORS: true, allowTaint: false, logging: false,
         imageTimeout: 10000, removeContainer: true,
@@ -1027,15 +1198,15 @@ export function ProposalDetail() {
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            lastFtrEl_b64 = q("proposal-last-footer"),
             colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !colHdrEl) return null;
+      if (!hdrEl || !body1El || !colHdrEl) return null;
 
-      const [hdrCanvas, body1Canvas, body2Canvas, colHdrCanvas, body3Canvas] = await Promise.all([
+      const [hdrCanvas, body1Canvas, colHdrCanvas, lastFtrCanvas_b64] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
-        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
-        html2canvas(body2El,  { ...baseOpts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body1El,  { ...baseOpts, backgroundColor: "#ffffff" }),
         html2canvas(colHdrEl, { ...baseOpts, backgroundColor: "#0A0A0A" }),
-        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#F5F3EF" }) : Promise.resolve(null),
+        lastFtrEl_b64 ? html2canvas(lastFtrEl_b64, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -1046,18 +1217,25 @@ export function ProposalDetail() {
       const toPt    = (c: HTMLCanvasElement) => c.height / pxPerPt;
 
       const hdrH = toPt(hdrCanvas);
+      const lastFtrH_b64 = lastFtrCanvas_b64 ? toPt(lastFtrCanvas_b64) : 48;
       const colH = toPt(colHdrCanvas);
       const colW = colHdrCanvas.width / pxPerPt;
       const colX = (pageW - colW) / 2;
       const COL_GAP = 4;
 
-      const PAD = 10, BOTTOM_PAD = 48;
-      const slot     = pageH - hdrH - BOTTOM_PAD;
+      const PAD = 10;
+      const slot     = pageH - hdrH - lastFtrH_b64;
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
-      const hImg   = hdrCanvas.toDataURL("image/jpeg", 0.93);
-      const colImg = colHdrCanvas.toDataURL("image/jpeg", 0.93);
+      const [body2Canvas, body3Canvas] = await Promise.all([
+        body2El ? html2canvas(body2El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+      ]);
+
+      const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.97);
+      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/jpeg", 0.97) : null;
+      const colImg        = colHdrCanvas.toDataURL("image/jpeg", 0.97);
 
       const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1078,7 +1256,7 @@ export function ProposalDetail() {
           const avail   = (!isFirst && showCol) ? slotCol : slotFull;
           const sliceH  = Math.min(avail, bodyH - consumed);
           const sliceCanvas = makeSliceB64(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
-          pdf.setFillColor(245, 243, 239);
+          pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
           pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
@@ -1086,7 +1264,7 @@ export function ProposalDetail() {
             pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           pageIdx++;
         }
@@ -1094,8 +1272,10 @@ export function ProposalDetail() {
       };
 
       const nextPage  = renderPages(body1Canvas, true, 0);
-      const nextPage2 = renderPages(body2Canvas, false, nextPage);
+      const nextPage2 = body2Canvas ? renderPages(body2Canvas, false, nextPage) : nextPage;
       if (body3Canvas) renderPages(body3Canvas, false, nextPage2);
+
+      if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "JPEG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
 
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
@@ -1501,9 +1681,8 @@ export function ProposalDetail() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Title</Label>
             {isLocked
-              ? <p className="text-sm font-medium">{editTitle}</p>
+              ? <><Label>Title</Label><p className="text-sm font-medium">{editTitle}</p></>
               : <>
                   <Label>Title <span className="text-destructive">*</span></Label>
                   <Input
@@ -1530,10 +1709,45 @@ export function ProposalDetail() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Line Items</CardTitle>
           {!isLocked && (
-            <Button variant="outline" size="sm" onClick={() => { setShowItemPicker(true); setPickerCategory(""); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
-            </Button>
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5">
+                    <Wand2 className="h-4 w-4" />
+                    Add via Wizard
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel className="text-xs">Select wizard</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {templates.map((t: any) => {
+                    // If an existing category already maps to this wizard type (e.g. "Driveway Pavers" → "Pavers"),
+                    // append into that renamed category rather than creating a new one.
+                    const wizardTypeMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
+                    const existingCat = Object.keys(wizardTypeMap).find((k) => wizardTypeMap[k] === t.category)
+                      ?? (editLineItems.some((li) => li.category === t.category) ? t.category : null);
+                    const targetCat = existingCat ?? t.category;
+                    return (
+                      <DropdownMenuItem key={t.id ?? t.category} onClick={() => {
+                        setAppendWizardCategory(targetCat);
+                        setAppendTemplate(t);
+                        setShowAppendWizard(true);
+                      }}>
+                        {t.category}{targetCat !== t.category ? ` → ${targetCat}` : ""}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="outline" size="sm" onClick={() => { setNewSectionName(""); setShowAddSectionDialog(true); }}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                Add Section
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setShowItemPicker(true); setPickerCategory(""); }}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                Add Item
+              </Button>
+            </div>
           )}
         </CardHeader>
         {saveTouched && (itemsErr || totalErr) && (
@@ -1550,6 +1764,7 @@ export function ProposalDetail() {
               if (!groups[cat]) groups[cat] = [];
               groups[cat].push({ ...item, _idx: idx });
             });
+            customSections.forEach((s) => { if (!groups[s]) groups[s] = []; });
             return (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1567,21 +1782,56 @@ export function ProposalDetail() {
                   </thead>
                   <tbody className="divide-y">
                     {Object.entries(groups).map(([cat, groupItems]) => {
-                      const hasWizard = templates.some((t: any) => t.category === cat);
+                      const hasWizard = templates.some((t: any) => t.category === cat || t.category === getWizardType(cat));
                       return (
                         <Fragment key={cat}>
                           {/* Category header row */}
                           <tr className="border-b border-t">
                             <td colSpan={8} className="px-4 py-2 bg-muted/30">
                               <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
-                                {hasWizard && !isLocked && (
-                                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
-                                    <Wand2 className="h-3.5 w-3.5" />
-                                    Edit in Wizard
-                                  </Button>
+                                {renamingCat === cat ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      autoFocus
+                                      value={renameValue}
+                                      onChange={(e) => setRenameValue(e.target.value)}
+                                      onKeyDown={(e) => { if (e.key === "Enter") handleRenameCategory(cat, renameValue); if (e.key === "Escape") setRenamingCat(null); }}
+                                      className="text-xs font-semibold uppercase tracking-wide border border-input rounded px-2 py-0.5 bg-background w-48 focus:outline-none focus:ring-1 focus:ring-ring"
+                                    />
+                                    <button onClick={() => handleRenameCategory(cat, renameValue)} className="text-green-600 hover:text-green-700"><Check className="h-3.5 w-3.5" /></button>
+                                    <button onClick={() => setRenamingCat(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 group">
+                                    <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{cat}</span>
+                                    {!isLocked && (
+                                      <button
+                                        onClick={() => { setRenamingCat(cat); setRenameValue(cat); }}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
+                                <div className="flex items-center gap-1">
+                                  {hasWizard && !isLocked && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
+                                      <Wand2 className="h-3.5 w-3.5" />
+                                      Edit in Wizard
+                                    </Button>
+                                  )}
+                                  {!isLocked && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive" onClick={() => setDeletingCat(cat)}>
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      Delete
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
+                              {groupItems.length === 0 && (
+                                <p className="text-xs text-muted-foreground mt-1 italic">No items yet — use + Add Item and set category to "{cat}"</p>
+                              )}
                             </td>
                           </tr>
                           {groupItems.map((item: any) => {
@@ -1799,6 +2049,27 @@ export function ProposalDetail() {
                     {cat.name}
                   </button>
                 ))}
+                {customSections.length > 0 && (
+                  <>
+                    <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Custom Sections</p>
+                    {customSections.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => {
+                          setCustomItem((prev) => ({ ...prev, category: s }));
+                          setPickerCategory("__custom__");
+                        }}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          pickerCategory === "__custom__" && customItem.category === s
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
 
@@ -1969,15 +2240,109 @@ export function ProposalDetail() {
                   dbProducts={dbProducts}
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
-                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? proposal?.wizard_inputs?.[getWizardType(wizardCategory)] ?? undefined}
                 />
               ) : templates.some((t: any) => t.category === wizardCategory) ? (
                 <ConcreteWizard
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
-                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? proposal?.wizard_inputs?.[getWizardType(wizardCategory)] ?? undefined}
                 />
               ) : null
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Section Dialog */}
+      <Dialog open={showAddSectionDialog} onOpenChange={setShowAddSectionDialog}>
+        <DialogContent className="max-w-sm p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>Add Section</DialogTitle>
+            <DialogDescription>Create a custom named section to organize your line items</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4 space-y-3">
+            <Label>Section name</Label>
+            <Input
+              autoFocus
+              placeholder="e.g. Concrete Walkway"
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const name = newSectionName.trim();
+                  if (!name) return;
+                  const updated = customSections.includes(name) ? customSections : [...customSections, name];
+                  setCustomSections(updated);
+                  saveCustomSections(updated);
+                  setShowAddSectionDialog(false);
+                }
+              }}
+            />
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowAddSectionDialog(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => {
+              const name = newSectionName.trim();
+              if (!name) return;
+              const updated = customSections.includes(name) ? customSections : [...customSections, name];
+              setCustomSections(updated);
+              saveCustomSections(updated);
+              setShowAddSectionDialog(false);
+            }}>
+              Add Section
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Section Confirm Dialog */}
+      <Dialog open={!!deletingCat} onOpenChange={(o) => { if (!o) setDeletingCat(null); }}>
+        <DialogContent className="max-w-sm p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>Delete "{deletingCat}" section?</DialogTitle>
+            <DialogDescription>
+              {editLineItems.filter((li) => li.category === deletingCat).length > 0
+                ? `This will permanently remove all ${editLineItems.filter((li) => li.category === deletingCat).length} item(s) in this section.`
+                : "This empty section will be removed."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDeletingCat(null)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={() => deletingCat && handleDeleteCategory(deletingCat)}>
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Append Wizard Dialog */}
+      <Dialog open={showAppendWizard} onOpenChange={setShowAppendWizard}>
+        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4" />
+              Add {appendWizardCategory} via Wizard
+            </DialogTitle>
+            <DialogDescription>
+              Wizard items will be added to this proposal without removing existing items
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {showAppendWizard && (
+              appendTemplate ? (
+                <TemplateWizard
+                  template={appendTemplate}
+                  dbProducts={dbProducts}
+                  onComplete={handleWizardAppend}
+                  onCancel={() => setShowAppendWizard(false)}
+                />
+              ) : (
+                <ConcreteWizard
+                  onComplete={handleWizardAppend}
+                  onCancel={() => setShowAppendWizard(false)}
+                />
+              )
             )}
           </div>
         </DialogContent>
@@ -2167,15 +2532,32 @@ export function ProposalDetail() {
       </Dialog>
 
       {/* Unsaved changes guard */}
-      <Dialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+      <Dialog open={showUnsavedDialog} onOpenChange={(o) => {
+        if (!o) {
+          setPendingReload(false);
+          if (blocker.state === "blocked") blocker.reset?.();
+          setShowUnsavedDialog(false);
+        }
+      }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Unsaved changes</DialogTitle>
             <DialogDescription>You have unsaved changes to this proposal. What would you like to do?</DialogDescription>
           </DialogHeader>
           <div className="flex gap-3 px-6 py-4">
-            <Button variant="outline" className="flex-1" onClick={() => { setShowUnsavedDialog(false); navigate(`/clients/${proposal.client_id}`); }}>Leave</Button>
-            <Button className="flex-1" onClick={() => { setShowUnsavedDialog(false); handleSave(); }}>Save</Button>
+            <Button variant="outline" className="flex-1" onClick={() => {
+              setShowUnsavedDialog(false);
+              setPendingReload(false);
+              if (pendingReload) window.location.reload();
+              else if (blocker.state === "blocked") blocker.proceed?.();
+              else navigate(`/clients/${proposal.client_id}`);
+            }}>Leave</Button>
+            <Button className="flex-1" onClick={() => {
+              setShowUnsavedDialog(false);
+              setPendingReload(false);
+              if (blocker.state === "blocked") blocker.reset?.();
+              handleSave();
+            }}>Save</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2193,12 +2575,8 @@ export function ProposalDetail() {
           </DialogHeader>
           <div className="flex justify-end gap-3 px-6 py-4">
             <Button variant="outline" onClick={() => setPendingDeleteIdx(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={async () => {
+            <Button variant="destructive" onClick={() => {
               if (pendingDeleteIdx !== null) {
-                const item = editLineItems[pendingDeleteIdx];
-                if (item.id && !String(item.id).startsWith("new-")) {
-                  await supabase.from("estimate_line_items").delete().eq("id", item.id);
-                }
                 setEditLineItems((prev) => prev.filter((_, i) => i !== pendingDeleteIdx));
                 setPendingDeleteIdx(null);
               }

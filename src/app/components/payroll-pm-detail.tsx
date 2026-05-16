@@ -35,6 +35,7 @@ export function PayrollPMDetail() {
   const [expandedPayoutHistory, setExpandedPayoutHistory] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteInstallmentTarget, setDeleteInstallmentTarget] = useState<any>(null);
+  const [projectedCommission, setProjectedCommission] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -53,6 +54,26 @@ export function PayrollPMDetail() {
 
       const data = await commissionPaymentsAPI.getAll({ profile_id: id! });
       setInstallments(data);
+
+      if (profile?.role === "sales_rep") {
+        const { data: repProjects } = await supabase
+          .from("projects")
+          .select("gross_profit, sales_rep_commission_rate")
+          .eq("sales_rep_id", id!);
+        const projected = (repProjects ?? []).reduce((s: number, p: any) => {
+          const rate = Number(p.sales_rep_commission_rate) || Number(profile?.commission_rate) || 0;
+          return s + (Number(p.gross_profit) || 0) * (rate / 100);
+        }, 0);
+        setProjectedCommission(projected);
+      } else {
+        const { data: pmProjects } = await supabase
+          .from("projects")
+          .select("commission")
+          .eq("project_manager_id", id!);
+        const projected = (pmProjects ?? []).reduce((s: number, p: any) =>
+          s + (Number(p.commission) || 0), 0);
+        setProjectedCommission(projected);
+      }
 
       if (profile?.role === "sales_rep") {
         commissionPaymentsAPI.reconcileForSalesRep(id!).catch(() => {});
@@ -241,7 +262,21 @@ export function PayrollPMDetail() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${projectedCommission > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
+        {projectedCommission > 0 && (
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Projected Total</p>
+                  <p className="text-xl font-bold text-purple-600">{fmtShort(projectedCommission)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of GP</p>
+                </div>
+                <TrendingUp className="h-7 w-7 text-purple-500 opacity-60" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center justify-between">

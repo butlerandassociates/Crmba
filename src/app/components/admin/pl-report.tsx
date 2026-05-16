@@ -251,16 +251,18 @@ async function exportToExcel(data: PLData, logoUrl: string) {
     const row = ws.addRow({ label, amount: "" });
     ws.mergeCells(`A${row.number}:B${row.number}`);
     const c = row.getCell("label");
-    c.value = label.toUpperCase(); c.font = font({ bold: true, size: 9, color: C_GOLD });
-    c.fill = fill(C_BLACK); c.alignment = { vertical: "middle" }; row.height = 22; return row;
+    c.value = label.toUpperCase(); c.font = font({ bold: false, size: 9, color: C_GOLD });
+    c.fill = fill(C_WHITE); c.border = { top: { style: "thin", color: { argb: "FFE5E7EB" } } };
+    c.alignment = { vertical: "middle" }; row.height = 22; return row;
   };
 
   const groupHead = (label: string) => {
     const row = ws.addRow({ label, amount: "" });
     ws.mergeCells(`A${row.number}:B${row.number}`);
     const c = row.getCell("label");
-    c.value = label; c.font = font({ bold: true, size: 11, color: C_GOLD });
-    c.fill = fill("1A1A1A"); c.alignment = { vertical: "middle" }; row.height = 24; return row;
+    c.value = label; c.font = font({ bold: false, size: 11, color: C_GOLD });
+    c.fill = fill(C_WHITE); c.border = { top: { style: "medium", color: { argb: `FF${C_GOLD}` } } };
+    c.alignment = { vertical: "middle" }; row.height = 24; return row;
   };
 
   try {
@@ -278,41 +280,41 @@ async function exportToExcel(data: PLData, logoUrl: string) {
   spacer(C_CREAM);
   const sumRow = ws.addRow({ label: `Revenue: ${fmt(combined.rev)}   |   Costs: ${fmt(combined.cost)}   |   Profit: ${fmt(combined.gp)}   |   Margin: ${fmtPct(combined.margin)}`, amount: "" });
   ws.mergeCells(`A${sumRow.number}:B${sumRow.number}`);
-  sumRow.getCell("label").font = font({ bold: true, size: 11, color: C_DARK });
-  sumRow.getCell("label").fill = fill(C_CREAM); sumRow.height = 22;
-  spacer(C_CREAM); goldBar(); spacer();
+  sumRow.getCell("label").font = font({ bold: false, size: 11, color: C_DARK });
+  sumRow.getCell("label").fill = fill(C_WHITE); sumRow.height = 22;
+  spacer(C_WHITE); goldBar(); spacer(C_WHITE);
 
   const writeSection = (s: PLSection, t: ReturnType<typeof sectionTotals>, label: string) => {
+    const gpFg = t.gp >= 0 ? "15803D" : "B91C1C";
+    const npFg = t.netProfit >= 0 ? "15803D" : "B91C1C";
     groupHead(label);
     sectionHead("Revenue");
     addRow("Material Sold", s.materialSold, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
     addRow("Labor Sold",    s.laborSold,    { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_ALT),   amtFill: fill(C_ALT),   indent: 1 });
     if (s.otherSold > 0) addRow("Other", s.otherSold, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
-    addRow("Total Revenue", t.rev, { labelFont: font({ bold: true, size: 11, color: C_BLACK }), amtFont: font({ bold: true, size: 11, color: C_BLACK }), labelFill: fill(C_SAND), amtFill: fill(C_SAND), borders: topBorder(C_GOLD), height: 22 });
+    addRow("Total Revenue", t.rev, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), borders: topBorder("E5E7EB"), height: 22 });
     spacer();
     sectionHead("Cost of Goods Sold (Budgeted)");
     addRow("Material Costs", s.materialCosts, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
-    addRow("Labor Costs",    s.laborCosts,    { labelFont: font({ size: 11, color: C_RED }),  amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
-    addRow("Total COGS",     t.cost, { labelFont: font({ bold: true, size: 11, color: C_RED }), amtFont: font({ bold: true, size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), borders: topBorder(C_GOLD), height: 22 });
+    addRow("Labor Costs",    s.laborCosts,    { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_ALT),   amtFill: fill(C_ALT),   indent: 1 });
+    addRow("Total COGS",     t.cost, { labelFont: font({ size: 11, color: C_RED }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), borders: topBorder("E5E7EB"), height: 22 });
     spacer();
-    const gpBg = t.gp >= 0 ? "F0FDF4" : "FEF2F2"; const gpFg = t.gp >= 0 ? "15803D" : "B91C1C";
     sectionHead("Gross Profit");
-    addRow("Gross Profit", t.gp,  { labelFont: font({ bold: true, size: 13, color: gpFg }), amtFont: font({ bold: true, size: 13, color: gpFg }), labelFill: fill(gpBg), amtFill: fill(gpBg), borders: topBorder(C_GOLD), height: 26 });
-    addRow("Gross Margin", `${fmtPct(t.margin)}`, { labelFont: font({ size: 11, color: C_MUTED }), amtFont: font({ bold: true, size: 11, color: gpFg }), labelFill: fill(gpBg), amtFill: fill(gpBg) });
+    addRow("Gross Profit", t.gp,  { labelFont: font({ size: 11, color: gpFg }), amtFont: font({ size: 11, color: gpFg }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), borders: topBorder("E5E7EB"), height: 22 });
+    addRow("Gross Margin", `${fmtPct(t.margin)}`, { labelFont: font({ size: 11, color: C_MUTED }), amtFont: font({ size: 11, color: gpFg }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE) });
     spacer();
     sectionHead("Accounts Receivable");
-    addRow("Cash Collected (this period)", s.cashCollected, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: "15803D" }), labelFill: fill("F0FDF4"), amtFill: fill("F0FDF4"), indent: 1 });
-    addRow("Outstanding Balance",          s.outstandingBalance, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: "B45309" }), labelFill: fill("FFFBEB"), amtFill: fill("FFFBEB"), indent: 1 });
+    addRow("Cash Collected (this period)", s.cashCollected, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: "15803D" }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
+    addRow("Outstanding Balance",          s.outstandingBalance, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_DARK }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), indent: 1 });
     spacer();
     sectionHead("Actual Costs (This Period)");
     addRow("Actual Material Costs", s.actualMaterialCosts, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
-    addRow("Actual Labor Costs",    s.actualLaborCosts,    { labelFont: font({ size: 11, color: C_RED }),  amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
-    addRow("Total Actual Costs",    t.actualCost, { labelFont: font({ bold: true, size: 11, color: C_RED }), amtFont: font({ bold: true, size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), borders: topBorder(C_GOLD), height: 22 });
+    addRow("Actual Labor Costs",    s.actualLaborCosts,    { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_ALT),   amtFill: fill(C_ALT),   indent: 1 });
+    addRow("Total Actual Costs",    t.actualCost, { labelFont: font({ size: 11, color: C_RED }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), borders: topBorder("E5E7EB"), height: 22 });
     spacer();
-    const npBg = t.netProfit >= 0 ? "F0FDF4" : "FEF2F2"; const npFg = t.netProfit >= 0 ? "15803D" : "B91C1C";
     sectionHead("Net Profit");
-    addRow("Commission Expense", s.commissions, { labelFont: font({ size: 11, color: C_RED }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_RED_BG), amtFill: fill(C_RED_BG), indent: 1 });
-    addRow("Net Profit", t.netProfit, { labelFont: font({ bold: true, size: 13, color: npFg }), amtFont: font({ bold: true, size: 13, color: npFg }), labelFill: fill(npBg), amtFill: fill(npBg), borders: topBorder(C_GOLD), height: 26 });
+    addRow("Commission Expense", s.commissions, { labelFont: font({ size: 11, color: C_DARK }), amtFont: font({ size: 11, color: C_RED }), labelFill: fill(C_WHITE), amtFill: fill(C_WHITE), indent: 1 });
+    addRow("Net Profit", t.netProfit, { labelFont: font({ size: 11, color: npFg }), amtFont: font({ size: 11, color: npFg }), labelFill: fill(C_ALT), amtFill: fill(C_ALT), borders: topBorder("E5E7EB"), height: 22 });
     spacer(); goldBar(); spacer();
   };
 
@@ -321,8 +323,8 @@ async function exportToExcel(data: PLData, logoUrl: string) {
   writeSection(combineSection(data.active, data.completed), combined, "► Combined Total");
 
   const genDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  mergedHeader(`Generated ${genDate}  ·  Butler & Associates Construction, Inc.  ·  Huntsville, AL 35806`, C_BLACK, C_MUTED, 8, false);
-  mergedHeader("Revenue reflects estimate line items in period. Costs reflect receipts in period. Verify with your accounting method.", C_BLACK, "444444", 7, false);
+  mergedHeader(`Generated ${genDate}  ·  Butler & Associates Construction, Inc.  ·  Huntsville, AL 35806`, C_WHITE, C_MUTED, 8, false);
+  mergedHeader("Revenue reflects estimate line items in period. Costs reflect receipts in period. Verify with your accounting method.", C_WHITE, C_MUTED, 7, false);
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -347,15 +349,15 @@ function buildSectionHtml(s: PLSection, t: ReturnType<typeof sectionTotals>, lab
 
   const totRow = (lbl: string, amount: number, opts: { red?: boolean } = {}) => `
     <tr style="background:${opts.red ? "#FEF2F2" : "#F0EDE8"};">
-      <td style="padding:${p} 0 ${p} 14px;font-size:${fs};font-weight:700;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;">${lbl}</td>
-      <td style="padding:${p} 0 ${p} 0;font-size:${fs};font-weight:700;text-align:right;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;font-variant-numeric:tabular-nums;">${fmt(amount)}</td>
+      <td style="padding:${p} 0 ${p} 14px;font-size:${fs};font-weight:500;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;">${lbl}</td>
+      <td style="padding:${p} 0 ${p} 0;font-size:${fs};font-weight:500;text-align:right;color:${opts.red ? "#B91C1C" : "#0A0A0A"};border-top:2px solid #BB984D;font-variant-numeric:tabular-nums;">${fmt(amount)}</td>
     </tr>`;
 
   const secHead = (lbl: string) =>
-    `<div style="background:#0A0A0A;color:#BB984D;font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;padding:6px 32px;margin:10px -32px 0;">${lbl}</div>`;
+    `<div style="background:#fff;color:#BB984D;font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;padding:6px 32px;margin:10px -32px 0;border-top:1px solid #e5e7eb;">${lbl}</div>`;
 
   return `
-    <div style="background:#1A1A1A;color:#BB984D;font-size:11px;font-weight:700;padding:8px 32px;margin:16px -32px 0;letter-spacing:1px;">${label}</div>
+    <div style="background:#fff;color:#BB984D;font-size:11px;font-weight:500;padding:8px 32px;margin:16px -32px 0;letter-spacing:1px;border-top:2px solid #BB984D;">${label}</div>
     ${secHead("Revenue")}
     <table style="width:100%;border-collapse:collapse;">
       ${row("Material Sold", s.materialSold)}
@@ -371,12 +373,12 @@ function buildSectionHtml(s: PLSection, t: ReturnType<typeof sectionTotals>, lab
     </table>
     <div style="margin-top:10px;background:${GRN_BG};border-top:2px solid #BB984D;border-bottom:2px solid #BB984D;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <div style="font-size:13px;font-weight:700;color:${GRN};">Gross Profit</div>
+        <div style="font-size:13px;font-weight:500;color:${GRN};">Gross Profit</div>
         <div style="font-size:11px;color:#888;margin-top:2px;">Gross Margin</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:13px;font-weight:700;color:${GRN};font-variant-numeric:tabular-nums;">${fmt(t.gp)}</div>
-        <div style="font-size:11px;font-weight:600;color:${GRN};margin-top:2px;">${fmtPct(t.margin)}</div>
+        <div style="font-size:13px;font-weight:500;color:${GRN};font-variant-numeric:tabular-nums;">${fmt(t.gp)}</div>
+        <div style="font-size:11px;font-weight:500;color:${GRN};margin-top:2px;">${fmtPct(t.margin)}</div>
       </div>
     </div>
     ${secHead("Accounts Receivable")}
@@ -395,8 +397,8 @@ function buildSectionHtml(s: PLSection, t: ReturnType<typeof sectionTotals>, lab
       ${row("Commission Expense", s.commissions, { red: true })}
     </table>
     <div style="margin-top:10px;background:${t.netProfit >= 0 ? "#F0FDF4" : "#FEF2F2"};border-top:2px solid #BB984D;border-bottom:2px solid #BB984D;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-size:13px;font-weight:700;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};">Net Profit</div>
-      <div style="font-size:13px;font-weight:700;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};font-variant-numeric:tabular-nums;">${fmt(t.netProfit)}</div>
+      <div style="font-size:13px;font-weight:500;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};">Net Profit</div>
+      <div style="font-size:13px;font-weight:500;color:${t.netProfit >= 0 ? "#15803D" : "#B91C1C"};font-variant-numeric:tabular-nums;">${fmt(t.netProfit)}</div>
     </div>`;
 }
 
@@ -408,78 +410,59 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
   const GRN       = combined.gp >= 0 ? "#15803D" : "#B91C1C";
   const genDate   = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-  const cell = (val: string, bold = false, color = "#3A3A38", bg = "#fff") =>
-    `<td style="padding:11px 18px;font-size:11px;font-weight:${bold ? 700 : 400};color:${color};background:${bg};text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;border-bottom:1px solid #F0EDE8;">${val}</td>`;
+  const BORDER = "border-bottom:1px solid #e5e7eb;";
+  const cell = (val: string, bold = false, color = "#3A3A38") =>
+    `<td style="padding:10px 18px;font-size:11px;font-weight:${bold ? 500 : 400};color:${color};background:#fff;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;${BORDER}">${val}</td>`;
+  const cellAlt = (val: string, bold = false, color = "#3A3A38") =>
+    `<td style="padding:10px 18px;font-size:11px;font-weight:${bold ? 500 : 400};color:${color};background:#f9fafb;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;${BORDER}">${val}</td>`;
+  const cellTotal = (val: string, color = "#3A3A38") =>
+    `<td style="padding:10px 18px;font-size:11px;font-weight:500;color:${color};background:#f3f4f6;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;border-top:1px solid #e5e7eb;${BORDER}">${val}</td>`;
+  const labelCell = (val: string, bold = false, alt = false) =>
+    `<td style="padding:10px 20px;font-size:11px;font-weight:${bold ? 500 : 400};color:#3A3A38;background:${alt ? "#f9fafb" : "#fff"};${BORDER}">${val}</td>`;
+  const labelTotal = (val: string, color = "#3A3A38") =>
+    `<td style="padding:10px 20px;font-size:11px;font-weight:500;color:${color};background:#f3f4f6;border-top:1px solid #e5e7eb;${BORDER}">${val}</td>`;
 
-  const labelCell = (val: string, bold = false, bg = "#fff") =>
-    `<td style="padding:11px 20px;font-size:11px;font-weight:${bold ? 700 : 400};color:#3A3A38;background:${bg};border-bottom:1px solid #F0EDE8;">${val}</td>`;
-
-  const gpBg  = combined.gp >= 0 ? "#F0FDF4" : "#FEF2F2";
   const gpFgA = active.gp    >= 0 ? "#15803D" : "#B91C1C";
   const gpFgC = completed.gp >= 0 ? "#15803D" : "#B91C1C";
   const gpFgT = combined.gp  >= 0 ? "#15803D" : "#B91C1C";
-
-  const cmb = combineSection(data.active, data.completed);
-  const npBgA = active.netProfit    >= 0 ? "#F0FDF4" : "#FEF2F2";
-  const npBgC = completed.netProfit >= 0 ? "#F0FDF4" : "#FEF2F2";
-  const npBgT = combined.netProfit  >= 0 ? "#F0FDF4" : "#FEF2F2";
   const npFgA = active.netProfit    >= 0 ? "#15803D" : "#B91C1C";
   const npFgC = completed.netProfit >= 0 ? "#15803D" : "#B91C1C";
   const npFgT = combined.netProfit  >= 0 ? "#15803D" : "#B91C1C";
+  const cmb   = combineSection(data.active, data.completed);
 
-  const rows = [
-    // [label, boldLabel, activeVal, completedVal, combinedVal, boldVals, labelBg, cellBg, amtColor]
-    ["REVENUE", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Material Sold", false, fmt(data.active.materialSold), fmt(data.completed.materialSold), fmt(cmb.materialSold), false, "#fff", "#fff", "#3A3A38"],
-    ["Labor Sold", false, fmt(data.active.laborSold), fmt(data.completed.laborSold), fmt(cmb.laborSold), false, "#FAF8F5", "#FAF8F5", "#3A3A38"],
-    ...(data.active.otherSold > 0 || data.completed.otherSold > 0
-      ? [["Other (incl. BAD)", false, fmt(data.active.otherSold), fmt(data.completed.otherSold), fmt(cmb.otherSold), false, "#fff", "#fff", "#3A3A38"]] : []),
-    ["Total Revenue", true, fmt(active.rev), fmt(completed.rev), fmt(combined.rev), true, "#F0EDE8", "#F0EDE8", "#0A0A0A"],
-    ["COST OF GOODS SOLD (BUDGETED)", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Material Costs", false, fmt(data.active.materialCosts), fmt(data.completed.materialCosts), fmt(cmb.materialCosts), false, "#fff", "#fff", "#B91C1C"],
-    ["Labor Costs", false, fmt(data.active.laborCosts), fmt(data.completed.laborCosts), fmt(cmb.laborCosts), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["Total COGS", true, fmt(active.cost), fmt(completed.cost), fmt(combined.cost), true, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["GROSS PROFIT", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Gross Profit", true, fmt(active.gp), fmt(completed.gp), fmt(combined.gp), true, gpBg, gpBg, "MIXED_GP"],
-    ["Gross Margin", false, fmtPct(active.margin), fmtPct(completed.margin), fmtPct(combined.margin), false, gpBg, gpBg, "MIXED_GP"],
-    ["ACCOUNTS RECEIVABLE", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Cash Collected (this period)", false, fmt(data.active.cashCollected), fmt(data.completed.cashCollected), fmt(cmb.cashCollected), false, "#F0FDF4", "#F0FDF4", "#15803D"],
-    ["Outstanding Balance", false, fmt(data.active.outstandingBalance), fmt(data.completed.outstandingBalance), fmt(cmb.outstandingBalance), false, "#FFFBEB", "#FFFBEB", "#B45309"],
-    ["ACTUAL COSTS (THIS PERIOD)", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Actual Material Costs", false, fmt(data.active.actualMaterialCosts), fmt(data.completed.actualMaterialCosts), fmt(cmb.actualMaterialCosts), false, "#fff", "#fff", "#B91C1C"],
-    ["Actual Labor Costs", false, fmt(data.active.actualLaborCosts), fmt(data.completed.actualLaborCosts), fmt(cmb.actualLaborCosts), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["Total Actual Costs", true, fmt(active.actualCost), fmt(completed.actualCost), fmt(combined.actualCost), true, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["NET PROFIT", true, "", "", "", true, "#0A0A0A", "#0A0A0A", "#BB984D"],
-    ["Commission Expense", false, fmt(data.active.commissions), fmt(data.completed.commissions), fmt(cmb.commissions), false, "#FEF2F2", "#FEF2F2", "#B91C1C"],
-    ["Net Profit", true, fmt(active.netProfit), fmt(completed.netProfit), fmt(combined.netProfit), true, "MIXED_NP_BG", "MIXED_NP_BG", "MIXED_NP"],
-  ] as const;
+  const secRow = (lbl: string) => `<tr>
+    <td colspan="4" style="padding:7px 20px;font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#BB984D;background:#fff;border-top:1px solid #e5e7eb;">${lbl}</td>
+  </tr>`;
 
-  const tableRows = rows.map(([label, boldL, av, cv, tv, boldV, lBg, cBg, amtColor]) => {
-    const isSection  = (amtColor as string) === "#BB984D";
-    const isMixedGP  = (amtColor as string) === "MIXED_GP";
-    const isMixedNP  = (amtColor as string) === "MIXED_NP";
-    const isMixedBg  = (lBg as string) === "MIXED_NP_BG";
-    const borderTop  = ["Total Revenue","Total COGS","Gross Profit","Net Profit","Total Actual Costs"].includes(label as string) ? "border-top:2px solid #BB984D;" : "";
+  const tableRows = [
+    secRow("Revenue"),
+    `<tr>${labelCell("Material Sold")}${cell(fmt(data.active.materialSold))}${cell(fmt(data.completed.materialSold))}${cell(fmt(cmb.materialSold))}</tr>`,
+    `<tr>${labelCell("Labor Sold",false,true)}${cellAlt(fmt(data.active.laborSold))}${cellAlt(fmt(data.completed.laborSold))}${cellAlt(fmt(cmb.laborSold))}</tr>`,
+    ...(data.active.otherSold > 0 || data.completed.otherSold > 0 ? [`<tr>${labelCell("Other (incl. BAD)")}${cell(fmt(data.active.otherSold))}${cell(fmt(data.completed.otherSold))}${cell(fmt(cmb.otherSold))}</tr>`] : []),
+    `<tr>${labelTotal("Total Revenue")}${cellTotal(fmt(active.rev))}${cellTotal(fmt(completed.rev))}${cellTotal(fmt(combined.rev))}</tr>`,
 
-    if (isSection) {
-      return `<tr>
-        <td colspan="4" style="padding:10px 20px;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#BB984D;background:#0A0A0A;${borderTop}">${label}</td>
-      </tr>`;
-    }
-    const aColor = isMixedGP ? gpFgA : isMixedNP ? npFgA : (amtColor as string);
-    const cColor = isMixedGP ? gpFgC : isMixedNP ? npFgC : (amtColor as string);
-    const tColor = isMixedGP ? gpFgT : isMixedNP ? npFgT : (amtColor as string);
-    const aBg = isMixedBg ? npBgA : (cBg as string);
-    const cBg2 = isMixedBg ? npBgC : (cBg as string);
-    const tBg = isMixedBg ? npBgT : (cBg as string);
-    const lBgFinal = isMixedBg ? npBgT : (lBg as string);
-    return `<tr style="${borderTop}">
-      ${labelCell(label as string, boldL as boolean, lBgFinal)}
-      ${cell(av as string, boldV as boolean, aColor, aBg)}
-      ${cell(cv as string, boldV as boolean, cColor, cBg2)}
-      ${cell(tv as string, boldV as boolean, tColor, tBg)}
-    </tr>`;
-  }).join("");
+    secRow("Cost of Goods Sold (Budgeted)"),
+    `<tr>${labelCell("Material Costs")}${cell(fmt(data.active.materialCosts),false,"#B91C1C")}${cell(fmt(data.completed.materialCosts),false,"#B91C1C")}${cell(fmt(cmb.materialCosts),false,"#B91C1C")}</tr>`,
+    `<tr>${labelCell("Labor Costs",false,true)}${cellAlt(fmt(data.active.laborCosts),false,"#B91C1C")}${cellAlt(fmt(data.completed.laborCosts),false,"#B91C1C")}${cellAlt(fmt(cmb.laborCosts),false,"#B91C1C")}</tr>`,
+    `<tr>${labelTotal("Total COGS","#B91C1C")}${cellTotal(fmt(active.cost),"#B91C1C")}${cellTotal(fmt(completed.cost),"#B91C1C")}${cellTotal(fmt(combined.cost),"#B91C1C")}</tr>`,
+
+    secRow("Gross Profit"),
+    `<tr>${labelTotal("Gross Profit",gpFgT)}${cellTotal(fmt(active.gp),gpFgA)}${cellTotal(fmt(completed.gp),gpFgC)}${cellTotal(fmt(combined.gp),gpFgT)}</tr>`,
+    `<tr>${labelCell("Gross Margin")}${cell(fmtPct(active.margin))}${cell(fmtPct(completed.margin))}${cell(fmtPct(combined.margin))}</tr>`,
+
+    secRow("Accounts Receivable"),
+    `<tr>${labelCell("Cash Collected (this period)")}${cell(fmt(data.active.cashCollected),false,"#15803D")}${cell(fmt(data.completed.cashCollected),false,"#15803D")}${cell(fmt(cmb.cashCollected),false,"#15803D")}</tr>`,
+    `<tr>${labelCell("Outstanding Balance",false,true)}${cellAlt(fmt(data.active.outstandingBalance))}${cellAlt(fmt(data.completed.outstandingBalance))}${cellAlt(fmt(cmb.outstandingBalance))}</tr>`,
+
+    secRow("Actual Costs (This Period)"),
+    `<tr>${labelCell("Actual Material Costs")}${cell(fmt(data.active.actualMaterialCosts),false,"#B91C1C")}${cell(fmt(data.completed.actualMaterialCosts),false,"#B91C1C")}${cell(fmt(cmb.actualMaterialCosts),false,"#B91C1C")}</tr>`,
+    `<tr>${labelCell("Actual Labor Costs",false,true)}${cellAlt(fmt(data.active.actualLaborCosts),false,"#B91C1C")}${cellAlt(fmt(data.completed.actualLaborCosts),false,"#B91C1C")}${cellAlt(fmt(cmb.actualLaborCosts),false,"#B91C1C")}</tr>`,
+    `<tr>${labelTotal("Total Actual Costs","#B91C1C")}${cellTotal(fmt(active.actualCost),"#B91C1C")}${cellTotal(fmt(completed.actualCost),"#B91C1C")}${cellTotal(fmt(combined.actualCost),"#B91C1C")}</tr>`,
+
+    secRow("Net Profit"),
+    `<tr>${labelCell("Commission Expense")}${cell(fmt(data.active.commissions),false,"#B91C1C")}${cell(fmt(data.completed.commissions),false,"#B91C1C")}${cell(fmt(cmb.commissions),false,"#B91C1C")}</tr>`,
+    `<tr>${labelTotal("Net Profit",npFgT)}${cellTotal(fmt(active.netProfit),npFgA)}${cellTotal(fmt(completed.netProfit),npFgC)}${cellTotal(fmt(combined.netProfit),npFgT)}</tr>`,
+  ].join("");
 
   return `<!DOCTYPE html>
 <html>
@@ -497,18 +480,26 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
 <body>
 <div class="doc">
   <!-- Header -->
-  <div style="background:#0A0A0A;padding:22px 32px;text-align:center;flex-shrink:0;">
-    <img src="${logoUrl}" style="height:46px;width:auto;display:block;margin:0 auto 10px auto;" alt="Logo"/>
-    <div style="font-size:8px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#BB984D;margin-bottom:6px;">Butler &amp; Associates Construction, Inc.</div>
-    <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:3px;">Profit &amp; Loss Statement</div>
-    <div style="font-size:11px;color:#888;">Period: ${data.periodLabel}</div>
+  <div style="background:#0A0A0A;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <img src="${logoUrl}" style="height:46px;width:auto;flex-shrink:0;" alt="Logo"/>
+      <div>
+        <div style="font-size:14px;font-weight:500;color:#fff;margin-bottom:4px;">Butler &amp; Associates Construction, Inc.</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:2px;">6275 University Drive NW, Suite 37-314, Huntsville, AL 35806</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.6);">(256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co</div>
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0;">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#BB984D;margin-bottom:4px;">Profit &amp; Loss Statement</div>
+      <div style="font-size:13px;font-weight:500;color:#fff;">Period: ${data.periodLabel}</div>
+    </div>
   </div>
   <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);flex-shrink:0;"></div>
 
   <!-- Summary bar -->
-  <div style="background:#F5F3EF;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #E8E4DC;flex-shrink:0;">
+  <div style="background:#fff;display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #e5e7eb;flex-shrink:0;">
     ${[["Total Revenue", fmt(combined.rev), "#3A3A38"], ["Total Costs", fmt(combined.cost), "#B91C1C"], ["Gross Profit", fmt(combined.gp), GRN], ["Gross Margin", fmtPct(combined.margin).replace(" %","%"), GRN]].map(([l, v, c]) =>
-      `<div style="padding:13px 20px;text-align:center;"><div style="font-size:8px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:#888;margin-bottom:5px;">${l}</div><div style="font-size:15px;font-weight:700;color:${c};font-variant-numeric:tabular-nums;white-space:nowrap;">${v}</div></div>`).join("")}
+      `<div style="padding:12px 20px;text-align:center;"><div style="font-size:8px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase;color:#999;margin-bottom:5px;">${l}</div><div style="font-size:15px;font-weight:500;color:${c};font-variant-numeric:tabular-nums;white-space:nowrap;">${v}</div></div>`).join("")}
   </div>
 
   <!-- Comparison table -->
@@ -516,21 +507,19 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
     <table style="margin-top:18px;">
       <thead>
         <tr>
-          <th style="padding:10px 20px;font-size:10px;font-weight:600;text-align:left;color:#888;border-bottom:2px solid #BB984D;background:#fff;width:40%;"></th>
-          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Current (Active)</th>
-          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;color:#3A3A38;border-bottom:2px solid #BB984D;background:#F5F3EF;">Closed (Completed)</th>
-          <th style="padding:10px 18px;font-size:10px;font-weight:600;text-align:right;border-bottom:2px solid #BB984D;background:#0A0A0A;color:#BB984D;">Combined Total</th>
+          <th style="padding:10px 20px;font-size:10px;font-weight:500;text-align:left;color:#999;border-bottom:2px solid #e5e7eb;background:#fff;width:40%;"></th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:500;text-align:right;color:#999;border-bottom:2px solid #e5e7eb;background:#fff;text-transform:uppercase;letter-spacing:.08em;">Current (Active)</th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:500;text-align:right;color:#999;border-bottom:2px solid #e5e7eb;background:#fff;text-transform:uppercase;letter-spacing:.08em;">Closed (Completed)</th>
+          <th style="padding:10px 18px;font-size:10px;font-weight:500;text-align:right;border-bottom:2px solid #e5e7eb;background:#fff;color:#999;text-transform:uppercase;letter-spacing:.08em;">Combined Total</th>
         </tr>
       </thead>
       <tbody>${tableRows}</tbody>
     </table>
   </div>
 
-  <!-- Footer -->
-  <div style="background:#0A0A0A;padding:12px 32px;flex-shrink:0;margin-top:auto;text-align:center;">
-    <div style="font-size:9px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase;color:#BB984D;margin-bottom:3px;">Butler &amp; Associates Construction, Inc.</div>
-    <div style="font-size:10px;color:#555;margin-bottom:4px;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</div>
-    <div style="font-size:9px;color:#444;line-height:1.5;">Generated ${genDate} · Revenue reflects estimate line items created in period. Costs reflect receipts in period. BAD included in revenue per company policy.</div>
+  <!-- Footnote -->
+  <div style="padding:10px 32px 16px;flex-shrink:0;">
+    <div style="font-size:9px;color:#aaa;line-height:1.5;">Generated ${genDate} · Revenue reflects estimate line items created in period. Costs reflect receipts in period. BAD included in revenue per company policy.</div>
   </div>
 </div>
 </body></html>`;
@@ -710,22 +699,19 @@ export function PLReport() {
               {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {loading ? "Generating…" : "Generate Report"}
             </Button>
+            {data && (
+              <div className="flex gap-2 ml-auto self-end">
+                <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
+                  <Eye className="h-4 w-4 mr-2" />Preview
+                </Button>
+                {/* Excel export hidden — style not ready */}
+                <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exportingPdf}>
+                  {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileDown className="h-4 w-4 mr-2" />}
+                  {exportingPdf ? "Exporting…" : "Export PDF"}
+                </Button>
+              </div>
+            )}
           </div>
-
-          {data && (
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
-                <Eye className="h-4 w-4 mr-2" />Preview
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { exportToExcel(data, baLogoUrl).catch((e) => toast.error(e.message || "Export failed")); }}>
-                <Download className="h-4 w-4 mr-2" />Export Excel
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exportingPdf}>
-                {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileDown className="h-4 w-4 mr-2" />}
-                {exportingPdf ? "Exporting…" : "Export PDF"}
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -788,7 +774,7 @@ export function PLReport() {
               </DialogTitle>
               <DialogDescription>This is exactly how the exported PDF will look.</DialogDescription>
             </DialogHeader>
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-b-lg flex justify-center bg-[#F5F3EF] p-3">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-b-lg flex justify-center bg-gray-100 p-3">
               <iframe
                 srcDoc={buildPreviewHtml(data, baLogoUrl)}
                 style={{ width: `${PREVIEW_W}px`, height: `${PREVIEW_H}px`, border: "none", display: "block", flexShrink: 0 }}

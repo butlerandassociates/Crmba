@@ -27,6 +27,7 @@ const EMPTY_ITEM = () => ({
   category: "Materials",
   description: "",
   quantity: 1,
+  unit: "",
   unit_price: 0,
   total: 0,
 });
@@ -135,6 +136,7 @@ export function ChangeOrderBuilder() {
                 category: i.category || "Materials",
                 description: i.description || "",
                 quantity: i.quantity || 1,
+                unit: i.unit || "",
                 unit_price: i.unit_price || 0,
                 total: i.total || 0,
               })));
@@ -203,7 +205,7 @@ export function ChangeOrderBuilder() {
     const categoryName = product.category?.name || "Materials";
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      return { ...item, category: categoryName, description: product.name, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
+      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
     }));
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
@@ -290,6 +292,7 @@ export function ChangeOrderBuilder() {
         category: i.category,
         description: i.description,
         quantity: Number(i.quantity),
+        unit: i.unit || "",
         unit_price: Number(i.unit_price),
         total: Number(i.total),
       }));
@@ -364,6 +367,7 @@ export function ChangeOrderBuilder() {
         category: i.category,
         description: i.description,
         quantity: Number(i.quantity),
+        unit: i.unit || "",
         unit_price: Number(i.unit_price),
         total: Number(i.total),
       }));
@@ -752,10 +756,11 @@ export function ChangeOrderBuilder() {
 
             {/* Column headers */}
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground px-1 hidden sm:grid">
-              <div className="col-span-5">Description</div>
+              <div className="col-span-4">Description</div>
               <div className="col-span-2 text-center">Qty</div>
+              <div className="col-span-2 text-center">Unit</div>
               <div className="col-span-2 text-right">Unit Price</div>
-              <div className="col-span-2 text-right">Total</div>
+              <div className="col-span-1 text-right">Total</div>
               <div className="col-span-1" />
             </div>
 
@@ -809,7 +814,7 @@ export function ChangeOrderBuilder() {
 
                     {/* Item fields */}
                     <div className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-12 sm:col-span-5">
+                      <div className="col-span-12 sm:col-span-4">
                         <Input
                           placeholder="Description *"
                           value={item.description}
@@ -817,7 +822,7 @@ export function ChangeOrderBuilder() {
                           className={`h-8 text-sm ${touched && !item.description.trim() ? "border-destructive" : ""}`}
                         />
                       </div>
-                      <div className="col-span-6 sm:col-span-2">
+                      <div className="col-span-4 sm:col-span-2">
                         <Input
                           type="number" min="0" step="0.01"
                           value={item.quantity}
@@ -825,7 +830,15 @@ export function ChangeOrderBuilder() {
                           className="h-8 text-sm text-center"
                         />
                       </div>
-                      <div className="col-span-6 sm:col-span-2">
+                      <div className="col-span-4 sm:col-span-2">
+                        <Input
+                          placeholder="e.g. SF, each"
+                          value={item.unit}
+                          onChange={e => updateItem(item.id, "unit", e.target.value)}
+                          className="h-8 text-sm text-center"
+                        />
+                      </div>
+                      <div className="col-span-4 sm:col-span-2">
                         <Input
                           type="number" min="0" step="0.01"
                           value={item.unit_price}
@@ -833,7 +846,7 @@ export function ChangeOrderBuilder() {
                           className="h-8 text-sm text-right"
                         />
                       </div>
-                      <div className="col-span-10 sm:col-span-2 text-right text-sm font-medium tabular-nums pr-1">
+                      <div className="col-span-10 sm:col-span-1 text-right text-sm font-medium tabular-nums pr-1">
                         {fmt(item.total)}
                       </div>
                       <div className="col-span-2 sm:col-span-1 flex justify-end">
@@ -1096,6 +1109,7 @@ export function ChangeOrderBuilder() {
                 description: i.description,
                 category: i.category,
                 quantity: Number(i.quantity),
+                unit: i.unit || "",
                 unit_price: Number(i.unit_price),
                 total: Number(i.total),
               })),

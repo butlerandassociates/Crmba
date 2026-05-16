@@ -308,7 +308,7 @@ export function ProposalBuilder() {
         status: "draft",
         subtotal: subtotalVal,
         tax_amount: taxAmountVal,
-        tax_label: taxRate > 0 ? `Sales Tax (${taxRate}% on materials)${taxCounty ? ` — ${taxCounty} County` : ""}` : "Sales Tax",
+        tax_label: taxRate > 0 ? `Sales Tax (${taxRate}% on materials)${taxCounty ? ` — ${taxCounty}` : ""}` : "Sales Tax",
         total: totalVal,
         total_cost: totalCostVal,
         gross_profit: grossProfitVal,

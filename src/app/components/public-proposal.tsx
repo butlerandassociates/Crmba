@@ -206,7 +206,7 @@ export function PublicProposal() {
   const badAmount      = proposal?.bad_amount ?? 0;
   const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
   const taxAmount      = proposal?.tax_amount ?? 0;
-  const taxLabel       = proposal?.tax_label ?? "Tax";
+  const taxLabel       = "Sales Tax";
   const total          = subtotal + badAmount + taxAmount - discountAmount;
 
   return (

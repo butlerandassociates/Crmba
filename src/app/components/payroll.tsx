@@ -126,7 +126,7 @@ export function Payroll() {
 
     // Group by profile
     const byPM: Record<string, any> = {};
-    (data ?? []).filter((cp: any) => !cp.project?.client?.is_discarded).forEach((cp: any) => {
+    (data ?? []).forEach((cp: any) => {
       const pmId = cp.profile?.id;
       if (!pmId) return;
       if (!byPM[pmId]) {
@@ -152,6 +152,31 @@ export function Payroll() {
       if (!byPM[pm.id]) {
         byPM[pm.id] = { ...pm, installments: [], totalPending: 0, totalProcessed: 0 };
       }
+    });
+
+    // Compute projected commission for sales reps: sum(GP × rate) across their projects
+    const { data: repProjects } = await supabase
+      .from("projects")
+      .select("id, sales_rep_id, gross_profit, sales_rep_commission_rate")
+      .not("sales_rep_id", "is", null);
+    (repProjects ?? []).forEach((proj: any) => {
+      const repId = proj.sales_rep_id;
+      if (!repId || !byPM[repId]) return;
+      const rate = Number(proj.sales_rep_commission_rate) || Number(byPM[repId].commission_rate) || 0;
+      byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) +
+        (Number(proj.gross_profit) || 0) * (rate / 100);
+    });
+
+    // Compute projected commission for PMs: sum(projects.commission) across their projects
+    const { data: pmProjects } = await supabase
+      .from("projects")
+      .select("id, project_manager_id, commission")
+      .not("project_manager_id", "is", null);
+    (pmProjects ?? []).forEach((proj: any) => {
+      const pmId = proj.project_manager_id;
+      if (!pmId || !byPM[pmId]) return;
+      byPM[pmId].projectedCommission = (byPM[pmId].projectedCommission ?? 0) +
+        (Number(proj.commission) || 0);
     });
 
     setPmData(Object.values(byPM).sort((a: any, b: any) =>
@@ -402,7 +427,13 @@ export function Payroll() {
                           </Badge>
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className={`grid gap-4 text-sm ${(pm.projectedCommission ?? 0) > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
+                        {(pm.projectedCommission ?? 0) > 0 && (
+                          <div>
+                            <p className="text-xs text-muted-foreground uppercase font-semibold mb-0.5">Projected</p>
+                            <p className="font-bold text-purple-600">{fmt(pm.projectedCommission)}</p>
+                          </div>
+                        )}
                         <div>
                           <p className="text-xs text-muted-foreground uppercase font-semibold mb-0.5">Pending</p>
                           <p className="font-bold text-yellow-600">{fmt(pm.totalPending)}</p>

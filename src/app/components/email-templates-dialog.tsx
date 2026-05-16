@@ -229,7 +229,7 @@ export function EmailTemplatesDialog({
         })),
       ]);
 
-      const SCALE = 2;
+      const SCALE = 3;
       const opts = {
         scale: SCALE, useCORS: true, allowTaint: false, logging: false,
         imageTimeout: 10000, removeContainer: true,
@@ -242,9 +242,9 @@ export function EmailTemplatesDialog({
 
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
-            body2El = q("proposal-page-body-2"), ftrEl = q("proposal-page-footer"),
-            colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !body2El || !ftrEl || !colHdrEl) return null;
+            body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
+      if (!hdrEl || !body1El || !ftrEl || !colHdrEl) return null;
 
       // Collect group positions before html2canvas (DOM layout is still intact)
       const body1Rect = body1El.getBoundingClientRect();
@@ -252,12 +252,20 @@ export function EmailTemplatesDialog({
         body1El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
       ).map((el) => Math.round((el.getBoundingClientRect().top - body1Rect.top) * SCALE));
 
-      const [hdrC, body1C, body2C, ftrC, colC] = await Promise.all([
+      const groupStartsPx2: number[] = body2El ? Array.from(
+        body2El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
+      ).map((el) => Math.round((el.getBoundingClientRect().top - body2El.getBoundingClientRect().top) * SCALE)) : [];
+
+      const groupStartsPx3: number[] = body3El ? Array.from(
+        body3El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
+      ).map((el) => Math.round((el.getBoundingClientRect().top - body3El.getBoundingClientRect().top) * SCALE)) : [];
+
+      // Capture header/footer/body1/colHeader first so we can size body2 to fill the page slot
+      const [hdrC, body1C, ftrC, colC] = await Promise.all([
         html2canvas(hdrEl,    { ...opts, backgroundColor: "#0A0A0A" }),
-        html2canvas(body1El,  { ...opts, backgroundColor: "#F5F3EF" }),
-        html2canvas(body2El,  { ...opts, backgroundColor: "#F5F3EF" }),
+        html2canvas(body1El,  { ...opts, backgroundColor: "#ffffff" }),
         html2canvas(ftrEl,    { ...opts, backgroundColor: "#0A0A0A" }),
-        html2canvas(colHdrEl, { ...opts, backgroundColor: "#0A0A0A" }),
+        html2canvas(colHdrEl, { ...opts, backgroundColor: "#F8F8F6" }),
       ]);
 
       const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -272,9 +280,14 @@ export function EmailTemplatesDialog({
       const slot = pageH - hdrH - ftrH;
       const slotFull = slot - 2 * PAD, slotCol = slot - colH - COL_GAP - 2 * PAD;
 
-      const hImg = hdrC.toDataURL("image/jpeg", 0.93);
-      const fImg = ftrC.toDataURL("image/jpeg", 0.93);
-      const colImg = colC.toDataURL("image/jpeg", 0.93);
+      const [body2C, body3C] = await Promise.all([
+        body2El ? html2canvas(body2El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body3El ? html2canvas(body3El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+      ]);
+
+      const hImg = hdrC.toDataURL("image/jpeg", 0.97);
+      const fImg = ftrC.toDataURL("image/jpeg", 0.97);
+      const colImg = colC.toDataURL("image/jpeg", 0.97);
 
       const slice = (src: HTMLCanvasElement, yPx: number, hPx: number) => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -303,7 +316,7 @@ export function EmailTemplatesDialog({
         return desiredPx;
       };
 
-      const renderPages = (bodyC: HTMLCanvasElement, showCol: boolean, startPage: number): number => {
+      const renderPages = (bodyC: HTMLCanvasElement, showCol: boolean, startPage: number, groups: number[] = groupStartsPx): number => {
         const bodyH = toPt(bodyC);
         let consumed = 0, pageIdx = startPage;
         while (consumed < bodyH - 1) {
@@ -317,17 +330,17 @@ export function EmailTemplatesDialog({
           } else {
             const consumedPx  = Math.round(consumed * pxPerPt);
             const idealCutPx  = consumedPx + Math.round(avail * pxPerPt);
-            const groupEndsE  = groupStartsPx.map((_, i) =>
-              i + 1 < groupStartsPx.length ? groupStartsPx[i + 1] : bodyC.height
+            const groupEndsE  = groups.map((_, i) =>
+              i + 1 < groups.length ? groups[i + 1] : bodyC.height
             );
-            const splitIdxE   = groupStartsPx.findIndex(
+            const splitIdxE   = groups.findIndex(
               (start, i) => idealCutPx > start && idealCutPx < groupEndsE[i]
             );
             const orphanZonePx = Math.round(75 * pxPerPt);
-            const orphanedE   = groupStartsPx
+            const orphanedE   = groups
               .filter((g) => g >= idealCutPx - orphanZonePx && g < idealCutPx)
               .sort((a, b) => a - b)[0];
-            const cutBeforeE  = splitIdxE !== -1 ? groupStartsPx[splitIdxE] : orphanedE;
+            const cutBeforeE  = splitIdxE !== -1 ? groups[splitIdxE] : orphanedE;
             let safeCutPx: number;
             if (cutBeforeE !== undefined && cutBeforeE > consumedPx + Math.round(avail * 0.3 * pxPerPt)) {
               safeCutPx = findSafeCutPx(bodyC, cutBeforeE - 2, Math.round(30 * pxPerPt));
@@ -337,19 +350,21 @@ export function EmailTemplatesDialog({
             sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
           }
           const sc = slice(bodyC, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
-          pdf.setFillColor(245, 243, 239);
+          pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
           pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
           if (!isFirst && showCol) { pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH); bodyY = hdrH + PAD + colH + COL_GAP; }
-          pdf.addImage(sc.toDataURL("image/jpeg", 0.92), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sc.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
           pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
           consumed += sliceH; pageIdx++;
         }
         return pageIdx;
       };
 
-      renderPages(body2C, false, renderPages(body1C, true, 0));
+      const p1 = renderPages(body1C, true, 0);
+      const p2 = body2C ? renderPages(body2C, false, p1, groupStartsPx2) : p1;
+      if (body3C) renderPages(body3C, false, p2, groupStartsPx3);
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
       console.error("PDF generation error:", err);

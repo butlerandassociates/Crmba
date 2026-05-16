@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import baLogoUrl from "@/assets/ba-logo.png";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
@@ -24,7 +25,6 @@ import { fioAPI, notificationsAPI, activityLogAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import jsPDF from "jspdf";
 
 interface FIOModalProps {
   open: boolean;
@@ -267,211 +267,141 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const exportPDF = async () => {
     setExporting(true);
     try {
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const margin = 14;
-      const contentW = pageW - margin * 2;
+      const { default: jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const W = 210; const M = 14;
+
+      // Load logo via canvas — preserve actual aspect ratio
+      let logoData: string | null = null;
+      let logoW = 20; let logoH = 20;
+      try {
+        const img = await new Promise<HTMLImageElement>((res, rej) => {
+          const i = new Image(); i.crossOrigin = "anonymous";
+          i.onload = () => res(i); i.onerror = rej;
+          i.src = "https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png";
+        });
+        const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+        c.getContext("2d")!.drawImage(img, 0, 0);
+        logoData = c.toDataURL("image/png");
+        logoH = 13; logoW = (img.width / img.height) * logoH;
+      } catch {}
+
+      const fmtCur = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v);
+      const fmtDate = (d: string) => d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      const foremanName = fio?.foreman ? `${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim() : "";
+      const items: any[] = fio?.items || [];
+      const total = items.reduce((s: number, i: any) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.labor_cost_per_unit) || 0), 0);
+
       let y = 0;
 
-      // ── Branded header bar — centered logo + company name ──
-      const logoH = 18;
-      const headerH = logoH + 18;
-      pdf.setFillColor(10, 10, 10);
-      pdf.rect(0, 0, pageW, headerH, "F");
-      try {
-        const resp = await fetch("https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png");
-        const blob = await resp.blob();
-        const b64: string = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.readAsDataURL(blob); });
-        const imgEl = new Image();
-        imgEl.src = b64;
-        await new Promise<void>((res) => { imgEl.onload = () => res(); imgEl.onerror = () => res(); });
-        const aspectRatio = imgEl.naturalWidth && imgEl.naturalHeight ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
-        const logoW = logoH * aspectRatio;
-        pdf.addImage(b64, "PNG", (pageW - logoW) / 2, 4, logoW, logoH);
-      } catch { /* logo unavailable — skip */ }
-      pdf.setTextColor(187, 152, 77);
-      pdf.setFontSize(7);
-      pdf.setFont("helvetica", "normal");
-      pdf.text("BUTLER & ASSOCIATES CONSTRUCTION, INC.", pageW / 2, logoH + 10, { align: "center" });
-      pdf.setDrawColor(187, 152, 77);
-      pdf.setLineWidth(0.8);
-      pdf.line(0, headerH, pageW, headerH);
-      y = headerH + 6;
+      // ── Dark header ──
+      const HDR = 24;
+      doc.setFillColor(10, 10, 10);
+      doc.rect(0, 0, W, HDR, "F");
+      const logoTop = (HDR - logoH) / 2;
+      if (logoData) doc.addImage(logoData, "PNG", M, logoTop, logoW, logoH);
+      const textX = M + logoW + 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+      doc.text("Butler & Associates Construction, Inc.", textX, 9);
+      doc.setFontSize(7); doc.setTextColor(170, 170, 170);
+      doc.text("6275 University Drive NW, Suite 37-314, Huntsville, AL 35806", textX, 14);
+      doc.text("(256) 617-4691  ·  info@butlerconstruction.co", textX, 18.5);
+      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(187, 152, 77);
+      doc.text("CREW LABOR SCHEDULE", W - M, 9, { align: "right" });
+      y = HDR;
 
-      const fmtCurrency = (v: number) =>
-        new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v);
+      // ── Gold rule ──
+      doc.setFillColor(187, 152, 77); doc.rect(0, y, W, 0.8, "F");
+      y += 7;
 
-      // ── Project / date row ──
-      pdf.setFontSize(9);
-      pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(201, 168, 76);
-      pdf.text(`Project: ${project?.name ?? "—"}`, margin, y);
-      pdf.setTextColor(80, 80, 80);
-      const dateLabel = fio?.work_date
-        ? `Work Date: ${new Date(fio.work_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-        : `Created: ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
-      pdf.text(dateLabel, pageW - margin, y, { align: "right" });
-      y += 2;
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(margin, y, pageW - margin, y);
-      y += 5;
+      // ── Project / Date ──
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(187, 152, 77);
+      doc.text(`Project: ${project?.name ?? "—"}`, M, y);
+      doc.setTextColor(107, 114, 128);
+      doc.text(fio?.work_date ? `Work Date: ${fmtDate(fio.work_date)}` : `Date: ${today}`, W - M, y, { align: "right" });
+      doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.3);
+      doc.line(M, y + 3, W - M, y + 3);
+      y += 11;
 
-      // ── Job details block ──
-      const client = project?.client ?? {};
-      const addressParts = [client.address, client.city, client.state, client.zip_code].filter(Boolean);
-      const addressLine = addressParts.join(", ") || null;
-      const pmName = project?.project_manager
-        ? `${project.project_manager.first_name ?? ""} ${project.project_manager.last_name ?? ""}`.trim()
-        : null;
-      const fmtDate = (d: string | null | undefined) =>
-        d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
-      const startFmt = fmtDate(project?.start_date);
-      const endFmt   = fmtDate(project?.end_date);
-      const scheduleLine = startFmt && endFmt ? `${startFmt} – ${endFmt}` : startFmt ?? null;
-
-      const detailRows: [string, string][] = [];
-      if (addressLine)  detailRows.push(["Job Address", addressLine]);
-      if (scheduleLine) detailRows.push(["Schedule", scheduleLine]);
-      if (pmName)       detailRows.push(["Project Manager", pmName]);
-
-      if (detailRows.length > 0) {
-        pdf.setFontSize(8);
-        detailRows.forEach(([label, value]) => {
-          pdf.setFont("helvetica", "bold");
-          pdf.setTextColor(80, 80, 80);
-          pdf.text(`${label}:`, margin, y);
-          pdf.setFont("helvetica", "normal");
-          pdf.setTextColor(30, 30, 30);
-          pdf.text(value, margin + 30, y);
-          y += 5;
-        });
-        y += 2;
-        pdf.setDrawColor(220, 220, 220);
-        pdf.line(margin, y, pageW - margin, y);
-        y += 5;
-      }
-
-      // ── Section heading ──
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(9);
-      pdf.setTextColor(30, 30, 30);
-      pdf.text(`Scope 1 — ${project?.name ?? "Labor Items"}`, margin, y);
-      y += 5;
+      // ── Scope heading ──
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(58, 58, 56);
+      doc.text(`Scope 1 — ${project?.name ?? "Labor Items"}`, M, y);
+      y += 8;
 
       // ── Table header ──
-      const cols = { item: margin, unit: margin + 80, qty: margin + 105, rate: margin + 125, total: margin + 150 };
-      pdf.setFillColor(17, 17, 17);
-      pdf.rect(margin, y, contentW, 9, "F");
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(8);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("Scope Item", cols.item + 2, y + 6);
-      pdf.text("Unit", cols.unit, y + 6);
-      pdf.text("Qty", cols.qty, y + 6);
-      pdf.text("Rate", cols.rate + 8, y + 6, { align: "right" });
-      pdf.text("Crew Pay", pageW - margin - 2, y + 6, { align: "right" });
+      const C = { item: M, unit: 128, qty: 148, rate: 170, pay: W - M };
+      const ROW_H = 9;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(153, 153, 153);
+      doc.text("SCOPE ITEM", C.item, y);
+      doc.text("UNIT", C.unit, y, { align: "center" });
+      doc.text("QTY", C.qty, y, { align: "center" });
+      doc.text("RATE", C.rate, y, { align: "right" });
+      doc.text("CREW PAY", C.pay, y, { align: "right" });
+      doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.6);
+      doc.line(M, y + 3, W - M, y + 3);
       y += 9;
 
       // ── Table rows ──
-      const items = fio?.items || [];
-      let grandTotal = 0;
       items.forEach((item: any, idx: number) => {
         const qty = parseFloat(item.quantity) || 0;
         const rate = parseFloat(item.labor_cost_per_unit) || 0;
-        const total = qty * rate;
-        grandTotal += total;
-
-        if (idx % 2 === 1) {
-          pdf.setFillColor(248, 248, 248);
-          pdf.rect(margin, y, contentW, 9, "F");
-        }
-        pdf.setDrawColor(220, 220, 220);
-        pdf.line(margin, y + 9, pageW - margin, y + 9);
-
-        pdf.setTextColor(30, 30, 30);
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(8);
-        // Truncate long names
-        const name = pdf.splitTextToSize(item.product_name || "—", 75)[0];
-        pdf.text(name, cols.item + 2, y + 6);
-        pdf.text(item.unit || "—", cols.unit, y + 6);
-        pdf.text(qty.toLocaleString("en-US"), cols.qty, y + 6);
-        pdf.text(rate > 0 ? fmtCurrency(rate) : "—", cols.rate + 8, y + 6, { align: "right" });
-        pdf.setFont("helvetica", "bold");
-        pdf.text(fmtCurrency(total), pageW - margin - 2, y + 6, { align: "right" });
-        pdf.setFont("helvetica", "normal");
-        y += 9;
-
-        // Page break guard
-        if (y > 250) { pdf.addPage(); y = margin; }
+        if (idx % 2 === 1) { doc.setFillColor(249, 250, 251); doc.rect(M, y - 6, W - 2 * M, ROW_H, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+        doc.setTextColor(26, 26, 26);
+        doc.text(doc.splitTextToSize(item.product_name || "—", 105)[0], C.item, y);
+        doc.setTextColor(26, 26, 26);
+        doc.text(item.unit || "—", C.unit, y, { align: "center" });
+        doc.text(qty.toLocaleString(), C.qty, y, { align: "center" });
+        doc.text(rate > 0 ? fmtCur(rate) : "—", C.rate, y, { align: "right" });
+        doc.setTextColor(26, 26, 26);
+        doc.text(fmtCur(qty * rate), C.pay, y, { align: "right" });
+        doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.2);
+        doc.line(M, y + 4, W - M, y + 4);
+        y += ROW_H;
       });
 
-      // ── Subtotal row ──
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(margin, y, pageW - margin, y);
-      pdf.setFont("helvetica", "bold");
-      pdf.setTextColor(201, 168, 76);
-      pdf.setFontSize(8);
-      pdf.text("Subtotal", pageW - margin - 30, y + 6);
-      pdf.text(fmtCurrency(grandTotal), pageW - margin - 2, y + 6, { align: "right" });
-      y += 14;
+      y += 5;
 
-      // ── Total bar ──
-      pdf.setFillColor(17, 17, 17);
-      pdf.rect(margin, y, contentW, 12, "F");
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(9);
-      pdf.setTextColor(255, 255, 255);
-      pdf.text("TOTAL CREW PAYOUT", margin + 4, y + 8);
-      pdf.setTextColor(201, 168, 76);
-      pdf.text(fmtCurrency(grandTotal), pageW - margin - 4, y + 8, { align: "right" });
-      y += 18;
+      // ── Total ──
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(58, 58, 56);
+      doc.text("Total Crew Payout", M, y);
+      doc.setFontSize(10); doc.setTextColor(187, 152, 77);
+      doc.text(fmtCur(total), W - M, y, { align: "right" });
+      y += 8;
 
       // ── Notes ──
-      if (fio?.notes) {
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(8);
-        pdf.setTextColor(30, 30, 30);
-        pdf.text("Notes", margin, y);
-        y += 4;
-        pdf.setFont("helvetica", "normal");
-        pdf.setTextColor(80, 80, 80);
-        const noteLines = pdf.splitTextToSize(fio.notes, contentW);
-        pdf.text(noteLines, margin, y);
+      if (fio?.notes?.trim()) {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(153, 153, 153);
+        doc.text("NOTES", M, y); y += 5;
+        doc.setFontSize(8); doc.setTextColor(58, 58, 56);
+        const noteLines = doc.splitTextToSize(fio.notes, W - 2 * M);
+        doc.text(noteLines, M, y); y += noteLines.length * 5 + 6;
       }
 
-      // ── Signatures — always pinned to bottom of page ──
-      const pageH = pdf.internal.pageSize.getHeight();
-      const midX = pageW / 2;
-      const sigY = pageH - 46; // enough room for labels + signature lines + footer below
+      // ── Signatures — pinned near bottom like preview's mt-auto ──
+      y = Math.max(y + 14, 245);
+      doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.3);
+      doc.line(M, y, W - M, y); y += 9;
+      const sigW = (W - 2 * M - 16) / 2;
+      // Left
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(55, 65, 81);
+      doc.text("Butler & Associates Construction", M, y);
+      doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.4);
+      doc.line(M, y + 14, M + sigW, y + 14);
+      doc.setFontSize(7); doc.setTextColor(107, 114, 128);
+      doc.text("Authorized Signature / Date", M, y + 18);
+      // Right
+      const rX = M + sigW + 16;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(55, 65, 81);
+      doc.text(`Crew Lead / Subcontractor${foremanName ? ` — ${foremanName}` : ""}`, rX, y);
+      doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.4);
+      doc.line(rX, y + 14, W - M, y + 14);
+      doc.setFontSize(7); doc.setTextColor(107, 114, 128);
+      doc.text("Signature / Date", rX, y + 18);
 
-      pdf.setDrawColor(180, 180, 180);
-      pdf.line(margin, sigY, pageW - margin, sigY);
-      const sigLabelY = sigY + 6;
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8);
-      pdf.setTextColor(30, 30, 30);
-      pdf.text("Butler & Associates Construction", margin, sigLabelY);
-      const foremanLabel = fio?.foreman
-        ? `Crew Lead / Subcontractor — ${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim()
-        : "Crew Lead / Subcontractor";
-      pdf.text(foremanLabel, midX + 4, sigLabelY);
-      const sigLineY = sigLabelY + 12;
-      pdf.setDrawColor(50, 50, 50);
-      pdf.line(margin, sigLineY, midX - 4, sigLineY);
-      pdf.line(midX + 4, sigLineY, pageW - margin, sigLineY);
-      pdf.setFontSize(7);
-      pdf.setTextColor(130, 130, 130);
-      pdf.text("Authorized Signature / Date", margin, sigLineY + 4);
-      pdf.text("Signature / Date", midX + 4, sigLineY + 4);
-
-      // ── Footer ──
-      pdf.setFontSize(7);
-      pdf.setTextColor(160, 160, 160);
-      pdf.text("Butler & Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL", pageW / 2, pageH - margin + 2, { align: "center" });
-
-      const projectName = project?.name?.replace(/[^a-z0-9]/gi, "_") ?? "FIO";
-      pdf.save(`FIO_${projectName}.pdf`);
+      const safeName = (project?.name ?? "FIO").replace(/[^a-zA-Z0-9-_]/g, "_");
+      doc.save(`Crew_Labor_Schedule_${safeName}.pdf`);
       activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_pdf_exported", description: `FIO PDF exported — project: ${project.name ?? ""}` }).catch(() => {});
     } catch (err) {
       console.error(err);
@@ -1084,17 +1014,27 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
           ) : (
             /* ── View Mode — document preview ── */
             <div className="bg-gray-100 rounded-lg p-4">
-              {/* Paper card — fills available width, no horizontal scroll */}
-              <div className="bg-white shadow-lg w-full font-sans text-[13px] flex flex-col p-8 min-h-[800px]">
-                {/* Content area — grows to fill */}
-                <div className="flex-1 space-y-5">
+              {/* Paper card — A4 proportions, full-bleed header */}
+              <div id="fio-preview-content" className="bg-white shadow-lg w-full font-sans text-[13px] flex flex-col min-h-[1050px]">
 
-                  {/* Black header */}
-                  <div className="flex items-center justify-between bg-[#111111] text-white px-5 py-3">
-                    <span className="text-[15px] font-bold">Butler &amp; Associates Construction</span>
-                    <span className="text-[12px] font-bold text-[#C9A84C]">Crew Labor Schedule</span>
+                {/* Header — full bleed edge to edge */}
+                <div className="bg-[#0A0A0A] px-8 py-5 flex justify-between items-start flex-shrink-0">
+                  <div className="flex items-center gap-4">
+                    <img src={baLogoUrl} alt="Butler & Associates" className="h-11 w-auto flex-shrink-0" />
+                    <div>
+                      <div className="text-[15px] font-medium text-white mb-1">Butler &amp; Associates Construction, Inc.</div>
+                      <div className="text-[10px] text-white/60 mb-0.5">6275 University Drive NW, Suite 37-314, Huntsville, AL 35806</div>
+                      <div className="text-[10px] text-white/60">(256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co</div>
+                    </div>
                   </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-[9px] font-medium tracking-[0.18em] uppercase text-[#BB984D]">Crew Labor Schedule</div>
+                  </div>
+                </div>
+                <div className="h-[2px] flex-shrink-0" style={{ background: "linear-gradient(90deg, #BB984D, #8A7040)" }} />
 
+                {/* Body content */}
+                <div className="flex-1 px-8 pt-5 space-y-5">
                   {/* Project / Date */}
                   <div className="flex items-center justify-between border-b border-gray-300 pb-3">
                     <span className="text-[#C9A84C] text-sm font-medium">Project: {project?.name ?? "—"}</span>
@@ -1107,15 +1047,15 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
                   {/* Scope heading */}
                   <div>
-                    <h3 className="text-[13px] font-bold mb-3">Scope 1 — {project?.name ?? "Labor Items"}</h3>
+                    <h3 className="text-[13px] font-medium mb-3">Scope 1 — {project?.name ?? "Labor Items"}</h3>
                     <table className="w-full border-collapse text-xs">
                       <thead>
-                        <tr className="bg-[#111111] text-white">
-                          <th className="py-3 px-3 text-left font-semibold">Scope Item</th>
-                          <th className="py-3 px-3 text-center font-semibold w-14">Unit</th>
-                          <th className="py-3 px-3 text-center font-semibold w-12">Qty</th>
-                          <th className="py-3 px-3 text-right font-semibold w-20">Rate</th>
-                          <th className="py-3 px-3 text-right font-semibold w-24">Crew Pay</th>
+                        <tr className="bg-white border-b-2 border-gray-200">
+                          <th className="py-2.5 px-3 text-left text-[10px] font-medium text-gray-400 uppercase tracking-wide">Scope Item</th>
+                          <th className="py-2.5 px-3 text-center text-[10px] font-medium text-gray-400 uppercase tracking-wide w-14">Unit</th>
+                          <th className="py-2.5 px-3 text-center text-[10px] font-medium text-gray-400 uppercase tracking-wide w-12">Qty</th>
+                          <th className="py-2.5 px-3 text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide w-20">Rate</th>
+                          <th className="py-2.5 px-3 text-right text-[10px] font-medium text-gray-400 uppercase tracking-wide w-24">Crew Pay</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1128,39 +1068,35 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                               <td className="py-3 px-3 text-center">{item.unit}</td>
                               <td className="py-3 px-3 text-center">{qty.toLocaleString()}</td>
                               <td className="py-3 px-3 text-right tabular-nums">{rate > 0 ? formatCurrency(rate) : "—"}</td>
-                              <td className="py-3 px-3 text-right font-semibold tabular-nums">{formatCurrency(qty * rate)}</td>
+                              <td className="py-3 px-3 text-right font-medium tabular-nums">{formatCurrency(qty * rate)}</td>
                             </tr>
                           );
                         })}
-                        <tr>
-                          <td colSpan={4} className="py-3 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300">Subtotal</td>
-                          <td className="py-3 px-3 text-right text-[#C9A84C] font-bold border-t border-gray-300 tabular-nums">{formatCurrency(grandTotal)}</td>
-                        </tr>
                       </tbody>
                     </table>
                   </div>
 
-                  {/* Total bar */}
-                  <div className="flex items-center justify-between bg-[#111111] text-white px-5 py-4">
-                    <span className="text-sm font-bold tracking-wide">TOTAL CREW PAYOUT</span>
-                    <span className="text-base font-bold text-[#C9A84C] tabular-nums">{formatCurrency(grandTotal)}</span>
+                  {/* Total row */}
+                  <div className="flex items-center justify-between pt-1 px-1">
+                    <span className="text-sm font-medium tracking-wide text-gray-700">Total Crew Payout</span>
+                    <span className="text-base font-medium text-[#BB984D] tabular-nums">{formatCurrency(grandTotal)}</span>
                   </div>
 
                   {fio?.notes && (
                     <div>
-                      <div className="font-bold text-sm mb-1">Notes</div>
+                      <div className="font-medium text-sm mb-1">Notes</div>
                       <p className="text-xs text-gray-600 leading-relaxed">{fio.notes}</p>
                     </div>
                   )}
                 </div>
 
-                {/* Signatures — pinned to bottom of A4 */}
-                <div className="mt-auto pt-6">
+                {/* Signatures — pinned to bottom */}
+                <div className="mt-auto px-8 pt-6 pb-16">
                   <div className="border-t border-gray-300 mb-4" />
                   <div className="grid grid-cols-2 gap-10">
                     <div>
                       <div className="text-xs text-gray-700 mb-10">Butler &amp; Associates Construction</div>
-                      <div className="border-b border-gray-800 mb-1" />
+                      <div className="border-b border-gray-300 mb-1" />
                       <div className="text-[11px] text-gray-500">Authorized Signature / Date</div>
                     </div>
                     <div>
@@ -1168,12 +1104,9 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                         Crew Lead / Subcontractor
                         {fio?.foreman ? ` — ${fio.foreman.first_name ?? ""} ${fio.foreman.last_name ?? ""}`.trim() : ""}
                       </div>
-                      <div className="border-b border-gray-800 mb-1" />
+                      <div className="border-b border-gray-300 mb-1" />
                       <div className="text-[11px] text-gray-500">Signature / Date</div>
                     </div>
-                  </div>
-                  <div className="text-center text-[10px] text-gray-400 border-t border-gray-200 mt-4 pt-3">
-                    Butler &amp; Associates Construction, Inc. — butlerconstruction.co — Huntsville, AL
                   </div>
                 </div>
               </div>

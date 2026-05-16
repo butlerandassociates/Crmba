@@ -63,26 +63,37 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
   return (
     <div
       id="payment-receipt-export-content"
-      style={{ width: 794, minHeight: 1122, background: C.bg, fontFamily: C.inter, color: C.text, display: "flex", flexDirection: "column", padding: 0 }}
+      style={{ width: 794, minHeight: 1122, background: "#fff", fontFamily: C.inter, color: C.text, display: "flex", flexDirection: "column", padding: 0 }}
     >
-      {/* ── Header — centered logo + brand + title ── */}
+      {/* ── Header ── */}
       <div id="payment-stmt-header">
-      <div style={{ background: C.black, padding: "28px 48px 24px", textAlign: "center" }}>
-        <img
-          src={baLogoUrl}
-          alt="Butler & Associates"
-          style={{ height: 46, width: "auto", display: "block", margin: "0 auto 10px auto" }}
-        />
-        <div style={{ fontSize: 8, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: C.gold, marginBottom: 6 }}>
-          Butler &amp; Associates Construction, Inc.
+      <div style={{ background: C.black, padding: "24px 48px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <img
+            src={baLogoUrl}
+            alt="Butler & Associates"
+            style={{ height: 52, width: "auto", flexShrink: 0 }}
+          />
+          <div>
+            <div style={{ fontFamily: "Lato, sans-serif", fontSize: 18, fontWeight: 500, color: "#fff", marginBottom: 4 }}>
+              Butler &amp; Associates Construction, Inc.
+            </div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginBottom: 2 }}>
+              6275 University Drive NW, Suite 37-314, Huntsville, AL 35806
+            </div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)" }}>
+              (256) 617-4691 &nbsp;·&nbsp; info@butlerconstruction.co
+            </div>
+          </div>
         </div>
-        <div style={{ fontFamily: C.cg, fontSize: 26, fontWeight: 700, color: "#fff", letterSpacing: 2, marginBottom: 4 }}>
-          INVESTMENT STATEMENT
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: C.gold, marginBottom: 4 }}>
+            INVESTMENT STATEMENT
+          </div>
         </div>
       </div>
-
       {/* Gold rule */}
-      <div style={{ height: 3, background: `linear-gradient(90deg, ${C.gold}, #8A7040)` }} />
+      <div style={{ height: 2, background: `linear-gradient(90deg, ${C.gold}, #8A7040)` }} />
       </div>{/* end payment-stmt-header */}
 
       {/* ── Body ── */}
@@ -92,15 +103,15 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
       <div style={{ background: "#fff", padding: "18px 48px", display: "flex", justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
         <div>
           <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Date Issued</div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtDate(today.toISOString())}</div>
+          <div style={{ fontSize: 13, fontWeight: 500 }}>{fmtDate(today.toISOString())}</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Progress</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? C.green : C.amber }}>{pct}% Collected</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: pct === 100 ? C.green : C.amber }}>{pct}% Collected</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prepared For</div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{clientName}</div>
+          <div style={{ fontSize: 13, fontWeight: 500 }}>{clientName}</div>
         </div>
       </div>
 
@@ -108,7 +119,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
       <div style={{ padding: "22px 48px", display: "flex", gap: 48, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: 1, marginBottom: 7 }}>Client</div>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 3 }}>{clientName}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 3 }}>{clientName}</div>
           {client?.address && <div style={{ fontSize: 12, color: "#666", marginBottom: 2 }}>{client.address}</div>}
           {client?.phone   && <div style={{ fontSize: 12, color: "#666", marginBottom: 2 }}>{client.phone}</div>}
           {client?.email   && <div style={{ fontSize: 12, color: "#666" }}>{client.email}</div>}
@@ -116,7 +127,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
         {project?.name && (
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: 1, marginBottom: 7 }}>Project</div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 3 }}>{project.name}</div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 3 }}>{project.name}</div>
             {project.total_value != null && (
               <div style={{ fontSize: 12, color: "#666" }}>Contract Value: {fmt(project.total_value)}</div>
             )}
@@ -128,13 +139,13 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
       <div style={{ padding: "22px 48px 0" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead id="payment-stmt-thead">
-            <tr style={{ background: C.black }}>
-              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Description</th>
-              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Due Date</th>
-              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Paid Date</th>
-              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Method</th>
-              <th style={{ padding: "9px 14px", textAlign: "center", color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Status</th>
-              <th style={{ padding: "9px 14px", textAlign: "right",  color: "#fff", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Amount</th>
+            <tr style={{ background: "#fff", borderBottom: `2px solid ${C.border}` }}>
+              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Description</th>
+              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Due Date</th>
+              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Paid Date</th>
+              <th style={{ padding: "9px 14px", textAlign: "left",   color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Method</th>
+              <th style={{ padding: "9px 14px", textAlign: "center", color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Status</th>
+              <th style={{ padding: "9px 14px", textAlign: "right",  color: "#999", fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.12em" }}>Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -142,16 +153,16 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
               const st = getStatus(p);
               return (
                 <tr key={p.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafaf8", borderBottom: `1px solid ${C.border}` }}>
-                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 600 }}>{p.label}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 500 }}>{p.label}</td>
                   <td style={{ padding: "12px 14px", fontSize: 11, color: "#666" }}>{fmtDate(p.due_date)}</td>
                   <td style={{ padding: "12px 14px", fontSize: 11, color: "#666" }}>{p.is_paid ? fmtDate(p.paid_date) : "—"}</td>
                   <td style={{ padding: "12px 14px", fontSize: 11, color: "#666" }}>{p.is_paid && p.payment_method ? p.payment_method : "—"}</td>
                   <td style={{ padding: "12px 14px", textAlign: "center" }}>
-                    <span style={{ display: "inline-block", paddingTop: 0, paddingBottom: 10, paddingLeft: 9, paddingRight: 9, borderRadius: 3, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>
+                    <span style={{ display: "inline-block", paddingTop: 0, paddingBottom: 10, paddingLeft: 9, paddingRight: 9, borderRadius: 3, fontSize: 9, fontWeight: 500, letterSpacing: 0.5, color: st.color, background: st.bg, border: `1px solid ${st.border}` }}>
                       {st.label}
                     </span>
                   </td>
-                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 700, textAlign: "right", color: p.is_paid ? C.green : C.text }}>{fmt(p.amount)}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 500, textAlign: "right", color: p.is_paid ? C.green : C.text }}>{fmt(p.amount)}</td>
                 </tr>
               );
             })}
@@ -161,19 +172,19 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
 
       {/* ── Totals block ── */}
       <div style={{ padding: "0 48px 24px" }}>
-        <div style={{ borderTop: `2px solid ${C.gold}`, paddingTop: 16, display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, display: "flex", justifyContent: "flex-end" }}>
           <div style={{ minWidth: 300 }}>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ fontSize: 11, color: "#666" }}>Total Contract Value</span>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>{fmt(project?.total_value ?? totalAmount)}</span>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>{fmt(project?.total_value ?? totalAmount)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>Total Received</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: C.green }}>{fmt(totalPaid)}</span>
+              <span style={{ fontSize: 11, color: C.green, fontWeight: 500 }}>Total Received</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: C.green }}>{fmt(totalPaid)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 4px" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: totalDue > 0 ? C.red : C.green }}>Balance Due</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: totalDue > 0 ? C.red : C.green }}>{fmt(totalDue)}</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: totalDue > 0 ? C.red : C.green }}>Balance Due</span>
+              <span style={{ fontSize: 15, fontWeight: 500, color: totalDue > 0 ? C.red : C.green }}>{fmt(totalDue)}</span>
             </div>
           </div>
         </div>
@@ -181,23 +192,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
 
       </div>{/* end payment-stmt-body */}
 
-      {/* Spacer — pushes footer to bottom */}
-      <div style={{ flex: 1, background: C.bg }} />
-
-      {/* ── Footer — always dark ── */}
-      <div id="payment-stmt-footer">
-      <div style={{ background: C.black, padding: "14px 48px", textAlign: "center" }}>
-        <div style={{ fontSize: 9, fontWeight: 500, letterSpacing: "1.4px", textTransform: "uppercase", color: C.gold, marginBottom: 3 }}>
-          Butler &amp; Associates Construction, Inc.
-        </div>
-        <div style={{ fontSize: 10, color: "#555", marginBottom: 2 }}>
-          6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806
-        </div>
-        <div style={{ fontSize: 10, color: "#555" }}>
-          (256) 617-4691 · info@butlerconstruction.co
-        </div>
-      </div>
-      </div>{/* end payment-stmt-footer */}
+      <div style={{ flex: 1, background: "#fff" }} />
     </div>
   );
 }
