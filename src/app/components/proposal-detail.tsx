@@ -1718,7 +1718,7 @@ export function ProposalDetail() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuLabel className="text-xs">Select wizard</DropdownMenuLabel>
+                  <DropdownMenuLabel><span className="text-xs">Select wizard</span></DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {templates.map((t: any) => {
                     // If an existing category already maps to this wizard type (e.g. "Driveway Pavers" → "Pavers"),
