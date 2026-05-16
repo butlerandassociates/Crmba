@@ -125,6 +125,9 @@ export function ProposalBuilder() {
   // Delete section confirmation
   const [deletingCat, setDeletingCat] = useState<string | null>(null);
 
+  // Section order for drag-free reordering
+  const [sectionOrder, setSectionOrder] = useState<string[]>([]);
+
   // New same-type section wizard
   const [newSectionWizardTemplate, setNewSectionWizardTemplate] = useState<any>(null);
   const [showNewSectionWizardDialog, setShowNewSectionWizardDialog] = useState(false);
@@ -204,6 +207,18 @@ export function ProposalBuilder() {
     );
   }
 
+  const moveSection = (cat: string, dir: 'up' | 'down') => {
+    setSectionOrder((prev) => {
+      const idx = prev.indexOf(cat);
+      if (dir === 'up' && idx <= 0) return prev;
+      if (dir === 'down' && idx >= prev.length - 1) return prev;
+      const next = [...prev];
+      const swap = dir === 'up' ? idx - 1 : idx + 1;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  };
+
   const getWizardType = (cat: string): string => wizardTypeMap[cat] ?? cat;
 
   const handleCategorySelect = (category: string) => {
@@ -249,6 +264,7 @@ export function ProposalBuilder() {
     const trimmed = newCat.trim();
     if (!trimmed || trimmed === oldCat) { setRenamingCat(null); return; }
     setLineItems((prev) => prev.map((li) => li.category === oldCat ? { ...li, category: trimmed } : li));
+    setSectionOrder((prev) => prev.map((c) => c === oldCat ? trimmed : c));
     setWizardTypeMap((prev) => {
       const updated = { ...prev };
       const type = updated[oldCat] ?? oldCat;
@@ -267,6 +283,7 @@ export function ProposalBuilder() {
 
   const handleDeleteCategory = (cat: string) => {
     setLineItems((prev) => prev.filter((li) => li.category !== cat));
+    setSectionOrder((prev) => prev.filter((c) => c !== cat));
     setWizardTypeMap((prev) => { const u = { ...prev }; delete u[cat]; return u; });
     setWizardInputs((prev) => { const u = { ...prev }; delete u[cat]; return u; });
     setDeletingCat(null);
@@ -310,6 +327,7 @@ export function ProposalBuilder() {
       totalPrice: item.quantity * item.pricePerUnit,
     };
     setLineItems([...lineItems, newItem]);
+    setSectionOrder((prev) => prev.includes(item.category) ? prev : [...prev, item.category]);
   };
 
   const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[], formData?: Record<string, any>) => {
@@ -328,6 +346,7 @@ export function ProposalBuilder() {
     );
     if (formData) setWizardInputs((prev) => ({ ...prev, [targetCat]: formData }));
     if (targetCat !== wizardType) setWizardTypeMap((prev) => ({ ...prev, [targetCat]: wizardType }));
+    setSectionOrder((prev) => prev.includes(targetCat) ? prev : [...prev, targetCat]);
     setShowWizard(false);
     setSelectedCategory("");
     setEditingWizardCat("");
@@ -825,7 +844,14 @@ export function ProposalBuilder() {
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(groupedLineItems).map(([category, items]) => (
+                    {(sectionOrder.length > 0
+                      ? [...sectionOrder.filter((c) => groupedLineItems[c]), ...Object.keys(groupedLineItems).filter((c) => !sectionOrder.includes(c))]
+                      : Object.keys(groupedLineItems)
+                    ).map((category) => {
+                      const items = groupedLineItems[category];
+                      const catIdx = (sectionOrder.length > 0 ? sectionOrder.filter((c) => groupedLineItems[c]) : Object.keys(groupedLineItems)).indexOf(category);
+                      const totalCats = sectionOrder.length > 0 ? sectionOrder.filter((c) => groupedLineItems[c]).length : Object.keys(groupedLineItems).length;
+                      return (
                       <Fragment key={category}>
                         {/* Category section header */}
                         <tr className="bg-slate-100/80 border-y border-slate-200">
@@ -852,6 +878,13 @@ export function ProposalBuilder() {
                                 </div>
                               )}
                               <div className="flex items-center gap-1">
+                                <div className="flex items-center mr-1">
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(category, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === totalCats - 1} onClick={() => moveSection(category, 'down')}><ChevronDown className="h-3.5 w-3.5" /></Button>
+                                </div>
+                                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => { setCustomItem((p) => ({ ...p, category })); setShowCustomForm(true); }}>
+                                  <Plus className="h-3.5 w-3.5" />Add Item
+                                </Button>
                                 {templates.some((t: any) => t.category === category || t.category === getWizardType(category)) && (
                                   <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleEditSectionWizard(category)}>
                                     <Wand2 className="h-3.5 w-3.5" />Edit in Wizard
@@ -957,7 +990,8 @@ export function ProposalBuilder() {
                           );
                         })}
                       </Fragment>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -150,6 +150,7 @@ export function ProposalDetail() {
   const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
   const [deletingCat, setDeletingCat] = useState<string | null>(null);
+  const [sectionOrder, setSectionOrder] = useState<string[]>([]);
 
   // Append wizard (wizard on saved drafts)
   const [showAppendWizard, setShowAppendWizard] = useState(false);
@@ -204,6 +205,8 @@ export function ProposalDetail() {
       setEditDescription(est.description ?? "");
       setEditLineItems(est.line_items ?? []);
       setCustomSections((est.wizard_inputs?._customSections ?? []) as string[]);
+      const initCats = [...new Set([...(est.line_items ?? []).map((li: any) => li.category).filter(Boolean), ...(est.wizard_inputs?._customSections ?? [])])];
+      setSectionOrder(initCats as string[]);
       const dtype = (est.discount_type as "percent" | "fixed") ?? "percent";
       setDiscountType(dtype);
       setDiscountValue(dtype === "fixed" ? (est.discount_amount ?? 0) : (est.discount_percentage ?? 0));
@@ -413,6 +416,7 @@ export function ProposalDetail() {
       await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
       setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
     }
+    setSectionOrder((prev) => prev.includes(wizardCategory) ? prev : [...prev, wizardCategory]);
     setShowWizard(false);
     toast.success(`${wizardCategory} items updated`);
   };
@@ -421,6 +425,7 @@ export function ProposalDetail() {
     const trimmed = newCat.trim();
     if (!trimmed || trimmed === oldCat) { setRenamingCat(null); return; }
     setEditLineItems((prev) => prev.map((li) => li.category === oldCat ? { ...li, category: trimmed } : li));
+    setSectionOrder((prev) => prev.map((c) => c === oldCat ? trimmed : c));
     const updatedCustomSections = customSections.map((s) => s === oldCat ? trimmed : s);
     setCustomSections(updatedCustomSections);
     const existingMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
@@ -444,6 +449,18 @@ export function ProposalDetail() {
     setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
   };
 
+  const moveSection = (cat: string, dir: 'up' | 'down') => {
+    setSectionOrder((prev) => {
+      const idx = prev.indexOf(cat);
+      if (dir === 'up' && idx <= 0) return prev;
+      if (dir === 'down' && idx >= prev.length - 1) return prev;
+      const next = [...prev];
+      const swap = dir === 'up' ? idx - 1 : idx + 1;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  };
+
   const handleDeleteCategory = async (cat: string) => {
     const itemsInCat = editLineItems.filter((li) => li.category === cat);
     const dbIds = itemsInCat.map((li) => li.id).filter((id: any) => id && !String(id).startsWith("new-"));
@@ -451,6 +468,7 @@ export function ProposalDetail() {
       await supabase.from("estimate_line_items").delete().in("id", dbIds);
     }
     setEditLineItems((prev) => prev.filter((li) => li.category !== cat));
+    setSectionOrder((prev) => prev.filter((c) => c !== cat));
     const updatedCustomSections = customSections.filter((s) => s !== cat);
     setCustomSections(updatedCustomSections);
     const existingMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
@@ -487,6 +505,7 @@ export function ProposalDetail() {
     const updatedItems = [...editLineItems, ...freshItems];
     setEditLineItems(updatedItems);
     setCustomSections((prev) => prev.filter((s) => s !== appendWizardCategory));
+    setSectionOrder((prev) => prev.includes(appendWizardCategory) ? prev : [...prev, appendWizardCategory]);
     const newSubtotal = updatedItems.reduce((sum, it) => sum + (Number(it.quantity) * Number(it.client_price ?? 0)), 0);
     const wizBadQualifying = updatedItems.filter((it) => BAD_CATEGORIES.includes(it.category) || Number(it.labor_cost ?? 0) > 0).reduce((s, it) => s + Number(it.quantity) * Number(it.client_price ?? 0), 0);
     const wizBad = badOverride !== null ? badOverride : Math.round(wizBadQualifying * 0.015 * 1.5 * 100) / 100;
@@ -517,6 +536,7 @@ export function ProposalDetail() {
     setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
     setAppendWizardCategory(name);
     setAppendTemplate(newSectionWizardTemplate);
+    setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
     setShowNewSectionWizardDialog(false);
     setShowAppendWizard(true);
   };
@@ -1818,8 +1838,12 @@ export function ProposalDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {Object.entries(groups).map(([cat, groupItems]) => {
+                    {(() => {
+                      const allCats = [...new Set([...sectionOrder.filter((c) => groups[c]), ...Object.keys(groups).filter((c) => !sectionOrder.includes(c))])];
+                      return allCats.map((cat) => {
+                      const groupItems = groups[cat] as any[];
                       const hasWizard = templates.some((t: any) => t.category === cat || t.category === getWizardType(cat));
+                      const catIdx = allCats.indexOf(cat);
                       return (
                         <Fragment key={cat}>
                           {/* Category header row */}
@@ -1852,6 +1876,17 @@ export function ProposalDetail() {
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1">
+                                  {!isLocked && (
+                                    <div className="flex items-center mr-1">
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(cat, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === allCats.length - 1} onClick={() => moveSection(cat, 'down')}><ChevronDown className="h-3.5 w-3.5" /></Button>
+                                    </div>
+                                  )}
+                                  {!isLocked && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => { setShowItemPicker(true); setPickerCategory(cat); }}>
+                                      <Plus className="h-3.5 w-3.5" />Add Item
+                                    </Button>
+                                  )}
                                   {hasWizard && !isLocked && (
                                     <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleWizardEdit(cat)}>
                                       <Wand2 className="h-3.5 w-3.5" />
@@ -1866,8 +1901,18 @@ export function ProposalDetail() {
                                   )}
                                 </div>
                               </div>
-                              {groupItems.length === 0 && (
-                                <p className="text-xs text-muted-foreground mt-1 italic">No items yet — use + Add Item and set category to "{cat}"</p>
+                              {groupItems.length === 0 && !isLocked && (
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  <p className="text-xs text-muted-foreground italic">No items yet —</p>
+                                  <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => { setShowItemPicker(true); setPickerCategory(cat); }}>
+                                    <Plus className="h-3 w-3" />Add Item
+                                  </Button>
+                                  {hasWizard && (
+                                    <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => handleWizardEdit(cat)}>
+                                      <Wand2 className="h-3 w-3" />Add via Wizard
+                                    </Button>
+                                  )}
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1960,7 +2005,8 @@ export function ProposalDetail() {
                           })}
                         </Fragment>
                       );
-                    })}
+                    });
+                  })()}
                   </tbody>
                 </table>
               </div>
@@ -2311,6 +2357,7 @@ export function ProposalDetail() {
                   if (!name) return;
                   const updated = customSections.includes(name) ? customSections : [...customSections, name];
                   setCustomSections(updated);
+                  setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
                   saveCustomSections(updated);
                   setShowAddSectionDialog(false);
                 }
@@ -2324,6 +2371,7 @@ export function ProposalDetail() {
               if (!name) return;
               const updated = customSections.includes(name) ? customSections : [...customSections, name];
               setCustomSections(updated);
+              setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
               saveCustomSections(updated);
               setShowAddSectionDialog(false);
             }}>
