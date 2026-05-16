@@ -104,7 +104,7 @@ export function ProposalBuilder() {
 
   // Warn before leaving with unsaved line items
   useEffect(() => {
-    const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "";
+    const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "" || customSections.length > 0;
     if (!isDirty) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
@@ -128,6 +128,11 @@ export function ProposalBuilder() {
   // Section order for drag-free reordering
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
 
+  // Custom blank sections (no items yet)
+  const [customSections, setCustomSections] = useState<string[]>([]);
+  const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
+
   // New same-type section wizard
   const [newSectionWizardTemplate, setNewSectionWizardTemplate] = useState<any>(null);
   const [showNewSectionWizardDialog, setShowNewSectionWizardDialog] = useState(false);
@@ -149,6 +154,10 @@ export function ProposalBuilder() {
   const [stripeFeeEnabled, setStripeFeeEnabled] = useState(false);
   const [showSavingsDialog, setShowSavingsDialog] = useState(false);
 
+  // Item picker modal (same as edit proposal)
+  const [showItemPicker, setShowItemPicker] = useState(false);
+  const [pickerCategory, setPickerCategory] = useState("");
+
   // Custom item form
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customItem, setCustomItem] = useState({
@@ -159,9 +168,13 @@ export function ProposalBuilder() {
   const customPricePerUnit = customCostPerUnit * (1 + customItem.markup / 100);
   const [customValidated, setCustomValidated] = useState(false);
 
-  const resetCustomForm = () => {
+  const resetCustomItem = () => {
     setCustomItem({ name: "", category: "", qty: 1, unit: "", materialCost: 0, laborCost: 0, markup: 0 });
     setCustomValidated(false);
+  };
+
+  const resetCustomForm = () => {
+    resetCustomItem();
     setShowCustomForm(false);
   };
 
@@ -181,6 +194,8 @@ export function ProposalBuilder() {
       pricePerUnit: customPricePerUnit,
     });
     resetCustomForm();
+    setShowItemPicker(false);
+    setPickerCategory("");
   };
 
   // Qualifying categories for Base, Aggregate & Disposal
@@ -265,6 +280,7 @@ export function ProposalBuilder() {
     if (!trimmed || trimmed === oldCat) { setRenamingCat(null); return; }
     setLineItems((prev) => prev.map((li) => li.category === oldCat ? { ...li, category: trimmed } : li));
     setSectionOrder((prev) => prev.map((c) => c === oldCat ? trimmed : c));
+    setCustomSections((prev) => prev.map((c) => c === oldCat ? trimmed : c));
     setWizardTypeMap((prev) => {
       const updated = { ...prev };
       const type = updated[oldCat] ?? oldCat;
@@ -284,6 +300,7 @@ export function ProposalBuilder() {
   const handleDeleteCategory = (cat: string) => {
     setLineItems((prev) => prev.filter((li) => li.category !== cat));
     setSectionOrder((prev) => prev.filter((c) => c !== cat));
+    setCustomSections((prev) => prev.filter((c) => c !== cat));
     setWizardTypeMap((prev) => { const u = { ...prev }; delete u[cat]; return u; });
     setWizardInputs((prev) => { const u = { ...prev }; delete u[cat]; return u; });
     setDeletingCat(null);
@@ -347,6 +364,7 @@ export function ProposalBuilder() {
     if (formData) setWizardInputs((prev) => ({ ...prev, [targetCat]: formData }));
     if (targetCat !== wizardType) setWizardTypeMap((prev) => ({ ...prev, [targetCat]: wizardType }));
     setSectionOrder((prev) => prev.includes(targetCat) ? prev : [...prev, targetCat]);
+    setCustomSections((prev) => prev.filter((c) => c !== targetCat));
     setShowWizard(false);
     setSelectedCategory("");
     setEditingWizardCat("");
@@ -416,7 +434,7 @@ export function ProposalBuilder() {
         discount_label: discountLabel || null,
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeVal,
-        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
+        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
       const items = lineItems.map((item) => ({
@@ -506,7 +524,7 @@ export function ProposalBuilder() {
               variant="outline"
               size="sm"
               onClick={() => {
-                const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "";
+                const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "" || customSections.length > 0;
                 if (isDirty) setShowUnsavedDialog(true);
                 else navigate(`/clients/${clientId}`);
               }}
@@ -779,6 +797,7 @@ export function ProposalBuilder() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Proposal Line Items</CardTitle>
+              <div className="flex items-center gap-2">
               {lineItems.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -814,6 +833,10 @@ export function ProposalBuilder() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              <Button variant="outline" size="sm" onClick={() => { setNewSectionName(""); setShowAddSectionDialog(true); }}>
+                <Plus className="h-4 w-4 mr-1.5" />Add Section
+              </Button>
+              </div>
             </div>
           </CardHeader>
           {saveTouched && (itemsErr || totalErr) && (
@@ -822,7 +845,7 @@ export function ProposalBuilder() {
             </div>
           )}
           <CardContent className="p-0">
-            {lineItems.length === 0 ? (
+            {lineItems.length === 0 && customSections.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
                 <FileText className="h-10 w-10 mb-3 opacity-20" />
                 <p className="text-sm font-medium">No items added yet</p>
@@ -844,13 +867,14 @@ export function ProposalBuilder() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(sectionOrder.length > 0
-                      ? [...sectionOrder.filter((c) => groupedLineItems[c]), ...Object.keys(groupedLineItems).filter((c) => !sectionOrder.includes(c))]
-                      : Object.keys(groupedLineItems)
-                    ).map((category) => {
-                      const items = groupedLineItems[category];
-                      const catIdx = (sectionOrder.length > 0 ? sectionOrder.filter((c) => groupedLineItems[c]) : Object.keys(groupedLineItems)).indexOf(category);
-                      const totalCats = sectionOrder.length > 0 ? sectionOrder.filter((c) => groupedLineItems[c]).length : Object.keys(groupedLineItems).length;
+                    {(() => {
+                      const allKnown = [...new Set([...sectionOrder, ...Object.keys(groupedLineItems), ...customSections])];
+                      const allCats = allKnown.filter((c) => groupedLineItems[c] || customSections.includes(c));
+                      return allCats.map((category) => {
+                      const items = groupedLineItems[category] ?? [];
+                      const catIdx = allCats.indexOf(category);
+                      const totalCats = allCats.length;
+                      const hasWizard = templates.some((t: any) => t.category === category || t.category === getWizardType(category));
                       return (
                       <Fragment key={category}>
                         {/* Category section header */}
@@ -882,7 +906,11 @@ export function ProposalBuilder() {
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(category, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === totalCats - 1} onClick={() => moveSection(category, 'down')}><ChevronDown className="h-3.5 w-3.5" /></Button>
                                 </div>
-                                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => { setCustomItem((p) => ({ ...p, category })); setShowCustomForm(true); }}>
+                                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => {
+                                  const isDbCat = categories.some((c: any) => c.name === category);
+                                  if (isDbCat) { setPickerCategory(category); } else { resetCustomItem(); setCustomItem((p) => ({ ...p, category })); setPickerCategory("__custom__"); }
+                                  setShowItemPicker(true);
+                                }}>
                                   <Plus className="h-3.5 w-3.5" />Add Item
                                 </Button>
                                 {templates.some((t: any) => t.category === category || t.category === getWizardType(category)) && (
@@ -897,6 +925,27 @@ export function ProposalBuilder() {
                             </div>
                           </td>
                         </tr>
+                        {items.length === 0 && (
+                          <tr className="border-b border-slate-100">
+                            <td colSpan={8} className="px-6 py-3">
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-muted-foreground italic">No items yet —</p>
+                                <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => {
+                                  const isDbCat = categories.some((c: any) => c.name === category);
+                                  if (isDbCat) { setPickerCategory(category); } else { resetCustomItem(); setCustomItem((p) => ({ ...p, category })); setPickerCategory("__custom__"); }
+                                  setShowItemPicker(true);
+                                }}>
+                                  <Plus className="h-3 w-3" />Add Item
+                                </Button>
+                                {hasWizard && (
+                                  <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => handleEditSectionWizard(category)}>
+                                    <Wand2 className="h-3 w-3" />Add via Wizard
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                         {items.map((item) => {
                           const isExpanded = expandedRows.has(item.id);
                           return (
@@ -991,7 +1040,8 @@ export function ProposalBuilder() {
                         })}
                       </Fragment>
                       );
-                    })}
+                    });
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -1284,6 +1334,47 @@ export function ProposalBuilder() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Custom Section Dialog */}
+      <Dialog open={showAddSectionDialog} onOpenChange={setShowAddSectionDialog}>
+        <DialogContent className="max-w-sm p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>Add Section</DialogTitle>
+            <DialogDescription>Name a new blank section to organize your proposal.</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4">
+            <Input
+              placeholder="e.g. Cleanup, Lighting, Extra Work"
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const name = newSectionName.trim();
+                  if (!name) return;
+                  if (!customSections.includes(name) && !lineItems.some((li) => li.category === name)) {
+                    setCustomSections((prev) => [...prev, name]);
+                    setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
+                  }
+                  setShowAddSectionDialog(false);
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowAddSectionDialog(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => {
+              const name = newSectionName.trim();
+              if (!name) return;
+              if (!customSections.includes(name) && !lineItems.some((li) => li.category === name)) {
+                setCustomSections((prev) => [...prev, name]);
+                setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
+              }
+              setShowAddSectionDialog(false);
+            }}>Add Section</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* New Section Name Dialog */}
       <Dialog open={showNewSectionWizardDialog} onOpenChange={(open) => { if (!open) { setShowNewSectionWizardDialog(false); setNewSectionWizardName(""); } }}>
         <DialogContent className="max-w-sm">
@@ -1319,6 +1410,234 @@ export function ProposalBuilder() {
           <div className="flex justify-end gap-3 px-6 py-4">
             <Button variant="outline" onClick={() => setDeletingCat(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => { if (deletingCat) handleDeleteCategory(deletingCat); }}>Delete Section</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Item Picker Dialog */}
+      <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
+        <DialogContent className="h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
+          <DialogHeader className="px-6 py-5 pr-16 border-b shrink-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
+                <DialogDescription className="mt-0.5">Select a category on the left, then click a product to add it</DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50 shrink-0"
+                onClick={() => { setPickerCategory("__custom__"); resetCustomItem(); }}
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Custom Item
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Categories sidebar */}
+            <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col">
+              <p className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Categories</p>
+              <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+                {categories.map((cat: any) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setPickerCategory(cat.name)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      pickerCategory === cat.name
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+                {(() => {
+                  const dbCatNames = categories.map((c: any) => c.name);
+                  const proposalCats = [...new Set(lineItems.map((li) => li.category).filter(Boolean))] as string[];
+                  const extraCats = proposalCats.filter((c) => !dbCatNames.includes(c) && !customSections.includes(c));
+                  if (extraCats.length === 0) return null;
+                  return (
+                    <>
+                      <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">In This Proposal</p>
+                      {extraCats.map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => { resetCustomItem(); setCustomItem((prev) => ({ ...prev, category: cat })); setPickerCategory("__custom__"); }}
+                          className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            pickerCategory === "__custom__" && customItem.category === cat
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </>
+                  );
+                })()}
+                {customSections.length > 0 && (
+                  <>
+                    <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Custom Sections</p>
+                    {customSections.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => { setCustomItem((prev) => ({ ...prev, category: s })); setPickerCategory("__custom__"); }}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          pickerCategory === "__custom__" && customItem.category === s
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Products panel */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              {pickerCategory === "__custom__" ? (
+                <div className="flex-1 overflow-y-auto px-8 py-6 thin-scroll">
+                  <div className="max-w-lg">
+                    <p className="text-base font-semibold mb-0.5">Custom Item</p>
+                    <p className="text-xs text-muted-foreground mb-5">Add a one-off product or service. It won't be saved to the catalog.</p>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Item Name <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="e.g. Custom Lighting Install"
+                            value={customItem.name}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, name: e.target.value }))}
+                            className={customValidated && !customItem.name.trim() ? "border-red-400" : ""}
+                          />
+                          {customValidated && !customItem.name.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Category <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="e.g. Landscaping, Lighting"
+                            value={customItem.category}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, category: e.target.value }))}
+                            className={customValidated && !customItem.category.trim() ? "border-red-400" : ""}
+                          />
+                          {customValidated && !customItem.category.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Quantity</Label>
+                          <Input type="number" min={0} value={customItem.qty}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, qty: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Unit <span className="text-destructive">*</span></Label>
+                          <Input placeholder="e.g. SF, LF, EA, HR" value={customItem.unit}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, unit: e.target.value }))}
+                            className={customValidated && !customItem.unit.trim() ? "border-red-400" : ""} />
+                          {customValidated && !customItem.unit.trim() && <p className="text-xs text-red-500">Required</p>}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Material Cost / Unit ($)</Label>
+                          <Input type="number" min={0} step={0.01} value={customItem.materialCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, materialCost: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Labor Cost / Unit ($)</Label>
+                          <Input type="number" min={0} step={0.01} value={customItem.laborCost}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, laborCost: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Markup (%)</Label>
+                          <Input type="number" min={0} step={1} value={customItem.markup}
+                            onChange={(e) => setCustomItem((p) => ({ ...p, markup: parseFloat(e.target.value) || 0 }))} />
+                        </div>
+                      </div>
+                      {customCostPerUnit > 0 && (
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 text-sm">
+                          <span className="text-muted-foreground">Price / unit</span>
+                          <span className="font-bold text-primary">{formatCurrency(customPricePerUnit)}</span>
+                          <span className="text-muted-foreground">Line total</span>
+                          <span className="font-bold">{formatCurrency((customItem.qty || 1) * customPricePerUnit)}</span>
+                        </div>
+                      )}
+                      <Button className="w-full" onClick={handleAddCustomItem}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add to Proposal
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : !pickerCategory ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                  <p className="text-sm">← Select a category to browse products</p>
+                </div>
+              ) : (() => {
+                const products = dbProducts.filter((p: any) => p.category?.name === pickerCategory);
+                if (products.length === 0) return (
+                  <div className="flex flex-col items-center justify-center h-full py-12 text-muted-foreground">
+                    <Package className="h-8 w-8 mb-2 opacity-20" />
+                    <p className="text-sm font-medium">No products in this category</p>
+                    <p className="text-xs mt-1">Add products in the Admin Portal to use them here.</p>
+                  </div>
+                );
+                return (
+                  <>
+                    <div className="px-6 pt-5 pb-3 shrink-0 border-b">
+                      <p className="text-base font-semibold">{pickerCategory}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{products.length} product{products.length !== 1 ? "s" : ""} — click to add</p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-6 py-5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+                      <div className="grid grid-cols-2 gap-4">
+                        {products.map((product: any) => {
+                          const materialCost = product.material_cost ?? 0;
+                          const laborCost = product.labor_cost ?? 0;
+                          const markup = product.markup_percentage ?? 0;
+                          const costPerUnit = Math.round((materialCost + laborCost) * 100) / 100;
+                          const pricePerUnit = Math.round(costPerUnit * (1 + markup / 100) * 100) / 100;
+                          return (
+                            <button
+                              key={product.id}
+                              onClick={() => {
+                                addLineItem({
+                                  category: pickerCategory,
+                                  productName: product.name,
+                                  description: product.description,
+                                  quantity: 1,
+                                  unit: product.unit ?? "",
+                                  materialCost,
+                                  laborCost,
+                                  costPerUnit,
+                                  markupPercent: markup,
+                                  pricePerUnit,
+                                });
+                                setShowItemPicker(false);
+                                setPickerCategory("");
+                              }}
+                              className="text-left p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all group flex flex-col gap-2"
+                            >
+                              <div className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors leading-snug">{product.name}</div>
+                              {product.description && (
+                                <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{product.description}</p>
+                              )}
+                              <div className="flex items-baseline gap-1 pt-1 mt-auto border-t border-border/50">
+                                <span className="text-sm font-bold text-primary">{formatCurrency(pricePerUnit)}</span>
+                                <span className="text-xs text-muted-foreground">/ {product.unit || "unit"}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

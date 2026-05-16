@@ -15,7 +15,7 @@ function AppContent() {
     );
   }
 
-  const isPublicRoute = window.location.pathname.startsWith('/p/');
+  const isPublicRoute = window.location.pathname.startsWith('/p/') || window.location.pathname.startsWith('/portal/');
 
   return (
     <>

@@ -1883,7 +1883,11 @@ export function ProposalDetail() {
                                     </div>
                                   )}
                                   {!isLocked && (
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => { setShowItemPicker(true); setPickerCategory(cat); }}>
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => {
+                                      const isDbCat = dbCategories.some((c: any) => c.name === cat);
+                                      if (isDbCat) { setPickerCategory(cat); } else { resetCustomItem(); setCustomItem((p) => ({ ...p, category: cat })); setPickerCategory("__custom__"); }
+                                      setShowItemPicker(true);
+                                    }}>
                                       <Plus className="h-3.5 w-3.5" />Add Item
                                     </Button>
                                   )}
@@ -1904,7 +1908,11 @@ export function ProposalDetail() {
                               {groupItems.length === 0 && !isLocked && (
                                 <div className="flex items-center gap-2 mt-1.5">
                                   <p className="text-xs text-muted-foreground italic">No items yet —</p>
-                                  <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => { setShowItemPicker(true); setPickerCategory(cat); }}>
+                                  <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => {
+                                    const isDbCat = dbCategories.some((c: any) => c.name === cat);
+                                    if (isDbCat) { setPickerCategory(cat); } else { resetCustomItem(); setCustomItem((p) => ({ ...p, category: cat })); setPickerCategory("__custom__"); }
+                                    setShowItemPicker(true);
+                                  }}>
                                     <Plus className="h-3 w-3" />Add Item
                                   </Button>
                                   {hasWizard && (
@@ -2132,6 +2140,30 @@ export function ProposalDetail() {
                     {cat.name}
                   </button>
                 ))}
+                {(() => {
+                  const dbCatNames = dbCategories.map((c: any) => c.name);
+                  const proposalCats = [...new Set(editLineItems.map((li: any) => li.category).filter(Boolean))] as string[];
+                  const extraCats = proposalCats.filter((c) => !dbCatNames.includes(c) && !customSections.includes(c));
+                  if (extraCats.length === 0) return null;
+                  return (
+                    <>
+                      <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">In This Proposal</p>
+                      {extraCats.map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => { resetCustomItem(); setCustomItem((prev) => ({ ...prev, category: cat })); setPickerCategory("__custom__"); }}
+                          className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            pickerCategory === "__custom__" && customItem.category === cat
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </>
+                  );
+                })()}
                 {customSections.length > 0 && (
                   <>
                     <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">Custom Sections</p>
