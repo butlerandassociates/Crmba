@@ -156,6 +156,11 @@ export function ProposalDetail() {
   const [appendWizardCategory, setAppendWizardCategory] = useState("");
   const [appendTemplate, setAppendTemplate] = useState<any>(null);
 
+  // New section wizard (same type, different location — e.g. "Back Pavers")
+  const [newSectionWizardTemplate, setNewSectionWizardTemplate] = useState<any>(null);
+  const [showNewSectionWizardDialog, setShowNewSectionWizardDialog] = useState(false);
+  const [newSectionWizardName, setNewSectionWizardName] = useState("");
+
   const [isDirty, setIsDirty] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingReload, setPendingReload] = useState(false);
@@ -423,7 +428,10 @@ export function ProposalDetail() {
     const updatedMap = { ...existingMap };
     delete updatedMap[oldCat];
     if (originalType !== trimmed) updatedMap[trimmed] = originalType;
-    const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _wizardTypeMap: updatedMap, _customSections: updatedCustomSections };
+    const existingInputs = (proposal?.wizard_inputs ?? {}) as Record<string, any>;
+    const oldFormData = existingInputs[oldCat] ?? existingInputs[originalType];
+    const updatedInputs: Record<string, any> = { ...existingInputs, _wizardTypeMap: updatedMap, _customSections: updatedCustomSections };
+    if (oldFormData) updatedInputs[trimmed] = oldFormData;
     await supabase.from("estimate_line_items").update({ category: trimmed }).eq("estimate_id", proposal.id).eq("category", oldCat);
     await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
     setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
@@ -495,6 +503,22 @@ export function ProposalDetail() {
     }
     setShowAppendWizard(false);
     toast.success(`${appendWizardCategory} items added`);
+  };
+
+  const handleStartNewSectionWizard = async () => {
+    const name = newSectionWizardName.trim();
+    if (!name || !newSectionWizardTemplate || !proposal?.id) return;
+    const nameExists = editLineItems.some((li) => li.category === name) || customSections.includes(name);
+    if (nameExists) { toast.error(`A section named "${name}" already exists — choose a different name.`); return; }
+    const existingMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
+    const updatedMap = { ...existingMap, [name]: newSectionWizardTemplate.category };
+    const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _wizardTypeMap: updatedMap };
+    await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    setAppendWizardCategory(name);
+    setAppendTemplate(newSectionWizardTemplate);
+    setShowNewSectionWizardDialog(false);
+    setShowAppendWizard(true);
   };
 
   const isLocked = proposal?.status === "accepted" || proposal?.status === "voided";
@@ -1721,20 +1745,33 @@ export function ProposalDetail() {
                   <DropdownMenuLabel><span className="text-xs">Select wizard</span></DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {templates.map((t: any) => {
-                    // If an existing category already maps to this wizard type (e.g. "Driveway Pavers" → "Pavers"),
-                    // append into that renamed category rather than creating a new one.
                     const wizardTypeMap = ((proposal?.wizard_inputs?._wizardTypeMap) ?? {}) as Record<string, string>;
                     const existingCat = Object.keys(wizardTypeMap).find((k) => wizardTypeMap[k] === t.category)
                       ?? (editLineItems.some((li) => li.category === t.category) ? t.category : null);
                     const targetCat = existingCat ?? t.category;
                     return (
-                      <DropdownMenuItem key={t.id ?? t.category} onClick={() => {
-                        setAppendWizardCategory(targetCat);
-                        setAppendTemplate(t);
-                        setShowAppendWizard(true);
-                      }}>
-                        {t.category}{targetCat !== t.category ? ` → ${targetCat}` : ""}
-                      </DropdownMenuItem>
+                      <Fragment key={t.id ?? t.category}>
+                        <DropdownMenuItem onClick={() => {
+                          if (existingCat) {
+                            handleWizardEdit(targetCat);
+                          } else {
+                            setAppendWizardCategory(targetCat);
+                            setAppendTemplate(t);
+                            setShowAppendWizard(true);
+                          }
+                        }}>
+                          {existingCat ? `Edit "${targetCat}" in Wizard` : t.category}
+                        </DropdownMenuItem>
+                        {existingCat && (
+                          <DropdownMenuItem onClick={() => {
+                            setNewSectionWizardTemplate(t);
+                            setNewSectionWizardName("");
+                            setShowNewSectionWizardDialog(true);
+                          }}>
+                            + New {t.category} section…
+                          </DropdownMenuItem>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </DropdownMenuContent>
@@ -2240,13 +2277,13 @@ export function ProposalDetail() {
                   dbProducts={dbProducts}
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
-                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? proposal?.wizard_inputs?.[getWizardType(wizardCategory)] ?? undefined}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
                 />
               ) : templates.some((t: any) => t.category === wizardCategory) ? (
                 <ConcreteWizard
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
-                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? proposal?.wizard_inputs?.[getWizardType(wizardCategory)] ?? undefined}
+                  initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
                 />
               ) : null
             )}
@@ -2312,6 +2349,32 @@ export function ProposalDetail() {
             <Button variant="destructive" size="sm" onClick={() => deletingCat && handleDeleteCategory(deletingCat)}>
               Delete
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Section Name Dialog — prompts for a name before opening wizard for a second same-type section */}
+      <Dialog open={showNewSectionWizardDialog} onOpenChange={setShowNewSectionWizardDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>Name this section</DialogTitle>
+            <DialogDescription>
+              You already have a {newSectionWizardTemplate?.category} section. Give this new one a name (e.g. &quot;Back {newSectionWizardTemplate?.category}&quot;).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4">
+            <input
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder={`e.g. Back ${newSectionWizardTemplate?.category ?? ""}`}
+              value={newSectionWizardName}
+              onChange={(e) => setNewSectionWizardName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleStartNewSectionWizard(); }}
+              autoFocus
+            />
+          </div>
+          <div className="px-6 pb-4 flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setShowNewSectionWizardDialog(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleStartNewSectionWizard} disabled={!newSectionWizardName.trim()}>Open Wizard</Button>
           </div>
         </DialogContent>
       </Dialog>

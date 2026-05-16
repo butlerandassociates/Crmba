@@ -1,0 +1,151 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const { token, action, entity_id, comment } = await req.json();
+
+    if (!token || !action || !entity_id) {
+      return new Response(JSON.stringify({ success: false, error: "Missing required fields" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Validate token and get client_id
+    const { data: tokenRow } = await supabase
+      .from("client_portal_tokens")
+      .select("client_id, is_active")
+      .eq("token", token)
+      .maybeSingle();
+
+    if (!tokenRow || !tokenRow.is_active) {
+      return new Response(JSON.stringify({ success: false, error: "Invalid or revoked token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const clientId = tokenRow.client_id;
+
+    if (action === "co_approve" || action === "co_reject") {
+      // Verify this CO belongs to this client
+      const { data: co } = await supabase
+        .from("change_orders")
+        .select("id, client_id, status")
+        .eq("id", entity_id)
+        .eq("client_id", clientId)
+        .maybeSingle();
+
+      if (!co) {
+        return new Response(JSON.stringify({ success: false, error: "Change order not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (co.status !== "pending_client") {
+        return new Response(JSON.stringify({ success: false, error: "Change order is not pending client action" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const newStatus = action === "co_approve" ? "approved" : "rejected";
+      await supabase
+        .from("change_orders")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", entity_id);
+
+      // Log activity
+      await supabase.from("activity_log").insert({
+        client_id: clientId,
+        event_type: action === "co_approve" ? "change_order_approved" : "change_order_rejected",
+        description: action === "co_approve"
+          ? "Client approved change order via portal"
+          : `Client declined change order via portal${comment ? ": " + comment : ""}`,
+        metadata: { change_order_id: entity_id, via: "portal" },
+      }).then(() => {});
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "proposal_accept" || action === "proposal_decline") {
+      // Verify this proposal belongs to this client
+      const { data: proposal } = await supabase
+        .from("estimates")
+        .select("id, client_id, status")
+        .eq("id", entity_id)
+        .eq("client_id", clientId)
+        .maybeSingle();
+
+      if (!proposal) {
+        return new Response(JSON.stringify({ success: false, error: "Proposal not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (proposal.status !== "sent") {
+        return new Response(JSON.stringify({ success: false, error: "Proposal is not in sent status" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const now = new Date().toISOString();
+      if (action === "proposal_accept") {
+        await supabase
+          .from("estimates")
+          .update({ status: "accepted", accepted_at: now, updated_at: now })
+          .eq("id", entity_id);
+      } else {
+        await supabase
+          .from("estimates")
+          .update({ status: "declined", declined_at: now, updated_at: now })
+          .eq("id", entity_id);
+      }
+
+      // Log activity
+      await supabase.from("activity_log").insert({
+        client_id: clientId,
+        event_type: action === "proposal_accept" ? "proposal_accepted" : "proposal_declined",
+        description: action === "proposal_accept"
+          ? "Client accepted proposal via portal"
+          : `Client declined proposal via portal${comment ? ": " + comment : ""}`,
+        metadata: { estimate_id: entity_id, via: "portal" },
+      }).then(() => {});
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: false, error: "Unknown action" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    console.error("[portal-action] Error:", err.message);
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

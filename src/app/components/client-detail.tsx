@@ -123,9 +123,12 @@ import { CostAttributionsSheet } from "./cost-attributions-sheet";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { toast } from "sonner";
 import { PageLoader, SkeletonList, SkeletonInfoCard } from "./ui/page-loader";
 import { Skeleton } from "./ui/skeleton";
+import { PortalPhases } from "./admin/portal-phases";
+import { PortalFieldUpdates } from "./admin/portal-field-updates";
 
 function formatApptTime(time: string): string {
   if (!time) return time;
@@ -391,6 +394,7 @@ export function ClientDetail() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalGenerating, setPortalGenerating] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
+  const [portalDialogTab, setPortalDialogTab] = useState("link");
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 5;
   
@@ -1132,7 +1136,7 @@ export function ClientDetail() {
       const generatedToken = data as string;
       setPortalToken(generatedToken);
       // Log to activity
-      const portalUrl = `${window.location.origin}/portal/${generatedToken}`;
+      const portalUrl = `https://client.butlerconstruction.co/portal/${generatedToken}`;
       activityLogAPI.create({
         client_id: id!,
         action_type: "portal_link_generated",
@@ -1148,7 +1152,7 @@ export function ClientDetail() {
 
   const handleCopyPortalLink = () => {
     if (!portalToken) return;
-    const url = `${window.location.origin}/portal/${portalToken}`;
+    const url = `https://client.butlerconstruction.co/portal/${portalToken}`;
     navigator.clipboard.writeText(url).then(() => {
       setPortalCopied(true);
       setTimeout(() => setPortalCopied(false), 2000);
@@ -4564,79 +4568,105 @@ export function ClientDetail() {
       />
 
 
-      {/* Client Portal Dialog */}
-      <Dialog open={portalDialogOpen} onOpenChange={(v) => { setPortalDialogOpen(v); if (!v) setPortalToken(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Client Portal Sheet */}
+      <Sheet open={portalDialogOpen} onOpenChange={(v) => { setPortalDialogOpen(v); if (!v) { setPortalToken(null); setPortalDialogTab("link"); } }}>
+        <SheetContent className="w-full sm:max-w-2xl flex flex-col p-0 overflow-hidden">
+          <SheetHeader className="px-6 py-5 border-b shrink-0">
+            <SheetTitle className="flex items-center gap-2">
               <Globe className="h-5 w-5 text-sky-600" />
-              Client Portal Link
-            </DialogTitle>
-            <DialogDescription>
-              Generate a secure, tokenized link for {client?.first_name} {client?.last_name} to view their project portal.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody>
-            {portalToken ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg border text-sm font-mono break-all">
-                  <span className="flex-1 text-xs text-muted-foreground">{window.location.origin}/portal/{portalToken}</span>
-                  <button
-                    onClick={handleCopyPortalLink}
-                    className="shrink-0 p-1.5 hover:bg-accent rounded"
-                    title="Copy link"
-                  >
-                    {portalCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  This link gives the client read-only access to their project overview, payments, documents, and field updates.
-                  It stays active until revoked or a new link is generated.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCopyPortalLink}
-                    className="flex-1 h-9 px-4 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 flex items-center justify-center gap-2"
-                  >
-                    {portalCopied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> Copy Link</>}
-                  </button>
-                  <a
-                    href={`${window.location.origin}/portal/${portalToken}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-4 w-4" /> Preview
-                  </a>
-                </div>
-                <div className="border-t pt-3">
-                  <button
-                    onClick={handleGeneratePortalToken}
-                    disabled={portalGenerating}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${portalGenerating ? "animate-spin" : ""}`} />
-                    {portalGenerating ? "Regenerating…" : "Regenerate link (revokes current)"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  No portal link exists yet. Generate one to give this client access to their project portal.
-                </p>
-                <button
-                  onClick={handleGeneratePortalToken}
-                  disabled={portalGenerating}
-                  className="w-full h-10 bg-sky-600 text-white rounded-md text-sm font-semibold hover:bg-sky-700 flex items-center justify-center gap-2"
-                >
-                  {portalGenerating ? <><RefreshCw className="h-4 w-4 animate-spin" /> Generating…</> : <><Globe className="h-4 w-4" /> Generate Portal Link</>}
-                </button>
-              </div>
-            )}
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
+              Client Portal — {client?.first_name} {client?.last_name}
+            </SheetTitle>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage portal link, project phases, and field updates.</p>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            <Tabs value={portalDialogTab} onValueChange={setPortalDialogTab}>
+              <TabsList className="w-full grid grid-cols-3 mb-5">
+                <TabsTrigger value="link">Portal Link</TabsTrigger>
+                <TabsTrigger value="phases" disabled={!clientProjects[0]?.id}>Project Phases</TabsTrigger>
+                <TabsTrigger value="updates" disabled={!clientProjects[0]?.id}>Field Updates</TabsTrigger>
+              </TabsList>
+
+              {/* ── Link Tab ── */}
+              <TabsContent value="link">
+                {portalToken ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 bg-muted rounded-lg border text-sm font-mono break-all">
+                      <span className="flex-1 text-xs text-muted-foreground">client.butlerconstruction.co/portal/{portalToken}</span>
+                      <button
+                        onClick={handleCopyPortalLink}
+                        className="shrink-0 p-1.5 hover:bg-accent rounded"
+                        title="Copy link"
+                      >
+                        {portalCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This link gives the client access to their project overview, payments, documents, and field updates.
+                      It stays active until revoked or a new link is generated.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleCopyPortalLink}
+                        className="flex-1 h-9 px-4 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 flex items-center justify-center gap-2"
+                      >
+                        {portalCopied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> Copy Link</>}
+                      </button>
+                      <a
+                        href={`https://client.butlerconstruction.co/portal/${portalToken}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
+                      >
+                        <ExternalLink className="h-4 w-4" /> Preview
+                      </a>
+                    </div>
+                    <div className="border-t pt-3">
+                      <button
+                        onClick={handleGeneratePortalToken}
+                        disabled={portalGenerating}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${portalGenerating ? "animate-spin" : ""}`} />
+                        {portalGenerating ? "Regenerating…" : "Regenerate link (revokes current)"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      No portal link exists yet. Generate one to give this client access to their project portal.
+                    </p>
+                    <button
+                      onClick={handleGeneratePortalToken}
+                      disabled={portalGenerating}
+                      className="w-full h-10 bg-sky-600 text-white rounded-md text-sm font-semibold hover:bg-sky-700 flex items-center justify-center gap-2"
+                    >
+                      {portalGenerating
+                        ? <><RefreshCw className="h-4 w-4 animate-spin" /> Generating…</>
+                        : <><Globe className="h-4 w-4" /> Generate Portal Link</>}
+                    </button>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ── Phases Tab ── */}
+              <TabsContent value="phases">
+                {clientProjects[0]?.id
+                  ? <PortalPhases projectId={clientProjects[0].id} />
+                  : <p className="text-sm text-muted-foreground py-4 text-center">No active project found. Move this client to Active first.</p>}
+              </TabsContent>
+
+              {/* ── Field Updates Tab ── */}
+              <TabsContent value="updates">
+                {clientProjects[0]?.id
+                  ? <PortalFieldUpdates projectId={clientProjects[0].id} postedById="" />
+                  : <p className="text-sm text-muted-foreground py-4 text-center">No active project found. Move this client to Active first.</p>}
+              </TabsContent>
+            </Tabs>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>

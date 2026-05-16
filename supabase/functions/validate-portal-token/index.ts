@@ -59,8 +59,8 @@ serve(async (req) => {
       if (error) console.warn("[portal-token] record_portal_access failed:", error.message);
     });
 
-    // Fetch client + payments + files in parallel (don't need project_id yet)
-    const [clientRes, projectRes, paymentsRes, filesRes] = await Promise.all([
+    // Fetch client + payments + files + change_orders + proposals in parallel
+    const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes] = await Promise.all([
       supabase
         .from("clients")
         .select("id, first_name, last_name, phone, email, address, city, state, zip")
@@ -91,6 +91,27 @@ serve(async (req) => {
         .select("id, file_name, file_url, category, created_at, file_size")
         .eq("client_id", clientId)
         .order("created_at", { ascending: false }),
+
+      supabase
+        .from("change_orders")
+        .select(`
+          id, title, reason, timeline_impact, cost_impact, status, created_at,
+          items:change_order_items(id, description, quantity, unit, unit_price, total, category, sort_order)
+        `)
+        .eq("client_id", clientId)
+        .neq("status", "draft")
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("estimates")
+        .select(`
+          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at,
+          line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
+        `)
+        .eq("client_id", clientId)
+        .in("status", ["sent", "accepted", "declined"])
+        .order("created_at", { ascending: false })
+        .limit(5),
     ]);
 
     if (clientRes.error) throw new Error("Client not found: " + clientRes.error.message);
@@ -140,8 +161,22 @@ serve(async (req) => {
 
     const files = filesRes.data ?? [];
 
+    const change_orders = (changeOrdersRes.data ?? []).map((co: any) => ({
+      ...co,
+      cost_impact: Number(co.cost_impact ?? 0),
+      items: (co.items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    }));
+
+    const proposals = (proposalsRes.data ?? []).map((p: any) => ({
+      ...p,
+      subtotal: Number(p.subtotal ?? 0),
+      tax_amount: Number(p.tax_amount ?? 0),
+      total: Number(p.total ?? 0),
+      line_items: (p.line_items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+    }));
+
     return new Response(
-      JSON.stringify({ valid: true, client, project, phases, payments, updates, files }),
+      JSON.stringify({ valid: true, client, project, phases, payments, updates, files, change_orders, proposals }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {

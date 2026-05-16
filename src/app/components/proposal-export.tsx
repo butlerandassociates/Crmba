@@ -40,23 +40,24 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
 
   type LineGroup = {
     category: string | null;
-    items: { name: string; qty: number; unit: string; lineTotal: number }[];
+    items: { name: string; description?: string; qty: number; unit: string; lineTotal: number }[];
   };
 
   const groupedItems = (() => {
     const map: Record<string, LineGroup> = {};
     const flat: LineGroup = { category: null, items: [] };
     for (const item of (proposal?.line_items ?? [])) {
-      const cat       = item.category ?? null;
-      const name      = item.product_name ?? item.name ?? "Item";
-      const qty       = Number(item.quantity || 1);
-      const unit      = item.unit ?? "";
-      const lineTotal = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
+      const cat         = item.category ?? null;
+      const name        = item.product_name ?? item.name ?? "Item";
+      const description = item.description ?? undefined;
+      const qty         = Number(item.quantity || 1);
+      const unit        = item.unit ?? "";
+      const lineTotal   = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
       if (cat) {
         if (!map[cat]) map[cat] = { category: cat, items: [] };
-        map[cat].items.push({ name, qty, unit, lineTotal });
+        map[cat].items.push({ name, description, qty, unit, lineTotal });
       } else {
-        flat.items.push({ name, qty, unit, lineTotal });
+        flat.items.push({ name, description, qty, unit, lineTotal });
       }
     }
     const result: LineGroup[] = Object.values(map);
@@ -189,7 +190,10 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                   </div>
                   {group.items.map((item, iIdx) => (
                     <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, flex: 1 }}>{item.name}</p>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}</p>
+                        {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.45, lineHeight: 1.4 }}>{item.description}</p>}
+                      </div>
                       <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
                         {item.qty}{item.unit ? ` ${item.unit}` : ""}
                       </p>
@@ -203,7 +207,10 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
               <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
                 {group.items.map((item, iIdx) => (
                   <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "4px 0" }}>
-                    <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0, flex: 1 }}>{item.name}</p>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}</p>
+                      {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.5, lineHeight: 1.4 }}>{item.description}</p>}
+                    </div>
                     <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
                       {item.qty}{item.unit ? ` ${item.unit}` : ""}
                     </p>

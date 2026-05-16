@@ -83,6 +83,52 @@ export interface PortalFile {
   file_size: number | null;
 }
 
+export interface PortalChangeOrderItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total: number;
+  category: string;
+  sort_order: number;
+}
+
+export interface PortalChangeOrder {
+  id: string;
+  title: string;
+  reason: string | null;
+  timeline_impact: string | null;
+  cost_impact: number;
+  status: "pending_client" | "approved" | "rejected";
+  created_at: string;
+  items: PortalChangeOrderItem[];
+}
+
+export interface PortalProposalLineItem {
+  id: string;
+  name: string;
+  description: string | null;
+  quantity: number;
+  unit: string;
+  client_price: number;
+  sort_order: number;
+}
+
+export interface PortalProposal {
+  id: string;
+  title: string;
+  status: "sent" | "accepted" | "declined";
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  sent_at: string | null;
+  accepted_at: string | null;
+  declined_at: string | null;
+  line_items: PortalProposalLineItem[];
+}
+
 export interface PortalData {
   client: PortalClient;
   project: PortalProject | null;
@@ -90,6 +136,23 @@ export interface PortalData {
   payments: PortalPayment[];
   updates: PortalUpdate[];
   files: PortalFile[];
+  change_orders: PortalChangeOrder[];
+  proposals: PortalProposal[];
+}
+
+export async function portalAction(
+  token: string,
+  action: "co_approve" | "co_reject" | "proposal_accept" | "proposal_decline",
+  entityId: string,
+  comment?: string
+): Promise<{ success: boolean; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("portal-action", {
+    body: { token, action, entity_id: entityId, comment },
+  });
+  if (error || !data?.success) {
+    return { success: false, error: data?.error ?? error?.message ?? "Unknown error" };
+  }
+  return { success: true };
 }
 
 export async function validatePortalToken(token: string): Promise<PortalData | null> {

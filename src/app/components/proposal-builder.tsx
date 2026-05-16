@@ -22,12 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check } from "lucide-react";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
 
 interface LineItem {
   id: string;
@@ -111,8 +112,23 @@ export function ProposalBuilder() {
   }, [lineItems, proposalTitle]);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardType, setWizardType] = useState("");
+  const [wizardTargetCategory, setWizardTargetCategory] = useState("");
+  const [editingWizardCat, setEditingWizardCat] = useState("");
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
   const [wizardInputs, setWizardInputs] = useState<Record<string, any>>({});
+  const [wizardTypeMap, setWizardTypeMap] = useState<Record<string, string>>({});
+
+  // Section rename
+  const [renamingCat, setRenamingCat] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  // Delete section confirmation
+  const [deletingCat, setDeletingCat] = useState<string | null>(null);
+
+  // New same-type section wizard
+  const [newSectionWizardTemplate, setNewSectionWizardTemplate] = useState<any>(null);
+  const [showNewSectionWizardDialog, setShowNewSectionWizardDialog] = useState(false);
+  const [newSectionWizardName, setNewSectionWizardName] = useState("");
   const [taxRate, setTaxRate] = useState<number>(0);
   const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
   const [taxCounty, setTaxCounty] = useState<string>("");
@@ -188,17 +204,73 @@ export function ProposalBuilder() {
     );
   }
 
+  const getWizardType = (cat: string): string => wizardTypeMap[cat] ?? cat;
+
   const handleCategorySelect = (category: string) => {
     setSelectedCategory(category);
     setSelectedProduct("");
-
-    // Check if a template exists for this category → show wizard
     const template = templates.find((t: any) => t.category === category);
     if (template) {
       setActiveTemplate(template);
       setWizardType(category);
+      setWizardTargetCategory(category);
+      setEditingWizardCat("");
       setShowWizard(true);
     }
+  };
+
+  const handleEditSectionWizard = (cat: string) => {
+    const wType = getWizardType(cat);
+    const template = templates.find((t: any) => t.category === wType) ?? templates.find((t: any) => t.category === cat);
+    setActiveTemplate(template ?? null);
+    setWizardType(wType);
+    setWizardTargetCategory(cat);
+    setEditingWizardCat(cat);
+    setShowWizard(true);
+  };
+
+  const handleStartNewSectionWizard = () => {
+    const name = newSectionWizardName.trim();
+    if (!name || !newSectionWizardTemplate) return;
+    if (lineItems.some((li) => li.category === name)) {
+      toast.error(`A section named "${name}" already exists — choose a different name.`);
+      return;
+    }
+    setWizardTypeMap((prev) => ({ ...prev, [name]: newSectionWizardTemplate.category }));
+    setActiveTemplate(newSectionWizardTemplate);
+    setWizardType(newSectionWizardTemplate.category);
+    setWizardTargetCategory(name);
+    setEditingWizardCat("");
+    setShowNewSectionWizardDialog(false);
+    setShowWizard(true);
+  };
+
+  const handleRenameCategory = (oldCat: string, newCat: string) => {
+    const trimmed = newCat.trim();
+    if (!trimmed || trimmed === oldCat) { setRenamingCat(null); return; }
+    setLineItems((prev) => prev.map((li) => li.category === oldCat ? { ...li, category: trimmed } : li));
+    setWizardTypeMap((prev) => {
+      const updated = { ...prev };
+      const type = updated[oldCat] ?? oldCat;
+      delete updated[oldCat];
+      if (type !== trimmed) updated[trimmed] = type;
+      return updated;
+    });
+    setWizardInputs((prev) => {
+      const updated = { ...prev };
+      const oldData = updated[oldCat];
+      if (oldData) { updated[trimmed] = oldData; delete updated[oldCat]; }
+      return updated;
+    });
+    setRenamingCat(null);
+  };
+
+  const handleDeleteCategory = (cat: string) => {
+    setLineItems((prev) => prev.filter((li) => li.category !== cat));
+    setWizardTypeMap((prev) => { const u = { ...prev }; delete u[cat]; return u; });
+    setWizardInputs((prev) => { const u = { ...prev }; delete u[cat]; return u; });
+    setDeletingCat(null);
+    toast.success(`"${cat}" section removed.`);
   };
 
   const handleProductSelect = (productId: string) => {
@@ -241,20 +313,25 @@ export function ProposalBuilder() {
   };
 
   const addLineItemsFromWizard = (items: Omit<LineItem, "id" | "totalPrice">[], formData?: Record<string, any>) => {
-    const newItems = items.map((item) => {
-      return {
-        ...item,
-        id: `item-${Date.now()}-${Math.random()}`,
-        fioQty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
-        totalPrice: item.quantity * item.pricePerUnit,
-      };
-    });
-    setLineItems([...lineItems, ...newItems]);
-    if (formData && wizardType) {
-      setWizardInputs((prev) => ({ ...prev, [wizardType]: formData }));
-    }
+    const targetCat = wizardTargetCategory || wizardType;
+    const newItems = items.map((item) => ({
+      ...item,
+      id: `item-${Date.now()}-${Math.random()}`,
+      category: targetCat,
+      fioQty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
+      totalPrice: item.quantity * item.pricePerUnit,
+    }));
+    setLineItems((prev) =>
+      editingWizardCat
+        ? [...prev.filter((li) => li.category !== editingWizardCat), ...newItems]
+        : [...prev, ...newItems]
+    );
+    if (formData) setWizardInputs((prev) => ({ ...prev, [targetCat]: formData }));
+    if (targetCat !== wizardType) setWizardTypeMap((prev) => ({ ...prev, [targetCat]: wizardType }));
     setShowWizard(false);
     setSelectedCategory("");
+    setEditingWizardCat("");
+    setWizardTargetCategory("");
   };
 
   const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
@@ -320,7 +397,7 @@ export function ProposalBuilder() {
         discount_label: discountLabel || null,
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeVal,
-        wizard_inputs: Object.keys(wizardInputs).length > 0 ? wizardInputs : undefined,
+        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
       const items = lineItems.map((item) => ({
@@ -681,7 +758,44 @@ export function ProposalBuilder() {
         {/* Full-Width Line Items Table */}
         <Card className={saveTouched && (itemsErr || totalErr) ? "border-red-500" : ""}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Proposal Line Items</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Proposal Line Items</CardTitle>
+              {lineItems.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <Wand2 className="h-4 w-4" />Add via Wizard
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel><span className="text-xs">Select wizard</span></DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {templates.map((t: any) => {
+                      const existingCat = Object.keys(wizardTypeMap).find((k) => wizardTypeMap[k] === t.category)
+                        ?? (lineItems.some((li) => li.category === t.category) ? t.category : null);
+                      const targetCat = existingCat ?? t.category;
+                      return (
+                        <Fragment key={t.id ?? t.category}>
+                          <DropdownMenuItem onClick={() => {
+                            setActiveTemplate(t); setWizardType(t.category);
+                            setWizardTargetCategory(targetCat);
+                            setEditingWizardCat(existingCat ? targetCat : "");
+                            setShowWizard(true);
+                          }}>
+                            {existingCat ? `Edit "${targetCat}" in Wizard` : t.category}
+                          </DropdownMenuItem>
+                          {existingCat && (
+                            <DropdownMenuItem onClick={() => { setNewSectionWizardTemplate(t); setNewSectionWizardName(""); setShowNewSectionWizardDialog(true); }}>
+                              + New {t.category} section…
+                            </DropdownMenuItem>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </CardHeader>
           {saveTouched && (itemsErr || totalErr) && (
             <div className="px-6 pb-2">
@@ -715,8 +829,39 @@ export function ProposalBuilder() {
                       <Fragment key={category}>
                         {/* Category section header */}
                         <tr className="bg-slate-100/80 border-y border-slate-200">
-                          <td colSpan={8} className="px-6 py-2.5">
-                            <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{category}</span>
+                          <td colSpan={8} className="px-6 py-2">
+                            <div className="flex items-center justify-between">
+                              {renamingCat === category ? (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    className="text-xs font-semibold uppercase tracking-wide border border-input rounded px-2 py-0.5 bg-background w-48 focus:outline-none focus:ring-1 focus:ring-ring"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleRenameCategory(category, renameValue); if (e.key === "Escape") setRenamingCat(null); }}
+                                    autoFocus
+                                  />
+                                  <button onClick={() => handleRenameCategory(category, renameValue)} className="text-green-600 hover:text-green-700"><Check className="h-3.5 w-3.5" /></button>
+                                  <button onClick={() => setRenamingCat(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 group">
+                                  <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{category}</span>
+                                  <button onClick={() => { setRenamingCat(category); setRenameValue(category); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1">
+                                {templates.some((t: any) => t.category === category || t.category === getWizardType(category)) && (
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => handleEditSectionWizard(category)}>
+                                    <Wand2 className="h-3.5 w-3.5" />Edit in Wizard
+                                  </Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive" onClick={() => setDeletingCat(category)}>
+                                  <Trash2 className="h-3.5 w-3.5" />Delete
+                                </Button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                         {items.map((item) => {
@@ -1105,11 +1250,50 @@ export function ProposalBuilder() {
         </DialogContent>
       </Dialog>
 
+      {/* New Section Name Dialog */}
+      <Dialog open={showNewSectionWizardDialog} onOpenChange={(open) => { if (!open) { setShowNewSectionWizardDialog(false); setNewSectionWizardName(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Name this section</DialogTitle>
+            <DialogDescription>Give this {newSectionWizardTemplate?.category} section a unique name to tell it apart from the existing one.</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4 space-y-3">
+            <Input
+              placeholder={`e.g. Back ${newSectionWizardTemplate?.category ?? ""}`}
+              value={newSectionWizardName}
+              onChange={(e) => setNewSectionWizardName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleStartNewSectionWizard(); }}
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-3 px-6 py-4 border-t">
+            <Button variant="outline" onClick={() => { setShowNewSectionWizardDialog(false); setNewSectionWizardName(""); }}>Cancel</Button>
+            <Button onClick={handleStartNewSectionWizard} disabled={!newSectionWizardName.trim()}>Open Wizard</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Section Confirmation Dialog */}
+      <Dialog open={!!deletingCat} onOpenChange={(open) => { if (!open) setDeletingCat(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete section?</DialogTitle>
+            <DialogDescription>
+              This will remove all <strong>{deletingCat}</strong> line items from the proposal. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 px-6 py-4">
+            <Button variant="outline" onClick={() => setDeletingCat(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (deletingCat) handleDeleteCategory(deletingCat); }}>Delete Section</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={(open) => { setShowWizard(open); if (!open) { setSelectedCategory(""); setActiveTemplate(null); } }}>
         <DialogContent className="max-w-[900px] w-[92vw] h-[90vh] flex flex-col p-0 gap-0">
           <DialogHeader className="shrink-0 bg-white border-b px-8 py-6 rounded-t-lg">
-            <DialogTitle className="text-xl font-bold">{wizardType} Estimate Wizard</DialogTitle>
+            <DialogTitle className="text-xl font-bold">{wizardTargetCategory || wizardType} Estimate Wizard</DialogTitle>
             <DialogDescription className="text-sm">
               Answer each question below — your estimate items will be calculated automatically.
             </DialogDescription>
@@ -1120,6 +1304,7 @@ export function ProposalBuilder() {
               template={activeTemplate}
               dbProducts={dbProducts}
               onComplete={addLineItemsFromWizard}
+              initialData={wizardInputs[wizardTargetCategory] ?? undefined}
               onCancel={() => {
                 setShowWizard(false);
                 setSelectedCategory("");

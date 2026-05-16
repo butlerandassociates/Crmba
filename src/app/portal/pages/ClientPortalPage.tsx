@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { validatePortalToken, type PortalData } from "../api/portal";
-import { PortalLayout } from "../components/PortalLayout";
+import { ClientDashboardNew } from "../components/ClientDashboardNew";
 
 type State = "loading" | "invalid" | "ready";
 
@@ -85,5 +85,5 @@ export function ClientPortalPage() {
     );
   }
 
-  return <PortalLayout data={data} />;
+  return <ClientDashboardNew data={data} token={token!} />;
 }
