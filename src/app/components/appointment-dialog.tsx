@@ -286,11 +286,11 @@ export function AppointmentDialog({
         }
       }
 
-      const meetLink = googleMeetLink;
+      // const meetLink = googleMeetLink; // hidden: in-person appointments only
 
       // Primary success toast
       toast.success(
-        `Appointment scheduled!${emailSent ? ` Invite sent to ${client.email}.` : ""}${meetLink ? " Google Meet link created." : ""}`,
+        `Appointment scheduled!${emailSent ? ` Invite sent to ${client.email}.` : ""}`,
         { duration: 6000 }
       );
 
@@ -308,17 +308,12 @@ export function AppointmentDialog({
         );
       }
 
-      if (meetLink) {
-        toast.info(
-          <span>
-            Meet link:{" "}
-            <a href={meetLink} target="_blank" rel="noopener noreferrer" className="underline font-medium">
-              {meetLink}
-            </a>
-          </span>,
-          { duration: 10000 }
-        );
-      }
+      // if (meetLink) {
+      //   toast.info(
+      //     <span>Meet link: <a href={meetLink} target="_blank" rel="noopener noreferrer" className="underline font-medium">{meetLink}</a></span>,
+      //     { duration: 10000 }
+      //   );
+      // }
 
       onOpenChange(false);
       onAppointmentScheduled?.();
@@ -348,7 +343,7 @@ export function AppointmentDialog({
         <DialogHeader>
           <DialogTitle>Schedule Appointment</DialogTitle>
           <DialogDescription>
-            Schedule an appointment with {clientName} — creates a Google Calendar event with Google Meet link and emails the client automatically.
+            Schedule an in-person appointment with {clientName} — creates a Google Calendar event, sends confirmation email and SMS automatically.
           </DialogDescription>
         </DialogHeader>
 
@@ -603,7 +598,7 @@ export function AppointmentDialog({
                   </p>
                 ) : null;
               })()}
-              <p className="text-xs text-blue-600">Google Meet link will be created automatically</p>
+              {/* <p className="text-xs text-blue-600">Google Meet link will be created automatically</p> */}
             </div>
           )}
         </DialogBody>

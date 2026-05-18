@@ -68,7 +68,7 @@ function combineSection(a: PLSection, b: PLSection): PLSection {
   };
 }
 
-async function buildSectionData(clientIds: string[], rangeStart: string, rangeEnd: string): Promise<PLSection> {
+async function buildSectionData(clientIds: string[], rangeStart: string, rangeEnd: string, filterEstimatesByDate = true): Promise<PLSection> {
   const empty: PLSection = {
     materialSold: 0, laborSold: 0, otherSold: 0, materialCosts: 0, laborCosts: 0,
     cashCollected: 0, outstandingBalance: 0, actualMaterialCosts: 0, actualLaborCosts: 0, commissions: 0,
@@ -80,12 +80,17 @@ async function buildSectionData(clientIds: string[], rangeStart: string, rangeEn
   const rangeEndDate   = rangeEnd.slice(0, 10);
 
   // ── Estimates + line items (budgeted revenue & costs) ─────────────────────
-  const { data: estimates } = await supabase
+  // Active clients: no date filter — show all current contracted backlog.
+  // Completed clients: date filter — show projects closed in the period.
+  const estimateQuery = supabase
     .from("estimates")
     .select("id, bad_amount")
-    .gte("created_at", rangeStart)
-    .lt("created_at", rangeEnd)
     .in("client_id", clientIds);
+  const { data: estimates } = await (
+    filterEstimatesByDate
+      ? estimateQuery.gte("created_at", rangeStart).lt("created_at", rangeEnd)
+      : estimateQuery
+  );
 
   let materialSold = 0, laborSold = 0, otherSold = 0, materialCosts = 0, laborCosts = 0;
 
@@ -519,7 +524,7 @@ function buildPdfDocHtml(data: PLData, logoUrl: string): string {
 
   <!-- Footnote -->
   <div style="padding:10px 32px 16px;flex-shrink:0;">
-    <div style="font-size:9px;color:#aaa;line-height:1.5;">Generated ${genDate} · Revenue reflects estimate line items created in period. Costs reflect receipts in period. BAD included in revenue per company policy.</div>
+    <div style="font-size:9px;color:#aaa;line-height:1.5;">Generated ${genDate} · Revenue reflects total contracted values for all active and completed clients (not date-filtered). Cash Collected &amp; Actual Costs reflect activity in the selected period only. BAD included in revenue per company policy.</div>
   </div>
 </div>
 </body></html>`;
@@ -599,8 +604,8 @@ export function PLReport() {
       const completedIds = (allClients ?? []).filter((c: any) => (c.pipeline_stage?.name ?? "").toLowerCase() === "completed").map((c: any) => c.id);
 
       const [activeSection, completedSection] = await Promise.all([
-        buildSectionData(activeIds,    rangeStart, rangeEnd),
-        buildSectionData(completedIds, rangeStart, rangeEnd),
+        buildSectionData(activeIds,    rangeStart, rangeEnd, false),
+        buildSectionData(completedIds, rangeStart, rangeEnd, false),
       ]);
 
       setData({ active: activeSection, completed: completedSection, fromLabel, toLabel, periodLabel });
@@ -746,10 +751,9 @@ export function PLReport() {
               <SectionTable s={data.completed} t={completed} label="▶ Closed Jobs (Completed)" />
               <SectionTable s={combineSection(data.active, data.completed)} t={combined} label="▶ Combined Total" />
               <p className="text-[11px] text-muted-foreground px-5 py-4 leading-relaxed">
-                Revenue reflects proposal line items with creation dates within the selected period.
-                Costs reflect receipts uploaded within the selected period.
+                Revenue reflects total contracted values for all active and completed clients, regardless of when contracts were signed.
+                Cash Collected and Actual Costs reflect activity within the selected date range only.
                 BAD (Base, Aggregate &amp; Disposal) is included in revenue per company policy.
-                Verify dates align with your accounting method before filing.
               </p>
             </CardContent>
           </Card>

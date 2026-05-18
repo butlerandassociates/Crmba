@@ -470,7 +470,21 @@ export function ProposalDetail() {
     if (dbIds.length > 0) {
       await supabase.from("estimate_line_items").delete().in("id", dbIds);
     }
-    setEditLineItems((prev) => prev.filter((li) => li.category !== cat));
+    const remainingItems = editLineItems.filter((li) => li.category !== cat);
+    const newSubtotal = remainingItems.reduce((sum, it) => sum + Number(it.quantity) * Number(it.client_price ?? 0), 0);
+    const newTotalCost = remainingItems.reduce((sum, it) => sum + Number(it.quantity) * (Number(it.material_cost ?? 0) + Number(it.labor_cost ?? 0)), 0);
+    const newBadQualifying = remainingItems.filter((it) => BAD_CATEGORIES.includes(it.category) || Number(it.labor_cost ?? 0) > 0).reduce((sum, it) => sum + Number(it.quantity) * Number(it.client_price ?? 0), 0);
+    const newBad = badOverride !== null ? badOverride : Math.round(newBadQualifying * 0.015 * 1.5 * 100) / 100;
+    const origSub = proposal?.subtotal || 0;
+    const newTaxRatio = origSub > 0 ? (proposal?.tax_amount ?? 0) / origSub : 0;
+    const newTax = Math.round(newSubtotal * newTaxRatio * 100) / 100;
+    const newDiscountAmt = discountType === "percent"
+      ? Math.round(newSubtotal * discountValue / 100 * 100) / 100
+      : Math.min(discountValue, newSubtotal);
+    const newPreStripe = newSubtotal + newBad + newTax - newDiscountAmt;
+    const newStripeFee = stripeFeeEnabled ? Math.round((newPreStripe * 0.029 + 0.30) * 100) / 100 : 0;
+    const newTotal = newPreStripe + newStripeFee;
+    setEditLineItems(remainingItems);
     setSectionOrder((prev) => prev.filter((c) => c !== cat));
     const updatedCustomSections = customSections.filter((s) => s !== cat);
     setCustomSections(updatedCustomSections);
@@ -478,8 +492,13 @@ export function ProposalDetail() {
     const updatedMap = { ...existingMap };
     delete updatedMap[cat];
     const updatedInputs = { ...(proposal?.wizard_inputs ?? {}), _wizardTypeMap: updatedMap, _customSections: updatedCustomSections };
-    await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
-    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs }));
+    await supabase.from("estimates").update({
+      subtotal: newSubtotal,
+      total: newTotal,
+      total_cost: newTotalCost,
+      wizard_inputs: updatedInputs,
+    }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs, subtotal: newSubtotal, total: newTotal, total_cost: newTotalCost }));
     setDeletingCat(null);
     toast.success(`"${cat}" section removed.`);
   };
@@ -557,6 +576,17 @@ export function ProposalDetail() {
     setSaving(true);
     // Snapshot state before any awaits so realtime refetches mid-save can't clobber it
     const snapshot = [...editLineItems];
+    // Build sort_order map respecting current sectionOrder so PDF matches CRM view
+    const sortOrderMap = new Map<string, number>();
+    let sIdx = 0;
+    for (const cat of sectionOrder) {
+      for (const it of snapshot) {
+        if (it.category === cat) { sortOrderMap.set(String(it.id ?? ''), sIdx++); }
+      }
+    }
+    for (const it of snapshot) {
+      if (!sortOrderMap.has(String(it.id ?? ''))) sortOrderMap.set(String(it.id ?? ''), sIdx++);
+    }
     try {
       await estimatesAPI.update(proposal.id, {
         title: editTitle,
@@ -607,6 +637,7 @@ export function ProposalDetail() {
             labor_cost: item.labor_cost ?? 0,
             cost_per_unit: item.cost_per_unit ?? 0,
             markup_percent: item.markup_percent ?? 0,
+            sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
           }))
         );
         if (insertErr) throw new Error(insertErr.message);
@@ -629,6 +660,7 @@ export function ProposalDetail() {
               cost_per_unit: item.cost_per_unit ?? 0,
               markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
               fio_qty: item.fio_qty ?? null,
+              sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
             }).eq("id", item.id)
           )
       );

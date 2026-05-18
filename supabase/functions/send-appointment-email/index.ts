@@ -134,12 +134,12 @@ async function createCalendarEvent(
       start: { dateTime: params.startDateTime, timeZone: params.timeZone },
       end:   { dateTime: params.endDateTime,   timeZone: params.timeZone },
       attendees,
-      conferenceData: {
-        createRequest: {
-          requestId: `crm-${Date.now()}`,
-          conferenceSolutionKey: { type: "hangoutsMeet" },
-        },
-      },
+      // conferenceData: {
+      //   createRequest: {
+      //     requestId: `crm-${Date.now()}`,
+      //     conferenceSolutionKey: { type: "hangoutsMeet" },
+      //   },
+      // },
       reminders: {
         useDefault: false,
         overrides: [
@@ -151,7 +151,7 @@ async function createCalendarEvent(
     };
 
     const res = await fetch(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", // conferenceDataVersion=1 removed (in-person only)
       {
         method: "POST",
         headers: {

@@ -40,6 +40,9 @@ export const estimatesAPI = {
       .eq("id", id)
       .single();
     if (error) throw new Error(error.message);
+    if (data?.line_items) {
+      data.line_items = [...data.line_items].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    }
     return data;
   },
 

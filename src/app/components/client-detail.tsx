@@ -398,6 +398,9 @@ export function ClientDetail() {
   const [portalEmailSent, setPortalEmailSent] = useState(false);
   const [portalEmailPreviewOpen, setPortalEmailPreviewOpen] = useState(false);
   const [portalDialogTab, setPortalDialogTab] = useState("link");
+  const [statementEmailOpen, setStatementEmailOpen] = useState(false);
+  const [statementEmailSending, setStatementEmailSending] = useState(false);
+  const [statementEmailSent, setStatementEmailSent] = useState(false);
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 5;
   
@@ -1228,6 +1231,127 @@ export function ClientDetail() {
 </html>`;
   };
 
+  const buildStatementEmailHtml = (payments: typeof clientPayments) => {
+    const firstName = client?.first_name ?? "Client";
+    const totalAmount = payments.reduce((s, p) => s + (p.amount ?? 0), 0);
+    const totalPaid   = payments.filter((p) => p.is_paid).reduce((s, p) => s + (p.amount ?? 0), 0);
+    const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
+    const fmtD = (d: string | null | undefined) => {
+      if (!d) return "—";
+      return new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    };
+    const rows = payments.map((p) => {
+      const pct = totalAmount > 0 ? Math.round((p.amount / totalAmount) * 100) : 0;
+      const statusColor = p.is_paid ? "#15803d" : "#92400e";
+      const statusBg    = p.is_paid ? "#f0fdf4" : "#fffbeb";
+      const statusLabel = p.is_paid ? `Paid${p.paid_date ? ` · ${fmtD(p.paid_date)}` : ""}` : "Pending";
+      return `<tr>
+        <td style="padding:10px 14px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;border-bottom:1px solid #E8E4DC;">
+          ${p.label}${p.is_deposit ? ' <span style="font-size:10px;background:#EFF6FF;color:#1D4ED8;padding:1px 6px;border-radius:10px;font-weight:500;">Deposit</span>' : ""}
+        </td>
+        <td style="padding:10px 14px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;border-bottom:1px solid #E8E4DC;white-space:nowrap;">${pct}% · ${fmt(p.amount)}</td>
+        <td style="padding:10px 14px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;border-bottom:1px solid #E8E4DC;white-space:nowrap;">${fmtD(p.due_date)}</td>
+        <td style="padding:10px 14px;font-family:Inter,sans-serif;font-size:12px;border-bottom:1px solid #E8E4DC;white-space:nowrap;">
+          <span style="background:${statusBg};color:${statusColor};padding:2px 8px;border-radius:10px;font-weight:500;">${statusLabel}</span>
+        </td>
+      </tr>`;
+    }).join("");
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+  <div style="max-width:660px;margin:0 auto;padding:32px 16px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
+      <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+        <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" height="56" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;border:0;outline:none;"/>
+        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      </td>
+    </tr></table>
+    <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+    <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Investment Statement</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 4px 0;">Hi ${firstName},</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 24px 0;">Please find your payment schedule below. Don't hesitate to reach out if you have any questions.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px solid #E8E4DC;border-radius:6px;overflow:hidden;">
+        <thead>
+          <tr style="background:#F5F3EF;">
+            <th style="padding:10px 14px;font-family:Inter,sans-serif;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:#6B6B69;text-align:left;border-bottom:1px solid #E8E4DC;">Milestone</th>
+            <th style="padding:10px 14px;font-family:Inter,sans-serif;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:#6B6B69;text-align:left;border-bottom:1px solid #E8E4DC;white-space:nowrap;">Amount</th>
+            <th style="padding:10px 14px;font-family:Inter,sans-serif;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:#6B6B69;text-align:left;border-bottom:1px solid #E8E4DC;white-space:nowrap;">Due Date</th>
+            <th style="padding:10px 14px;font-family:Inter,sans-serif;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:#6B6B69;text-align:left;border-bottom:1px solid #E8E4DC;">Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr style="background:#F5F3EF;">
+            <td style="padding:12px 14px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;color:#0A0A0A;" colspan="1">Total</td>
+            <td style="padding:12px 14px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;color:#0A0A0A;white-space:nowrap;" colspan="1">${fmt(totalAmount)}</td>
+            <td style="padding:12px 14px;" colspan="1"></td>
+            <td style="padding:12px 14px;font-family:Inter,sans-serif;font-size:12px;white-space:nowrap;">
+              <span style="background:#f0fdf4;color:#15803d;padding:2px 8px;border-radius:10px;font-weight:500;">Paid: ${fmt(totalPaid)}</span>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:24px 0 0 0;line-height:1.6;text-align:center;">Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+    </div>
+    <div style="text-align:center;padding:20px 0 0 0;">
+      <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  };
+
+  const handleSendStatementEmail = async () => {
+    if (!client?.email || statementEmailSending) return;
+    setStatementEmailSending(true);
+    try {
+      // Generate PDF and convert to base64 for attachment
+      const result = await buildStatementPages();
+      if (!result) throw new Error("Failed to generate PDF");
+      const pdfBase64 = result.pdf.output("datauristring").split(",")[1];
+      const clientFullName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim();
+      const filename = `Investment Statement ${clientFullName}.pdf`;
+
+      const { error } = await supabase.functions.invoke("send-email", {
+        body: {
+          to: client.email,
+          subject: `Your Investment Statement — Butler & Associates Construction`,
+          html: buildStatementEmailHtml(clientPayments),
+          cc: ["info@butlerconstruction.co"],
+          attachments: [
+            {
+              content: pdfBase64,
+              type: "application/pdf",
+              filename,
+              disposition: "attachment",
+            },
+          ],
+        },
+      });
+      if (error) throw error;
+      setStatementEmailSent(true);
+      toast.success("Investment statement sent to client!");
+      setTimeout(() => setStatementEmailSent(false), 3000);
+      activityLogAPI.create({
+        client_id: id!,
+        action_type: "payment_statement_sent",
+        description: "Payment investment statement sent to client via email",
+      }).then(loadActivityLog).catch(() => {});
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to send statement");
+    } finally {
+      setStatementEmailSending(false);
+    }
+  };
+
   const handleMarkIndividualAsMet = async (apptId: string) => {
     try {
       await appointmentsAPI.markAsMet(apptId);
@@ -1652,17 +1776,11 @@ export function ClientDetail() {
                       <Badge className="bg-blue-500 text-white text-[10px] px-2">Scheduled</Badge>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      {latest.google_meet_link && (
-                        <a
-                          href={latest.google_meet_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline"
-                        >
-                          <Video className="h-3 w-3" />
-                          Join Google Meet
+                      {/* {latest.google_meet_link && (
+                        <a href={latest.google_meet_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline">
+                          <Video className="h-3 w-3" />Join Google Meet
                         </a>
-                      )}
+                      )} */}
                       {!latest.is_met && (
                         <button
                           onClick={() => handleMarkIndividualAsMet(latest.id)}
@@ -2988,28 +3106,45 @@ export function ClientDetail() {
                   Payment Tracking
                 </h2>
                 {clientPayments.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleOpenPreview}
-                      disabled={previewRendering}
-                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-                      title="Preview Payment Statement"
-                    >
-                      {previewRendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                      <span>{previewRendering ? "Building…" : "Preview"}</span>
-                    </button>
-                    <button
-                      onClick={handleDownloadStatement}
-                      disabled={downloadingStatement}
-                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-                      title="Download Payment Statement PDF"
-                    >
-                      {downloadingStatement
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <FileDown className="h-3.5 w-3.5" />}
-                      <span>{downloadingStatement ? "Generating…" : "Download"}</span>
-                    </button>
-                  </div>
+                  <TooltipProvider>
+                    <div className="flex items-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={handleOpenPreview}
+                            disabled={previewRendering}
+                            className="p-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                          >
+                            {previewRendering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Preview PDF</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={handleDownloadStatement}
+                            disabled={downloadingStatement}
+                            className="p-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                          >
+                            {downloadingStatement ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Download PDF</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setStatementEmailOpen(true)}
+                            className="p-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Mail className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Send via Email</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
                 )}
               </div>
               <p className="text-sm text-muted-foreground">Monitor collections for {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company}</p>
@@ -3665,17 +3800,11 @@ export function ClientDetail() {
 
                     {/* Action row */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      {appt.google_meet_link && (
-                        <a
-                          href={appt.google_meet_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline"
-                        >
-                          <Video className="h-3 w-3" />
-                          Join Google Meet
+                      {/* {appt.google_meet_link && (
+                        <a href={appt.google_meet_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors no-underline">
+                          <Video className="h-3 w-3" />Join Google Meet
                         </a>
-                      )}
+                      )} */}
                       {appt.google_event_html_link && (
                         <a
                           href={appt.google_event_html_link}
@@ -4794,6 +4923,50 @@ export function ClientDetail() {
               className="w-full h-full border-0"
               title="Portal Email Preview"
             />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Investment Statement email preview modal */}
+      <Dialog open={statementEmailOpen} onOpenChange={setStatementEmailOpen}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "700px", maxWidth: "95vw", height: "88vh" }}>
+          <DialogHeader className="shrink-0 px-6 py-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              Email Preview — Investment Statement
+            </DialogTitle>
+            <DialogDescription>
+              This is exactly what {client?.email ?? "the client"} will receive.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <iframe
+              srcDoc={buildStatementEmailHtml(clientPayments)}
+              className="w-full h-full border-0"
+              title="Investment Statement Email Preview"
+            />
+          </div>
+          <div className="shrink-0 px-6 py-4 border-t flex items-center justify-between gap-3 bg-background">
+            <p className="text-xs text-muted-foreground">Sending to: <span className="font-medium text-foreground">{client?.email ?? "—"}</span></p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setStatementEmailOpen(false)}
+                className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => { await handleSendStatementEmail(); setStatementEmailOpen(false); }}
+                disabled={statementEmailSending || !client?.email}
+                className="h-9 px-4 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 flex items-center gap-2 disabled:opacity-60 transition-colors"
+              >
+                {statementEmailSent
+                  ? <><Check className="h-4 w-4" /> Sent!</>
+                  : statementEmailSending
+                  ? <><RefreshCw className="h-4 w-4 animate-spin" /> Sending…</>
+                  : <><Mail className="h-4 w-4" /> Send with PDF Attached</>}
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
