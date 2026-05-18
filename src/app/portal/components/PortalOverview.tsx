@@ -28,8 +28,6 @@ function PhaseBar({ phase }: { phase: PortalPhase }) {
 
   const dateLabel = complete
     ? `Completed ${fmtDate(phase.completed_date)}`
-    : active
-    ? `Est. ${fmtDate(phase.expected_date)}`
     : `Est. ${fmtDate(phase.expected_date)}`;
 
   return (
@@ -92,7 +90,6 @@ export function PortalOverview({ phases, payments, updates, startDate, targetDat
 
       {/* Two-column: payment card + latest update */}
       <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 20 }}>
-        {/* Payment card — due, past due, all paid, or upcoming */}
         {(() => {
           const allPaid = payments.length > 0 && payments.every((p) => p.is_paid);
           const totalPaid = payments.filter((p) => p.is_paid).reduce((s, p) => s + p.amount, 0);
@@ -109,9 +106,6 @@ export function PortalOverview({ phases, payments, updates, startDate, targetDat
                 </div>
                 <div style={{ fontSize: 13, color: "var(--portal-ink2)", marginTop: 8 }}>
                   {payments.length} draw{payments.length !== 1 ? "s" : ""} · contract paid in full
-                </div>
-                <div style={{ fontSize: 11, color: "var(--portal-green)", fontFamily: "'JetBrains Mono', monospace", marginTop: 16, letterSpacing: 0.5 }}>
-                  Thank you for your business.
                 </div>
               </div>
             );
@@ -137,14 +131,10 @@ export function PortalOverview({ phases, payments, updates, startDate, targetDat
                     {pastDue ? `WAS DUE ${fmtDate(duePayment.due_date).toUpperCase()}` : `DUE ${fmtDate(duePayment.due_date).toUpperCase()}`}
                   </div>
                 )}
-                <div style={{ marginTop: 10, fontSize: 11, color: "var(--portal-ink3)", fontFamily: "'JetBrains Mono', monospace", textAlign: "center" }}>
-                  CONTACT YOUR PM TO ARRANGE PAYMENT
-                </div>
               </div>
             );
           }
 
-          // No payments yet
           if (payments.length === 0) {
             return (
               <div style={{ background: "var(--portal-panel)", border: "1px solid var(--portal-line)", borderRadius: 8, padding: 24 }}>
@@ -152,13 +142,12 @@ export function PortalOverview({ phases, payments, updates, startDate, targetDat
                   PAYMENT SCHEDULE
                 </div>
                 <div style={{ fontSize: 13, color: "var(--portal-ink3)" }}>
-                  Your payment schedule will be set up shortly. Contact your project manager with any questions.
+                  Your payment schedule will be set up shortly.
                 </div>
               </div>
             );
           }
 
-          // Upcoming (first payment not due yet)
           const nextPayment = payments.find((p) => !p.is_paid);
           return (
             <div style={{ background: "var(--portal-panel)", border: "1px solid var(--portal-line)", borderRadius: 8, padding: 24 }}>

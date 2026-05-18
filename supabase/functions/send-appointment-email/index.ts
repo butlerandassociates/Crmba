@@ -19,20 +19,23 @@ function replaceVars(template: string, vars: Record<string, string>): string {
 
 function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boolean): string {
   return `<!DOCTYPE html>
-<html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Lato:wght@400;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <style>:root { color-scheme: light only; }</style>
 </head>
-<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;color-scheme:light;">
   <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
 
     <!-- Header -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;">
       <tr>
         <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
-          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;background:#0A0A0A;" />
+          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="" style="max-height:56px;width:auto;display:block;margin:0 auto 14px auto;border:0;outline:none;" />
           <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
         </td>
       </tr>

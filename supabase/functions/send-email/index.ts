@@ -43,6 +43,8 @@ serve(async (req) => {
       body.attachments = attachments;
     }
 
+    body.tracking_settings = { click_tracking: { enable: false } };
+
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {

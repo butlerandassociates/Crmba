@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, Upload, X, AlertTriangle, Edit2, RotateCcw, Info, Download, Eye, XCircle } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, ChevronDown, ChevronUp, FileText, Check, CheckCircle2, Clock, Upload, X, AlertTriangle, Edit2, RotateCcw, Info, Download, Eye, XCircle, Send, RefreshCw } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { ChangeOrderExport } from "./change-order-export";
@@ -15,6 +15,7 @@ import { Checkbox } from "./ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
 import { Dialog, DialogContent } from "./ui/dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
+import { projectId, publicAnonKey } from "utils/supabase/info";
 import { changeOrdersAPI } from "../api/change-orders";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -81,6 +82,8 @@ export function ChangeOrderBuilder() {
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
+  const [sendingToClient, setSendingToClient] = useState(false);
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
   // ── Load ──────────────────────────────────────────────────────────────────
@@ -325,6 +328,100 @@ export function ChangeOrderBuilder() {
     }
   };
 
+  const handleSendToClient = async () => {
+    if (!validate()) return;
+    setSendingToClient(true);
+    try {
+      const coItems = items.filter(i => i.description.trim()).map(i => ({
+        category: i.category,
+        description: i.description,
+        quantity: Number(i.quantity),
+        unit: i.unit || "",
+        unit_price: Number(i.unit_price),
+        total: Number(i.total),
+      }));
+      const modsArray = Object.values(modifications);
+
+      let coIdToUse: string;
+
+      if (isEdit && existingCO) {
+        // Update existing CO to pending_client
+        await supabase.from("change_orders").update({
+          title: coTitle.trim(),
+          reason: coDescription.trim(),
+          timeline_impact: timelineImpact.trim(),
+          status: "pending_client",
+          updated_at: new Date().toISOString(),
+        }).eq("id", existingCO.id);
+        await supabase.from("change_order_items").delete().eq("co_id", existingCO.id);
+        if (coItems.length > 0) {
+          await supabase.from("change_order_items").insert(
+            coItems.map((item, i) => ({ ...item, co_id: existingCO.id, sort_order: i }))
+          );
+        }
+        coIdToUse = existingCO.id;
+        setExistingCO((prev: any) => ({ ...prev, status: "pending_client" }));
+      } else {
+        // Save new CO directly as pending_client
+        const created = await changeOrdersAPI.create(
+          { client_id: clientId!, project_id: project?.id, title: coTitle.trim(), reason: coDescription.trim(), timeline_impact: timelineImpact.trim(), status: "pending_client" },
+          coItems,
+          modsArray
+        );
+        coIdToUse = created.id;
+        setExistingCO({ ...created, status: "pending_client" });
+        navigate(`/clients/${clientId}/change-order/${created.id}`, { replace: true });
+      }
+
+      // Fetch client portal token
+      const { data: tokenRow } = await supabase
+        .from("client_portal_tokens")
+        .select("token")
+        .eq("client_id", clientId!)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!tokenRow?.token) {
+        // No portal token — CO is still sent (status updated) but no email
+        activityLogAPI.create({
+          client_id: clientId!,
+          action_type: "co_status_updated",
+          description: `Change order "${coTitle.trim()}" sent to client for review (no portal email — portal link not generated yet)`,
+        }).catch(() => {});
+        toast.warning("Change order marked as pending. No portal link found — generate a client portal link first to send an email notification.");
+        setShowSendConfirm(false);
+        return;
+      }
+
+      // Send portal notification email
+      await fetch(`https://${projectId}.supabase.co/functions/v1/send-portal-notification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": publicAnonKey },
+        body: JSON.stringify({
+          type: "co_pending",
+          client_id: clientId,
+          token: tokenRow.token,
+          entity_id: coIdToUse,
+          payload: { title: coTitle.trim(), amount: coImpact },
+        }),
+      });
+
+      activityLogAPI.create({
+        client_id: clientId!,
+        action_type: "co_status_updated",
+        description: `Change order "${coTitle.trim()}" sent to client for review — email notification sent`,
+      }).catch(() => {});
+
+      saveCoPdfOnSend(coIdToUse).catch(() => {});
+      toast.success(`Change order sent to ${client.first_name} ${client.last_name} for review.`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send — please try again.");
+    } finally {
+      setSendingToClient(false);
+      setShowSendConfirm(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!existingCO) return;
     setDeleting(true);
@@ -421,10 +518,7 @@ export function ChangeOrderBuilder() {
     }
   };
 
-  const handleExportPDF = async () => {
-    const element = exportRef.current;
-    if (!element) return;
-    setDownloading(true);
+  const buildCoPdf = async (element: HTMLElement): Promise<jsPDF | null> => {
     try {
       const imgs = Array.from(element.querySelectorAll("img")) as HTMLImageElement[];
       await Promise.all([
@@ -492,6 +586,23 @@ export function ChangeOrderBuilder() {
         consumedPt += srcH / pxPerPt;
       }
 
+      return pdf;
+    } catch (err) {
+      console.error("PDF export error:", err);
+      return null;
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const element = exportRef.current;
+    if (!element) return;
+    setDownloading(true);
+    try {
+      const pdf = await buildCoPdf(element);
+      if (!pdf) {
+        toast.error("Failed to generate PDF — please try again.");
+        return;
+      }
       pdf.save(`ChangeOrder-${coTitle.trim().replace(/\s+/g, "-") || "CO"}.pdf`);
       if (clientId) activityLogAPI.create({ client_id: clientId, action_type: "co_pdf_exported", description: `Change order PDF exported: "${coTitle.trim()}"` }).catch(() => {});
     } catch (err) {
@@ -500,6 +611,21 @@ export function ChangeOrderBuilder() {
     } finally {
       setDownloading(false);
     }
+  };
+
+  const saveCoPdfOnSend = async (coId: string): Promise<void> => {
+    const element = exportRef.current;
+    if (!element || !clientId) return;
+    const pdf = await buildCoPdf(element);
+    if (!pdf) return;
+    const blob = pdf.output("blob");
+    const path = `${clientId}/change-orders/${coId}.pdf`;
+    const { error: uploadErr } = await supabase.storage
+      .from("client-files")
+      .upload(path, blob, { contentType: "application/pdf", upsert: true });
+    if (uploadErr) { console.error("[portal-pdf] CO upload failed:", uploadErr.message); return; }
+    const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
+    await supabase.from("change_orders").update({ pdf_url: publicUrl }).eq("id", coId);
   };
 
   const handlePreview = async () => {
@@ -638,8 +764,14 @@ export function ChangeOrderBuilder() {
     );
   }
 
-  const isMerged = existingCO?.status === "merged";
-  const canMerge = !!(proposal && approvalVerified && approvalFileUrl && !isMerged);
+  const isMerged         = existingCO?.status === "merged";
+  const isPending        = existingCO?.status === "pending_client";
+  const isClientApproved = existingCO?.status === "approved";
+  const isClientRejected = existingCO?.status === "rejected";
+  const isApproved       = isClientApproved || isClientRejected;
+  const showSendBtn      = !isMerged && !isClientApproved;
+  const canSend          = showSendBtn && !!coTitle.trim() && items.some(i => i.description.trim());
+  const canMerge   = !!(proposal && approvalVerified && approvalFileUrl && !isMerged);
 
   return (
     <div className="h-full flex flex-col bg-muted/20">
@@ -668,9 +800,23 @@ export function ChangeOrderBuilder() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {!isMerged && (
-            <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging || downloading}>
+            <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging || downloading || sendingToClient}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               Save Draft
+            </Button>
+          )}
+          {showSendBtn && (
+            <Button
+              size="sm"
+              variant={isPending ? "outline" : "default"}
+              className={isPending ? "border-blue-400 text-blue-600 hover:bg-blue-50" : "bg-blue-600 hover:bg-blue-700 text-white"}
+              disabled={!canSend || sendingToClient || saving || merging || downloading}
+              onClick={() => setShowSendConfirm(true)}
+            >
+              <span className="flex items-center gap-2">
+                {sendingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : isPending ? <RefreshCw className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                {sendingToClient ? "Sending…" : isPending ? "Resend to Client" : "Save & Send"}
+              </span>
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={handlePreview} disabled={downloading || saving || merging || !coTitle.trim()}>
@@ -709,6 +855,39 @@ export function ChangeOrderBuilder() {
               <div>
                 <p className="text-sm font-semibold text-purple-800">This change order has been merged</p>
                 <p className="text-xs text-purple-700 mt-0.5">It is now part of the accepted proposal and cannot be edited. You can preview or export the PDF.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Pending client approval banner */}
+          {isPending && (
+            <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+              <Clock className="h-4 w-4 text-orange-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-orange-800">Awaiting Client Approval</p>
+                <p className="text-xs text-orange-700 mt-0.5">This change order has been sent to the client and is pending their review. You can resend the email if needed.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Declined by client banner */}
+          {isClientRejected && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <XCircle className="h-4 w-4 text-red-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-800">Declined by Client</p>
+                <p className="text-xs text-red-700 mt-0.5">The client has declined this change order. You can edit and resend it for their review.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Approved by client banner */}
+          {isClientApproved && (
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-green-800">Approved by Client</p>
+                <p className="text-xs text-green-700 mt-0.5">The client has approved this change order. Upload the signed document above and apply it to the proposal.</p>
               </div>
             </div>
           )}
@@ -1150,7 +1329,7 @@ export function ChangeOrderBuilder() {
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll">
+          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll-dark">
             <div className="py-8 flex flex-col items-center gap-6">
               {previewLoading ? (
                 <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
@@ -1199,6 +1378,62 @@ export function ChangeOrderBuilder() {
             >
               {deleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
               Delete Change Order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Send to Client — confirmation dialog */}
+      <AlertDialog open={showSendConfirm} onOpenChange={setShowSendConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{isPending ? "Resend to Client?" : "Save & Send to Client?"}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p className="text-muted-foreground">
+                  {isPending
+                    ? `This will resend the portal email to ${client?.first_name} ${client?.last_name} with a direct link to review this change order.`
+                    : `This will notify ${client?.first_name} ${client?.last_name} by email with a direct link to review and approve or decline this change order on their portal.`}
+                </p>
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Change Order</span>
+                    <span className="font-medium">{coTitle.trim()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm border-t pt-1 mt-1">
+                    <span className="text-muted-foreground">Current Contract Total</span>
+                    <span className="font-medium">{fmt(originalTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Change Order Impact</span>
+                    <span className={`font-semibold ${coImpact >= 0 ? "text-green-700" : "text-red-600"}`}>
+                      {coImpact >= 0 ? "+" : ""}{fmt(coImpact)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold border-t pt-1 mt-1">
+                    <span>New Total</span>
+                    <span className="text-primary">{fmt(newTotal)}</span>
+                  </div>
+                </div>
+                {!isPending && (
+                  <p className="text-xs text-blue-600 flex items-center gap-1.5">
+                    <Send className="h-3 w-3 shrink-0" />
+                    Status will change to <strong>Pending Client Review</strong>.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={sendingToClient}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSendToClient}
+              disabled={sendingToClient}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {sendingToClient
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending…</>
+                : <><Send className="h-4 w-4 mr-2" />{isPending ? "Resend Email" : "Save & Send"}</>}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

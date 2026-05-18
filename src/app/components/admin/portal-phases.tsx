@@ -97,12 +97,32 @@ export function PortalPhases({ projectId }: Props) {
     const idx = phases.findIndex(p => p.id === id);
     if (dir === "up" && idx === 0) return;
     if (dir === "down" && idx === phases.length - 1) return;
-    const other = phases[dir === "up" ? idx - 1 : idx + 1];
-    await Promise.all([
+
+    setSaving(id);
+
+    const otherIdx = dir === "up" ? idx - 1 : idx + 1;
+    const other = phases[otherIdx];
+
+    // Optimistic update — swap instantly, no spinner
+    setPhases(prev =>
+      prev.map(p => {
+        if (p.id === id) return { ...p, order_index: other.order_index };
+        if (p.id === other.id) return { ...p, order_index: phases[idx].order_index };
+        return p;
+      }).sort((a, b) => a.order_index - b.order_index)
+    );
+
+    const [r1, r2] = await Promise.all([
       supabase.from("project_phases").update({ order_index: other.order_index }).eq("id", id),
       supabase.from("project_phases").update({ order_index: phases[idx].order_index }).eq("id", other.id),
     ]);
-    await load();
+
+    if (r1.error || r2.error) {
+      toast.error("Failed to move phase");
+      await load();
+    }
+
+    setSaving(null);
   };
 
   const statusBadge = (s: Phase["status"]) => {
@@ -203,7 +223,7 @@ export function PortalPhases({ projectId }: Props) {
                           max={100}
                           value={phase.progress_pct}
                           onChange={e => setPhases(prev => prev.map(p => p.id === phase.id ? { ...p, progress_pct: Number(e.target.value) } : p))}
-                          onBlur={() => handleUpdate(phase.id, { progress_pct: phase.progress_pct })}
+                          onBlur={e => handleUpdate(phase.id, { progress_pct: Math.min(100, Math.max(0, Number(e.target.value))) })}
                           className="h-8 text-sm"
                         />
                       </div>

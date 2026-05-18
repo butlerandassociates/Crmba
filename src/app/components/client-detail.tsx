@@ -394,6 +394,9 @@ export function ClientDetail() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalGenerating, setPortalGenerating] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
+  const [portalEmailSending, setPortalEmailSending] = useState(false);
+  const [portalEmailSent, setPortalEmailSent] = useState(false);
+  const [portalEmailPreviewOpen, setPortalEmailPreviewOpen] = useState(false);
   const [portalDialogTab, setPortalDialogTab] = useState("link");
   const ITEMS_PER_PAGE = 10;
   const FILES_PER_PAGE = 5;
@@ -829,6 +832,10 @@ export function ClientDetail() {
         setBackwardTargetStatus(target);
         setBackwardReason("");
         setBackwardConfirmOpen(true);
+      } else if (current === "active" && target.toLowerCase() === "sold") {
+        setBackwardTargetStatus(target);
+        setBackwardReason("");
+        setBackwardConfirmOpen(true);
       } else {
         toast.error(`Cannot move back to ${target}. The pipeline can only move forward from ${client?.status ?? "this stage"}.`);
       }
@@ -837,7 +844,7 @@ export function ClientDetail() {
     }
   };
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = async (newStatus: string, silent = false) => {
     if (!client) return;
     try {
       setUpdating(true);
@@ -861,7 +868,9 @@ export function ClientDetail() {
       }
       setClient({ ...client, status: newStatus, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
       projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))).catch(console.error);
-      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Status changed to "${newStatus}"` }).then(loadActivityLog).catch(() => {});
+      if (!silent) {
+        activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Status changed to "${newStatus}"` }).then(loadActivityLog).catch(() => {});
+      }
       toast.success(`Moved to ${newStatus}`);
     } catch (err: any) {
       console.error("Failed to update client status:", err);
@@ -1136,11 +1145,10 @@ export function ClientDetail() {
       const generatedToken = data as string;
       setPortalToken(generatedToken);
       // Log to activity
-      const portalUrl = `https://client.butlerconstruction.co/portal/${generatedToken}`;
       activityLogAPI.create({
         client_id: id!,
         action_type: "portal_link_generated",
-        description: `Client portal link generated: ${portalUrl}`,
+        description: "Client portal link generated",
       }).then(loadActivityLog).catch(() => {});
       toast.success("Portal link generated!");
     } catch (err: any) {
@@ -1157,6 +1165,67 @@ export function ClientDetail() {
       setPortalCopied(true);
       setTimeout(() => setPortalCopied(false), 2000);
     });
+  };
+
+  const handleSendPortalEmail = async () => {
+    if (!client?.id || portalEmailSending) return;
+    setPortalEmailSending(true);
+    try {
+      const { error } = await supabase.functions.invoke("send-portal-notification", {
+        body: { client_id: client.id, type: "portal_access" },
+      });
+      if (error) throw error;
+      setPortalEmailSent(true);
+      toast.success("Portal link sent to client!");
+      setTimeout(() => setPortalEmailSent(false), 3000);
+      activityLogAPI.create({
+        client_id: id!,
+        action_type: "portal_email_sent",
+        description: "Portal access email sent to client",
+      }).then(loadActivityLog).catch(() => {});
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to send email");
+    } finally {
+      setPortalEmailSending(false);
+    }
+  };
+
+  const buildPortalEmailPreviewHtml = () => {
+    const firstName = client?.first_name ?? "Client";
+    const portalUrl = portalToken ? `https://client.butlerconstruction.co/portal/${portalToken}` : "#";
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
+      <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+        <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" width="80" height="56" style="height:56px;width:80px;display:block;margin:0 auto 14px auto;border:0;outline:none;"/>
+        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      </td>
+    </tr></table>
+    <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+    <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Message from Butler &amp; Associates</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 4px 0;">Hi ${firstName},</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 20px 0;">Your project portal is ready. You can now view your project timeline, payment schedule, documents, and field updates — all in one place.</p>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="${portalUrl}" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 28px;border-radius:4px;">Open Your Project Portal →</a>
+      </div>
+      <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;opacity:0.65;margin:0 0 24px 0;">You can return to this link at any time. Bookmark it for easy access.</p>
+      <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+    </div>
+    <div style="text-align:center;padding:20px 0 0 0;">
+      <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+    </div>
+  </div>
+</body>
+</html>`;
   };
 
   const handleMarkIndividualAsMet = async (apptId: string) => {
@@ -2200,10 +2269,13 @@ export function ClientDetail() {
 
             {/* ── Change Order History ── */}
             {(() => {
-              const mergedCOs = clientCOs
-                .filter((co: any) => co.status === "merged")
+              const visibleCOs = clientCOs
+                .filter((co: any) => co.status !== "draft")
+                .sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+              if (visibleCOs.length === 0) return null;
+
+              const mergedCOs = visibleCOs.filter((co: any) => co.status === "merged")
                 .sort((a: any, b: any) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
-              if (mergedCOs.length === 0) return null;
               const totalCOImpact = mergedCOs.reduce((s: number, co: any) => {
                 if (co.pre_merge_total != null && co.post_merge_total != null) {
                   return s + (Number(co.post_merge_total) - Number(co.pre_merge_total));
@@ -2212,20 +2284,28 @@ export function ClientDetail() {
               }, 0);
               const acceptedForHistory = clientProposals.find((p: any) => p.status === "accepted");
               const currentProposalTotal = Number(acceptedForHistory?.total ?? 0);
-              // Fallback when pre_merge_total is null (CO merged before that field existed)
               const originalContract = mergedCOs[0]?.pre_merge_total != null
                 ? Number(mergedCOs[0].pre_merge_total)
                 : (currentProposalTotal > 0 ? currentProposalTotal - totalCOImpact : null);
               const currentContract = mergedCOs[mergedCOs.length - 1]?.post_merge_total != null
                 ? Number(mergedCOs[mergedCOs.length - 1].post_merge_total)
                 : (currentProposalTotal > 0 ? currentProposalTotal : null);
+
+              const coStatusBadge = (status: string) => {
+                if (status === "merged")         return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Merged</span>;
+                if (status === "approved")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Approved</span>;
+                if (status === "rejected")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Rejected</span>;
+                if (status === "pending_client") return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Pending</span>;
+                return null;
+              };
+
               return (
                 <div className="border-t mt-4 pt-3">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2 flex items-center gap-1">
                     <History className="h-3 w-3" /> Change Order History
                   </p>
-                  <div className="space-y-1 max-h-[140px] overflow-y-auto thin-scroll pr-1">
-                    {mergedCOs.map((co: any) => {
+                  <div className="space-y-1 max-h-[160px] overflow-y-auto thin-scroll pr-1">
+                    {visibleCOs.map((co: any) => {
                       const impact = co.pre_merge_total != null && co.post_merge_total != null
                         ? Number(co.post_merge_total) - Number(co.pre_merge_total)
                         : Number(co.cost_impact || 0);
@@ -2237,17 +2317,22 @@ export function ClientDetail() {
                         >
                           <ClipboardEdit className="h-3.5 w-3.5 shrink-0 text-purple-500" />
                           <div className="flex-1 min-w-0">
-                            <span className="text-xs font-medium truncate block">{co.title}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-medium truncate">{co.title}</span>
+                              {coStatusBadge(co.status)}
+                            </div>
                             <span className="text-[10px] text-muted-foreground">{new Date(co.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                           </div>
-                          <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {impact >= 0 ? "+" : ""}{formatCurrency(impact)}
-                          </span>
+                          {co.status === "merged" || co.status === "approved" ? (
+                            <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {impact >= 0 ? "+" : ""}{formatCurrency(impact)}
+                            </span>
+                          ) : null}
                         </button>
                       );
                     })}
                   </div>
-                  {originalContract != null && currentContract != null && (
+                  {mergedCOs.length > 0 && originalContract != null && currentContract != null && (
                     <div className="mt-2 pt-2 border-t grid grid-cols-3 gap-1 text-center">
                       <div>
                         <p className="text-[9px] uppercase tracking-wide text-muted-foreground">Original</p>
@@ -2775,6 +2860,9 @@ export function ClientDetail() {
                     : type === "co_updated"              ? <ClipboardEdit className="h-3.5 w-3.5 text-yellow-500" />
                     : type === "co_deleted"              ? <ClipboardEdit className="h-3.5 w-3.5 text-red-400" />
                     : type === "co_merged"               ? <ClipboardEdit className="h-3.5 w-3.5 text-green-500" />
+                    : type === "co_status_updated"       ? <ClipboardEdit className="h-3.5 w-3.5 text-blue-500" />
+                    : type === "po_updated"              ? <Package className="h-3.5 w-3.5 text-violet-400" />
+                    : type === "po_deleted"              ? <Package className="h-3.5 w-3.5 text-red-400" />
                     : type === "receipt_added"           ? <Receipt className="h-3.5 w-3.5 text-emerald-500" />
                     : type === "receipt_deleted"         ? <Receipt className="h-3.5 w-3.5 text-red-400" />
                     : type === "scope_acknowledged"      ? <HardHat className="h-3.5 w-3.5 text-green-600" />
@@ -2789,7 +2877,12 @@ export function ClientDetail() {
                     : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
                     : type === "project_value_updated"   ? <TrendingUp className="h-3.5 w-3.5 text-green-600" />
                     : type === "project_updated"         ? <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
-                    : type === "portal_link_generated"  ? <Globe className="h-3.5 w-3.5 text-sky-500" />
+                    : type === "portal_link_generated"   ? <Globe className="h-3.5 w-3.5 text-sky-500" />
+                    : type === "portal_email_sent"       ? <Mail className="h-3.5 w-3.5 text-sky-500" />
+                    : type === "portal_viewed"           ? <Eye className="h-3.5 w-3.5 text-sky-400" />
+                    : type === "change_order_approved"   ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                    : type === "change_order_rejected"   ? <XCircle className="h-3.5 w-3.5 text-red-400" />
+                    : type === "proposal_declined"       ? <FileX2 className="h-3.5 w-3.5 text-red-400" />
                     : type === "fio_updated"             ? <HardHat className="h-3.5 w-3.5 text-yellow-500" />
                     : type === "crew_payment_submitted"  ? <DollarSign className="h-3.5 w-3.5 text-amber-500" />
                     : type.includes("pdf_exported")      ? <FileDown className="h-3.5 w-3.5 text-slate-400" />
@@ -2828,7 +2921,7 @@ export function ClientDetail() {
                                 </>
                               );
                             }
-                            if (["proposal_accepted", "proposal_rejected"].includes(entry.action_type)) {
+                            if (["proposal_accepted", "proposal_rejected", "proposal_declined", "change_order_approved", "change_order_rejected", "portal_viewed"].includes(entry.action_type)) {
                               const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || "Client";
                               return (
                                 <>
@@ -3740,12 +3833,13 @@ export function ClientDetail() {
               if (!backwardReason.trim()) { setBackwardReasonError(true); return; }
               setBackwardConfirmOpen(false);
               setBackwardReasonError(false);
-              await handleStatusChange(backwardTargetStatus);
+              if (backwardTargetStatus.toLowerCase() === "sold") justMovedToSoldRef.current = true;
+              await handleStatusChange(backwardTargetStatus, true);
               activityLogAPI.create({
                 client_id: client.id,
                 action_type: "note_added",
                 description: `Stage moved back to ${backwardTargetStatus}: ${backwardReason.trim()}`,
-              }).catch(() => {});
+              }).then(loadActivityLog).catch(() => {});
               setBackwardReason("");
             }}>
               Yes, Move Back
@@ -3781,6 +3875,7 @@ export function ClientDetail() {
         client={client}
         project={clientProjects[0] ?? null}
         acceptedProposal={clientProposals.find((p: any) => p.status === "accepted") ?? null}
+        existingDeposit={clientPayments.find((p: any) => p.project_id === clientProjects[0]?.id && (p.is_deposit || p.label === "Deposit") && p.is_paid) ?? null}
         onSuccess={() => {
           const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
           Promise.all([
@@ -4605,12 +4700,25 @@ export function ClientDetail() {
                       This link gives the client access to their project overview, payments, documents, and field updates.
                       It stays active until revoked or a new link is generated.
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <button
                         onClick={handleCopyPortalLink}
                         className="flex-1 h-9 px-4 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 flex items-center justify-center gap-2"
                       >
                         {portalCopied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> Copy Link</>}
+                      </button>
+                      <button
+                        onClick={handleSendPortalEmail}
+                        disabled={portalEmailSending}
+                        className="flex-1 h-9 px-4 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        {portalEmailSent ? <><Check className="h-4 w-4" /> Sent!</> : portalEmailSending ? <><RefreshCw className="h-4 w-4 animate-spin" /> Sending…</> : <><Mail className="h-4 w-4" /> Send via Email</>}
+                      </button>
+                      <button
+                        onClick={() => setPortalEmailPreviewOpen(true)}
+                        className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
+                      >
+                        <Eye className="h-4 w-4" /> Preview Email
                       </button>
                       <a
                         href={`https://client.butlerconstruction.co/portal/${portalToken}`}
@@ -4618,7 +4726,7 @@ export function ClientDetail() {
                         rel="noopener noreferrer"
                         className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
                       >
-                        <ExternalLink className="h-4 w-4" /> Preview
+                        <Eye className="h-4 w-4" /> View Portal
                       </a>
                     </div>
                     <div className="border-t pt-3">
@@ -4660,13 +4768,35 @@ export function ClientDetail() {
               {/* ── Field Updates Tab ── */}
               <TabsContent value="updates">
                 {clientProjects[0]?.id
-                  ? <PortalFieldUpdates projectId={clientProjects[0].id} postedById="" />
+                  ? <PortalFieldUpdates projectId={clientProjects[0].id} />
                   : <p className="text-sm text-muted-foreground py-4 text-center">No active project found. Move this client to Active first.</p>}
               </TabsContent>
             </Tabs>
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Portal email preview modal */}
+      <Dialog open={portalEmailPreviewOpen} onOpenChange={setPortalEmailPreviewOpen}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+          <DialogHeader className="shrink-0 px-6 py-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              Email Preview — Portal Access
+            </DialogTitle>
+            <DialogDescription>
+              This is exactly what {client?.email ?? "the client"} will receive.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+            <iframe
+              srcDoc={buildPortalEmailPreviewHtml()}
+              className="w-full h-full border-0"
+              title="Portal Email Preview"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>

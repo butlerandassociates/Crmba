@@ -112,6 +112,11 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
           notes: form.notes,
         });
         await purchaseOrdersAPI.updateItems(editingId, items);
+        activityLogAPI.create({
+          client_id: project.client_id,
+          action_type: "po_updated",
+          description: `Purchase order updated — supplier: ${form.supplier_name || "Unknown"}`,
+        }).catch(() => {});
         toast.success("Purchase Order updated");
       } else {
         await purchaseOrdersAPI.create({
@@ -121,6 +126,11 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
           delivery_date: form.delivery_date || undefined,
           notes: form.notes,
         }, items);
+        activityLogAPI.create({
+          client_id: project.client_id,
+          action_type: "po_created",
+          description: `Purchase order created — supplier: ${form.supplier_name || "Unknown"}`,
+        }).catch(() => {});
         toast.success("Purchase Order created");
       }
       setCreating(false);
@@ -139,6 +149,11 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
     if (!deleteConfirm) return;
     try {
       await purchaseOrdersAPI.delete(deleteConfirm.id);
+      activityLogAPI.create({
+        client_id: project.client_id,
+        action_type: "po_deleted",
+        description: `Purchase order deleted — supplier: ${deleteConfirm.name || "Unknown"}`,
+      }).catch(() => {});
       toast.success("Purchase Order deleted");
       setDeleteConfirm(null);
       if (viewingPO?.id === deleteConfirm.id) setViewingPO(null);

@@ -24,7 +24,6 @@ export interface PortalProject {
   start_date: string | null;
   end_date: string | null;
   target_date: string | null;
-  progress_pct: number;
   project_type: string | null;
   days_total: number | null;
   portal_enabled: boolean;
@@ -70,6 +69,8 @@ export interface PortalUpdate {
   completed_items: string[];
   upcoming_items: string[];
   posted_at: string;
+  phase_id: string | null;
+  phase_label: string | null;
   posted_by_profile: { first_name: string; last_name: string } | null;
   photos: PortalPhoto[];
 }
@@ -78,9 +79,9 @@ export interface PortalFile {
   id: string;
   file_name: string;
   file_url: string | null;
-  category: string;
+  file_type: string;
   created_at: string;
-  file_size: number | null;
+  file_size_bytes: number | null;
 }
 
 export interface PortalChangeOrderItem {
@@ -100,8 +101,12 @@ export interface PortalChangeOrder {
   reason: string | null;
   timeline_impact: string | null;
   cost_impact: number;
-  status: "pending_client" | "approved" | "rejected";
+  status: "pending_client" | "approved" | "rejected" | "merged";
   created_at: string;
+  approval_verified: boolean | null;
+  approval_file_url: string | null;
+  approval_file_name: string | null;
+  pdf_url: string | null;
   items: PortalChangeOrderItem[];
 }
 
@@ -126,6 +131,7 @@ export interface PortalProposal {
   sent_at: string | null;
   accepted_at: string | null;
   declined_at: string | null;
+  pdf_url: string | null;
   line_items: PortalProposalLineItem[];
 }
 

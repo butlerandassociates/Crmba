@@ -655,9 +655,9 @@ export function RootLayout() {
                             setCrewNotifications((prev) => prev.filter((x) => x.id !== n.id));
                           }}
                         >
-                          {n.type === "proposal_accepted"
+                          {n.type === "proposal_accepted" || n.type === "change_order_approved"
                             ? <FileCheck2 className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
-                            : n.type === "proposal_declined"
+                            : n.type === "proposal_declined" || n.type === "change_order_rejected"
                             ? <FileX2 className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
                             : n.type === "docusign_completed"
                             ? <FileSignature className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
@@ -666,8 +666,8 @@ export function RootLayout() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                                n.type === "proposal_accepted" || n.type === "docusign_completed" ? "bg-green-100 text-green-700"
-                                : n.type === "proposal_declined" ? "bg-red-100 text-red-700"
+                                n.type === "proposal_accepted" || n.type === "docusign_completed" || n.type === "change_order_approved" ? "bg-green-100 text-green-700"
+                                : n.type === "proposal_declined" || n.type === "change_order_rejected" ? "bg-red-100 text-red-700"
                                 : "bg-blue-100 text-blue-700"
                               }`}>
                                 {n.title}

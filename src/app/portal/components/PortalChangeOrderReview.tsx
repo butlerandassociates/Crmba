@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Badge } from "../../components/ui/badge";
+import { Dialog, DialogContent } from "../../components/ui/dialog";
 import {
-  ArrowLeft, Download, DollarSign, CheckCircle2, AlertCircle, Clock, MessageSquare,
+  ArrowLeft, Download, DollarSign, CheckCircle2, AlertCircle, Clock, MessageSquare, ExternalLink, Loader2, Eye,
 } from "lucide-react";
 import type { PortalChangeOrder } from "../api/portal";
 import { portalAction } from "../api/portal";
@@ -25,6 +26,44 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   const [submissionType, setSubmissionType] = useState<"approved" | "denied" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!changeOrder.pdf_url) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch(changeOrder.pdf_url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `Change-Order-${changeOrder.title.replace(/[^a-z0-9]/gi, "-")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(changeOrder.pdf_url, "_blank");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const downloadFile = useCallback(async (url: string, name: string) => {
+    setDownloading(true);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, "_blank");
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
 
   const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(v);
   const revisedTotal = projectTotal + changeOrder.cost_impact;
@@ -67,10 +106,9 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     );
   }
 
-  const statusLabel = changeOrder.status === "approved" ? "APPROVED"
-    : changeOrder.status === "rejected" ? "DECLINED"
-    : "AWAITING REVIEW";
-  const statusClass = changeOrder.status === "approved" ? "border-green-600 text-green-600"
+  const isApproved = changeOrder.status === "approved" || changeOrder.status === "merged";
+  const statusLabel = isApproved ? "APPROVED" : changeOrder.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
+  const statusClass = isApproved ? "border-green-600 text-green-600"
     : changeOrder.status === "rejected" ? "border-red-500 text-red-500"
     : "border-orange-600 text-orange-600";
 
@@ -79,24 +117,37 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
       {/* Header */}
       <div className="border-b bg-white sticky top-0 z-10">
         <div className="p-4 lg:p-8 w-full max-w-6xl mx-auto">
-          <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="text-sm font-semibold">Back to Change Orders</span>
-          </button>
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <Badge variant="outline" className={`${statusClass} font-bold`}>{statusLabel}</Badge>
-                <span className="text-sm text-gray-500">
-                  Issued {new Date(changeOrder.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                </span>
-              </div>
-              <h1 className="text-2xl lg:text-4xl font-black mb-2 break-words" style={{ fontFamily: "Lato, sans-serif" }}>
-                {changeOrder.title}
-              </h1>
-              {changeOrder.reason && <p className="text-sm text-gray-600">{changeOrder.reason}</p>}
-            </div>
+          {/* Back button */}
+          <div className="pr-12 mb-4">
+            <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+              <ArrowLeft className="h-4 w-4" />
+              <span className="text-sm font-semibold">Back to Change Orders</span>
+            </button>
           </div>
+          {/* Badge + date */}
+          <div className="flex items-center justify-between mb-2">
+            <Badge variant="outline" className={`${statusClass} font-bold`}>{statusLabel}</Badge>
+            <span className="text-sm text-gray-500">
+              Issued {new Date(changeOrder.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+          {/* Title */}
+          <h1 className="text-2xl lg:text-4xl font-black mb-2 break-words" style={{ fontFamily: "Lato, sans-serif" }}>
+            {changeOrder.title}
+          </h1>
+          {changeOrder.reason && <p className="text-sm text-gray-600 mb-2">{changeOrder.reason}</p>}
+          {/* PDF buttons below title — right-aligned */}
+          {changeOrder.pdf_url && (
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <Button variant="outline" size="sm" onClick={() => setShowPdfPreview(true)}>
+                <Eye className="h-3.5 w-3.5 mr-1.5" />Preview
+              </Button>
+              <Button variant="outline" size="sm" disabled={downloadingPdf} onClick={handleDownloadPdf}>
+                {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Download className="h-3.5 w-3.5 mr-1.5" />}
+                Download
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -135,7 +186,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="text-2xl font-bold text-orange-600">
+                <div className={`text-2xl font-bold ${isApproved ? "text-green-600" : "text-orange-600"}`}>
                   {changeOrder.cost_impact >= 0 ? "+" : ""}{fmt(changeOrder.cost_impact)}
                 </div>
               </CardContent>
@@ -302,16 +353,70 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
 
           {/* View-only state for already approved/rejected */}
           {changeOrder.status !== "pending_client" && (
-            <Card className={`border-2 ${changeOrder.status === "approved" ? "border-green-600 bg-green-50" : "border-red-200 bg-red-50"}`}>
-              <CardContent className="p-6 text-center">
+            <Card className={`border-2 ${isApproved ? "border-green-600 bg-green-50" : "border-red-200 bg-red-50"}`}>
+              <CardContent className="p-6 text-center space-y-4">
                 <p className="font-semibold text-lg" style={{ fontFamily: "Lato, sans-serif" }}>
-                  {changeOrder.status === "approved" ? "✓ You approved this change order" : "✗ You declined this change order"}
+                  {isApproved ? "✓ This change order has been approved" : "✗ You declined this change order"}
                 </p>
+                {isApproved && changeOrder.approval_file_url && (() => {
+                  const isImg = /\.(jpg|jpeg|png|gif|webp|heic|bmp)$/i.test(
+                    changeOrder.approval_file_url!.split("?")[0]
+                  );
+                  return (
+                    <div className="space-y-3">
+                      {isImg && (
+                        <img
+                          src={changeOrder.approval_file_url}
+                          alt={changeOrder.approval_file_name ?? "Approval document"}
+                          className="max-h-72 mx-auto rounded-lg border object-contain shadow-sm"
+                        />
+                      )}
+                      <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                        {!isImg && (
+                          <a
+                            href={changeOrder.approval_file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 border border-green-700 rounded-lg text-green-800 hover:bg-green-100 transition-colors"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            View Document
+                          </a>
+                        )}
+                        <button
+                          disabled={downloading}
+                          onClick={() => downloadFile(changeOrder.approval_file_url!, changeOrder.approval_file_name ?? "approval-document")}
+                          className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2 border border-green-700 rounded-lg text-green-800 hover:bg-green-100 transition-colors disabled:opacity-60"
+                        >
+                          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                          {downloading ? "Downloading..." : "Download"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}
         </div>
       </div>
+
+      {/* PDF Preview modal */}
+      <Dialog open={showPdfPreview} onOpenChange={setShowPdfPreview}>
+        <DialogContent className="w-[96vw] max-w-4xl p-0 flex flex-col gap-0" style={{ height: "84vh" }}>
+          <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0 pr-14">
+            <span className="font-bold text-sm truncate pr-4" style={{ fontFamily: "Lato, sans-serif" }}>{changeOrder.title}</span>
+            <Button variant="outline" size="sm" className="flex-shrink-0" disabled={downloadingPdf} onClick={handleDownloadPdf}>
+              {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              <span className="ml-1.5 hidden sm:inline">Download</span>
+            </Button>
+          </div>
+          {/* Desktop: iframe */}
+          <div className="flex-1 overflow-x-hidden overflow-y-auto thin-scroll">
+            {changeOrder.pdf_url && <iframe src={`${changeOrder.pdf_url}#toolbar=0&view=FitH`} className="w-full h-full border-0" title="PDF Preview" />}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

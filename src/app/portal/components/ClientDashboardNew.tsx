@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -10,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
+import { Sheet, SheetContent } from "../../components/ui/sheet";
 import {
   FileText,
   ChevronRight,
@@ -19,6 +21,7 @@ import {
   Home,
   Image as ImageIcon,
   Download,
+  Loader2,
   X,
   ArrowLeft,
   Building2,
@@ -26,33 +29,100 @@ import {
   Menu,
   AlertCircle,
   ClipboardCheck,
+  Layers,
+  Wallet,
+  Camera,
 } from "lucide-react";
-import type { PortalData } from "../api/portal";
+import { validatePortalToken, type PortalData } from "../api/portal";
 import { PortalChangeOrderReview } from "./PortalChangeOrderReview";
 import { PortalProposals } from "./PortalProposals";
 
 interface Props {
   data: PortalData;
   token: string;
+  initialTab?: string;
+  initialCoId?: string | null;
 }
 
-export function ClientDashboardNew({ data, token }: Props) {
-  const { client, project, phases, payments, updates, files, change_orders, proposals } = data;
+export function ClientDashboardNew({ data, token, initialTab = "overview", initialCoId = null }: Props) {
+  const [portalData, setPortalData] = useState<PortalData>(data);
+  const { client, project, phases, payments, updates, files, change_orders, proposals } = portalData;
+  const [, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState("overview");
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const fresh = await validatePortalToken(token);
+      if (fresh) setPortalData(fresh);
+    }, 90_000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  const [activeTab, setActiveTabState] = useState(initialTab);
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabState(tab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", tab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "ach" | "apple" | null>(null);
   const [showAllFieldUpdates, setShowAllFieldUpdates] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [viewingChangeOrderId, setViewingChangeOrderId] = useState<string | null>(null);
+  const [viewingChangeOrderId, setViewingChangeOrderId] = useState<string | null>(initialCoId);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; isImage: boolean } | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ url: string; title: string } | null>(null);
+
+  const handleDownloadPdf = async (url: string, filename: string, id: string) => {
+    setDownloadingPdfId(id);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, "_blank");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
+
+  const downloadFile = async (url: string, name: string, id?: string) => {
+    if (id) setDownloadingId(id);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(url, "_blank");
+    } finally {
+      if (id) setDownloadingId(null);
+    }
+  };
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(value);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "TBD";
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    // DATE-only strings (no T) need T00:00:00 appended to avoid UTC-shift; timestamps already have it
+    const d = dateStr.includes("T") ? new Date(dateStr) : new Date(dateStr + "T00:00:00");
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   // ─── Computed values from real data ───────────────────────────────────────
@@ -65,13 +135,15 @@ export function ClientDashboardNew({ data, token }: Props) {
 
   const totalPaid = payments.filter(p => p.is_paid).reduce((sum, p) => sum + p.amount, 0);
   const totalValue = project?.total_value ?? 0;
-  const progressPct = project?.progress_pct ?? 0;
+  const progressPct = phases.length > 0
+    ? phases.reduce((sum, p) => sum + Number(p.progress_pct), 0) / phases.length
+    : 0;
   const completionDate = project?.target_date ? formatDate(project.target_date) : "TBD";
 
   const getPaymentStatus = (p: typeof payments[0]) => {
     if (p.is_paid) return "PAID";
     if (p.due_date) {
-      const due = new Date(p.due_date);
+      const due = new Date(p.due_date + "T00:00:00");
       const today = new Date();
       if (due < today) return "OVERDUE";
       const daysUntil = (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
@@ -83,6 +155,11 @@ export function ClientDashboardNew({ data, token }: Props) {
   const nextDuePayment = payments.find(p => !p.is_paid);
 
   const pendingCOs = change_orders.filter(co => co.status === "pending_client");
+  const pendingProposals = proposals.filter(p => p.status === "sent").length;
+  const duePayments = payments.filter(p => {
+    const s = getPaymentStatus(p);
+    return s === "DUE" || s === "OVERDUE";
+  }).length;
 
   // ─── Render helpers ───────────────────────────────────────────────────────
 
@@ -104,8 +181,16 @@ export function ClientDashboardNew({ data, token }: Props) {
                 ))}
           </div>
           <div>
-            <div className="text-xs font-bold text-gray-500 mb-2 tracking-wide" style={{ fontFamily: "Lato, sans-serif" }}>
-              {new Date(update.posted_at).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }).toUpperCase()}
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <span className="text-xs font-bold text-gray-500 tracking-wide" style={{ fontFamily: "Lato, sans-serif" }}>
+                {new Date(update.posted_at).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }).toUpperCase()}
+              </span>
+              {update.phase_label && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  <Layers className="h-2.5 w-2.5" />
+                  {update.phase_label}
+                </span>
+              )}
             </div>
             <h4 className="text-lg font-bold mb-2" style={{ fontFamily: "Lato, sans-serif" }}>{update.title}</h4>
             <p className="text-sm text-gray-700 leading-relaxed">{update.body}</p>
@@ -145,38 +230,113 @@ export function ClientDashboardNew({ data, token }: Props) {
     </Card>
   );
 
-  const renderOverview = () => (
+  const renderOverview = () => {
+    const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
+    return (
     <div className="space-y-8">
       {/* Phase Timeline */}
       <div>
-        <h3 className="text-xl font-bold mb-4" style={{ fontFamily: "Lato, sans-serif" }}>Project Timeline</h3>
         {phases.length > 0 ? (
-          <div className="flex items-center gap-2 lg:gap-4 mb-6 overflow-x-auto pb-2">
-            {phases.map((phase, index) => (
-              <div key={phase.id} className="flex items-center gap-4">
-                <div className="text-center min-w-[100px] lg:min-w-[120px]">
-                  <div
-                    className={`text-xs lg:text-sm font-semibold mb-2 ${
-                      phase.status === "in-progress" ? "text-orange-600"
-                      : phase.status === "complete" ? "text-green-600"
-                      : "text-gray-400"
-                    }`}
-                    style={{ fontFamily: "Lato, sans-serif" }}
-                  >
-                    {phase.label}
+          <div className="space-y-6">
+            {/* ── Quick-glance strip: scrolls on mobile, stretches on desktop ── */}
+            <div className="overflow-x-auto pb-1 -mx-1 px-1">
+              <div className="flex items-start gap-1 min-w-max lg:min-w-0 lg:w-full">
+              {phases.map((phase, index) => (
+                <div key={phase.id} className="flex items-start gap-1 min-w-[80px] lg:flex-1 lg:min-w-0">
+                  <div className="text-center w-full">
+                    <div
+                      className={`text-[11px] font-semibold mb-1.5 leading-tight ${
+                        phase.status === "in-progress" ? "text-orange-600"
+                        : phase.status === "complete" ? "text-green-600"
+                        : "text-gray-400"
+                      }`}
+                      style={{ fontFamily: "Lato, sans-serif" }}
+                    >
+                      {phase.label}
+                    </div>
+                    <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          phase.status === "complete" ? "bg-green-500"
+                          : phase.status === "in-progress" ? "bg-orange-500"
+                          : "bg-gray-300"
+                        }`}
+                        style={{ width: `${phase.status === "complete" ? 100 : Number(phase.progress_pct)}%` }}
+                      />
+                    </div>
+                    {phase.status === "in-progress" && Number(phase.progress_pct) > 0 && (
+                      <div className="text-[9px] font-bold text-orange-500 mt-0.5">{Number(phase.progress_pct)}%</div>
+                    )}
                   </div>
-                  <div className={`h-2 rounded-full ${
-                    phase.status === "in-progress" ? "bg-orange-600"
-                    : phase.status === "complete" ? "bg-green-600"
-                    : "bg-gray-200"
-                  }`} />
+                  {index < phases.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-gray-300 flex-shrink-0 mt-1" />}
                 </div>
-                {index < phases.length - 1 && <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />}
+              ))}
               </div>
-            ))}
+            </div>
+
+            {/* ── Detailed vertical list ── */}
+            <div className="space-y-3">
+              {phases.map((phase, index) => {
+                const isActive = phase.status === "in-progress";
+                const isDone = phase.status === "complete";
+                return (
+                  <div
+                    key={phase.id}
+                    className={`rounded-xl border p-4 ${
+                      isActive ? "border-orange-200 bg-orange-50"
+                      : isDone ? "border-green-100 bg-green-50/50"
+                      : "border-gray-100 bg-gray-50/50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${
+                        isActive ? "text-orange-600" : isDone ? "text-green-600" : "text-gray-400"
+                      }`}>
+                        {isDone ? "✓ Complete" : isActive ? "● In Progress" : `○ Upcoming`}
+                      </span>
+                      <span className="text-[10px] text-gray-300 shrink-0">#{index + 1}</span>
+                      <p className={`text-sm font-bold leading-tight ${
+                        isActive ? "text-gray-900" : isDone ? "text-gray-700" : "text-gray-500"
+                      }`} style={{ fontFamily: "Lato, sans-serif" }}>
+                        {phase.label}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={`flex-1 h-2 rounded-full overflow-hidden ${
+                        isActive ? "bg-orange-200" : isDone ? "bg-green-200" : "bg-gray-200"
+                      }`}>
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            isDone ? "bg-green-500" : isActive ? "bg-orange-500" : "bg-gray-300"
+                          }`}
+                          style={{ width: `${isDone ? 100 : Number(phase.progress_pct)}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-bold shrink-0 w-9 text-right ${
+                        isActive ? "text-orange-600" : isDone ? "text-green-600" : "text-gray-400"
+                      }`}>
+                        {isDone ? "100%" : `${Number(phase.progress_pct)}%`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-[11px]">
+                      {phase.expected_date && !isDone && (
+                        <span className="text-gray-500">Expected: <span className="font-semibold text-gray-700">{fmtDate(phase.expected_date)}</span></span>
+                      )}
+                      {phase.completed_date && (
+                        <span className="text-gray-500">Completed: <span className="font-semibold text-green-700">{fmtDate(phase.completed_date)}</span></span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : (
-          <div className="text-sm text-gray-500 mb-6">Project phases are being set up.</div>
+          <div className="rounded-lg border border-dashed bg-gray-50 py-10 text-center mb-6">
+            <Layers className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+            <p className="text-sm font-semibold text-gray-700">Timeline coming soon</p>
+            <p className="text-xs text-gray-500 mt-1">Project phases are being set up by your team.</p>
+          </div>
         )}
 
         {/* Next Payment Due */}
@@ -248,44 +408,274 @@ export function ClientDashboardNew({ data, token }: Props) {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
-  const renderDocuments = () => (
-    <div className="space-y-3 lg:space-y-4">
-      {files.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
+  const renderDocuments = () => {
+    const coApprovalDocs = change_orders.filter(
+      co => (co.status === "approved" || co.status === "merged") && co.approval_file_url
+    );
+    const hasAny = files.length > 0 || coApprovalDocs.length > 0 || proposals.length > 0 || change_orders.length > 0;
+
+    if (!hasAny) {
+      return (
+        <div className="rounded-lg border border-dashed bg-gray-50 py-14 text-center">
           <FileText className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-          <p className="font-semibold text-gray-700">No documents yet</p>
-          <p className="text-sm">Your project documents will appear here once uploaded.</p>
+          <p className="text-sm font-semibold text-gray-700">No documents yet</p>
+          <p className="text-xs text-gray-500 mt-1">Your signed contract and project files will appear here once shared.</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3">
-          {files.map(doc => (
-            <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-              <div className="flex items-start gap-3 lg:gap-4 flex-1 min-w-0">
-                <div className="text-xs font-bold text-gray-400 w-20 lg:w-24 flex-shrink-0 uppercase" style={{ fontFamily: "Lato, sans-serif" }}>
-                  {doc.category}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm mb-1">{doc.file_name}</div>
-                  <div className="text-xs text-gray-500">{formatDate(doc.created_at)}</div>
-                </div>
-              </div>
-              {doc.file_url && (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={doc.file_url} target="_blank" rel="noreferrer" download>
-                    <Download className="h-4 w-4 mr-1" /> Download
-                  </a>
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+      );
+    }
 
-  const renderPayments = () => (
+    const grouped = files.reduce<Record<string, typeof files>>((acc, f) => {
+      const key = f.file_type || "other";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(f);
+      return acc;
+    }, {});
+
+    const typeOrder = ["contract", "photo", "subcontractor", "certificate", "other"];
+    const sortedTypes = [
+      ...typeOrder.filter(t => grouped[t]),
+      ...Object.keys(grouped).filter(t => !typeOrder.includes(t)),
+    ];
+
+    const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
+    const isImageFile = (name: string) => /\.(jpg|jpeg|png|gif|webp|heic|bmp|svg)$/i.test(name);
+    const isPdfFile = (name: string) => /\.pdf$/i.test(name);
+
+    return (
+      <div className="space-y-8">
+        {sortedTypes.map(type => (
+          <div key={type}>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3" style={{ fontFamily: "Lato, sans-serif" }}>
+              {typeLabel(type)}
+            </h3>
+            <div className="space-y-2">
+              {grouped[type].map(doc => {
+                const isImage = isImageFile(doc.file_name);
+                const isPdf = isPdfFile(doc.file_name);
+                const canPreview = (isImage || isPdf) && !!doc.file_url;
+                return (
+                  <div key={doc.id} className="flex items-center gap-3 p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {isImage && doc.file_url ? (
+                        <img
+                          src={doc.file_url}
+                          alt={doc.file_name}
+                          className="w-12 h-12 rounded object-cover flex-shrink-0 border cursor-pointer"
+                          onClick={() => setPreviewFile({ url: doc.file_url!, name: doc.file_name, isImage: true })}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded border bg-gray-50 flex items-center justify-center flex-shrink-0">
+                          <FileText className="h-5 w-5 text-gray-400" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm mb-0.5 truncate">{doc.file_name}</div>
+                        <div className="text-xs text-gray-500">{formatDate(doc.created_at)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {canPreview && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (isImage) {
+                              setPreviewFile({ url: doc.file_url!, name: doc.file_name, isImage: true });
+                            } else {
+                              setPdfPreview({ url: doc.file_url!, title: doc.file_name });
+                            }
+                          }}
+                        >
+                          View
+                        </Button>
+                      )}
+                      {doc.file_url && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={downloadingId === doc.id}
+                          onClick={() => downloadFile(doc.file_url!, doc.file_name, doc.id)}
+                        >
+                          {downloadingId === doc.id
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Download className="h-4 w-4" />}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* CO approval documents */}
+        {coApprovalDocs.length > 0 && (
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3" style={{ fontFamily: "Lato, sans-serif" }}>
+              Change Order Approvals
+            </h3>
+            <div className="space-y-2">
+              {coApprovalDocs.map(co => {
+                const fileName = co.approval_file_name ?? "approval-document";
+                const isImg = /\.(jpg|jpeg|png|gif|webp|heic|bmp)$/i.test(co.approval_file_url!.split("?")[0]);
+                return (
+                  <div key={co.id} className="flex items-center gap-3 p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {isImg ? (
+                        <img
+                          src={co.approval_file_url!}
+                          alt={fileName}
+                          className="w-12 h-12 rounded object-cover flex-shrink-0 border cursor-pointer"
+                          onClick={() => setPreviewFile({ url: co.approval_file_url!, name: fileName, isImage: true })}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded border bg-green-50 flex items-center justify-center flex-shrink-0">
+                          <FileText className="h-5 w-5 text-green-500" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm mb-0.5 truncate">{co.title}</div>
+                        <div className="text-xs text-gray-500">{fileName}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (isImg) {
+                            setPreviewFile({ url: co.approval_file_url!, name: fileName, isImage: true });
+                          } else {
+                            setPdfPreview({ url: co.approval_file_url!, title: fileName });
+                          }
+                        }}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={downloadingId === co.id}
+                        onClick={() => downloadFile(co.approval_file_url!, fileName, co.id)}
+                      >
+                        {downloadingId === co.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <Download className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Proposals PDFs */}
+        {proposals.length > 0 && (
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3" style={{ fontFamily: "Lato, sans-serif" }}>
+              Proposals
+            </h3>
+            <div className="space-y-2">
+              {proposals.map(proposal => {
+                const statusBadge = proposal.status === "accepted" ? "border-green-600 text-green-600"
+                  : proposal.status === "declined" ? "border-red-500 text-red-500"
+                  : "border-orange-600 text-orange-600";
+                const statusLabel = proposal.status === "accepted" ? "ACCEPTED"
+                  : proposal.status === "declined" ? "DECLINED" : "PENDING";
+                return (
+                  <div key={proposal.id} className="p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded border bg-gray-50 flex items-center justify-center flex-shrink-0">
+                        <FileText className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm mb-0.5 truncate">{proposal.title}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-bold border rounded px-1.5 py-0.5 ${statusBadge}`}>{statusLabel}</span>
+                          {proposal.sent_at && <span className="text-xs text-gray-400">{formatDate(proposal.sent_at)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {proposal.pdf_url && (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setPdfPreview({ url: proposal.pdf_url!, title: proposal.title })}>
+                          View
+                        </Button>
+                        <Button variant="outline" size="sm" disabled={downloadingPdfId === `proposal-${proposal.id}`} onClick={() => handleDownloadPdf(proposal.pdf_url!, `Proposal-${proposal.title.replace(/[^a-z0-9]/gi, "-")}.pdf`, `proposal-${proposal.id}`)}>
+                          {downloadingPdfId === `proposal-${proposal.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Change Orders PDFs */}
+        {change_orders.length > 0 && (
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3" style={{ fontFamily: "Lato, sans-serif" }}>
+              Change Orders
+            </h3>
+            <div className="space-y-2">
+              {change_orders.map(co => {
+                const isApproved = co.status === "approved" || co.status === "merged";
+                const statusBadge = isApproved ? "border-green-600 text-green-600"
+                  : co.status === "rejected" ? "border-red-500 text-red-500"
+                  : "border-orange-600 text-orange-600";
+                const statusLabel = isApproved ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "PENDING";
+                return (
+                  <div key={co.id} className="p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded border bg-gray-50 flex items-center justify-center flex-shrink-0">
+                        <FileText className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm mb-0.5 truncate">{co.title}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-bold border rounded px-1.5 py-0.5 ${statusBadge}`}>{statusLabel}</span>
+                          <span className="text-xs text-gray-400">{formatDate(co.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {co.pdf_url && (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setPdfPreview({ url: co.pdf_url!, title: co.title })}>
+                          View
+                        </Button>
+                        <Button variant="outline" size="sm" disabled={downloadingPdfId === `co-${co.id}`} onClick={() => handleDownloadPdf(co.pdf_url!, `Change-Order-${co.title.replace(/[^a-z0-9]/gi, "-")}.pdf`, `co-${co.id}`)}>
+                          {downloadingPdfId === `co-${co.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPayments = () => {
+    if (payments.length === 0) {
+      return (
+        <div className="rounded-lg border border-dashed bg-gray-50 py-14 text-center">
+          <Wallet className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+          <p className="text-sm font-semibold text-gray-700">No payment schedule yet</p>
+          <p className="text-xs text-gray-500 mt-1">Your payment milestones will appear here once your contract is finalized.</p>
+        </div>
+      );
+    }
+    return (
     <div className="space-y-6">
       {/* Summary bars */}
       {payments.length > 0 && (
@@ -364,16 +754,17 @@ export function ClientDashboardNew({ data, token }: Props) {
         })}
       </div>
     </div>
-  );
+    );
+  };
 
   const renderFieldUpdates = () => (
     <div className="space-y-6">
       <p className="text-sm text-gray-600 mb-6">From jobsites, shared from the field.</p>
       {updates.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          <ImageIcon className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-          <p className="font-semibold text-gray-700">No updates yet</p>
-          <p className="text-sm">Field updates will appear here as work progresses.</p>
+        <div className="rounded-lg border border-dashed bg-gray-50 py-14 text-center">
+          <Camera className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+          <p className="text-sm font-semibold text-gray-700">No field updates yet</p>
+          <p className="text-xs text-gray-500 mt-1">Your team will post photos and progress notes here as work gets underway.</p>
         </div>
       ) : (
         updates.map(update => renderFieldUpdateCard(update))
@@ -385,49 +776,44 @@ export function ClientDashboardNew({ data, token }: Props) {
     return (
       <div className="space-y-4">
         {change_orders.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
+          <div className="rounded-lg border border-dashed bg-gray-50 py-14 text-center">
             <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-            <p className="font-semibold text-gray-700">No change orders</p>
-            <p className="text-sm">Change orders will appear here when issued.</p>
+            <p className="text-sm font-semibold text-gray-700">No change orders</p>
+            <p className="text-xs text-gray-500 mt-1">Change orders will appear here if your project scope or cost changes.</p>
           </div>
         ) : (
           change_orders.map(co => {
-            const badgeClass = co.status === "approved" ? "border-green-600 text-green-600"
+            const isApproved = co.status === "approved" || co.status === "merged";
+            const badgeClass = isApproved ? "border-green-600 text-green-600"
               : co.status === "rejected" ? "border-red-500 text-red-500"
               : "border-orange-600 text-orange-600";
-            const badgeLabel = co.status === "approved" ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
+            const badgeLabel = isApproved ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
             return (
               <Card key={co.id}>
-                <CardContent className="p-4 lg:p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1 flex-wrap">
-                        <Badge variant="outline" className={`${badgeClass} text-xs font-bold`}>{badgeLabel}</Badge>
-                        <span className="text-xs text-gray-400">{formatDate(co.created_at)}</span>
-                      </div>
-                      <div className="font-bold text-base mb-1" style={{ fontFamily: "Lato, sans-serif" }}>{co.title}</div>
-                      {co.reason && <div className="text-sm text-gray-600 line-clamp-2">{co.reason}</div>}
+                <CardContent className="p-4 lg:p-6 space-y-2">
+                  {/* Row 1: badge left, date right */}
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge variant="outline" className={`${badgeClass} text-xs font-bold`}>{badgeLabel}</Badge>
+                    <span className="text-xs text-gray-400">{formatDate(co.created_at)}</span>
+                  </div>
+                  {/* Row 2: title full width */}
+                  <div className="font-bold text-base break-words" style={{ fontFamily: "Lato, sans-serif" }}>{co.title}</div>
+                  {/* Row 3: reason */}
+                  {co.reason && <div className="text-sm text-gray-600 line-clamp-2">{co.reason}</div>}
+                  {/* Row 4: price + button on right */}
+                  <div className="flex items-center justify-end gap-3 pt-1">
+                    <div className={`text-lg font-black ${isApproved ? "text-green-600" : co.cost_impact >= 0 ? "text-orange-600" : "text-green-600"}`} style={{ fontFamily: "Lato, sans-serif" }}>
+                      {co.cost_impact >= 0 ? "+" : ""}{formatCurrency(co.cost_impact)}
                     </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <div className="text-right">
-                        <div className={`text-lg font-black ${co.cost_impact >= 0 ? "text-orange-600" : "text-green-600"}`} style={{ fontFamily: "Lato, sans-serif" }}>
-                          {co.cost_impact >= 0 ? "+" : ""}{formatCurrency(co.cost_impact)}
-                        </div>
-                      </div>
-                      {co.status === "pending_client" && (
-                        <Button
-                          className="bg-orange-600 hover:bg-orange-700 text-white"
-                          onClick={() => setViewingChangeOrderId(co.id)}
-                        >
-                          Review
-                        </Button>
-                      )}
-                      {co.status !== "pending_client" && (
-                        <Button variant="outline" onClick={() => setViewingChangeOrderId(co.id)}>
-                          View
-                        </Button>
-                      )}
-                    </div>
+                    {co.status === "pending_client" ? (
+                      <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => setViewingChangeOrderId(co.id)}>
+                        Review
+                      </Button>
+                    ) : (
+                      <Button variant="outline" onClick={() => setViewingChangeOrderId(co.id)}>
+                        View
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -446,19 +832,7 @@ export function ClientDashboardNew({ data, token }: Props) {
 
   // ─── Full-screen views ────────────────────────────────────────────────────
 
-  if (viewingChangeOrderId) {
-    const co = change_orders.find(c => c.id === viewingChangeOrderId);
-    if (co) {
-      return (
-        <PortalChangeOrderReview
-          changeOrder={co}
-          projectTotal={totalValue}
-          token={token}
-          onBack={() => setViewingChangeOrderId(null)}
-        />
-      );
-    }
-  }
+  const viewingCO = viewingChangeOrderId ? change_orders.find(c => c.id === viewingChangeOrderId) ?? null : null;
 
   if (showAllFieldUpdates) {
     return (
@@ -484,7 +858,7 @@ export function ClientDashboardNew({ data, token }: Props) {
 
   // ─── Main layout ──────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white flex flex-col lg:flex-row overflow-x-hidden">
+    <div className="h-screen bg-white flex overflow-hidden">
       {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setMobileMenuOpen(false)} />
@@ -492,118 +866,130 @@ export function ClientDashboardNew({ data, token }: Props) {
 
       {/* Sidebar */}
       <div className={`
-        fixed lg:sticky top-0 left-0 h-full w-[85vw] max-w-[320px] lg:w-64
-        bg-gray-50 p-6 space-y-6 lg:space-y-8
-        flex-shrink-0 lg:h-screen overflow-y-auto
+        fixed lg:relative top-0 left-0 h-full w-[85vw] max-w-[320px] lg:w-56
+        bg-gray-50 px-4 py-6
+        flex flex-col flex-shrink-0
+        overflow-y-auto
         z-50 lg:z-auto
         transform transition-transform duration-300 ease-in-out
         ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         border-r
       `}>
-        <button onClick={() => setMobileMenuOpen(false)} className="lg:hidden absolute top-4 right-4 p-2 hover:bg-gray-200 rounded-lg">
-          <X className="h-5 w-5" />
-        </button>
-
-        <div>
-          <div className="font-bold text-sm mb-1" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
-          <div className="text-xs text-gray-600">Construction, Inc.</div>
+        {/* Mobile: close + logo */}
+        <div className="flex items-center justify-between mb-6 lg:hidden">
+          <div>
+            <div className="font-bold text-sm" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
+            <div className="text-xs text-gray-500">Construction, Inc.</div>
+          </div>
+          <button onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-gray-200 rounded-lg">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
+        {/* Desktop: company name */}
+        <div className="hidden lg:block mb-6">
+          <div className="font-bold text-sm" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
+          <div className="text-xs text-gray-500">Construction, Inc.</div>
+        </div>
+
+        {/* Nav */}
         <div>
-          <div className="text-xs font-bold text-gray-400 mb-4" style={{ fontFamily: "Lato, sans-serif" }}>SECTIONS</div>
-          <div className="space-y-1">
+          <div className="text-xs font-bold text-gray-400 mb-3 tracking-wider" style={{ fontFamily: "Lato, sans-serif" }}>SECTIONS</div>
+          <div className="space-y-0.5">
             {[
-              { id: "overview", label: "Overview", icon: <Home className="h-5 w-5 flex-shrink-0" /> },
-              { id: "documents", label: "Documents", icon: <FileText className="h-5 w-5 flex-shrink-0" /> },
-              { id: "payments", label: "Progress Payments", icon: <CreditCard className="h-5 w-5 flex-shrink-0" /> },
-              { id: "field-updates", label: "Field Updates", icon: <ImageIcon className="h-5 w-5 flex-shrink-0" /> },
-              { id: "change-orders", label: "Change Orders", icon: <AlertCircle className="h-5 w-5 flex-shrink-0" />, badge: pendingCOs.length },
-              { id: "proposals", label: "Proposals", icon: <ClipboardCheck className="h-5 w-5 flex-shrink-0" /> },
+              { id: "overview", label: "Overview", icon: <Home className="h-4 w-4 flex-shrink-0" /> },
+              { id: "documents", label: "Documents", icon: <FileText className="h-4 w-4 flex-shrink-0" /> },
+              { id: "payments", label: "Progress Payments", icon: <CreditCard className="h-4 w-4 flex-shrink-0" />, badge: duePayments },
+              { id: "field-updates", label: "Field Updates", icon: <ImageIcon className="h-4 w-4 flex-shrink-0" /> },
+              { id: "change-orders", label: "Change Orders", icon: <AlertCircle className="h-4 w-4 flex-shrink-0" />, badge: pendingCOs.length },
+              { id: "proposals", label: "Proposals", icon: <ClipboardCheck className="h-4 w-4 flex-shrink-0" />, badge: pendingProposals },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  activeTab === tab.id ? "bg-white font-semibold" : "text-gray-600 hover:bg-white/50"
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  activeTab === tab.id ? "bg-white font-semibold shadow-sm" : "text-gray-600 hover:bg-white/60"
                 }`}
               >
                 {tab.icon}
-                <span className="flex-1 text-left">{tab.label}</span>
-                {tab.badge ? <Badge className="bg-orange-600 text-white text-xs px-2">{tab.badge}</Badge> : null}
+                <span className="flex-1 text-left leading-tight">{tab.label}</span>
+                {tab.badge ? <Badge className="bg-orange-600 text-white text-xs px-1.5 py-0">{tab.badge}</Badge> : null}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="pt-8 border-t space-y-4">
+        {/* Bottom info pinned */}
+        <div className="mt-auto pt-5 border-t space-y-3">
           <div>
-            <div className="text-xs text-gray-400 mb-1" style={{ fontFamily: "Lato, sans-serif" }}>SITE</div>
-            <div className="text-xs text-gray-700">{jobAddress || "—"}</div>
+            <div className="text-[10px] font-bold text-gray-400 mb-0.5 tracking-wider" style={{ fontFamily: "Lato, sans-serif" }}>SITE</div>
+            <div className="text-xs text-gray-700 leading-snug">{jobAddress || "—"}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1" style={{ fontFamily: "Lato, sans-serif" }}>CLIENT</div>
+            <div className="text-[10px] font-bold text-gray-400 mb-0.5 tracking-wider" style={{ fontFamily: "Lato, sans-serif" }}>CLIENT</div>
             <div className="text-xs font-semibold">{clientName}</div>
-            {client.phone && <div className="text-xs text-gray-600">{client.phone}</div>}
+            {client.phone && <div className="text-xs text-gray-500">{client.phone}</div>}
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1" style={{ fontFamily: "Lato, sans-serif" }}>PROJECT MANAGER</div>
+            <div className="text-[10px] font-bold text-gray-400 mb-1 tracking-wider" style={{ fontFamily: "Lato, sans-serif" }}>PROJECT MANAGER</div>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-xs font-bold">
+              <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
                 {pmName.split(" ").map(n => n[0]).join("").slice(0, 2)}
               </div>
               <div>
-                <div className="text-xs font-semibold">{pmName}</div>
-                {pmPhone && <div className="text-xs text-gray-600">{pmPhone}</div>}
+                <div className="text-xs font-semibold leading-tight">{pmName}</div>
+                {pmPhone && <div className="text-xs text-gray-500">{pmPhone}</div>}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 overflow-auto lg:overflow-visible w-full">
-        {/* Header */}
-        <div className="border-b bg-white sticky top-0 z-10 w-full">
-          <div className="p-4 lg:p-8 w-full max-w-7xl mx-auto">
+      {/* Main content — scrolls independently of sidebar */}
+      <div className="flex-1 overflow-y-auto min-w-0">
+        {/* Sticky header */}
+        <div className="border-b bg-white sticky top-0 z-10">
+          <div className="px-4 lg:px-8 py-4 lg:py-5">
+            {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden mb-4 p-2 hover:bg-gray-100 rounded-lg inline-flex items-center justify-center"
+              className="lg:hidden mb-3 p-2 hover:bg-gray-100 rounded-lg"
             >
-              <Menu className="h-6 w-6" />
+              <Menu className="h-5 w-5" />
             </button>
 
-            <div className="w-full">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 w-full">
-                {/* Stats — first on mobile, last on desktop */}
-                <div className="flex items-center justify-between lg:justify-end gap-4 lg:gap-8 text-left lg:text-right flex-shrink-0 order-first lg:order-last w-full lg:w-auto">
-                  <div>
-                    <div className="text-xl sm:text-2xl lg:text-3xl font-black mb-1" style={{ fontFamily: "Lato, sans-serif" }}>{formatCurrency(totalPaid)}</div>
-                    <div className="text-xs text-gray-500">of {formatCurrency(totalValue)}</div>
-                  </div>
-                  <div>
-                    <div className="text-base sm:text-lg font-bold mb-1" style={{ fontFamily: "Lato, sans-serif" }}>{completionDate}</div>
-                    <div className="text-xs text-gray-500">Est. completion</div>
-                  </div>
+            {/* Two-column: left = name+address+progress | right = stats */}
+            <div className="flex items-center gap-6">
+              {/* LEFT — client info + progress bar contained within */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge variant="outline" className="text-xs font-semibold border-gray-300 flex-shrink-0">ACTIVE</Badge>
+                  <h1 className="text-2xl lg:text-4xl font-black leading-tight truncate" style={{ fontFamily: "Lato, sans-serif" }}>
+                    {clientName}.
+                  </h1>
                 </div>
+                {jobAddress && (
+                  <p className="text-sm text-gray-500 mb-3 break-words">{jobAddress}</p>
+                )}
+                {/* Progress bar — max-w-sm so it doesn't stretch to stats */}
+                <div className="flex items-center gap-3 max-w-sm">
+                  <span className="text-xs font-semibold text-gray-600 flex-shrink-0" style={{ fontFamily: "Lato, sans-serif" }}>PROJECT PROGRESS</span>
+                  <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-green-500 to-green-600 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+                  </div>
+                  <span className="text-sm font-bold text-gray-700 flex-shrink-0">{Math.round(progressPct)}%</span>
+                </div>
+              </div>
 
-                {/* Project info — last on mobile, first on desktop */}
-                <div className="flex-1 order-last lg:order-first w-full lg:w-auto">
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3 mb-3">
-                    <Badge variant="outline" className="text-xs font-semibold border-gray-300 w-fit">ACTIVE</Badge>
-                    <h1 className="text-xl sm:text-2xl lg:text-4xl font-black leading-tight break-words" style={{ fontFamily: "Lato, sans-serif" }}>
-                      {clientName}.
-                    </h1>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-3 break-words">{jobAddress}</p>
-                  <div className="w-full lg:max-w-md">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-gray-600" style={{ fontFamily: "Lato, sans-serif" }}>PROJECT PROGRESS</span>
-                      <span className="text-sm font-bold" style={{ fontFamily: "Lato, sans-serif" }}>{Math.round(progressPct)}%</span>
-                    </div>
-                    <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-green-500 to-green-600 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
-                    </div>
-                  </div>
+              {/* RIGHT — two side-by-side stats */}
+              <div className="flex items-start gap-6 lg:gap-8 flex-shrink-0">
+                <div className="text-right">
+                  <div className="text-2xl lg:text-3xl font-black leading-tight" style={{ fontFamily: "Lato, sans-serif" }}>{formatCurrency(totalPaid)}</div>
+                  <div className="text-xs text-gray-500">of {formatCurrency(totalValue)}</div>
+                </div>
+                <div className="hidden sm:block text-right mt-3">
+                  <div className="text-base lg:text-lg font-bold leading-tight" style={{ fontFamily: "Lato, sans-serif" }}>{completionDate}</div>
+                  <div className="text-xs text-gray-500">Est. completion</div>
                 </div>
               </div>
             </div>
@@ -612,18 +998,17 @@ export function ClientDashboardNew({ data, token }: Props) {
 
         {/* Tab content */}
         <div className="p-4 lg:p-8 w-full">
-          <div className="w-full max-w-7xl mx-auto">
-            {activeTab !== "change-orders" && (
-              <div className="mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold" style={{ fontFamily: "Lato, sans-serif" }}>
-                  {activeTab === "overview" && "Project Timeline"}
-                  {activeTab === "documents" && "Documents"}
-                  {activeTab === "payments" && "Payment Schedule."}
-                  {activeTab === "field-updates" && "Field Updates."}
-                  {activeTab === "proposals" && "Proposals."}
-                </h2>
-              </div>
-            )}
+          <div className="w-full max-w-5xl mx-auto">
+            <div className="mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold" style={{ fontFamily: "Lato, sans-serif" }}>
+                {activeTab === "overview" && "Project Timeline"}
+                {activeTab === "documents" && "Documents"}
+                {activeTab === "payments" && "Payment Schedule."}
+                {activeTab === "field-updates" && "Field Updates."}
+                {activeTab === "proposals" && "Proposals."}
+                {activeTab === "change-orders" && "Change Orders."}
+              </h2>
+            </div>
 
             {activeTab === "overview" && renderOverview()}
             {activeTab === "documents" && renderDocuments()}
@@ -760,6 +1145,85 @@ export function ClientDashboardNew({ data, token }: Props) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* File Preview Modal */}
+      {previewFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPreviewFile(null)}
+        >
+          <div
+            className="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl flex flex-col"
+            style={{ maxHeight: "90vh" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-white shrink-0 rounded-t-xl">
+              <span className="font-semibold text-sm truncate pr-4">{previewFile.name}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button variant="outline" size="sm" onClick={() => downloadFile(previewFile.url, previewFile.name)}>
+                  <Download className="h-4 w-4 mr-1" /> Download
+                </Button>
+                <button
+                  onClick={() => setPreviewFile(null)}
+                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content — images auto-size, no gap below */}
+            <div className="overflow-auto p-3 bg-gray-50 rounded-b-xl">
+              <img
+                src={previewFile.url}
+                alt={previewFile.name}
+                className="max-w-full object-contain mx-auto block rounded"
+                style={{ maxHeight: "calc(90vh - 60px)" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PDF Preview Modal (Documents tab) */}
+      <Dialog open={!!pdfPreview} onOpenChange={open => { if (!open) setPdfPreview(null); }}>
+        <DialogContent className="w-[96vw] max-w-4xl p-0 flex flex-col gap-0" style={{ height: "84vh" }}>
+          <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0 pr-14">
+            <span className="font-bold text-sm truncate pr-4" style={{ fontFamily: "Lato, sans-serif" }}>{pdfPreview?.title}</span>
+            {pdfPreview && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-shrink-0"
+                onClick={() => handleDownloadPdf(pdfPreview.url, `${pdfPreview.title.replace(/[^a-z0-9]/gi, "-")}.pdf`, "preview")}
+                disabled={downloadingPdfId === "preview"}
+              >
+                {downloadingPdfId === "preview" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                <span className="ml-1.5 hidden sm:inline">Download</span>
+              </Button>
+            )}
+          </div>
+          {/* Desktop: iframe */}
+          <div className="flex-1 overflow-x-hidden overflow-y-auto thin-scroll">
+            {pdfPreview && <iframe src={`${pdfPreview.url}#toolbar=0&view=FitH`} className="w-full h-full border-0" title="PDF Preview" />}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Order detail — slide-in sheet */}
+      <Sheet open={!!viewingCO} onOpenChange={(open) => { if (!open) setViewingChangeOrderId(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl p-0 overflow-y-auto">
+          {viewingCO && (
+            <PortalChangeOrderReview
+              changeOrder={viewingCO}
+              projectTotal={totalValue}
+              token={token}
+              onBack={() => setViewingChangeOrderId(null)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

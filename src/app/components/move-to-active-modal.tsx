@@ -16,19 +16,26 @@ import { activityLogAPI, projectPaymentsAPI, projectsAPI } from "../utils/api";
 import { photosAPI } from "../api/files";
 import { toast } from "sonner";
 
+interface ExistingDeposit {
+  id: string;
+  amount: number;
+  paid_date: string | null;
+}
+
 interface MoveToActiveModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   client: any;
   project: any;
   acceptedProposal?: any;
+  existingDeposit?: ExistingDeposit | null;
   onSuccess: () => void;
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-export function MoveToActiveModal({ open, onOpenChange, client, project, acceptedProposal, onSuccess }: MoveToActiveModalProps) {
+export function MoveToActiveModal({ open, onOpenChange, client, project, acceptedProposal, existingDeposit, onSuccess }: MoveToActiveModalProps) {
   const [saving, setSaving] = useState(false);
 
   // Contract
@@ -49,7 +56,7 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
     docusignComplete ||
     !!contractFile ||
     (externalContract && externalContractNote.trim() !== "");
-  const depositReady = !!depositAmount && parseFloat(depositAmount) > 0;
+  const depositReady = !!existingDeposit || (!!depositAmount && parseFloat(depositAmount) > 0);
   const canConfirm = contractReady && depositReady;
 
   const handleClose = () => {
@@ -120,9 +127,9 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
         }
       }
 
-      // 4. Record deposit as a paid payment milestone
+      // 4. Record deposit as a paid payment milestone (skip if already on record)
       const projectId = resolvedProject?.id;
-      if (projectId && depositAmount) {
+      if (projectId && !existingDeposit && depositAmount) {
         const payment = await projectPaymentsAPI.create({
           project_id: projectId,
           client_id: client.id,
@@ -130,6 +137,7 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
           amount: parseFloat(depositAmount),
           due_date: depositDate || undefined,
           sort_order: 0,
+          is_deposit: true,
         }).catch(() => null);
 
         if (payment?.id) {
@@ -157,19 +165,23 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
       else if (externalContract) contractDesc = `contract confirmed externally (${externalContractNote.trim()})`;
       else contractDesc = "contract confirmed (uploaded)";
 
-      const depositLabel = fmt(parseFloat(depositAmount));
+      const depositAmt = existingDeposit ? existingDeposit.amount : parseFloat(depositAmount);
+      const depositLabel = fmt(depositAmt);
+      const depositDateStr = existingDeposit ? existingDeposit.paid_date : depositDate;
 
       await activityLogAPI.create({
         client_id: client.id,
         action_type: "status_changed",
-        description: `Client moved to Active — ${contractDesc}, deposit received: ${depositLabel}`,
+        description: `Client moved to Active — ${contractDesc}, deposit on record: ${depositLabel}`,
       }).catch(() => {});
 
-      await activityLogAPI.create({
-        client_id: client.id,
-        action_type: "payment_received",
-        description: `Deposit received: ${depositLabel}${depositDate ? ` on ${new Date(depositDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}`,
-      }).catch(() => {});
+      if (!existingDeposit) {
+        await activityLogAPI.create({
+          client_id: client.id,
+          action_type: "payment_received",
+          description: `Deposit received: ${depositLabel}${depositDateStr ? ` on ${new Date(depositDateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}`,
+        }).catch(() => {});
+      }
 
       toast.success("Client moved to Active — deposit recorded");
       onSuccess();
@@ -192,12 +204,14 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-800">
-              A signed contract and deposit confirmation are required before moving a client to Active.
-            </p>
-          </div>
+          {!canConfirm && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                A signed contract and deposit confirmation are required before moving a client to Active.
+              </p>
+            </div>
+          )}
 
           {/* ── Contract Section ── */}
           <div className="space-y-2">
@@ -287,58 +301,75 @@ export function MoveToActiveModal({ open, onOpenChange, client, project, accepte
             <Label className="text-sm font-medium">
               Deposit Received <span className="text-destructive">*</span>
             </Label>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Amount ($)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  className="h-9"
-                />
+
+            {existingDeposit ? (
+              <div className="flex items-center gap-3 border-2 border-green-400 bg-green-50 rounded-lg px-4 py-3">
+                <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-green-700">Deposit already on record — {fmt(existingDeposit.amount)}</p>
+                  {existingDeposit.paid_date && (
+                    <p className="text-xs text-green-600">
+                      Received {new Date(existingDeposit.paid_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Date Received</Label>
-                <Input
-                  type="date"
-                  value={depositDate}
-                  onChange={(e) => setDepositDate(e.target.value)}
-                  className="h-9"
-                />
-              </div>
-            </div>
-            <div
-              onClick={() => depositRef.current?.click()}
-              className={`flex items-center gap-3 border-2 border-dashed rounded-lg px-4 py-3 cursor-pointer transition-colors ${depositFile ? "border-green-400 bg-green-50" : "hover:border-primary"}`}
-            >
-              <input
-                ref={depositRef}
-                type="file"
-                className="hidden"
-                accept=".pdf,image/*,.doc,.docx"
-                onChange={(e) => setDepositFile(e.target.files?.[0] ?? null)}
-              />
-              {depositFile ? (
-                <>
-                  <Check className="h-5 w-5 text-green-600 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-green-700 truncate">{depositFile.name}</p>
-                    <p className="text-xs text-green-600">Receipt ready to upload</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Amount ($)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      className="h-9"
+                    />
                   </div>
-                </>
-              ) : (
-                <>
-                  <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium">Upload deposit confirmation <span className="text-muted-foreground font-normal">(optional)</span></p>
-                    <p className="text-xs text-muted-foreground">Bank receipt, check scan, or payment screenshot</p>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Date Received</Label>
+                    <Input
+                      type="date"
+                      value={depositDate}
+                      onChange={(e) => setDepositDate(e.target.value)}
+                      className="h-9"
+                    />
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+                <div
+                  onClick={() => depositRef.current?.click()}
+                  className={`flex items-center gap-3 border-2 border-dashed rounded-lg px-4 py-3 cursor-pointer transition-colors ${depositFile ? "border-green-400 bg-green-50" : "hover:border-primary"}`}
+                >
+                  <input
+                    ref={depositRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,image/*,.doc,.docx"
+                    onChange={(e) => setDepositFile(e.target.files?.[0] ?? null)}
+                  />
+                  {depositFile ? (
+                    <>
+                      <Check className="h-5 w-5 text-green-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-green-700 truncate">{depositFile.name}</p>
+                        <p className="text-xs text-green-600">Receipt ready to upload</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium">Upload deposit confirmation <span className="text-muted-foreground font-normal">(optional)</span></p>
+                        <p className="text-xs text-muted-foreground">Bank receipt, check scan, or payment screenshot</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {!canConfirm && (

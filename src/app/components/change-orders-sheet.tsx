@@ -18,6 +18,7 @@ import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { supabase } from "../../lib/supabase";
 
 interface ChangeOrdersSheetProps {
   open: boolean;
@@ -268,6 +269,11 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
         }))
       );
       activityLogAPI.create({ client_id: client.id, action_type: "co_created", description: `Change order "${title.trim()}" ${sendToClient ? "sent to client portal" : "saved as draft"}` }).catch(() => {});
+      if (sendToClient) {
+        supabase.functions.invoke("send-portal-notification", {
+          body: { client_id: client.id, type: "co_pending", title: title.trim(), amount: items.reduce((s, i) => s + i.total, 0) },
+        }).catch(() => {});
+      }
       toast.success(sendToClient ? "Change order sent to client portal" : "Change order saved as draft");
       resetForm();
       setView("list");
@@ -302,6 +308,22 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
           metadata: { co_id: coId, client_id: client?.id, project_id: project?.id },
         }).catch(() => {});
       }
+      if (status === "pending_client" && client?.id) {
+        supabase.functions.invoke("send-portal-notification", {
+          body: { client_id: client.id, type: "co_pending", title: co?.title ?? "", amount: co?.cost_impact ?? 0, entity_id: coId },
+        }).catch(() => {});
+      }
+      const statusLabels: Record<string, string> = {
+        pending_client: "sent to client for review",
+        approved: "marked as approved",
+        rejected: "marked as rejected",
+        draft: "moved back to draft",
+      };
+      activityLogAPI.create({
+        client_id: client?.id,
+        action_type: "co_status_updated",
+        description: `Change order "${coTitle}" ${statusLabels[status] ?? `status set to ${status}`}`,
+      }).catch(() => {});
       toast.success(`Status updated to ${STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}`);
     } catch {
       toast.error("Failed to update status — please try again.");

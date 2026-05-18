@@ -80,6 +80,7 @@ export function ProposalDetail() {
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
+  const [portalToken, setPortalToken] = useState<string | null>(null);
 
   // Editable fields
   const [editTitle, setEditTitle] = useState("");
@@ -214,6 +215,8 @@ export function ProposalDetail() {
       setStripeFeeEnabled(est.stripe_fee_enabled ?? false);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
+        Promise.resolve(supabase.from("client_portal_tokens").select("token").eq("client_id", est.client_id).eq("is_active", true).maybeSingle())
+          .then(({ data }) => { if (data?.token) setPortalToken(data.token); }).catch(() => {});
         supabase.from("estimates")
           .select("id")
           .eq("client_id", est.client_id)
@@ -722,10 +725,7 @@ export function ProposalDetail() {
     return desiredPx;
   };
 
-  const handleDownload = async () => {
-    const container = document.getElementById("proposal-export-content");
-    if (!container) return;
-    setDownloading(true);
+  const buildProposalPdf = async (container: HTMLElement): Promise<jsPDF | null> => {
     try {
       const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
       await Promise.all([
@@ -738,7 +738,6 @@ export function ProposalDetail() {
       ]);
 
       const SCALE = 3;
-      // Populated inside onclone (accurate layout in html2canvas iframe)
       const groupStartsCanvasPx: number[] = [];
       let   groupsEndCanvasPx = -1;
       const groupStartsCanvasPx2: number[] = [];
@@ -786,7 +785,7 @@ export function ProposalDetail() {
       const body3El  = q("proposal-page-body-3");
       const lastFtrEl = q("proposal-last-footer");
       const colHdrEl = q("proposal-col-header");
-      if (!hdrEl || !body1El || !colHdrEl) return;
+      if (!hdrEl || !body1El || !colHdrEl) return null;
 
       const [hdrCanvas, body1Canvas, colHdrCanvas, lastFtrCanvas] = await Promise.all([
         html2canvas(hdrEl,    { ...baseOpts, backgroundColor: "#0A0A0A" }),
@@ -824,7 +823,6 @@ export function ProposalDetail() {
       const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.97) : null;
       const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.97);
 
-      // Slice srcCanvas rows [yPx, yPx+hPx) into a new canvas — fully synchronous
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
         const out = document.createElement("canvas");
@@ -893,7 +891,6 @@ export function ProposalDetail() {
 
           pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
-
           pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
 
           let bodyY = hdrH + PAD;
@@ -903,7 +900,6 @@ export function ProposalDetail() {
           }
 
           pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
-
           consumed += sliceH;
           pageIdx++;
         }
@@ -916,6 +912,23 @@ export function ProposalDetail() {
 
       if (lastFtrImg) pdf.addImage(lastFtrImg, "JPEG", 0, pageH - lastFtrH, pageW, lastFtrH);
 
+      return pdf;
+    } catch (err: any) {
+      console.error("PDF generation error:", err);
+      return null;
+    }
+  };
+
+  const handleDownload = async () => {
+    const container = document.getElementById("proposal-export-content");
+    if (!container) return;
+    setDownloading(true);
+    try {
+      const pdf = await buildProposalPdf(container);
+      if (!pdf) {
+        toast.error("PDF generation failed — please try again.");
+        return;
+      }
       pdf.save(`Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
     } catch (err: any) {
@@ -924,6 +937,21 @@ export function ProposalDetail() {
     } finally {
       setDownloading(false);
     }
+  };
+
+  const saveProposalPdfOnSend = async (proposalId: string, clientId: string): Promise<void> => {
+    const container = document.getElementById("proposal-export-content");
+    if (!container) return;
+    const pdf = await buildProposalPdf(container);
+    if (!pdf) return;
+    const blob = pdf.output("blob");
+    const path = `${clientId}/proposals/${proposalId}.pdf`;
+    const { error: uploadErr } = await supabase.storage
+      .from("client-files")
+      .upload(path, blob, { contentType: "application/pdf", upsert: true });
+    if (uploadErr) { console.error("[portal-pdf] upload failed:", uploadErr.message); return; }
+    const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
+    await supabase.from("estimates").update({ pdf_url: publicUrl }).eq("id", proposalId);
   };
 
   const generatePreviewImages = async () => {
@@ -1332,8 +1360,18 @@ export function ProposalDetail() {
     if (!emailTo || !emailSubject.trim()) return;
     setSendingEmail(true);
     try {
-      const proposalLink = `${window.location.origin}/p/${proposal.id}`;
       const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+
+      // Use client portal URL — that's where client reviews & accepts proposals now
+      const { data: tokenRow } = await supabase
+        .from("client_portal_tokens")
+        .select("token")
+        .eq("client_id", proposal.client_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      const proposalLink = tokenRow?.token
+        ? `https://client.butlerconstruction.co/portal/${tokenRow.token}?tab=proposals`
+        : `${window.location.origin}/p/${proposal.id}`;
       const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
 
       // Build scope summary rows (one row per category or item)
@@ -1456,6 +1494,7 @@ export function ProposalDetail() {
       setProposal({ ...proposal, status: "sent", sent_at: new Date().toISOString() });
       setShowEmailDialog(false);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_sent", description: `Proposal sent to client: "${proposal.title}" — ${emailTo}` }).catch(() => {});
+      saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
       toast.success("Proposal sent to " + clientName);
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");
@@ -2520,7 +2559,7 @@ export function ProposalDetail() {
           </div>
 
           {/* Scrollable PDF viewer area */}
-          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
+          <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll-dark">
             <div className="py-8 flex flex-col items-center gap-6">
               {previewLoading ? (
                 <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
@@ -2621,7 +2660,10 @@ export function ProposalDetail() {
           <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
             <iframe
               srcDoc={(() => {
-                const proposalLink = `${window.location.origin}/p/${proposal?.id}`;
+                // Preview uses portal URL if token available, else public fallback
+                const proposalLink = portalToken
+                  ? `https://client.butlerconstruction.co/portal/${portalToken}?tab=proposals`
+                  : `${window.location.origin}/p/${proposal?.id}`;
                 const fmtP = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
                 const lineItemsP: any[] = proposal?.line_items ?? [];
                 const catMapP: Record<string, number> = {};

@@ -71,15 +71,40 @@ serve(async (req) => {
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq("id", entity_id);
 
+      const { data: clientRow } = await supabase.from("clients").select("first_name, last_name").eq("id", clientId).maybeSingle();
+      const clientName = clientRow ? `${clientRow.first_name} ${clientRow.last_name}` : "Client";
+      const actionLabel = action === "co_approve" ? "approved" : "declined";
+      const coActionType = action === "co_approve" ? "change_order_approved" : "change_order_rejected";
+      const coDescription = action === "co_approve"
+        ? "Client approved change order via portal"
+        : `Client declined change order via portal${comment ? ": " + comment : ""}`;
+
       // Log activity
       await supabase.from("activity_log").insert({
         client_id: clientId,
-        event_type: action === "co_approve" ? "change_order_approved" : "change_order_rejected",
-        description: action === "co_approve"
-          ? "Client approved change order via portal"
-          : `Client declined change order via portal${comment ? ": " + comment : ""}`,
-        metadata: { change_order_id: entity_id, via: "portal" },
+        action_type: coActionType,
+        description: coDescription,
       }).then(() => {});
+
+      // Bell notification
+      await supabase.from("notifications").insert({
+        type: coActionType,
+        title: `Change Order ${action === "co_approve" ? "Approved" : "Declined"}`,
+        message: `${clientName} has ${actionLabel} a change order via the client portal.${comment ? ` — "${comment}"` : ""}`,
+        client_id: clientId,
+        read: false,
+      }).then(() => {});
+
+      // Notify admin + PM via email
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({
+          to: "info@butlerconstruction.co",
+          subject: `Change order ${actionLabel} by ${clientName}`,
+          html: `<p>${clientName} has <strong>${actionLabel}</strong> a change order via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
+        }),
+      }).catch(() => {});
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -122,15 +147,40 @@ serve(async (req) => {
           .eq("id", entity_id);
       }
 
+      const { data: clientRow2 } = await supabase.from("clients").select("first_name, last_name").eq("id", clientId).maybeSingle();
+      const clientName2 = clientRow2 ? `${clientRow2.first_name} ${clientRow2.last_name}` : "Client";
+      const actionLabel2 = action === "proposal_accept" ? "accepted" : "declined";
+      const propActionType = action === "proposal_accept" ? "proposal_accepted" : "proposal_declined";
+      const propDescription = action === "proposal_accept"
+        ? "Client accepted proposal via portal"
+        : `Client declined proposal via portal${comment ? ": " + comment : ""}`;
+
       // Log activity
       await supabase.from("activity_log").insert({
         client_id: clientId,
-        event_type: action === "proposal_accept" ? "proposal_accepted" : "proposal_declined",
-        description: action === "proposal_accept"
-          ? "Client accepted proposal via portal"
-          : `Client declined proposal via portal${comment ? ": " + comment : ""}`,
-        metadata: { estimate_id: entity_id, via: "portal" },
+        action_type: propActionType,
+        description: propDescription,
       }).then(() => {});
+
+      // Bell notification
+      await supabase.from("notifications").insert({
+        type: propActionType,
+        title: `Proposal ${action === "proposal_accept" ? "Accepted" : "Declined"}`,
+        message: `${clientName2} has ${actionLabel2} a proposal via the client portal.${comment ? ` — "${comment}"` : ""}`,
+        client_id: clientId,
+        read: false,
+      }).then(() => {});
+
+      // Notify admin + PM via email
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({
+          to: "info@butlerconstruction.co",
+          subject: `Proposal ${actionLabel2} by ${clientName2}`,
+          html: `<p>${clientName2} has <strong>${actionLabel2}</strong> a proposal via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
+        }),
+      }).catch(() => {});
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

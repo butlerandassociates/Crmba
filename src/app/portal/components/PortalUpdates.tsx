@@ -65,6 +65,11 @@ function UpdateCard({ u }: { u: PortalUpdate }) {
           </div>
         </div>
 
+        {u.phase_label && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", marginBottom: 8 }}>
+            {u.phase_label}
+          </div>
+        )}
         <div style={{ fontFamily: "'Lato', sans-serif", fontSize: 20, fontWeight: 900, color: "var(--portal-ink)", lineHeight: 1.2, marginBottom: 10, letterSpacing: -0.3 }}>
           {u.title}
         </div>

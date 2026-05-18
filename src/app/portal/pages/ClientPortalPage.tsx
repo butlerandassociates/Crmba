@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { validatePortalToken, type PortalData } from "../api/portal";
 import { ClientDashboardNew } from "../components/ClientDashboardNew";
 
@@ -7,6 +7,9 @@ type State = "loading" | "invalid" | "ready";
 
 export function ClientPortalPage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") ?? "overview";
+  const initialCoId = searchParams.get("co") ?? null;
   const [state, setState] = useState<State>("loading");
   const [data, setData] = useState<PortalData | null>(null);
 
@@ -85,5 +88,5 @@ export function ClientPortalPage() {
     );
   }
 
-  return <ClientDashboardNew data={data} token={token!} />;
+  return <ClientDashboardNew data={data} token={token!} initialTab={initialTab} initialCoId={initialCoId} />;
 }

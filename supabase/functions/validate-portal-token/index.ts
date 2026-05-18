@@ -59,6 +59,26 @@ serve(async (req) => {
       if (error) console.warn("[portal-token] record_portal_access failed:", error.message);
     });
 
+    // Log portal view once per day — skip if already logged in last 24h
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    supabase
+      .from("activity_log")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("action_type", "portal_viewed")
+      .gte("created_at", since)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }: { data: { id: string } | null }) => {
+        if (!data) {
+          supabase.from("activity_log").insert({
+            client_id: clientId,
+            action_type: "portal_viewed",
+            description: "Client opened the client portal",
+          }).then(() => {});
+        }
+      });
+
     // Fetch client + payments + files + change_orders + proposals in parallel
     const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes] = await Promise.all([
       supabase
@@ -71,7 +91,7 @@ serve(async (req) => {
         .from("projects")
         .select(`
           id, total_value, start_date, end_date, target_date,
-          progress_pct, project_type, days_total, portal_enabled,
+          project_type, days_total, portal_enabled,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name, phone)
         `)
         .eq("client_id", clientId)
@@ -88,7 +108,7 @@ serve(async (req) => {
 
       supabase
         .from("client_files")
-        .select("id, file_name, file_url, category, created_at, file_size")
+        .select("id, file_name, file_url, file_type, created_at, file_size_bytes")
         .eq("client_id", clientId)
         .order("created_at", { ascending: false }),
 
@@ -96,7 +116,8 @@ serve(async (req) => {
         .from("change_orders")
         .select(`
           id, title, reason, timeline_impact, cost_impact, status, created_at,
-          items:change_order_items(id, description, quantity, unit, unit_price, total, category, sort_order)
+          approval_verified, approval_file_url, approval_file_name, pdf_url,
+          items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)
         .neq("status", "draft")
@@ -105,7 +126,7 @@ serve(async (req) => {
       supabase
         .from("estimates")
         .select(`
-          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at,
+          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at, pdf_url,
           line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
         `)
         .eq("client_id", clientId)
@@ -134,7 +155,8 @@ serve(async (req) => {
         supabase
           .from("portal_updates")
           .select(`
-            id, title, body, completed_items, upcoming_items, posted_at,
+            id, title, body, completed_items, upcoming_items, posted_at, phase_id,
+            phase:project_phases!portal_updates_phase_id_fkey(id, label),
             posted_by_profile:profiles!portal_updates_posted_by_fkey(first_name, last_name),
             photos:portal_update_photos(id, public_url, label, order_index, approval_status, is_marketing_flagged)
           `)
@@ -147,6 +169,7 @@ serve(async (req) => {
       phases = phasesResult.data ?? [];
       updates = (updatesResult.data ?? []).map((u: any) => ({
         ...u,
+        phase_label: u.phase?.label ?? null,
         photos: (u.photos ?? [])
           .filter((p: any) => p.approval_status === "approved" && !p.is_marketing_flagged)
           .sort((a: any, b: any) => a.order_index - b.order_index),
@@ -160,6 +183,9 @@ serve(async (req) => {
     }));
 
     const files = filesRes.data ?? [];
+
+    if (changeOrdersRes.error) console.error("[portal-token] change_orders error:", changeOrdersRes.error.message);
+    if (proposalsRes.error) console.error("[portal-token] proposals error:", proposalsRes.error.message);
 
     const change_orders = (changeOrdersRes.data ?? []).map((co: any) => ({
       ...co,
