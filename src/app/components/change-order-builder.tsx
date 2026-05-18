@@ -78,6 +78,7 @@ export function ChangeOrderBuilder() {
   const [downloading, setDownloading]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCoEmailPreview, setShowCoEmailPreview] = useState(false);
   const [showPreview, setShowPreview]   = useState(false);
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -326,6 +327,59 @@ export function ChangeOrderBuilder() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const buildCoEmailPreviewHtml = () => {
+    const firstName = client?.first_name ?? "Client";
+    const amountStr = coImpact >= 0 ? `+${fmt(coImpact)}` : fmt(coImpact);
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet"/>
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
+      <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+        <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" height="56" style="height:56px;width:auto;display:block;margin:0 auto 14px auto;border:0;outline:none;"/>
+        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      </td>
+    </tr></table>
+    <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+    <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Message from Butler &amp; Associates</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 4px 0;">Hi ${firstName},</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 16px 0;">A change order on your project requires your approval before work can continue.</p>
+      ${coTitle.trim() ? `<p style="font-family:Inter,sans-serif;font-size:15px;font-weight:400;color:#0A0A0A;margin:0 0 12px 0;">${coTitle.trim()}</p>` : ""}
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #E8E4DC;border-radius:4px;overflow:hidden;margin:0 0 20px 0;">
+        <tr style="background:#F5F3EF;">
+          <td style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;padding:8px 12px;">Original Contract</td>
+          <td style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;padding:8px 12px;text-align:right;">${fmt(originalTotal)}</td>
+        </tr>
+        <tr>
+          <td style="font-family:Inter,sans-serif;font-size:13px;color:#BB984D;font-weight:600;padding:8px 12px;border-top:1px solid #E8E4DC;">Change Order</td>
+          <td style="font-family:Inter,sans-serif;font-size:13px;color:#BB984D;font-weight:600;padding:8px 12px;text-align:right;border-top:1px solid #E8E4DC;">${amountStr}</td>
+        </tr>
+        <tr style="background:#0A0A0A;">
+          <td style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;color:#BB984D;padding:8px 12px;">New Contract Total</td>
+          <td style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;color:#BB984D;padding:8px 12px;text-align:right;">${fmt(newTotal)}</td>
+        </tr>
+      </table>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 4px 0;">Open your portal to review the details and approve or decline.</p>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="#" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 28px;border-radius:4px;">Review Change Order →</a>
+      </div>
+      <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">Questions? Reply to this email or reach us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+    </div>
+    <div style="text-align:center;padding:20px 0 0 0;">
+      <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+      <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+    </div>
+  </div>
+</body>
+</html>`;
   };
 
   const handleSendToClient = async () => {
@@ -806,18 +860,23 @@ export function ChangeOrderBuilder() {
             </Button>
           )}
           {showSendBtn && (
-            <Button
-              size="sm"
-              variant={isPending ? "outline" : "default"}
-              className={isPending ? "border-blue-400 text-blue-600 hover:bg-blue-50" : "bg-blue-600 hover:bg-blue-700 text-white"}
-              disabled={!canSend || sendingToClient || saving || merging || downloading}
-              onClick={() => setShowSendConfirm(true)}
-            >
-              <span className="flex items-center gap-2">
-                {sendingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : isPending ? <RefreshCw className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-                {sendingToClient ? "Sending…" : isPending ? "Resend to Client" : "Save & Send"}
-              </span>
-            </Button>
+            <>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowCoEmailPreview(true)} disabled={!coTitle.trim()}>
+                <Eye className="h-4 w-4" />Preview Email
+              </Button>
+              <Button
+                size="sm"
+                variant={isPending ? "outline" : "default"}
+                className={isPending ? "border-blue-400 text-blue-600 hover:bg-blue-50" : "bg-blue-600 hover:bg-blue-700 text-white"}
+                disabled={!canSend || sendingToClient || saving || merging || downloading}
+                onClick={() => setShowSendConfirm(true)}
+              >
+                <span className="flex items-center gap-2">
+                  {sendingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : isPending ? <RefreshCw className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                  {sendingToClient ? "Sending…" : isPending ? "Resend to Client" : "Save & Send"}
+                </span>
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" onClick={handlePreview} disabled={downloading || saving || merging || !coTitle.trim()}>
             <span className="flex items-center gap-2">
@@ -1438,6 +1497,19 @@ export function ChangeOrderBuilder() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* CO Email Preview */}
+      <Dialog open={showCoEmailPreview} onOpenChange={setShowCoEmailPreview}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+          <div className="shrink-0 px-6 py-4 border-b">
+            <p className="font-semibold text-sm">Email Preview — Change Order</p>
+            <p className="text-xs text-muted-foreground mt-0.5">This is exactly what {client?.email ?? "the client"} will receive.</p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+            <iframe srcDoc={buildCoEmailPreviewHtml()} className="w-full h-full border-0" title="CO Email Preview" />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Apply to Proposal — confirmation dialog */}
       <AlertDialog open={showApplyConfirm} onOpenChange={setShowApplyConfirm}>

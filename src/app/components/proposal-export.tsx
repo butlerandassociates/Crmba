@@ -185,7 +185,6 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                 <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
                   <div style={{ display: "flex", alignItems: "baseline", padding: "8px 0 12px 0", borderBottom: "1px solid #C8C4BC", marginBottom: 12 }}>
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#999", margin: 0, width: 110, textAlign: "center" as const }}>QTY</p>
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
                   {group.items.map((item, iIdx) => (
@@ -194,9 +193,6 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                         <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}</p>
                         {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.45, lineHeight: 1.4 }}>{item.description}</p>}
                       </div>
-                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
-                        {item.qty}{item.unit ? ` ${item.unit}` : ""}
-                      </p>
                       <div style={{ width: 90 }} />
                     </div>
                   ))}
@@ -211,9 +207,6 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                       <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}</p>
                       {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.5, lineHeight: 1.4 }}>{item.description}</p>}
                     </div>
-                    <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, width: 110, textAlign: "center" as const, whiteSpace: "nowrap" as const }}>
-                      {item.qty}{item.unit ? ` ${item.unit}` : ""}
-                    </p>
                     <div style={{ width: 90 }} />
                   </div>
                 ))}

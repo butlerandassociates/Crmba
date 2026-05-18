@@ -134,11 +134,8 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
                 <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
               </div>
               {group.items.map((item: any, iIdx: number) => (
-                <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "4px 0 4px 8px" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, flex: 1, paddingRight: 16 }}>{item.description}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, whiteSpace: "nowrap" as const }}>
-                    Qty: {item.quantity}{item.unit ? ` ${item.unit}` : ""}
-                  </p>
+                <div key={iIdx} style={{ padding: "4px 0 4px 8px" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.description}</p>
                 </div>
               ))}
             </div>
@@ -147,11 +144,8 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
         return (
           <div key={gIdx} style={{ marginBottom: 16 }}>
             {group.items.map((item: any, iIdx: number) => (
-              <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "4px 0" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0, flex: 1, paddingRight: 16 }}>{item.description}</p>
-                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65, whiteSpace: "nowrap" as const }}>
-                  Qty: {item.quantity}{item.unit ? ` ${item.unit}` : ""}
-                </p>
+              <div key={iIdx} style={{ padding: "4px 0" }}>
+                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.description}</p>
               </div>
             ))}
           </div>

@@ -247,17 +247,9 @@ export function PortalProposals({ proposals, token }: Props) {
                       <CardContent className="p-0">
                         <div className="overflow-x-auto">
                           <table className="w-full">
-                            <colgroup>
-                              <col />
-                              <col style={{ width: "1%" }} />
-                              <col style={{ width: "1%" }} />
-                              <col style={{ width: "1%" }} />
-                            </colgroup>
                             <thead className="border-b bg-gray-50">
                               <tr>
                                 <th className="text-left p-2 lg:p-4 text-xs font-bold text-gray-600">ITEM</th>
-                                <th className="text-center p-2 lg:p-4 text-xs font-bold text-gray-600 whitespace-nowrap">QTY</th>
-                                <th className="text-right p-2 lg:p-4 text-xs font-bold text-gray-600 whitespace-nowrap">PRICE</th>
                                 <th className="text-right p-2 lg:p-4 text-xs font-bold text-gray-600 whitespace-nowrap">TOTAL</th>
                               </tr>
                             </thead>
@@ -268,25 +260,23 @@ export function PortalProposals({ proposals, token }: Props) {
                                     <div className="text-sm font-medium">{item.name}</div>
                                     {item.description && <div className="text-xs text-gray-500 mt-0.5">{item.description}</div>}
                                   </td>
-                                  <td className="p-2 lg:p-4 text-center text-sm whitespace-nowrap">{item.quantity} {item.unit}</td>
-                                  <td className="p-2 lg:p-4 text-right text-sm whitespace-nowrap">{fmt(item.client_price)}</td>
                                   <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.quantity * item.client_price)}</td>
                                 </tr>
                               ))}
                             </tbody>
                             <tfoot className="border-t bg-gray-50">
                               <tr>
-                                <td colSpan={3} className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Subtotal</td>
+                                <td className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Subtotal</td>
                                 <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(viewingProposal.subtotal)}</td>
                               </tr>
                               {viewingProposal.tax_rate > 0 && (
                                 <tr>
-                                  <td colSpan={3} className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Sales Tax ({viewingProposal.tax_rate}%)</td>
+                                  <td className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Sales Tax ({viewingProposal.tax_rate}%)</td>
                                   <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(viewingProposal.tax_amount)}</td>
                                 </tr>
                               )}
                               <tr>
-                                <td colSpan={3} className="p-2 lg:p-4 text-right font-bold whitespace-nowrap">TOTAL</td>
+                                <td className="p-2 lg:p-4 text-right font-bold whitespace-nowrap">TOTAL</td>
                                 <td className="p-2 lg:p-4 text-right text-lg font-black whitespace-nowrap">{fmt(viewingProposal.total)}</td>
                               </tr>
                             </tfoot>
