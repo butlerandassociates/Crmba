@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
-import { fioAPI, notificationsAPI, activityLogAPI } from "../utils/api";
+import { fioAPI, notificationsAPI, activityLogAPI, productsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -49,6 +49,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [units, setUnits] = useState<string[]>([]);
   const [foremen, setForemen] = useState<any[]>([]);
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [productDropdownOpen, setProductDropdownOpen] = useState<string | null>(null);
   const [addingCrew, setAddingCrew] = useState(false);
   const [newCrewForemanId, setNewCrewForemanId] = useState("");
   const [reassignForemanId, setReassignForemanId] = useState("");
@@ -80,6 +82,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       .then(({ data }) => setUnits((data ?? []).map((u: any) => u.name)));
     supabase.from("profiles").select("id, first_name, last_name").eq("role", "foreman").eq("is_active", true).order("first_name")
       .then(({ data }) => setForemen(data ?? []));
+    productsAPI.getAll().then((data) => setAllProducts((data ?? []).filter((p: any) => (p.labor_cost ?? 0) > 0))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -487,7 +490,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
             {/* Action buttons */}
             {view === "view" && fio && (
               <div className="flex gap-2">
-                {can("can_approve_fio_payments") && fio.status !== "paid" && (
+                {can("can_approve_fio_payments") && (
                   <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); setReassignForemanId(fio.foreman_id || ""); }}>
                     <Edit className="h-4 w-4 mr-1.5" /> Edit
                   </Button>
@@ -742,7 +745,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 <p className="text-sm text-muted-foreground">No labor items found in the proposal. Add items manually below.</p>
               )}
               {editItems.length > 0 && (
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg">
                   <table className="w-full text-sm border-collapse">
                     <thead>
                       <tr className="bg-muted/60 border-b">
@@ -757,12 +760,47 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                       {editItems.map((item, idx) => (
                         <tr key={item.id} className={`border-b last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-muted/20"} ${itemErrors[idx] ? "ring-1 ring-inset ring-red-300" : ""}`}>
                           <td className="px-2 py-1.5">
-                            <Input
-                              value={item.product_name}
-                              onChange={(e) => { updateItem(idx, "product_name", e.target.value); setItemErrors((p) => { const n = { ...p }; delete n[idx]; return n; }); }}
-                              className={`h-8 text-sm ${itemErrors[idx] && !item.product_name.trim() ? "border-red-400" : ""}`}
-                              placeholder="e.g., Labor — Concrete Pour"
-                            />
+                            <div className="relative">
+                              <Input
+                                value={item.product_name}
+                                autoComplete="off"
+                                onFocus={() => setProductDropdownOpen(item.id)}
+                                onBlur={() => setTimeout(() => setProductDropdownOpen(null), 150)}
+                                onChange={(e) => { updateItem(idx, "product_name", e.target.value); setProductDropdownOpen(item.id); setItemErrors((p) => { const n = { ...p }; delete n[idx]; return n; }); }}
+                                className={`h-8 text-sm ${itemErrors[idx] && !item.product_name.trim() ? "border-red-400" : ""}`}
+                                placeholder="e.g., Labor — Concrete Pour"
+                              />
+                              {productDropdownOpen === item.id && (() => {
+                                const filtered = allProducts.filter((p: any) =>
+                                  !item.product_name.trim() || p.name.toLowerCase().includes(item.product_name.toLowerCase())
+                                );
+                                if (!filtered.length) return null;
+                                return (
+                                  <div className="absolute z-50 left-0 right-0 top-full mt-0.5 bg-background border rounded-lg shadow-lg max-h-44 overflow-y-auto">
+                                    {filtered.map((p: any) => (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        className="w-full text-left px-2.5 py-2 hover:bg-accent/60 transition-colors border-b last:border-0"
+                                        onMouseDown={() => {
+                                          setEditItems((prev) => prev.map((it, i) => i !== idx ? it : {
+                                            ...it,
+                                            product_name: p.name,
+                                            ...(p.unit ? { unit: p.unit } : {}),
+                                            labor_cost_per_unit: p.labor_cost ?? 0,
+                                          }));
+                                          setProductDropdownOpen(null);
+                                          setItemErrors((prev) => { const n = { ...prev }; delete n[idx]; return n; });
+                                        }}
+                                      >
+                                        <p className="text-xs font-medium leading-tight">{p.name}</p>
+                                        <p className="text-xs text-muted-foreground">{[p.category?.name, p.unit].filter(Boolean).join(" · ")}</p>
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </td>
                           <td className="px-2 py-1.5">
                             <select
@@ -820,7 +858,12 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 </p>
               )}
               <div className="flex items-center justify-between pt-2 border-t">
-                <span className="font-semibold text-sm">Total: {formatCurrency(editTotal)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-sm">Total: {formatCurrency(editTotal)}</span>
+                  <Button variant="outline" size="sm" onClick={addItem}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Add Item
+                  </Button>
+                </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => { setItemErrors({}); setView("view"); if (!fio) onOpenChange(false); }}>
                     <X className="h-4 w-4 mr-1.5" /> Cancel

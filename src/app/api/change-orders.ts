@@ -19,16 +19,18 @@ export const changeOrdersAPI = {
 
   /** Create a CO with items and optional modifications */
   create: async (
-    co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string; status?: string },
+    co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string; status?: string; original_total?: number; new_total?: number; cost_impact?: number },
     items: { category: string; description: string; quantity: number; unit_price: number; total: number }[],
     modifications?: any[]
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
-    const costImpact = items.reduce((s, i) => s + i.total, 0);
+    // Use pre-computed cost_impact (includes modification deltas) if provided, else fall back to items sum
+    const costImpact = co.cost_impact ?? items.reduce((s, i) => s + i.total, 0);
 
+    const { cost_impact: _ci, ...coRest } = co;
     const { data: created, error } = await supabase
       .from("change_orders")
-      .insert({ ...co, cost_impact: costImpact, submitted_by: user?.id, modifications: modifications ?? [] })
+      .insert({ ...coRest, cost_impact: costImpact, submitted_by: user?.id, modifications: modifications ?? [] })
       .select()
       .single();
     if (error) throw new Error(error.message);

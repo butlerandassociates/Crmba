@@ -65,8 +65,9 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     }
   }, []);
 
-  const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(v);
-  const revisedTotal = projectTotal + changeOrder.cost_impact;
+  const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v);
+  const originalContractTotal = changeOrder.original_total ?? projectTotal;
+  const revisedTotal = changeOrder.new_total ?? (projectTotal + changeOrder.cost_impact);
 
   const handleApprove = () => setShowSignature(true);
 
@@ -176,7 +177,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="text-2xl font-bold">{fmt(projectTotal)}</div>
+                <div className="text-2xl font-bold">{fmt(originalContractTotal)}</div>
               </CardContent>
             </Card>
             <Card>
@@ -215,7 +216,6 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="text-left p-3 lg:p-4 text-xs font-bold text-gray-600">DESCRIPTION</th>
-                        <th className="text-center p-3 lg:p-4 text-xs font-bold text-gray-600">QTY</th>
                         <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">UNIT PRICE</th>
                         <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">TOTAL</th>
                       </tr>
@@ -227,16 +227,15 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                             <div className="text-sm font-medium">{item.description}</div>
                             {item.category && <div className="text-xs text-gray-400">{item.category}</div>}
                           </td>
-                          <td className="p-3 lg:p-4 text-center text-sm">{item.quantity} {item.unit}</td>
-                          <td className="p-3 lg:p-4 text-right text-sm">{fmt(item.unit_price)}</td>
-                          <td className="p-3 lg:p-4 text-right text-sm font-semibold">{fmt(item.total)}</td>
+                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{fmt(item.unit_price)}</td>
+                          <td className="p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.total)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot className="border-t-2 bg-gray-50">
                       <tr>
-                        <td colSpan={3} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
-                        <td className="p-3 lg:p-4 text-right text-lg font-black">{fmt(changeOrder.cost_impact)}</td>
+                        <td colSpan={2} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
+                        <td className="p-3 lg:p-4 text-right text-lg font-black whitespace-nowrap">{fmt(changeOrder.cost_impact)}</td>
                       </tr>
                     </tfoot>
                   </table>

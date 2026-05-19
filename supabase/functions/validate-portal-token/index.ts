@@ -117,6 +117,7 @@ serve(async (req) => {
         .select(`
           id, title, reason, timeline_impact, cost_impact, status, created_at,
           approval_verified, approval_file_url, approval_file_name, pdf_url,
+          original_total, new_total,
           items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)

@@ -107,6 +107,8 @@ export interface PortalChangeOrder {
   approval_file_url: string | null;
   approval_file_name: string | null;
   pdf_url: string | null;
+  original_total: number | null;
+  new_total: number | null;
   items: PortalChangeOrderItem[];
 }
 

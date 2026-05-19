@@ -31,6 +31,7 @@ const EMPTY_ITEM = () => ({
   unit: "",
   unit_price: 0,
   total: 0,
+  fromProduct: false,
 });
 
 
@@ -47,6 +48,7 @@ export function ChangeOrderBuilder() {
   const [loading, setLoading]       = useState(true);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [globalMarkupPct, setGlobalMarkupPct] = useState(0);
 
   // Form
   const [coTitle, setCoTitle]               = useState("");
@@ -78,6 +80,7 @@ export function ChangeOrderBuilder() {
   const [downloading, setDownloading]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [showCoEmailPreview, setShowCoEmailPreview] = useState(false);
   const [showPreview, setShowPreview]   = useState(false);
   const [previewPages, setPreviewPages] = useState<string[]>([]);
@@ -86,6 +89,9 @@ export function ChangeOrderBuilder() {
   const [sendingToClient, setSendingToClient] = useState(false);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+  const initialItemsRef = useRef<string>("");
+  const initialModsRef  = useRef<string>("");
+  const loadedRef = useRef(false);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -93,14 +99,18 @@ export function ChangeOrderBuilder() {
     const load = async () => {
       setLoading(true);
       try {
-        const [c, prods, cats] = await Promise.all([
+        const [c, prods, cats, settingsRes] = await Promise.all([
           clientsAPI.getById(clientId),
           productsAPI.getAll(),
           productsAPI.getCategories(),
+          supabase.from("company_settings").select("global_markup_percent").limit(1).maybeSingle(),
         ]);
         setClient(c);
         setDbProducts(prods);
         setCategories(cats);
+        if (settingsRes.data?.global_markup_percent) {
+          setGlobalMarkupPct(Number(settingsRes.data.global_markup_percent));
+        }
 
         // Load accepted proposal with line items + financial fields needed for live totals
         const { data: prop } = await supabase
@@ -135,7 +145,7 @@ export function ChangeOrderBuilder() {
             setApprovalVerified(co.approval_verified || false);
             setApprovalFileUrl(co.approval_file_url || "");
             if ((co.items || []).length > 0) {
-              setItems(co.items.map((i: any) => ({
+              const loadedItems = co.items.map((i: any) => ({
                 id: i.id || EMPTY_ITEM().id,
                 category: i.category || "Materials",
                 description: i.description || "",
@@ -143,13 +153,17 @@ export function ChangeOrderBuilder() {
                 unit: i.unit || "",
                 unit_price: i.unit_price || 0,
                 total: i.total || 0,
-              })));
+                fromProduct: false,
+              }));
+              setItems(loadedItems);
+              initialItemsRef.current = JSON.stringify(loadedItems.map(({ id: _id, fromProduct: _fp, ...rest }) => rest));
             }
+            const modsMap: Record<string, any> = {};
             if (Array.isArray(co.modifications) && co.modifications.length > 0) {
-              const modsMap: Record<string, any> = {};
               co.modifications.forEach((mod: any) => { modsMap[mod.estimate_item_id] = mod; });
               setModifications(modsMap);
             }
+            initialModsRef.current = JSON.stringify(modsMap);
           }
         } else {
           // No coId — check if a draft CO already exists and redirect to it
@@ -163,6 +177,7 @@ export function ChangeOrderBuilder() {
         toast.error("Failed to load — please refresh.");
       } finally {
         setLoading(false);
+        loadedRef.current = true;
       }
     };
     load();
@@ -209,7 +224,7 @@ export function ChangeOrderBuilder() {
     const categoryName = product.category?.name || "Materials";
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice };
+      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice, fromProduct: true };
     }));
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
@@ -257,6 +272,9 @@ export function ChangeOrderBuilder() {
       if (error) throw error;
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
       setApprovalFileUrl(publicUrl);
+      if (existingCO?.id) {
+        await supabase.from("change_orders").update({ approval_file_url: publicUrl }).eq("id", existingCO.id);
+      }
       toast.success("Approval document uploaded.");
     } catch {
       toast.error("Failed to upload file — try again.");
@@ -317,6 +335,9 @@ export function ChangeOrderBuilder() {
         navigate(`/clients/${clientId}/change-order/${created.id}`, { replace: true });
         toast.success("Change order saved as draft.");
       }
+      // Reset dirty tracking so Back button won't warn after a successful save
+      initialItemsRef.current = JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest));
+      initialModsRef.current  = JSON.stringify(modifications);
       activityLogAPI.create({
         client_id: clientId!,
         action_type: "change_order_created",
@@ -399,12 +420,15 @@ export function ChangeOrderBuilder() {
       let coIdToUse: string;
 
       if (isEdit && existingCO) {
-        // Update existing CO to pending_client
+        // Update existing CO to pending_client — also store total snapshots and true coImpact
         await supabase.from("change_orders").update({
           title: coTitle.trim(),
           reason: coDescription.trim(),
           timeline_impact: timelineImpact.trim(),
           status: "pending_client",
+          cost_impact: coImpact,
+          original_total: originalTotal,
+          new_total: newTotal,
           updated_at: new Date().toISOString(),
         }).eq("id", existingCO.id);
         await supabase.from("change_order_items").delete().eq("co_id", existingCO.id);
@@ -416,9 +440,9 @@ export function ChangeOrderBuilder() {
         coIdToUse = existingCO.id;
         setExistingCO((prev: any) => ({ ...prev, status: "pending_client" }));
       } else {
-        // Save new CO directly as pending_client
+        // Save new CO directly as pending_client — store total snapshots and true coImpact
         const created = await changeOrdersAPI.create(
-          { client_id: clientId!, project_id: project?.id, title: coTitle.trim(), reason: coDescription.trim(), timeline_impact: timelineImpact.trim(), status: "pending_client" },
+          { client_id: clientId!, project_id: project?.id, title: coTitle.trim(), reason: coDescription.trim(), timeline_impact: timelineImpact.trim(), status: "pending_client", original_total: originalTotal, new_total: newTotal, cost_impact: coImpact },
           coItems,
           modsArray
         );
@@ -467,6 +491,9 @@ export function ChangeOrderBuilder() {
       }).catch(() => {});
 
       saveCoPdfOnSend(coIdToUse).catch(() => {});
+      // Reset dirty tracking so Back button won't warn after a successful send
+      initialItemsRef.current = JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest));
+      initialModsRef.current  = JSON.stringify(modifications);
       toast.success(`Change order sent to ${client.first_name} ${client.last_name} for review.`);
     } catch (err: any) {
       toast.error(err.message || "Failed to send — please try again.");
@@ -832,7 +859,15 @@ export function ChangeOrderBuilder() {
       {/* Top bar */}
       <div className="shrink-0 bg-background border-b px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/clients/${clientId}`)} className="shrink-0">
+          <Button variant="ghost" size="sm" onClick={() => {
+            const currentItems = JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest));
+            const currentMods  = JSON.stringify(modifications);
+            const isDirty = loadedRef.current && (
+              (initialItemsRef.current !== "" && currentItems !== initialItemsRef.current) ||
+              currentMods !== initialModsRef.current
+            );
+            if (isDirty) { setShowBackConfirm(true); } else { navigate(`/clients/${clientId}`); }
+          }} className="shrink-0">
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           <Separator orientation="vertical" className="h-5" />
@@ -1056,7 +1091,10 @@ export function ChangeOrderBuilder() {
                         <Input
                           placeholder="Description *"
                           value={item.description}
-                          onChange={e => updateItem(item.id, "description", e.target.value)}
+                          onChange={e => {
+                            updateItem(item.id, "description", e.target.value);
+                            if (item.fromProduct) setItems(prev => prev.map(i => i.id === item.id ? { ...i, fromProduct: false } : i));
+                          }}
                           className={`h-8 text-sm ${touched && !item.description.trim() ? "border-destructive" : ""}`}
                         />
                       </div>
@@ -1081,6 +1119,13 @@ export function ChangeOrderBuilder() {
                           type="number" min="0" step="0.01"
                           value={item.unit_price}
                           onChange={e => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)}
+                          onBlur={e => {
+                            const raw = parseFloat(e.target.value) || 0;
+                            if (!item.fromProduct && globalMarkupPct > 0 && raw > 0) {
+                              const markedUp = Math.round(raw * (1 + globalMarkupPct / 100) * 100) / 100;
+                              setItems(prev => prev.map(i => i.id === item.id ? { ...i, unit_price: markedUp, total: (Number(i.quantity) || 0) * markedUp } : i));
+                            }
+                          }}
                           className="h-8 text-sm text-right"
                         />
                       </div>
@@ -1148,7 +1193,13 @@ export function ChangeOrderBuilder() {
               <Checkbox
                 id="approval-check"
                 checked={approvalVerified}
-                onCheckedChange={v => setApprovalVerified(!!v)}
+                onCheckedChange={async v => {
+                  const val = !!v;
+                  setApprovalVerified(val);
+                  if (existingCO?.id) {
+                    await supabase.from("change_orders").update({ approval_verified: val }).eq("id", existingCO.id);
+                  }
+                }}
                 className="mt-0.5"
               />
               <Label htmlFor="approval-check" className="cursor-pointer text-sm leading-relaxed">
@@ -1402,6 +1453,24 @@ export function ChangeOrderBuilder() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Back with unsaved changes */}
+      <AlertDialog open={showBackConfirm} onOpenChange={setShowBackConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved line item changes. Go back anyway? Your changes will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction onClick={() => navigate(`/clients/${clientId}`)} className="bg-destructive hover:bg-destructive/90 text-white">
+              Leave Without Saving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
