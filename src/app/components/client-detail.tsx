@@ -411,7 +411,7 @@ export function ClientDetail() {
     if (justMovedToSoldRef.current) return;
     const project = clientProjects[0];
     if (!project?.startDate) return;
-    const start = new Date(project.startDate);
+    const start = new Date(project.startDate + "T00:00:00"); // force local-time parse (date-only strings are UTC by spec)
     start.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);

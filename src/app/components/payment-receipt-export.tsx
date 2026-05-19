@@ -56,7 +56,7 @@ export function PaymentStatementExport({ payments, client, project }: PaymentSta
 
   const getStatus = (p: PaymentStatementExportProps["payments"][0]) => {
     if (p.is_paid) return { label: "PAID",    color: C.green, bg: C.greenBg, border: "#bbf7d0" };
-    if (p.due_date && new Date(p.due_date) < today) return { label: "OVERDUE", color: C.red,   bg: C.redBg,   border: "#fecaca" };
+    if (p.due_date && new Date(p.due_date + "T00:00:00") < today) return { label: "OVERDUE", color: C.red,   bg: C.redBg,   border: "#fecaca" };
     return                                                  { label: "PENDING", color: C.amber, bg: C.amberBg, border: "#fde68a" };
   };
 

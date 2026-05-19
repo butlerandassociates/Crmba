@@ -91,7 +91,7 @@ export function Projects() {
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "—";
-    const d = new Date(dateStr);
+    const d = new Date(dateStr.includes("T") ? dateStr : dateStr + "T00:00:00");
     return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 

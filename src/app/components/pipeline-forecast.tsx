@@ -495,7 +495,7 @@ export function PipelineForecast() {
               ))}
 
               {scheduledClients
-                .filter((c) => c.appointment_date && new Date(c.appointment_date) < new Date())
+                .filter((c) => c.appointment_date && new Date(c.appointment_date + "T00:00:00") < new Date())
                 .map((client) => (
                   <Link
                     key={client.id}
@@ -570,7 +570,7 @@ export function PipelineForecast() {
                 );
               })}
 
-              {prospectClients.length === 0 && scheduledClients.filter((c) => c.appointment_date && new Date(c.appointment_date) < new Date()).length === 0 && sellingClients.length === 0 && soldClients.length === 0 && (
+              {prospectClients.length === 0 && scheduledClients.filter((c) => c.appointment_date && new Date(c.appointment_date + "T00:00:00") < new Date()).length === 0 && sellingClients.length === 0 && soldClients.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8">
                   <ListTodo className="h-8 w-8 mb-2 opacity-20" />
                   <p className="text-sm font-medium">No pending tasks</p>
@@ -624,8 +624,8 @@ export function PipelineForecast() {
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const upcoming = clients
-                  .filter((c) => c.appointment_scheduled && c.appointment_date && new Date(c.appointment_date) >= today)
-                  .sort((a, b) => new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime())
+                  .filter((c) => c.appointment_scheduled && c.appointment_date && new Date(c.appointment_date + "T00:00:00") >= today)
+                  .sort((a, b) => new Date(a.appointment_date + "T00:00:00").getTime() - new Date(b.appointment_date + "T00:00:00").getTime())
                   .slice(0, 3);
                 return upcoming.length > 0 ? (
                   <div className="space-y-1.5">

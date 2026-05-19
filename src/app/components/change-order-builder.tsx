@@ -897,7 +897,7 @@ export function ChangeOrderBuilder() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!isMerged && (
+          {!isMerged && !isPending && (
             <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging || downloading || sendingToClient}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               Save Draft

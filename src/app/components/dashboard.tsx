@@ -235,7 +235,7 @@ export function Dashboard() {
       const y = d.getFullYear();
       const m = d.getMonth();
       const monthPayments = visiblePaidPayments.filter((p) => {
-        const date = p.paid_date ? new Date(p.paid_date) : null;
+        const date = p.paid_date ? new Date(p.paid_date + "T00:00:00") : null;
         return date && date.getFullYear() === y && date.getMonth() === m;
       });
       return {
@@ -298,7 +298,7 @@ export function Dashboard() {
   
   // Cash-basis revenue: sum payments actually collected within the selected date range
   const periodPayments = visiblePaidPayments.filter((p) => {
-    const d = p.paid_date ? new Date(p.paid_date) : null;
+    const d = p.paid_date ? new Date(p.paid_date + "T00:00:00") : null;
     if (!d) return false;
     return d >= startDate && d <= endDate;
   });
@@ -322,7 +322,7 @@ export function Dashboard() {
   const _curYear = _curDate.getFullYear();
   const currentMonthRevenue = visiblePaidPayments
     .filter((p) => {
-      const d = p.paid_date ? new Date(p.paid_date) : null;
+      const d = p.paid_date ? new Date(p.paid_date + "T00:00:00") : null;
       if (!d) return false;
       return d.getMonth() === _curMonth && d.getFullYear() === _curYear;
     })

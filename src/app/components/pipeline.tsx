@@ -139,7 +139,7 @@ export function Pipeline() {
   const staleForecasts = clients.filter((c) => {
     if (!["prospect", "selling"].includes(c.status)) return false;
     if (!c.expected_close_date) return false;
-    const closeDate = new Date(c.expected_close_date);
+    const closeDate = new Date(c.expected_close_date + "T00:00:00");
     closeDate.setHours(0, 0, 0, 0);
     return closeDate < today;
   });
@@ -178,7 +178,7 @@ export function Pipeline() {
   // Activity data
   const upcomingCollections = clients.filter(c => {
     if (!c.nextPaymentDate) return false;
-    const paymentDate = new Date(c.nextPaymentDate);
+    const paymentDate = new Date(c.nextPaymentDate.includes("T") ? c.nextPaymentDate : c.nextPaymentDate + "T00:00:00");
     const now = new Date();
     const daysUntil = Math.ceil((paymentDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     return daysUntil >= 0 && daysUntil <= 7;

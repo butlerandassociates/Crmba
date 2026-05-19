@@ -231,7 +231,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   );
 
   const renderOverview = () => {
-    const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
+    const fmtDate = (d: string | null) => d ? new Date(d.includes("T") ? d : d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
     return (
     <div className="space-y-8">
       {/* Phase Timeline */}
@@ -346,7 +346,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
               <div className="space-y-4">
                 <div>
                   <div className="text-xs font-bold text-gray-600 mb-1" style={{ fontFamily: "Lato, sans-serif" }}>
-                    {nextDuePayment.due_date ? `NEXT DUE ${new Date(nextDuePayment.due_date).toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}` : "NEXT PAYMENT"}
+                    {nextDuePayment.due_date ? `NEXT DUE ${new Date(nextDuePayment.due_date + "T00:00:00").toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}` : "NEXT PAYMENT"}
                   </div>
                   <div className="text-3xl font-black mb-1" style={{ fontFamily: "Lato, sans-serif" }}>{formatCurrency(nextDuePayment.amount)}</div>
                   <div className="text-sm text-gray-600">{nextDuePayment.label}</div>

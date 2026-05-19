@@ -213,7 +213,7 @@ export function RootLayout() {
 
       // Foreman insurance expiration — alert when within 30 days
       (foremanRes.data ?? []).forEach((f: any) => {
-        const expDate = new Date(f.insurance_expiration_date); expDate.setHours(0, 0, 0, 0);
+        const expDate = new Date(f.insurance_expiration_date + "T00:00:00"); expDate.setHours(0, 0, 0, 0);
         if (expDate <= in30Days) {
           const daysLeft = Math.ceil((expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
           const name = `${f.first_name ?? ""} ${f.last_name ?? ""}`.trim() || "Foreman";
@@ -249,7 +249,7 @@ export function RootLayout() {
 
       clients.filter((c: any) => {
         if (c.status !== "selling" || !c.expected_close_date) return false;
-        const d = new Date(c.expected_close_date); d.setHours(0, 0, 0, 0);
+        const d = new Date(c.expected_close_date + "T00:00:00"); d.setHours(0, 0, 0, 0);
         return d < todayDate;
       }).forEach((c: any) => {
         alerts.push({
