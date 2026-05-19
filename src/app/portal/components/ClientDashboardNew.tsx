@@ -378,7 +378,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                     <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="font-semibold text-sm text-orange-900">{co.title}</p>
-                      <p className="text-xs text-orange-700">Change order awaiting your review — {formatCurrency(co.cost_impact)}</p>
+                      <p className="text-xs text-orange-700">Change order awaiting your review — {formatCurrency((co.original_total !== null && co.original_total !== undefined && co.new_total !== null && co.new_total !== undefined) ? co.new_total - co.original_total : co.cost_impact)}</p>
                     </div>
                   </div>
                   <Button
@@ -802,9 +802,16 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                   {co.reason && <div className="text-sm text-gray-600 line-clamp-2">{co.reason}</div>}
                   {/* Row 4: price + button on right */}
                   <div className="flex items-center justify-end gap-3 pt-1">
-                    <div className={`text-lg font-black ${isApproved ? "text-green-600" : co.cost_impact >= 0 ? "text-orange-600" : "text-green-600"}`} style={{ fontFamily: "Lato, sans-serif" }}>
-                      {co.cost_impact >= 0 ? "+" : ""}{formatCurrency(co.cost_impact)}
-                    </div>
+                    {(() => {
+                      const netImpact = (co.original_total !== null && co.original_total !== undefined && co.new_total !== null && co.new_total !== undefined)
+                        ? co.new_total - co.original_total
+                        : co.cost_impact;
+                      return (
+                        <div className={`text-lg font-black ${isApproved ? "text-green-600" : netImpact >= 0 ? "text-orange-600" : "text-green-600"}`} style={{ fontFamily: "Lato, sans-serif" }}>
+                          {netImpact >= 0 ? "+" : ""}{formatCurrency(netImpact)}
+                        </div>
+                      );
+                    })()}
                     {co.status === "pending_client" ? (
                       <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => setViewingChangeOrderId(co.id)}>
                         Review

@@ -117,7 +117,7 @@ serve(async (req) => {
         .select(`
           id, title, reason, timeline_impact, cost_impact, status, created_at,
           approval_verified, approval_file_url, approval_file_name, pdf_url,
-          original_total, new_total,
+          original_total, new_total, modifications,
           items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)
@@ -188,11 +188,54 @@ serve(async (req) => {
     if (changeOrdersRes.error) console.error("[portal-token] change_orders error:", changeOrdersRes.error.message);
     if (proposalsRes.error) console.error("[portal-token] proposals error:", proposalsRes.error.message);
 
-    const change_orders = (changeOrdersRes.data ?? []).map((co: any) => ({
-      ...co,
-      cost_impact: Number(co.cost_impact ?? 0),
-      items: (co.items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
-    }));
+    // Collect all estimate_item_ids referenced in modifications across all COs
+    const allModItemIds: string[] = [];
+    for (const co of (changeOrdersRes.data ?? [])) {
+      const mods: any[] = Array.isArray(co.modifications) ? co.modifications : [];
+      for (const m of mods) {
+        if (m.estimate_item_id) allModItemIds.push(m.estimate_item_id);
+      }
+    }
+
+    // Fetch name, category, unit for modified items (deduplicated)
+    const uniqueIds = [...new Set(allModItemIds)];
+    const modItemData: Record<string, { name: string; category: string | null; unit: string | null }> = {};
+    if (uniqueIds.length > 0) {
+      const { data: liRows } = await supabase
+        .from("estimate_line_items")
+        .select("id, name, category, unit")
+        .in("id", uniqueIds);
+      for (const row of (liRows ?? [])) {
+        modItemData[row.id] = { name: row.name, category: row.category ?? null, unit: row.unit ?? null };
+      }
+    }
+
+    const change_orders = (changeOrdersRes.data ?? []).map((co: any) => {
+      const mods: any[] = Array.isArray(co.modifications) ? co.modifications : [];
+      const modifications_display = mods.map((m: any) => {
+        const itemMeta = modItemData[m.estimate_item_id];
+        return {
+          name: itemMeta?.name ?? "Existing item",
+          action: m.action,
+          category: itemMeta?.category ?? null,
+          unit: itemMeta?.unit ?? null,
+          quantity: m.action === "delete" ? Number(m.original_quantity ?? 0) : Number(m.quantity ?? 0),
+          unit_price: m.action === "delete" ? Number(m.original_client_price ?? 0) : Number(m.client_price ?? 0),
+          delta: m.action === "delete"
+            ? -Number(m.original_total ?? 0)
+            : Number(m.total_price ?? 0) - Number(m.original_total ?? 0),
+        };
+      });
+      const { modifications: _mods, ...coRest } = co;
+      return {
+        ...coRest,
+        cost_impact: Number(co.cost_impact ?? 0),
+        original_total: co.original_total != null ? Number(co.original_total) : null,
+        new_total: co.new_total != null ? Number(co.new_total) : null,
+        items: (co.items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
+        modifications_display,
+      };
+    });
 
     const proposals = (proposalsRes.data ?? []).map((p: any) => ({
       ...p,

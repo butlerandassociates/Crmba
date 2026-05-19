@@ -67,7 +67,7 @@ export function PortalChangeOrderSuccess({ type, changeOrder, revisedTotal, onBa
                       <div>
                         <div className="font-semibold text-sm text-green-900 mb-1">Payment Schedule Updated</div>
                         <p className="text-sm text-green-800">
-                          The additional {fmt(changeOrder.cost_impact)} will be distributed across your remaining progress payments. No immediate payment required.
+                          The additional {fmt((changeOrder.original_total !== null && changeOrder.original_total !== undefined && changeOrder.new_total !== null && changeOrder.new_total !== undefined) ? changeOrder.new_total - changeOrder.original_total : changeOrder.cost_impact)} will be distributed across your remaining progress payments. No immediate payment required.
                         </p>
                       </div>
                     </div>

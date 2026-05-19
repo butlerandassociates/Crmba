@@ -11,14 +11,22 @@ const B = {
 
 const A4_H = "29.7cm";
 
+interface ModDisplayItem {
+  name: string;
+  action: "edit" | "delete";
+  category: string | null;
+  delta: number;
+}
+
 interface ChangeOrderExportProps {
   co: any;
   client: any;
   originalTotal?: number;
   newTotal?: number;
+  modificationsDisplay?: ModDisplayItem[];
 }
 
-export function ChangeOrderExport({ co, client, originalTotal, newTotal }: ChangeOrderExportProps) {
+export function ChangeOrderExport({ co, client, originalTotal, newTotal, modificationsDisplay }: ChangeOrderExportProps) {
   const fmt = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
   const fmtDate = (d: string) =>
@@ -31,7 +39,15 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
   ].filter(Boolean).join(", ");
 
   const items: any[] = co?.items || [];
-  const costImpact: number = items.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+  const mods: ModDisplayItem[] = (modificationsDisplay ?? []).filter(m => !isNaN(m.delta));
+  const hasMods = mods.length > 0;
+  const hasNewItems = items.length > 0;
+  const itemsSum: number = items.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+  // When snapshots exist, use true net impact (includes modifications to existing items)
+  const costImpact: number = (originalTotal != null && newTotal != null)
+    ? newTotal - originalTotal
+    : itemsSum;
+  const showScopeSubheaders = hasMods && hasNewItems;
   const hasReason   = !!co?.reason?.trim();
   const hasTimeline = !!co?.timeline_impact?.trim();
 
@@ -116,6 +132,28 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
       <p style={{ fontFamily: B.inter, fontSize: 10, color: "#717182", margin: 0, lineHeight: 1.5 }}>
         Thank you for considering Butler &amp; Associates Construction, Inc. for your project. We look forward to working with you.
       </p>
+    </div>
+  );
+
+  const ModificationsSection = () => (
+    <div style={{ marginBottom: 20 }}>
+      {mods.map((mod, idx) => (
+        <div key={idx} style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingBottom: 12, borderBottom: `1px solid #C8C4BC`, marginBottom: 10 }}>
+            <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0 }}>
+              {mod.category || (mod.action === "delete" ? "Removed" : "Modified")}
+            </p>
+            <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: mod.delta >= 0 ? B.gold : "#C0392B", margin: 0, fontVariantNumeric: "tabular-nums" }}>
+              {mod.delta >= 0 ? "+" : ""}{fmt(mod.delta)}
+            </p>
+          </div>
+          <div style={{ padding: "4px 0 4px 8px" }}>
+            <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>
+              {mod.name}{mod.action === "delete" ? " — Removed" : ""}
+            </p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 
@@ -247,10 +285,18 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal }: Chang
           <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 10px 0" }}>
             Scope Changes
           </p>
+
+          {showScopeSubheaders && hasNewItems && (
+            <p style={{ fontFamily: B.inter, fontSize: 10, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: B.black, margin: "0 0 8px 0", opacity: 0.6 }}>
+              Items Added
+            </p>
+          )}
         </>
       )}
 
       <ScopeGroups groups={groups} />
+
+      {hasMods && showTotals && <ModificationsSection />}
 
       {showTotals && <TotalsBlock />}
 

@@ -854,6 +854,15 @@ export function ChangeOrderBuilder() {
   const canSend          = showSendBtn && !!coTitle.trim() && items.some(i => i.description.trim());
   const canMerge   = !!(proposal && approvalVerified && approvalFileUrl && !isMerged);
 
+  // For merged COs, show stored snapshots so the summary reflects what was actually approved
+  const displayOriginalTotal = isMerged && existingCO?.pre_merge_total != null
+    ? Number(existingCO.pre_merge_total)
+    : originalTotal;
+  const displayNewTotal = isMerged && existingCO?.post_merge_total != null
+    ? Number(existingCO.post_merge_total)
+    : newTotal;
+  const displayCoImpact = displayNewTotal - displayOriginalTotal;
+
   return (
     <div className="h-full flex flex-col bg-muted/20">
       {/* Top bar */}
@@ -1146,34 +1155,121 @@ export function ChangeOrderBuilder() {
 
             {/* CO Totals */}
             <div className="border-t pt-4 space-y-1">
-              <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Subtotal</span>
-                <span className="tabular-nums">{fmt(liveSubtotal)}</span>
-              </div>
-              {liveBad > 0 && (
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">Base, Aggregate &amp; Disposal{liveBad !== originalBad && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
-                  <span className="tabular-nums">{fmt(liveBad)}</span>
-                </div>
-              )}
-              {liveTax > 0 && (
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">Sales Tax{liveTax !== originalTax && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
-                  <span className="tabular-nums">{fmt(liveTax)}</span>
-                </div>
+              {isMerged ? (
+                <>
+                  {/* Merged CO — full transparent breakdown */}
+                  {(() => {
+                    const proposalItemMap: Record<string, any> = Object.fromEntries(
+                      (proposal?.line_items ?? []).map((li: any) => [li.id, li])
+                    );
+                    const coItems = items.filter(i => i.description.trim());
+                    const mods = Object.values(modifications);
+                    const bad = Number(proposal?.bad_amount ?? 0);
+                    const tax = Number(proposal?.tax_amount ?? 0);
+                    const discount = Number(proposal?.discount_amount ?? 0);
+                    const sub = Number(proposal?.subtotal ?? 0);
+                    const stripeFee = proposal?.stripe_fee_enabled
+                      ? Math.max(0, Math.round((displayNewTotal - (sub - discount + bad + tax)) * 100) / 100)
+                      : 0;
+                    return (
+                      <>
+                        {coItems.length > 0 && (
+                          <>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">Items Added</p>
+                            {coItems.map((i, idx) => (
+                              <div key={idx} className="flex justify-between text-sm text-muted-foreground pl-2">
+                                <span className="truncate mr-2">{i.description}{i.category ? <span className="text-xs text-muted-foreground/60"> · {i.category}</span> : null}</span>
+                                <span className="tabular-nums text-green-700 shrink-0">+{fmt(Number(i.total))}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {mods.length > 0 && (
+                          <>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">Items Adjusted</p>
+                            {mods.map((m, idx) => {
+                              const li = proposalItemMap[m.estimate_item_id];
+                              const name = li?.product_name ?? "Existing item";
+                              const origTotal = Number(m.original_total ?? 0);
+                              const newTotalVal = Number(m.total_price ?? 0);
+                              const delta = m.action === "delete" ? -origTotal : newTotalVal - origTotal;
+                              if (isNaN(delta)) return null;
+                              return (
+                                <div key={idx} className="flex justify-between text-sm text-muted-foreground pl-2">
+                                  <span className="truncate mr-2">{name}{m.action === "delete" ? <span className="text-xs text-red-500"> · Removed</span> : <span className="text-xs text-muted-foreground/60"> · Modified</span>}</span>
+                                  <span className={`tabular-nums shrink-0 ${delta >= 0 ? "text-orange-600" : "text-red-600"}`}>{delta >= 0 ? "+" : ""}{fmt(delta)}</span>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                        <Separator className="my-1" />
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Final Proposal Fees</p>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>Subtotal</span>
+                          <span className="tabular-nums">{fmt(sub)}</span>
+                        </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Discount</span>
+                            <span className="tabular-nums text-green-700">−{fmt(discount)}</span>
+                          </div>
+                        )}
+                        {bad > 0 && (
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Base, Aggregate &amp; Disposal</span>
+                            <span className="tabular-nums">{fmt(bad)}</span>
+                          </div>
+                        )}
+                        {tax > 0 && (
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Sales Tax</span>
+                            <span className="tabular-nums">{fmt(tax)}</span>
+                          </div>
+                        )}
+                        {stripeFee > 0 && (
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>CC Processing Fee</span>
+                            <span className="tabular-nums">{fmt(stripeFee)}</span>
+                          </div>
+                        )}
+                        <Separator className="my-1" />
+                      </>
+                    );
+                  })()}
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums">{fmt(liveSubtotal)}</span>
+                  </div>
+                  {liveBad > 0 && (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">Base, Aggregate &amp; Disposal{liveBad !== originalBad && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
+                      <span className="tabular-nums">{fmt(liveBad)}</span>
+                    </div>
+                  )}
+                  {liveTax > 0 && (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">Sales Tax{liveTax !== originalTax && <span className="text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
+                      <span className="tabular-nums">{fmt(liveTax)}</span>
+                    </div>
+                  )}
+                </>
               )}
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Original Contract Total</span>
-                <span className="tabular-nums">{fmt(originalTotal)}</span>
+                <span className="tabular-nums">{fmt(displayOriginalTotal)}</span>
               </div>
-              <div className={`flex justify-between text-sm font-medium ${coImpact >= 0 ? "text-green-700" : "text-red-600"}`}>
+              <div className={`flex justify-between text-sm font-medium ${displayCoImpact >= 0 ? "text-green-700" : "text-red-600"}`}>
                 <span>Change Order Impact</span>
-                <span className="tabular-nums">{coImpact >= 0 ? "+" : ""}{fmt(coImpact)}</span>
+                <span className="tabular-nums">{displayCoImpact >= 0 ? "+" : ""}{fmt(displayCoImpact)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-bold text-base">
                 <span>New Contract Total</span>
-                <span className="tabular-nums text-primary">{fmt(newTotal)}</span>
+                <span className="tabular-nums text-primary">{fmt(displayNewTotal)}</span>
               </div>
             </div>
           </div>
@@ -1354,23 +1450,23 @@ export function ChangeOrderBuilder() {
                     <div className="px-4 py-2 bg-muted/20 space-y-1">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>Subtotal</span>
-                        <span className="tabular-nums">{fmt(liveSubtotal)}</span>
+                        <span className="tabular-nums">{fmt(isMerged ? (proposal?.subtotal ?? liveSubtotal) : liveSubtotal)}</span>
                       </div>
-                      {liveBad > 0 && (
+                      {(isMerged ? (proposal?.bad_amount ?? 0) > 0 : liveBad > 0) && (
                         <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>BAD{liveBad !== originalBad && <span className="ml-1 text-[10px] px-1 rounded bg-yellow-100 text-yellow-700 font-medium">updated</span>}</span>
-                          <span className="tabular-nums">{fmt(liveBad)}</span>
+                          <span>BAD</span>
+                          <span className="tabular-nums">{fmt(isMerged ? (proposal?.bad_amount ?? liveBad) : liveBad)}</span>
                         </div>
                       )}
-                      {liveTax > 0 && (
+                      {(isMerged ? (proposal?.tax_amount ?? 0) > 0 : liveTax > 0) && (
                         <div className="flex justify-between text-xs text-muted-foreground">
                           <span>Sales Tax</span>
-                          <span className="tabular-nums">{fmt(liveTax)}</span>
+                          <span className="tabular-nums">{fmt(isMerged ? (proposal?.tax_amount ?? liveTax) : liveTax)}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm font-semibold pt-1 border-t">
                         <span>New Total</span>
-                        <span className="tabular-nums text-primary">{fmt(newTotal)}</span>
+                        <span className="tabular-nums text-primary">{fmt(displayNewTotal)}</span>
                       </div>
                     </div>
                   </div>
@@ -1410,6 +1506,18 @@ export function ChangeOrderBuilder() {
             newTotal={isMerged && existingCO?.post_merge_total != null
               ? Number(existingCO.post_merge_total)
               : (originalTotal ? newTotal : undefined)}
+            modificationsDisplay={Object.values(modifications).map((mod: any) => {
+              const li = (proposal?.line_items ?? []).find((l: any) => l.id === mod.estimate_item_id);
+              const delta = mod.action === "delete"
+                ? -Number(mod.original_total ?? 0)
+                : Number(mod.total_price ?? 0) - Number(mod.original_total ?? 0);
+              return {
+                name: li?.product_name ?? "Existing item",
+                action: mod.action,
+                category: li?.category ?? null,
+                delta: isNaN(delta) ? 0 : delta,
+              };
+            })}
           />
         </div>
       </div>

@@ -52,6 +52,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
   const [selectedCo, setSelectedCo] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [acceptedProposal, setAcceptedProposal] = useState<any>(null);
+  const [proposalLineItemsMap, setProposalLineItemsMap] = useState<Record<string, { name: string; category: string | null }>>({});
   const [merging, setMerging] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [mergedTotal, setMergedTotal] = useState<number | null>(null);
@@ -99,6 +100,17 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
     try {
       const proposal = await estimatesAPI.getAccepted(client.id);
       setAcceptedProposal(proposal);
+      if (proposal?.id) {
+        const { data: liRows } = await supabase
+          .from("estimate_line_items")
+          .select("id, product_name, category")
+          .eq("estimate_id", proposal.id);
+        const map: Record<string, { name: string; category: string | null }> = {};
+        for (const row of (liRows ?? [])) {
+          map[row.id] = { name: row.product_name ?? "Existing item", category: row.category ?? null };
+        }
+        setProposalLineItemsMap(map);
+      }
     } catch {
       // non-fatal
     }
@@ -587,9 +599,18 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                                 <div className="text-xs text-muted-foreground">{formatDate(co.created_at)}</div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className={`text-sm font-bold shrink-0 ${(co.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                  {(co.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(co.cost_impact || 0)}
+                                {(() => {
+                                  const ni = (co.original_total != null && co.new_total != null)
+                                    ? Number(co.new_total) - Number(co.original_total)
+                                    : (co.pre_merge_total != null && co.post_merge_total != null)
+                                      ? Number(co.post_merge_total) - Number(co.pre_merge_total)
+                                      : Number(co.cost_impact || 0);
+                                  return (
+                                <span className={`text-sm font-bold shrink-0 ${ni >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                  {ni >= 0 ? "+" : ""}{formatCurrency(ni)}
                                 </span>
+                                  );
+                                })()}
                                 {role === "admin" && co.status !== "merged" && (
                                   <button
                                     className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
@@ -825,7 +846,18 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
             )}
 
             {/* ── DETAIL VIEW ── */}
-            {view === "detail" && selectedCo && (
+            {view === "detail" && selectedCo && (() => {
+              const coNetImpact = (selectedCo.original_total != null && selectedCo.new_total != null)
+                ? Number(selectedCo.new_total) - Number(selectedCo.original_total)
+                : (selectedCo.pre_merge_total != null && selectedCo.post_merge_total != null)
+                  ? Number(selectedCo.post_merge_total) - Number(selectedCo.pre_merge_total)
+                  : Number(selectedCo.cost_impact || 0);
+              const coRevisedTotal = (selectedCo.new_total != null)
+                ? Number(selectedCo.new_total)
+                : (selectedCo.post_merge_total != null)
+                  ? Number(selectedCo.post_merge_total)
+                  : contractAmount + Number(selectedCo.cost_impact || 0);
+              return (
               <div className="p-6 space-y-5">
                 {/* Status buttons */}
                 <div className="flex flex-wrap gap-2">
@@ -905,8 +937,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                       ))}
                       <div className="px-3 py-3 border-t bg-muted/30 flex justify-between">
                         <span className="text-sm font-semibold">Total Cost Impact</span>
-                        <span className={`text-sm font-bold ${(selectedCo.cost_impact || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}
+                        <span className={`text-sm font-bold ${coNetImpact >= 0 ? "text-green-600" : "text-red-600"}`}>
+                          {coNetImpact >= 0 ? "+" : ""}{formatCurrency(coNetImpact)}
                         </span>
                       </div>
                     </div>
@@ -914,10 +946,10 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                 )}
 
                 {/* Contract update */}
-                {contractAmount > 0 && selectedCo.cost_impact != null && selectedCo.status !== "merged" && (
+                {contractAmount > 0 && selectedCo.status !== "merged" && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-blue-900">
-                      <strong>Contract Update:</strong> {formatCurrency(contractAmount)} → <strong>{formatCurrency(contractAmount + (selectedCo.cost_impact || 0))}</strong> if approved.
+                      <strong>Contract Update:</strong> {formatCurrency(contractAmount)} → <strong>{formatCurrency(coRevisedTotal)}</strong> if approved.
                     </p>
                   </div>
                 )}
@@ -929,7 +961,7 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
                       <p className="text-sm font-semibold text-green-800">Ready to Merge</p>
                       <p className="text-xs text-green-700 mt-0.5">
                         Adds line items to the approved proposal and updates the contract total by{" "}
-                        <strong>{(selectedCo.cost_impact || 0) >= 0 ? "+" : ""}{formatCurrency(selectedCo.cost_impact || 0)}</strong>.
+                        <strong>{coNetImpact >= 0 ? "+" : ""}{formatCurrency(coNetImpact)}</strong>.
                         You'll then update the payment schedule.
                       </p>
                     </div>
@@ -984,7 +1016,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
 
                 <p className="text-xs text-muted-foreground">Created {formatDate(selectedCo.created_at)}</p>
               </div>
-            )}
+              );
+            })()}
 
             {/* ── EDIT VIEW (draft only) ── */}
             {view === "edit" && selectedCo && (
@@ -1279,8 +1312,28 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
             <ChangeOrderExport
               co={selectedCo}
               client={client}
-              originalTotal={contractAmount || undefined}
-              newTotal={contractAmount && selectedCo.cost_impact ? contractAmount + selectedCo.cost_impact : undefined}
+              originalTotal={
+                selectedCo.original_total != null ? Number(selectedCo.original_total) :
+                selectedCo.pre_merge_total != null ? Number(selectedCo.pre_merge_total) :
+                (contractAmount || undefined)
+              }
+              newTotal={
+                selectedCo.new_total != null ? Number(selectedCo.new_total) :
+                selectedCo.post_merge_total != null ? Number(selectedCo.post_merge_total) :
+                (contractAmount && selectedCo.cost_impact ? contractAmount + selectedCo.cost_impact : undefined)
+              }
+              modificationsDisplay={(Array.isArray(selectedCo.modifications) ? selectedCo.modifications : []).map((m: any) => {
+                const li = proposalLineItemsMap[m.estimate_item_id];
+                const delta = m.action === "delete"
+                  ? -Number(m.original_total ?? 0)
+                  : Number(m.total_price ?? 0) - Number(m.original_total ?? 0);
+                return {
+                  name: li?.name ?? "Existing item",
+                  action: m.action,
+                  category: li?.category ?? null,
+                  delta: isNaN(delta) ? 0 : delta,
+                };
+              })}
             />
           )}
         </div>

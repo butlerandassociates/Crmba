@@ -95,6 +95,16 @@ export interface PortalChangeOrderItem {
   sort_order: number;
 }
 
+export interface PortalChangeOrderModification {
+  name: string;
+  action: "edit" | "delete";
+  category: string | null;
+  unit: string | null;
+  quantity: number;
+  unit_price: number;
+  delta: number;
+}
+
 export interface PortalChangeOrder {
   id: string;
   title: string;
@@ -110,6 +120,7 @@ export interface PortalChangeOrder {
   original_total: number | null;
   new_total: number | null;
   items: PortalChangeOrderItem[];
+  modifications_display: PortalChangeOrderModification[];
 }
 
 export interface PortalProposalLineItem {

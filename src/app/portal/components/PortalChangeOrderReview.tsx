@@ -68,6 +68,11 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v);
   const originalContractTotal = changeOrder.original_total ?? projectTotal;
   const revisedTotal = changeOrder.new_total ?? (projectTotal + changeOrder.cost_impact);
+  // True net impact = new_total - original_total (accounts for modifications to existing items)
+  // Falls back to cost_impact if snapshots not stored (old COs)
+  const netImpact = (changeOrder.original_total !== null && changeOrder.new_total !== null)
+    ? changeOrder.new_total - changeOrder.original_total
+    : changeOrder.cost_impact;
 
   const handleApprove = () => setShowSignature(true);
 
@@ -188,7 +193,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
               </CardHeader>
               <CardContent className="pt-0">
                 <div className={`text-2xl font-bold ${isApproved ? "text-green-600" : "text-orange-600"}`}>
-                  {changeOrder.cost_impact >= 0 ? "+" : ""}{fmt(changeOrder.cost_impact)}
+                  {netImpact >= 0 ? "+" : ""}{fmt(netImpact)}
                 </div>
               </CardContent>
             </Card>
@@ -205,7 +210,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
           </div>
 
           {/* Line items */}
-          {changeOrder.items.length > 0 && (
+          {(changeOrder.items.length > 0 || changeOrder.modifications_display?.length > 0) && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg" style={{ fontFamily: "Lato, sans-serif" }}>Cost Breakdown</CardTitle>
@@ -231,11 +236,23 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                           <td className="p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.total)}</td>
                         </tr>
                       ))}
+                      {(changeOrder.modifications_display ?? []).map((mod, idx) => (
+                        <tr key={`mod-${idx}`} className="hover:bg-gray-50">
+                          <td className="p-3 lg:p-4">
+                            <div className="text-sm font-medium">{mod.name}</div>
+                            <div className="text-xs text-gray-400">{[mod.category, mod.action === "delete" ? "Removed" : "Modified"].filter(Boolean).join(" · ")}</div>
+                          </td>
+                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{fmt(mod.unit_price)}</td>
+                          <td className={`p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap ${mod.delta >= 0 ? "text-orange-600" : "text-green-700"}`}>
+                            {mod.delta >= 0 ? "+" : ""}{fmt(mod.delta)}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                     <tfoot className="border-t-2 bg-gray-50">
                       <tr>
                         <td colSpan={2} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
-                        <td className="p-3 lg:p-4 text-right text-lg font-black whitespace-nowrap">{fmt(changeOrder.cost_impact)}</td>
+                        <td className="p-3 lg:p-4 text-right text-lg font-black whitespace-nowrap">{netImpact >= 0 ? "+" : ""}{fmt(netImpact)}</td>
                       </tr>
                     </tfoot>
                   </table>
