@@ -2748,7 +2748,7 @@ export function ClientDetail() {
               <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
               <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
             </button>
-            {can("can_view_admin_portal") && (
+            {(can("can_view_admin_portal") || can("can_edit_clients")) && (
               <button onClick={handleOpenPortalDialog} className={tileClass}>
                 <div className="h-9 w-9 rounded-lg bg-sky-50 border border-sky-200 flex items-center justify-center shrink-0"><Globe className="h-5 w-5 text-sky-600" /></div>
                 <div><p className="font-semibold text-sm">Client Portal</p><p className="text-xs text-muted-foreground">Generate client link</p></div>
@@ -3459,38 +3459,6 @@ export function ClientDetail() {
                   const { data: { user } } = await supabase.auth.getUser();
                   const updated = await projectPaymentsAPI.update(markPaidOpen.id, { is_paid: true, paid_date: paidForm.paid_date || new Date().toISOString().split("T")[0], payment_method: paidForm.payment_method || null, notes: paidForm.notes || null, paid_by: user?.id ?? null });
                   setClientPayments((prev) => prev.map((p) => p.id === markPaidOpen.id ? { ...p, ...updated } : p));
-
-                  // Auto-create pending commission entries for PM and Sales Rep
-                  const project = clientProjects[0];
-                  if (project?.id) {
-                    const { data: proj } = await supabase
-                      .from("projects")
-                      .select("id, project_manager_id, sales_rep_id, pm:profiles!projects_project_manager_id_fkey(commission_rate), sales_rep:profiles!projects_sales_rep_id_fkey(commission_rate)")
-                      .eq("id", project.id)
-                      .maybeSingle();
-                    const milestoneAmt = parseFloat(markPaidOpen.amount) || 0;
-                    if (proj?.project_manager_id && (proj.pm as any)?.commission_rate > 0) {
-                      const pmAmt = milestoneAmt * ((proj.pm as any).commission_rate / 100);
-                      commissionPaymentsAPI.createFromProgressPayment(proj.id, markPaidOpen.id, proj.project_manager_id, pmAmt).catch(() => {});
-                    }
-                    if (proj?.sales_rep_id && (proj.sales_rep as any)?.commission_rate > 0) {
-                      const repAmt = milestoneAmt * ((proj.sales_rep as any).commission_rate / 100);
-                      commissionPaymentsAPI.createFromProgressPayment(proj.id, markPaidOpen.id, proj.sales_rep_id, repAmt).catch(() => {});
-                    }
-                    // Notification H — tell PM/Sales Rep they earned commission (skip on deposit milestone)
-                    if (!markPaidOpen.is_deposit) {
-                      const fmtComm = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-                      const projName = (project as any)?.name ?? "Project";
-                      if (proj?.project_manager_id && (proj.pm as any)?.commission_rate > 0) {
-                        const pmCommAmt = milestoneAmt * ((proj.pm as any).commission_rate / 100);
-                        notificationsAPI.create({ type: "commission_earned", title: "Commission Earned", message: `You earned ${fmtComm(pmCommAmt)} commission for ${projName} — ${markPaidOpen.label}`, recipient_id: proj.project_manager_id }).catch(() => {});
-                      }
-                      if (proj?.sales_rep_id && (proj.sales_rep as any)?.commission_rate > 0) {
-                        const repCommAmt = milestoneAmt * ((proj.sales_rep as any).commission_rate / 100);
-                        notificationsAPI.create({ type: "commission_earned", title: "Commission Earned", message: `You earned ${fmtComm(repCommAmt)} commission for ${projName} — ${markPaidOpen.label}`, recipient_id: proj.sales_rep_id }).catch(() => {});
-                      }
-                    }
-                  }
 
                   setMarkPaidOpen(null);
                   activityLogAPI.create({ client_id: id!, action_type: "payment_received", description: `Payment marked as paid: ${markPaidOpen.label}${markPaidOpen.amount ? ` — $${Number(markPaidOpen.amount).toLocaleString()}` : ""}` }).then(loadActivityLog).catch(() => {});

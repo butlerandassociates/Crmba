@@ -124,7 +124,6 @@ export function Payroll() {
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
 
-    // Group by profile
     const byPM: Record<string, any> = {};
     (data ?? []).forEach((cp: any) => {
       const pmId = cp.profile?.id;

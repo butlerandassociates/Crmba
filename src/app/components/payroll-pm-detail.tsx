@@ -5,7 +5,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { ArrowLeft, TrendingUp, Clock, DollarSign, Edit2, Check, X, Loader2, Trash2, ChevronDown, ChevronUp, Plus, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, TrendingUp, Clock, DollarSign, Edit2, Check, X, Loader2, Trash2, ChevronDown, ChevronUp, Plus, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
@@ -21,6 +21,7 @@ export function PayrollPMDetail() {
   const [loading, setLoading] = useState(true);
   const [pm, setPm] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
+  const [pmProjects, setPmProjects] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
@@ -35,7 +36,6 @@ export function PayrollPMDetail() {
   const [expandedPayoutHistory, setExpandedPayoutHistory] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteInstallmentTarget, setDeleteInstallmentTarget] = useState<any>(null);
-  const [projectedCommission, setProjectedCommission] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -58,27 +58,16 @@ export function PayrollPMDetail() {
       if (profile?.role === "sales_rep") {
         const { data: repProjects } = await supabase
           .from("projects")
-          .select("gross_profit, sales_rep_commission_rate")
+          .select("id, name, gross_profit, sales_rep_commission_rate, total_value, client_id, client:clients(id, first_name, last_name)")
           .eq("sales_rep_id", id!);
-        const projected = (repProjects ?? []).reduce((s: number, p: any) => {
-          const rate = Number(p.sales_rep_commission_rate) || Number(profile?.commission_rate) || 0;
-          return s + (Number(p.gross_profit) || 0) * (rate / 100);
-        }, 0);
-        setProjectedCommission(projected);
-      } else {
-        const { data: pmProjects } = await supabase
-          .from("projects")
-          .select("commission")
-          .eq("project_manager_id", id!);
-        const projected = (pmProjects ?? []).reduce((s: number, p: any) =>
-          s + (Number(p.commission) || 0), 0);
-        setProjectedCommission(projected);
-      }
-
-      if (profile?.role === "sales_rep") {
+        setPmProjects(repProjects ?? []);
         commissionPaymentsAPI.reconcileForSalesRep(id!).catch(() => {});
       } else {
-        commissionPaymentsAPI.reconcileForPM(id!).catch(() => {});
+        const { data: pmProjectsList } = await supabase
+          .from("projects")
+          .select("id, name, gross_profit, total_value, client_id, client:clients(id, first_name, last_name)")
+          .eq("project_manager_id", id!);
+        setPmProjects(pmProjectsList ?? []);
       }
     } finally {
       setLoading(false);
@@ -124,7 +113,6 @@ export function PayrollPMDetail() {
       toast.success(`${fmt(amount)} payout recorded`);
       setPayoutAmounts(prev => { const next = { ...prev }; delete next[projectId]; return next; });
       setPayoutNotesByProject(prev => { const next = { ...prev }; delete next[projectId]; return next; });
-      setExpandedAddPayment(prev => ({ ...prev, [projectId]: false }));
       loadData();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payout");
@@ -158,7 +146,7 @@ export function PayrollPMDetail() {
         </div>
         <SkeletonCards count={3} />
         <SkeletonList rows={4} />
-        <PageLoader title="Loading commission details…" description="Fetching installments, project GP & processed payments" className="min-h-[6vh]" />
+        <PageLoader title="Loading commission details…" description="Fetching projects, GP & processed payments" className="min-h-[6vh]" />
       </div>
     );
   }
@@ -175,26 +163,51 @@ export function PayrollPMDetail() {
   }
 
   const name = `${pm.first_name ?? ""} ${pm.last_name ?? ""}`.trim() || "—";
-
-  const milestoneInstallments = installments.filter(i => i.payout_type !== "manual_payout");
+  const isPM = pm.role !== "sales_rep";
   const manualPayouts = installments.filter(i => i.payout_type === "manual_payout");
 
+  // ── PM path: GP × rate per project ──────────────────────────────────
+  const pmRate = Number(pm.commission_rate) || 0;
+  const pmGroups = isPM ? pmProjects.map((proj: any) => {
+    const gp = Number(proj.gross_profit) || 0;
+    const commissionTotal = gp * (pmRate / 100);
+    const projPayouts = manualPayouts.filter((p: any) => p.project_id === proj.id);
+    const paid = projPayouts.reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
+    const remaining = Math.max(0, commissionTotal - paid);
+    const pct = commissionTotal > 0 ? Math.min(100, (paid / commissionTotal) * 100) : 0;
+    return { project: proj, gp, commissionTotal, paid, remaining, pct, projPayouts };
+  }) : [];
+
+  const pmTotalOwed = pmGroups.reduce((s, g) => s + g.commissionTotal, 0);
+  const pmTotalPaid = pmGroups.reduce((s, g) => s + g.paid, 0);
+  const pmTotalRemaining = Math.max(0, pmTotalOwed - pmTotalPaid);
+
+  const filteredPmGroups = searchQuery.trim()
+    ? pmGroups.filter(g => {
+        const q = searchQuery.toLowerCase();
+        const projName = (g.project?.name ?? "").toLowerCase();
+        const clientName = (g.project?.client
+          ? `${g.project.client.first_name ?? ""} ${g.project.client.last_name ?? ""}`.trim()
+          : "").toLowerCase();
+        return projName.includes(q) || clientName.includes(q);
+      })
+    : pmGroups;
+
+  // ── Sales Rep path: milestone-based (unchanged) ──────────────────────
+  const milestoneInstallments = installments.filter(i => i.payout_type !== "manual_payout");
   const pendingInstallments = milestoneInstallments.filter(i => i.status === "pending");
   const totalPending = pendingInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const totalPaidOut = manualPayouts.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const totalEarned = milestoneInstallments.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
 
-  // Group all milestone installments by project, augmented with per-project payout data
-  const byProject: Record<string, any> = {};
+  const repByProject: Record<string, any> = {};
   milestoneInstallments.forEach((i: any) => {
     const pid = i.project?.id ?? "unknown";
-    if (!byProject[pid]) {
-      byProject[pid] = { project: i.project, items: [] };
-    }
-    byProject[pid].items.push(i);
+    if (!repByProject[pid]) repByProject[pid] = { project: i.project, items: [] };
+    repByProject[pid].items.push(i);
   });
 
-  const allGroups = Object.values(byProject).map((group: any) => {
+  const repGroups = Object.values(repByProject).map((group: any) => {
     const proj = group.project;
     const owed = group.items
       .filter((i: any) => i.status === "pending")
@@ -206,26 +219,24 @@ export function PayrollPMDetail() {
     return { ...group, owed, paid, remaining, pct, projPayouts };
   });
 
-  const filterCounts = {
-    all: allGroups.length,
-    pending: allGroups.filter(g => g.items.some((i: any) => i.status === "pending")).length,
-    paid: allGroups.filter(g => g.items.some((i: any) => i.status === "processed")).length,
+  const repFilterCounts = {
+    all: repGroups.length,
+    pending: repGroups.filter(g => g.items.some((i: any) => i.status === "pending")).length,
+    paid: repGroups.filter(g => g.items.some((i: any) => i.status === "processed")).length,
   };
-  const filterPassedGroups = filter === "all" ? allGroups
-    : filter === "pending" ? allGroups.filter(g => g.items.some((i: any) => i.status === "pending"))
-    : allGroups.filter(g => g.items.some((i: any) => i.status === "processed"));
-
-  const filteredGroups = searchQuery.trim()
-    ? filterPassedGroups.filter(g => {
+  const repBaseGroups = filter === "all" ? repGroups
+    : filter === "pending" ? repGroups.filter(g => g.items.some((i: any) => i.status === "pending"))
+    : repGroups.filter(g => g.items.some((i: any) => i.status === "processed"));
+  const repFilteredGroups = searchQuery.trim()
+    ? repBaseGroups.filter(g => {
         const q = searchQuery.toLowerCase();
         const projName = (g.project?.name ?? "").toLowerCase();
         const clientName = (g.project?.client
           ? `${g.project.client.first_name ?? ""} ${g.project.client.last_name ?? ""}`.trim()
-          : ""
-        ).toLowerCase();
+          : "").toLowerCase();
         return projName.includes(q) || clientName.includes(q);
       })
-    : filterPassedGroups;
+    : repBaseGroups;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -261,461 +272,637 @@ export function PayrollPMDetail() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className={`grid gap-4 ${projectedCommission > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
-        {projectedCommission > 0 && (
+      {/* ── PM Summary Cards ─────────────────────────────────────────── */}
+      {isPM && (
+        <div className="grid gap-4 grid-cols-3">
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Projected Total</p>
-                  <p className="text-xl font-bold text-purple-600">{fmtShort(projectedCommission)}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of GP</p>
+                  <p className="text-xs text-muted-foreground mb-1">Commission Owed</p>
+                  <p className="text-xl font-bold text-purple-600">{fmtShort(pmTotalOwed)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{pmRate}% of GP across {pmGroups.length} project{pmGroups.length !== 1 ? "s" : ""}</p>
                 </div>
                 <TrendingUp className="h-7 w-7 text-purple-500 opacity-60" />
               </div>
             </CardContent>
           </Card>
-        )}
-        <Card>
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Pending</p>
-                <p className="text-xl font-bold text-yellow-600">{fmtShort(totalPending)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{pendingInstallments.length} installment{pendingInstallments.length !== 1 ? "s" : ""}</p>
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Paid Out</p>
+                  <p className="text-xl font-bold text-green-600">{fmtShort(pmTotalPaid)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{manualPayouts.length} payout{manualPayouts.length !== 1 ? "s" : ""} recorded</p>
+                </div>
+                <DollarSign className="h-7 w-7 text-green-500 opacity-60" />
               </div>
-              <Clock className="h-7 w-7 text-yellow-500 opacity-60" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Paid</p>
-                <p className="text-xl font-bold text-green-600">{fmtShort(totalPaidOut)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{manualPayouts.length} payout{manualPayouts.length !== 1 ? "s" : ""} recorded</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Remaining</p>
+                  <p className={`text-xl font-bold ${pmTotalRemaining > 0 ? "text-amber-600" : "text-green-600"}`}>{fmtShort(pmTotalRemaining)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{pmTotalRemaining > 0 ? "Balance due" : "Fully paid out"}</p>
+                </div>
+                <Clock className="h-7 w-7 text-amber-500 opacity-60" />
               </div>
-              <DollarSign className="h-7 w-7 text-green-500 opacity-60" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Total Earned</p>
-                <p className="text-xl font-bold">{fmtShort(totalEarned)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{milestoneInstallments.length} total installment{milestoneInstallments.length !== 1 ? "s" : ""}</p>
-              </div>
-              <TrendingUp className="h-7 w-7 text-primary opacity-60" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Commission Installments by Project */}
-      {milestoneInstallments.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
-            <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
-            <p className="text-sm font-medium">No commission installments yet</p>
-            <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
-          </CardContent>
-        </Card>
-      ) : (<>
-
-        {/* Filter tabs */}
-        <div className="flex gap-2 border-b">
-          {(["all", "pending", "paid"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors capitalize ${
-                filter === f
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f === "paid" ? "Paid" : f === "pending" ? "Pending" : "All"}
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">({filterCounts[f]})</span>
-            </button>
-          ))}
+            </CardContent>
+          </Card>
         </div>
+      )}
 
-        {filteredGroups.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
-            {searchQuery.trim() ? (
-              <>
-                <Search className="h-10 w-10 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No results for "{searchQuery}"</p>
-                <p className="text-xs mt-1">Try a different project or client name.</p>
-              </>
-            ) : filter === "pending" ? (
-              <>
-                <Clock className="h-10 w-10 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No pending commissions</p>
-                <p className="text-xs mt-1">All installments have been paid out.</p>
-              </>
-            ) : filter === "paid" ? (
-              <>
-                <DollarSign className="h-10 w-10 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No paid commissions yet</p>
-                <p className="text-xs mt-1">Payouts will appear here once recorded.</p>
-              </>
-            ) : (
-              <>
+      {/* ── Sales Rep Summary Cards ───────────────────────────────────── */}
+      {!isPM && (
+        <div className="grid gap-4 grid-cols-3">
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Pending</p>
+                  <p className="text-xl font-bold text-yellow-600">{fmtShort(totalPending)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{pendingInstallments.length} installment{pendingInstallments.length !== 1 ? "s" : ""}</p>
+                </div>
+                <Clock className="h-7 w-7 text-yellow-500 opacity-60" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Paid</p>
+                  <p className="text-xl font-bold text-green-600">{fmtShort(totalPaidOut)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{manualPayouts.length} payout{manualPayouts.length !== 1 ? "s" : ""} recorded</p>
+                </div>
+                <DollarSign className="h-7 w-7 text-green-500 opacity-60" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Total Earned</p>
+                  <p className="text-xl font-bold">{fmtShort(totalEarned)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{milestoneInstallments.length} total installment{milestoneInstallments.length !== 1 ? "s" : ""}</p>
+                </div>
+                <TrendingUp className="h-7 w-7 text-primary opacity-60" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── PM Project Cards ─────────────────────────────────────────── */}
+      {isPM && (
+        <>
+          {pmGroups.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
                 <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No commission installments</p>
-                <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
-              </>
-            )}
-          </div>
-        )}
-
-        {filteredGroups.map((group: any) => {
-          const proj = group.project;
-          const clientName = proj?.client
-            ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
-            : "—";
-          const gpTotal = parseFloat(proj?.gross_profit) || 0;
-          const commissionTotal = group.items.reduce((s: number, i: any) => s + (parseFloat(i.amount) || 0), 0);
-          const { owed, paid, remaining, pct, projPayouts } = group;
-          const isAddPaymentOpen = !!expandedAddPayment[proj?.id];
-          const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
-          const inputAmt = payoutAmounts[proj?.id] ?? "";
-          const inputNote = payoutNotesByProject[proj?.id] ?? "";
-          const isSaving = savingProjectId === proj?.id;
-
-          return (
-            <Card key={proj?.id ?? "unknown"}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-base">{proj?.name ?? "Unknown Project"}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
-                  </div>
-                  {proj?.client_id && (
-                    <Link
-                      to={`/clients/${proj.client_id}`}
-                      className="text-xs text-primary hover:opacity-80 no-underline"
-                    >
-                      View Client →
-                    </Link>
-                  )}
-                </div>
-
-                {/* GP + Commission */}
-                {gpTotal > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    GP: <span className="font-semibold text-foreground">{fmtShort(gpTotal)}</span>
-                    &nbsp;·&nbsp;
-                    Commission: <span className="font-semibold text-foreground">{fmtShort(commissionTotal)}</span>
-                  </p>
-                )}
-
-                {/* Per-project payout summary */}
-                {owed > 0 && (
-                  <div className="mt-3 space-y-1.5">
-                    <div className="flex items-center gap-3 text-sm flex-wrap">
-                      <span className="text-muted-foreground">Owed <span className="font-semibold text-foreground">{fmt(owed)}</span></span>
-                      <span className="text-muted-foreground">·</span>
-                      <span className="text-green-700">Paid <span className="font-semibold">{fmt(paid)}</span></span>
-                      <span className="text-muted-foreground">·</span>
-                      <span className={remaining > 0 ? "text-amber-600" : "text-green-700"}>
-                        Remaining <span className="font-semibold">{fmt(remaining)}</span>
-                      </span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-green-500" : "bg-primary"}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">{pct.toFixed(0)}% paid out</p>
-                  </div>
-                )}
-              </CardHeader>
-
-              <CardContent className="pt-0">
-                {/* Installment rows */}
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/50 border-b">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Installment</th>
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Source</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Total Projected Commission</th>
-                        <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
-                        <th className="py-2 px-3" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((item: any, idx: number) => {
-                        const pp = item.progress_payment;
-                        const isEditing = editingId === item.id;
-                        const isProcessing = processing === item.id;
-                        return (
-                          <tr key={item.id} className={`border-b last:border-0 ${idx % 2 === 1 ? "bg-muted/20" : ""}`}>
-                            <td className="py-2.5 px-3 font-medium">
-                              {pp?.label ?? `Installment ${idx + 1}`}
-                              {pp?.percentage && <span className="text-xs text-muted-foreground ml-1">({pp.percentage}%)</span>}
-                            </td>
-                            <td className="py-2.5 px-3 text-xs">
-                              <span className="text-blue-600">
-                                {pm.commission_rate}% of GP {fmtShort(gpTotal)}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-semibold">
-                              {isEditing ? (
-                                <div className="flex items-center gap-1 justify-end">
-                                  <span className="text-muted-foreground">$</span>
-                                  <Input
-                                    type="number"
-                                    value={editAmount}
-                                    onChange={(e) => setEditAmount(e.target.value)}
-                                    className="h-7 w-24 text-right text-sm"
-                                    autoFocus
-                                  />
-                                </div>
-                              ) : (
-                                <span className="text-green-700">{fmt(parseFloat(item.amount) || 0)}</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                item.status === "processed"
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-yellow-100 text-yellow-700"
-                              }`}>
-                                {item.status === "processed" ? "Paid" : "Pending"}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-xs text-muted-foreground">
-                              {item.status === "processed" && item.processed_date
-                                ? new Date(item.processed_date.includes("T") ? item.processed_date : `${item.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                                : item.created_at
-                                ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                                : "—"}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <div className="flex items-center gap-1 justify-end">
-                                {isEditing ? (
-                                  <>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6"
-                                      disabled={isProcessing}
-                                      onClick={() => handleSaveAmount(item.id)}
-                                    >
-                                      {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6"
-                                      onClick={() => setEditingId(null)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <>
-                                    {item.status === "pending" && (
-                                      <>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="h-6 w-6"
-                                          title="Edit amount"
-                                          onClick={() => { setEditingId(item.id); setEditAmount(String(parseFloat(item.amount) || 0)); }}
-                                        >
-                                          <Edit2 className="h-3 w-3 text-muted-foreground" />
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                          disabled={isProcessing}
-                                          onClick={() => setDeleteInstallmentTarget(item)}
-                                          title="Remove incorrect installment"
-                                        >
-                                          <X className="h-3 w-3" />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* GP Correction flag */}
-                {gpTotal > 0 && (pm.commission_rate ?? 0) > 0 && (() => {
-                  const expectedCommission = gpTotal * ((pm.commission_rate ?? 0) / 100);
-                  const delta = expectedCommission - commissionTotal;
-                  if (Math.abs(delta) < 0.01) return null;
-                  const overpaid = delta < 0;
-                  return (
-                    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                      <div className="text-xs">
-                        <p className="font-semibold text-amber-800">Commission Correction Needed</p>
-                        <p className="text-amber-700 mt-0.5">
-                          Based on current GP of {fmtShort(gpTotal)}, expected total commission is {fmtShort(expectedCommission)}.{" "}
-                          {overpaid
-                            ? `Overpaid by ${fmtShort(Math.abs(delta))} — adjust installments down.`
-                            : `Underpaid by ${fmtShort(delta)} — adjust installments up.`
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Footer: + Add Payment | ▼ Payout History */}
-                {owed > 0 && (
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                    <div>
-                      {remaining > 0 ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs gap-1.5"
-                          onClick={() => setExpandedAddPayment(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
-                        >
-                          {isAddPaymentOpen ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                          {isAddPaymentOpen ? "Cancel" : "Add Payment"}
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-green-700 font-medium">Fully paid out</span>
-                      )}
-                    </div>
-                    {projPayouts.length > 0 && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 text-xs gap-1.5 text-muted-foreground"
-                        onClick={() => setExpandedPayoutHistory(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
-                      >
-                        {isHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        Payout History ({projPayouts.length})
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {/* Add Payment form (collapsible) */}
-                {isAddPaymentOpen && remaining > 0 && (
-                  <div className="mt-3 border rounded-lg p-3 bg-muted/20 space-y-2.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {[25, 50, 75, 100].map(pct => {
-                        const val = ((owed * pct) / 100).toFixed(2);
-                        return (
-                          <Button
-                            key={pct}
-                            size="sm"
-                            variant="outline"
-                            className="text-xs h-7 px-2.5"
-                            onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
-                          >
-                            {pct}%
-                            <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
-                          </Button>
-                        );
-                      })}
-                      <div className="flex items-center gap-2 ml-auto">
-                        <Input
-                          type="number"
-                          placeholder="Amount"
-                          value={inputAmt}
-                          onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
-                          className="h-7 w-24 text-sm text-right"
-                          autoFocus
-                        />
-                        <Input
-                          placeholder="Notes (optional)"
-                          value={inputNote}
-                          onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
-                          className="h-7 w-36 text-sm"
-                        />
-                        <Button
-                          size="sm"
-                          disabled={isSaving || !(parseFloat(inputAmt) > 0)}
-                          className="h-7 min-w-[72px] flex items-center justify-center"
-                          onClick={() => handleRecordProjectPayout(proj.id)}
-                        >
-                          {isSaving
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <span>Record</span>
-                          }
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Payout History (collapsible) */}
-                {isHistoryOpen && projPayouts.length > 0 && (
-                  <div className="mt-3 border rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/50 border-b">
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
-                          <th className="py-2 px-3 w-8" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {projPayouts.map((p: any) => (
-                          <tr key={p.id} className="border-b last:border-0">
-                            <td className="py-2 px-3 text-xs text-muted-foreground">
-                              {p.processed_date
-                                ? new Date(p.processed_date.includes("T") ? p.processed_date : `${p.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                                : "—"}
-                            </td>
-                            <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
-                            <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
-                            <td className="py-2 px-3">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
-                                disabled={deletingPayoutId === p.id}
-                                onClick={() => setConfirmDeletePayoutId(p.id)}
-                                title="Remove payout entry"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-muted/30 border-t">
-                          <td className="py-2 px-3 text-xs font-semibold">Total Paid</td>
-                          <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(paid)}</td>
-                          <td colSpan={2} />
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                )}
-
+                <p className="text-sm font-medium">No projects assigned</p>
+                <p className="text-xs mt-1">Commission will appear here once this PM is assigned to a project.</p>
               </CardContent>
             </Card>
-          );
-        })}
-      </>)}
+          ) : filteredPmGroups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <Search className="h-10 w-10 mb-3 opacity-20" />
+              <p className="text-sm font-medium">No results for "{searchQuery}"</p>
+              <p className="text-xs mt-1">Try a different project or client name.</p>
+            </div>
+          ) : (
+            filteredPmGroups.map((group) => {
+              const proj = group.project;
+              const clientName = proj?.client
+                ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
+                : "—";
+              const { gp, commissionTotal, paid, remaining, pct, projPayouts } = group;
+              const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
+              const inputAmt = payoutAmounts[proj?.id] ?? "";
+              const inputNote = payoutNotesByProject[proj?.id] ?? "";
+              const isSaving = savingProjectId === proj?.id;
+
+              return (
+                <Card key={proj?.id ?? "unknown"}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-base">{proj?.name ?? "Unknown Project"}</CardTitle>
+                        <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
+                      </div>
+                      {proj?.client_id && (
+                        <Link
+                          to={`/clients/${proj.client_id}`}
+                          className="text-xs text-primary hover:opacity-80 no-underline"
+                        >
+                          View Client →
+                        </Link>
+                      )}
+                    </div>
+
+                    {/* Commission formula */}
+                    <p className="text-sm mt-2">
+                      <span className="text-muted-foreground">{pmRate}% of GP </span>
+                      <span className="font-semibold">{fmt(gp)}</span>
+                      <span className="text-muted-foreground"> = </span>
+                      <span className="font-bold text-green-700">{fmt(commissionTotal)}</span>
+                    </p>
+
+                    {/* Progress */}
+                    {commissionTotal > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex items-center gap-3 text-sm flex-wrap">
+                          <span className="text-muted-foreground">Total <span className="font-semibold text-foreground">{fmt(commissionTotal)}</span></span>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-green-700">Paid <span className="font-semibold">{fmt(paid)}</span></span>
+                          <span className="text-muted-foreground">·</span>
+                          <span className={remaining > 0 ? "text-amber-600" : "text-green-700"}>
+                            Remaining <span className="font-semibold">{fmt(remaining)}</span>
+                          </span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-green-500" : "bg-primary"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">{pct.toFixed(0)}% paid out</p>
+                      </div>
+                    )}
+                  </CardHeader>
+
+                  <CardContent className="pt-0 space-y-3">
+                    {/* Payout buttons — always visible when there's balance */}
+                    {commissionTotal > 0 && remaining > 0 && (
+                      <div className="border rounded-lg p-3 bg-muted/20 space-y-2.5">
+                        <p className="text-xs font-medium text-muted-foreground">Record Payout</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {[25, 50, 75, 100].map(p => {
+                            const val = ((commissionTotal * p) / 100).toFixed(2);
+                            return (
+                              <Button
+                                key={p}
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7 px-2.5"
+                                onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
+                              >
+                                {p}%
+                                <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
+                              </Button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Input
+                            type="number"
+                            placeholder="Amount"
+                            value={inputAmt}
+                            onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                            className="h-7 w-28 text-sm text-right"
+                          />
+                          <Input
+                            placeholder="Notes (optional)"
+                            value={inputNote}
+                            onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                            className="h-7 flex-1 min-w-[120px] text-sm"
+                          />
+                          <Button
+                            size="sm"
+                            disabled={isSaving || !(parseFloat(inputAmt) > 0)}
+                            className="h-7 min-w-[72px] flex items-center justify-center"
+                            onClick={() => handleRecordProjectPayout(proj.id)}
+                          >
+                            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span>Record</span>}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {commissionTotal > 0 && remaining <= 0 && (
+                      <p className="text-xs text-green-700 font-medium">Fully paid out</p>
+                    )}
+
+                    {gp === 0 && (
+                      <p className="text-xs text-muted-foreground italic">GP not set — commission will calculate once gross profit is available.</p>
+                    )}
+
+                    {/* Payout History toggle */}
+                    {projPayouts.length > 0 && (
+                      <>
+                        <div className="flex items-center justify-end border-t pt-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-xs gap-1.5 text-muted-foreground"
+                            onClick={() => setExpandedPayoutHistory(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                          >
+                            {isHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            Payout History ({projPayouts.length})
+                          </Button>
+                        </div>
+
+                        {isHistoryOpen && (
+                          <div className="border rounded-lg overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-muted/50 border-b">
+                                  <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                                  <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                                  <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
+                                  <th className="py-2 px-3 w-8" />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {projPayouts.map((p: any) => (
+                                  <tr key={p.id} className="border-b last:border-0">
+                                    <td className="py-2 px-3 text-xs text-muted-foreground">
+                                      {p.processed_date
+                                        ? new Date(p.processed_date.includes("T") ? p.processed_date : `${p.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                        : "—"}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
+                                    <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
+                                    <td className="py-2 px-3">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                        disabled={deletingPayoutId === p.id}
+                                        onClick={() => setConfirmDeletePayoutId(p.id)}
+                                        title="Remove payout entry"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="bg-muted/30 border-t">
+                                  <td className="py-2 px-3 text-xs font-semibold">Total Paid</td>
+                                  <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(paid)}</td>
+                                  <td colSpan={2} />
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </>
+      )}
+
+      {/* ── Sales Rep: milestone-based (unchanged) ───────────────────── */}
+      {!isPM && (
+        <>
+          {milestoneInstallments.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No commission installments yet</p>
+                <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Filter tabs */}
+              <div className="flex gap-2 border-b">
+                {(["all", "pending", "paid"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    className={`pb-3 px-1 text-sm font-semibold border-b-2 transition-colors capitalize ${
+                      filter === f
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {f === "paid" ? "Paid" : f === "pending" ? "Pending" : "All"}
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">({repFilterCounts[f]})</span>
+                  </button>
+                ))}
+              </div>
+
+              {repFilteredGroups.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                  {searchQuery.trim() ? (
+                    <>
+                      <Search className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No results for "{searchQuery}"</p>
+                      <p className="text-xs mt-1">Try a different project or client name.</p>
+                    </>
+                  ) : filter === "pending" ? (
+                    <>
+                      <Clock className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No pending commissions</p>
+                      <p className="text-xs mt-1">All installments have been paid out.</p>
+                    </>
+                  ) : filter === "paid" ? (
+                    <>
+                      <DollarSign className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No paid commissions yet</p>
+                      <p className="text-xs mt-1">Payouts will appear here once recorded.</p>
+                    </>
+                  ) : (
+                    <>
+                      <TrendingUp className="h-10 w-10 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">No commission installments</p>
+                      <p className="text-xs mt-1">Installments are created automatically when a progress payment is marked paid.</p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {repFilteredGroups.map((group: any) => {
+                const proj = group.project;
+                const clientName = proj?.client
+                  ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
+                  : "—";
+                const gpTotal = parseFloat(proj?.gross_profit) || 0;
+                const commissionTotal = group.items.reduce((s: number, i: any) => s + (parseFloat(i.amount) || 0), 0);
+                const { owed, paid, remaining, pct, projPayouts } = group;
+                const isAddPaymentOpen = !!expandedAddPayment[proj?.id];
+                const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
+                const inputAmt = payoutAmounts[proj?.id] ?? "";
+                const inputNote = payoutNotesByProject[proj?.id] ?? "";
+                const isSaving = savingProjectId === proj?.id;
+
+                return (
+                  <Card key={proj?.id ?? "unknown"}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-base">{proj?.name ?? "Unknown Project"}</CardTitle>
+                          <p className="text-sm text-muted-foreground mt-0.5">{clientName}</p>
+                        </div>
+                        {proj?.client_id && (
+                          <Link
+                            to={`/clients/${proj.client_id}`}
+                            className="text-xs text-primary hover:opacity-80 no-underline"
+                          >
+                            View Client →
+                          </Link>
+                        )}
+                      </div>
+
+                      {gpTotal > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          GP: <span className="font-semibold text-foreground">{fmtShort(gpTotal)}</span>
+                          &nbsp;·&nbsp;
+                          Commission: <span className="font-semibold text-foreground">{fmtShort(commissionTotal)}</span>
+                        </p>
+                      )}
+
+                      {owed > 0 && (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="flex items-center gap-3 text-sm flex-wrap">
+                            <span className="text-muted-foreground">Owed <span className="font-semibold text-foreground">{fmt(owed)}</span></span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-green-700">Paid <span className="font-semibold">{fmt(paid)}</span></span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className={remaining > 0 ? "text-amber-600" : "text-green-700"}>
+                              Remaining <span className="font-semibold">{fmt(remaining)}</span>
+                            </span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-green-500" : "bg-primary"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">{pct.toFixed(0)}% paid out</p>
+                        </div>
+                      )}
+                    </CardHeader>
+
+                    <CardContent className="pt-0">
+                      {/* Installment rows */}
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/50 border-b">
+                              <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Installment</th>
+                              <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                              <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Status</th>
+                              <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                              <th className="py-2 px-3" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.items.map((item: any, idx: number) => {
+                              const pp = item.progress_payment;
+                              const isEditing = editingId === item.id;
+                              const isProcessing = processing === item.id;
+                              return (
+                                <tr key={item.id} className={`border-b last:border-0 ${idx % 2 === 1 ? "bg-muted/20" : ""}`}>
+                                  <td className="py-2.5 px-3 font-medium">
+                                    {pp?.label ?? `Installment ${idx + 1}`}
+                                    {!!pp?.percentage && <span className="text-xs text-muted-foreground ml-1">({pp.percentage}%)</span>}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-semibold">
+                                    {isEditing ? (
+                                      <div className="flex items-center gap-1 justify-end">
+                                        <span className="text-muted-foreground">$</span>
+                                        <Input
+                                          type="number"
+                                          value={editAmount}
+                                          onChange={(e) => setEditAmount(e.target.value)}
+                                          className="h-7 w-24 text-right text-sm"
+                                          autoFocus
+                                        />
+                                      </div>
+                                    ) : (
+                                      <span className="text-green-700">{fmt(parseFloat(item.amount) || 0)}</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center">
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                      item.status === "processed"
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-yellow-100 text-yellow-700"
+                                    }`}>
+                                      {item.status === "processed" ? "Paid" : "Pending"}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right text-xs text-muted-foreground">
+                                    {item.status === "processed" && item.processed_date
+                                      ? new Date(item.processed_date.includes("T") ? item.processed_date : `${item.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                      : item.created_at
+                                      ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                      : "—"}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <div className="flex items-center gap-1 justify-end">
+                                      {isEditing ? (
+                                        <>
+                                          <Button size="icon" variant="ghost" className="h-6 w-6" disabled={isProcessing} onClick={() => handleSaveAmount(item.id)}>
+                                            {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
+                                          </Button>
+                                          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingId(null)}>
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          {item.status === "pending" && (
+                                            <>
+                                              <Button
+                                                size="icon" variant="ghost" className="h-6 w-6" title="Edit amount"
+                                                onClick={() => { setEditingId(item.id); setEditAmount(String(parseFloat(item.amount) || 0)); }}
+                                              >
+                                                <Edit2 className="h-3 w-3 text-muted-foreground" />
+                                              </Button>
+                                              <Button
+                                                size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                disabled={isProcessing}
+                                                onClick={() => setDeleteInstallmentTarget(item)}
+                                                title="Remove incorrect installment"
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </Button>
+                                            </>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Footer: + Add Payment | ▼ Payout History */}
+                      {owed > 0 && (
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                          <div>
+                            {remaining > 0 ? (
+                              <Button
+                                size="sm" variant="outline" className="h-8 text-xs gap-1.5"
+                                onClick={() => setExpandedAddPayment(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                              >
+                                {isAddPaymentOpen ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                                {isAddPaymentOpen ? "Cancel" : "Add Payment"}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-green-700 font-medium">Fully paid out</span>
+                            )}
+                          </div>
+                          {projPayouts.length > 0 && (
+                            <Button
+                              size="sm" variant="ghost" className="h-8 text-xs gap-1.5 text-muted-foreground"
+                              onClick={() => setExpandedPayoutHistory(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                            >
+                              {isHistoryOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                              Payout History ({projPayouts.length})
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Add Payment form (collapsible) */}
+                      {isAddPaymentOpen && remaining > 0 && (
+                        <div className="mt-3 border rounded-lg p-3 bg-muted/20 space-y-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {[25, 50, 75, 100].map(p => {
+                              const val = ((owed * p) / 100).toFixed(2);
+                              return (
+                                <Button
+                                  key={p} size="sm" variant="outline" className="text-xs h-7 px-2.5"
+                                  onClick={() => setPayoutAmounts(prev => ({ ...prev, [proj.id]: val }))}
+                                >
+                                  {p}%
+                                  <span className="text-muted-foreground ml-1">({fmtShort(parseFloat(val))})</span>
+                                </Button>
+                              );
+                            })}
+                            <div className="flex items-center gap-2 ml-auto">
+                              <Input
+                                type="number" placeholder="Amount" value={inputAmt}
+                                onChange={e => setPayoutAmounts(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                                className="h-7 w-24 text-sm text-right" autoFocus
+                              />
+                              <Input
+                                placeholder="Notes (optional)" value={inputNote}
+                                onChange={e => setPayoutNotesByProject(prev => ({ ...prev, [proj.id]: e.target.value }))}
+                                className="h-7 w-36 text-sm"
+                              />
+                              <Button
+                                size="sm" disabled={isSaving || !(parseFloat(inputAmt) > 0)}
+                                className="h-7 min-w-[72px] flex items-center justify-center"
+                                onClick={() => handleRecordProjectPayout(proj.id)}
+                              >
+                                {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span>Record</span>}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Payout History (collapsible) */}
+                      {isHistoryOpen && projPayouts.length > 0 && (
+                        <div className="mt-3 border rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-muted/50 border-b">
+                                <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>
+                                <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Amount</th>
+                                <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Notes</th>
+                                <th className="py-2 px-3 w-8" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {projPayouts.map((p: any) => (
+                                <tr key={p.id} className="border-b last:border-0">
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">
+                                    {p.processed_date
+                                      ? new Date(p.processed_date.includes("T") ? p.processed_date : `${p.processed_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                      : "—"}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-semibold text-green-700">{fmt(parseFloat(p.amount) || 0)}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{p.notes ?? "—"}</td>
+                                  <td className="py-2 px-3">
+                                    <Button
+                                      size="icon" variant="ghost"
+                                      className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                      disabled={deletingPayoutId === p.id}
+                                      onClick={() => setConfirmDeletePayoutId(p.id)}
+                                      title="Remove payout entry"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-muted/30 border-t">
+                                <td className="py-2 px-3 text-xs font-semibold">Total Paid</td>
+                                <td className="py-2 px-3 text-right font-bold text-green-700">{fmt(paid)}</td>
+                                <td colSpan={2} />
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </>
+          )}
+        </>
+      )}
 
       <AlertDialog open={!!confirmDeletePayoutId} onOpenChange={(o) => { if (!o) setConfirmDeletePayoutId(null); }}>
         <AlertDialogContent>

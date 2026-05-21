@@ -25,7 +25,7 @@ import {
   Loader2,
   Eye,
 } from "lucide-react";
-import { projectsAPI, receiptsAPI, projectPaymentsAPI, commissionPaymentsAPI } from "../utils/api";
+import { projectsAPI, receiptsAPI, projectPaymentsAPI } from "../utils/api";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
 import {
@@ -219,20 +219,6 @@ export function ProjectDetail() {
       const updated = await projectPaymentsAPI.update(payment.id, updates);
       setProjectPayments(prev => prev.map(p => p.id === payment.id ? updated : p));
 
-      // Auto-create/delete commission installment if project has a PM and commission set
-      const pmId = project?.project_manager_id;
-      const grossProfit = project?.gross_profit ?? 0;
-      const commissionRate = project?.commission ?? 0; // stored as % e.g. 3
-      if (pmId && grossProfit > 0 && commissionRate > 0) {
-        const totalCommission = grossProfit * (commissionRate / 100);
-        const totalPayments = projectPayments.length || 1;
-        const installmentAmount = totalCommission / totalPayments;
-        if (checked) {
-          await commissionPaymentsAPI.createFromProgressPayment(project.id, payment.id, pmId, installmentAmount);
-        } else {
-          await commissionPaymentsAPI.deleteByProgressPayment(payment.id);
-        }
-      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to update payment');
     }

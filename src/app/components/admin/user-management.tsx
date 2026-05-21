@@ -41,7 +41,7 @@ import { toast } from "sonner";
 import { SkeletonCards } from "../ui/page-loader";
 
 
-function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpdateUser, resending, updatingUser, getRoleBadgeColor, getRoleLabel, getUserPermissions }: {
+function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpdateUser, resending, updatingUser, getRoleBadgeColor, getRoleLabel, getUserPermissions, allPermissions, onUpdatePermissions, updatingPermissions }: {
   user: any;
   onClose: () => void;
   onToggleActive: (u: any) => void;
@@ -52,10 +52,20 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
   getRoleBadgeColor: (r: string) => string;
   getRoleLabel: (r: string) => string;
   getUserPermissions: (u: any) => string[];
+  allPermissions: any[];
+  onUpdatePermissions: (userId: string, perms: Record<string, boolean>) => Promise<void>;
+  updatingPermissions: string | null;
 }) {
   const [editing, setEditing] = useState(false);
+  const [editingPerms, setEditingPerms] = useState(false);
+  const [draftPerms, setDraftPerms] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState({ first_name: "", last_name: "", email: "", phone: "" });
   const perms = user ? getUserPermissions(user) : [];
+
+  useEffect(() => {
+    setEditingPerms(false);
+    setDraftPerms({});
+  }, [user?.id]);
 
   const startEdit = () => {
     setDraft({
@@ -162,18 +172,73 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
-                      Permissions ({perms.length})
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {perms.length > 0 ? perms.map((perm) => (
-                        <Badge key={perm} variant="outline" className="text-xs">
-                          {perm.replace(/can_/g, "").replace(/_/g, " ")}
-                        </Badge>
-                      )) : (
-                        <span className="text-sm text-muted-foreground">No permissions assigned</span>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
+                        Permissions ({perms.length})
+                      </p>
+                      {!editingPerms && (
+                        <Button
+                          variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1.5"
+                          onClick={() => { setDraftPerms(user?.permissions ?? {}); setEditingPerms(true); }}
+                        >
+                          <Pencil className="h-3 w-3" /> Edit
+                        </Button>
                       )}
                     </div>
+                    {editingPerms ? (
+                      <div className="space-y-3">
+                        <div className="max-h-56 overflow-y-auto space-y-3 pr-1">
+                          {Object.entries(
+                            allPermissions.reduce((acc: Record<string, any[]>, p: any) => {
+                              const cat = p.category || "Other";
+                              if (!acc[cat]) acc[cat] = [];
+                              acc[cat].push(p);
+                              return acc;
+                            }, {})
+                          ).map(([category, catPerms]) => (
+                            <div key={category}>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">{category}</p>
+                              <div className="space-y-1">
+                                {(catPerms as any[]).map((p: any) => (
+                                  <label key={p.key} className="flex items-center gap-2 cursor-pointer text-sm">
+                                    <input
+                                      type="checkbox"
+                                      className="h-3.5 w-3.5 accent-primary"
+                                      checked={!!draftPerms[p.key]}
+                                      onChange={e => setDraftPerms(prev => ({ ...prev, [p.key]: e.target.checked }))}
+                                    />
+                                    {p.label || p.key.replace(/can_/g, "").replace(/_/g, " ")}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 pt-1 border-t">
+                          <Button
+                            size="sm" className="h-7 text-xs"
+                            disabled={updatingPermissions === user?.id}
+                            onClick={async () => { await onUpdatePermissions(user.id, draftPerms); setEditingPerms(false); }}
+                          >
+                            {updatingPermissions === user?.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            Save
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingPerms(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {perms.length > 0 ? perms.map((perm) => (
+                          <Badge key={perm} variant="outline" className="text-xs">
+                            {perm.replace(/can_/g, "").replace(/_/g, " ")}
+                          </Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">No permissions assigned</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -310,6 +375,7 @@ export function UserManagement() {
   const [confirmUser, setConfirmUser] = useState<any | null>(null);
   const [resending, setResending] = useState<string | null>(null);
   const [updatingEmail, setUpdatingEmail] = useState<string | null>(null);
+  const [updatingPermissions, setUpdatingPermissions] = useState<string | null>(null);
 
   // Sales Rep deactivation with lead reassignment
   const [salesRepDeactivateTarget, setSalesRepDeactivateTarget] = useState<any | null>(null);
@@ -408,6 +474,20 @@ export function UserManagement() {
       toast.error(err.message);
     } finally {
       setUpdatingEmail(null);
+    }
+  };
+
+  const handleUpdatePermissions = async (userId: string, permissions: Record<string, boolean>) => {
+    setUpdatingPermissions(userId);
+    try {
+      await usersAPI.update(userId, { permissions });
+      toast.success("Permissions updated.");
+      loadUsers();
+      setSelectedUser((prev: any) => prev ? { ...prev, permissions } : prev);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update permissions.");
+    } finally {
+      setUpdatingPermissions(null);
     }
   };
 
@@ -892,6 +972,9 @@ export function UserManagement() {
         getRoleBadgeColor={getRoleBadgeColor}
         getRoleLabel={getRoleLabel}
         getUserPermissions={getUserPermissions}
+        allPermissions={allPermissions}
+        onUpdatePermissions={handleUpdatePermissions}
+        updatingPermissions={updatingPermissions}
       />
     </div>
   );

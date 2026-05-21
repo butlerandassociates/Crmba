@@ -76,24 +76,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser({ id, email, profile: profile ?? null });
 
-      // Load role permissions from DB
-      if (profile?.role) {
-        if (profile.role === "admin") {
-          // Admin gets everything — load all permission keys
-          const { data: allPerms } = await supabase
-            .from("permissions")
-            .select("key");
-          setPermissions(new Set((allPerms ?? []).map((p: any) => p.key)));
-        } else {
-          const { data: rolePerms } = await supabase
-            .from("role_permissions")
-            .select("permission:permissions(key)")
-            .eq("role_id",
-              (await supabase.from("roles").select("id").eq("name", profile.role).single()).data?.id
-            );
-          const keys = (rolePerms ?? []).map((r: any) => r.permission?.key).filter(Boolean);
-          setPermissions(new Set(keys));
-        }
+      // Load permissions — per-user JSONB overrides role defaults
+      if (profile?.role === "admin") {
+        // Admin gets everything
+        const { data: allPerms } = await supabase.from("permissions").select("key");
+        setPermissions(new Set((allPerms ?? []).map((p: any) => p.key)));
+      } else if (profile?.permissions && Object.keys(profile.permissions as object).length > 0) {
+        // Per-user permissions stored on profile (set by invite flow and editable in user management)
+        const keys = Object.entries(profile.permissions as Record<string, boolean>)
+          .filter(([, v]) => v === true)
+          .map(([k]) => k);
+        setPermissions(new Set(keys));
+      } else if (profile?.role) {
+        // Fallback: load role-level defaults from role_permissions table
+        const { data: rolePerms } = await supabase
+          .from("role_permissions")
+          .select("permission:permissions(key)")
+          .eq("role_id",
+            (await supabase.from("roles").select("id").eq("name", profile.role).single()).data?.id
+          );
+        const keys = (rolePerms ?? []).map((r: any) => r.permission?.key).filter(Boolean);
+        setPermissions(new Set(keys));
       }
     } catch {
       setUser({ id, email, profile: null });
