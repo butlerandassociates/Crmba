@@ -45,7 +45,7 @@ serve(async (req) => {
     // Confirm the payment belongs to this client
     const { data: paymentRow } = await supabase
       .from("project_payments")
-      .select("id, client_id, is_paid")
+      .select("id, client_id, is_paid, amount")
       .eq("id", payment_id)
       .eq("client_id", client_id)
       .maybeSingle();
@@ -70,6 +70,8 @@ serve(async (req) => {
     });
 
     const amountCents = Math.round(amount * 100);
+    const baseAmount = Number(paymentRow.amount ?? 0);
+    const feeAmount = Math.max(0, Math.round((amount - baseAmount) * 100) / 100);
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
@@ -78,6 +80,8 @@ serve(async (req) => {
       metadata: {
         payment_id,
         client_id,
+        base_amount: String(baseAmount),
+        fee_amount: String(feeAmount),
       },
     });
 

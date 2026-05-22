@@ -74,7 +74,8 @@ export function StripeCardForm({ payment, token, clientId, onSuccess, onCancel }
   };
 
   return (
-    <div className="space-y-4 pt-4 border-t">
+    // pt-4 border-t removed — was separator above payment method picker (now commented out)
+    <div className="space-y-4">
       <div>
         <label className="text-sm font-semibold text-gray-700 mb-2 block">Card Details</label>
         <div className="border border-gray-300 rounded-md px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-black focus-within:border-transparent transition-all">

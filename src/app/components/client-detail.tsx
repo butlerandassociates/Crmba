@@ -3211,7 +3211,12 @@ export function ClientDetail() {
                                   {payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ""}
                                 </p>
                                 {payment.is_paid && payment.payment_method && (
-                                  <p className="text-xs text-green-700 mt-0.5">{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</p>
+                                  <p className="text-xs text-green-700 mt-0.5 flex items-center flex-wrap gap-1">
+                                    <span>{payment.payment_method}{payment.paid_date ? ` · ${formatDate(payment.paid_date)}` : ""}</span>
+                                    {payment.stripe_fee_amount > 0 && (
+                                      <span className="text-[10px] bg-orange-50 text-orange-600 border border-orange-200 rounded px-1 py-0.5 font-medium">CC fee {formatCurrency(payment.stripe_fee_amount)}</span>
+                                    )}
+                                  </p>
                                 )}
                               </div>
                               {role === "admin" && (

@@ -671,67 +671,71 @@ export function PortalFieldUpdates({ projectId }: Props) {
       {/* Preview Modal */}
       {previewUpdate && (
         <Dialog open={!!previewUpdate} onOpenChange={() => setPreviewUpdate(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Client Preview</DialogTitle>
-              <DialogDescription>How this update appears to the client</DialogDescription>
-            </DialogHeader>
-            <Card className="mx-6 mb-6">
-              <CardContent className="p-6 space-y-4">
-                {previewUpdate.phase_id && phaseLabelFor(previewUpdate.phase_id) && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                    <Layers className="h-2.5 w-2.5" />
-                    {phaseLabelFor(previewUpdate.phase_id)}
-                  </span>
-                )}
-                <div className="grid grid-cols-3 gap-3">
-                  {previewUpdate.photos.length > 0
-                    ? previewUpdate.photos.slice(0, 3).map(p => (
-                        <div key={p.id} className="aspect-video rounded-lg overflow-hidden bg-gray-100">
-                          <img src={p.public_url ?? ""} alt="" className="w-full h-full object-cover" />
-                        </div>
-                      ))
-                    : [1, 2, 3].map(i => (
-                        <div key={i} className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center">
-                          <ImageIcon className="h-6 w-6 text-gray-300" />
-                        </div>
-                      ))}
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-gray-500 mb-2 tracking-wide">
-                    {new Date(previewUpdate.posted_at).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }).toUpperCase()}
+          <DialogContent className="w-[92vw] max-w-2xl p-0 gap-0 flex flex-col max-h-[90vh]">
+            {/* Fixed Header */}
+            <div className="px-6 pt-5 pb-4 border-b shrink-0">
+              <DialogTitle className="text-base font-semibold">Client Preview</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground mt-0.5">How this update appears to the client</DialogDescription>
+            </div>
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <Card>
+                <CardContent className="p-5 sm:p-6 space-y-4">
+                  {previewUpdate.phase_id && phaseLabelFor(previewUpdate.phase_id) && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      <Layers className="h-2.5 w-2.5" />
+                      {phaseLabelFor(previewUpdate.phase_id)}
+                    </span>
+                  )}
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    {previewUpdate.photos.length > 0
+                      ? previewUpdate.photos.slice(0, 3).map(p => (
+                          <div key={p.id} className="aspect-video rounded-lg overflow-hidden bg-gray-100">
+                            <img src={p.public_url ?? ""} alt="" className="w-full h-full object-cover" />
+                          </div>
+                        ))
+                      : [1, 2, 3].map(i => (
+                          <div key={i} className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center">
+                            <ImageIcon className="h-6 w-6 text-gray-300" />
+                          </div>
+                        ))}
                   </div>
-                  <h4 className="text-lg font-bold mb-2" style={{ fontFamily: "Lato, sans-serif" }}>{previewUpdate.title}</h4>
-                  <p className="text-sm text-gray-700">{previewUpdate.body}</p>
-                </div>
-                {(previewUpdate.completed_items.length > 0 || previewUpdate.upcoming_items.length > 0) && (
-                  <div className="grid grid-cols-2 gap-6 pt-4 border-t">
-                    {previewUpdate.completed_items.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          <span className="text-xs font-bold text-green-700">COMPLETED</span>
-                        </div>
-                        <div className="space-y-1.5 pl-6">
-                          {previewUpdate.completed_items.map((t, i) => <div key={i} className="text-sm text-gray-700">{t}</div>)}
-                        </div>
-                      </div>
-                    )}
-                    {previewUpdate.upcoming_items.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Clock className="h-4 w-4 text-orange-600" />
-                          <span className="text-xs font-bold text-orange-700">COMING UP</span>
-                        </div>
-                        <div className="space-y-1.5 pl-6">
-                          {previewUpdate.upcoming_items.map((t, i) => <div key={i} className="text-sm text-gray-700">{t}</div>)}
-                        </div>
-                      </div>
-                    )}
+                  <div>
+                    <div className="text-xs font-bold text-gray-500 mb-2 tracking-wide">
+                      {new Date(previewUpdate.posted_at).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }).toUpperCase()}
+                    </div>
+                    <h4 className="text-lg font-bold mb-2" style={{ fontFamily: "Lato, sans-serif" }}>{previewUpdate.title}</h4>
+                    <p className="text-sm text-gray-700">{previewUpdate.body}</p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  {(previewUpdate.completed_items.length > 0 || previewUpdate.upcoming_items.length > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 pt-4 border-t">
+                      {previewUpdate.completed_items.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            <span className="text-xs font-bold text-green-700">COMPLETED</span>
+                          </div>
+                          <div className="space-y-1.5 pl-6">
+                            {previewUpdate.completed_items.map((t, i) => <div key={i} className="text-sm text-gray-700">{t}</div>)}
+                          </div>
+                        </div>
+                      )}
+                      {previewUpdate.upcoming_items.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Clock className="h-4 w-4 text-orange-600" />
+                            <span className="text-xs font-bold text-orange-700">COMING UP</span>
+                          </div>
+                          <div className="space-y-1.5 pl-6">
+                            {previewUpdate.upcoming_items.map((t, i) => <div key={i} className="text-sm text-gray-700">{t}</div>)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </DialogContent>
         </Dialog>
       )}

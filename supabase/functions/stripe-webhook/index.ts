@@ -37,6 +37,7 @@ serve(async (req) => {
     const paymentId = pi.metadata.payment_id;
     const clientId = pi.metadata.client_id;
     const amountDollars = (pi.amount / 100).toFixed(2);
+    const feeAmount = parseFloat(pi.metadata.fee_amount ?? "0") || 0;
 
     if (!paymentId || !clientId) {
       console.error("[stripe-webhook] Missing metadata on PaymentIntent", pi.id);
@@ -51,6 +52,7 @@ serve(async (req) => {
         paid_date: new Date().toISOString().split("T")[0],
         payment_method: "Credit Card",
         confirmation_code: pi.id,
+        stripe_fee_amount: feeAmount > 0 ? feeAmount : null,
       })
       .eq("id", paymentId)
       .eq("client_id", clientId);
@@ -73,7 +75,8 @@ serve(async (req) => {
       type: "payment_received",
       title: "Payment Received",
       message: `A progress payment of $${amountDollars} was received via credit card.`,
-      client_id: clientId,
+      metadata: { client_id: clientId },
+      link: `/clients/${clientId}`,
     });
   }
 

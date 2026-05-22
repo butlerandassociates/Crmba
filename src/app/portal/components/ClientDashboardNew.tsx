@@ -29,17 +29,19 @@ import {
   X,
   ArrowLeft,
   Building2,
-  Smartphone,
+  // Smartphone,
   Menu,
   AlertCircle,
   ClipboardCheck,
   Layers,
   Wallet,
   Camera,
+  Eye,
 } from "lucide-react";
 import { validatePortalToken, type PortalData } from "../api/portal";
 import { PortalChangeOrderReview } from "./PortalChangeOrderReview";
 import { PortalProposals } from "./PortalProposals";
+import { PortalPaymentReceiptExport } from "./PortalPaymentReceiptExport";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "");
 
@@ -82,6 +84,9 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
   const [pdfPreview, setPdfPreview] = useState<{ url: string; title: string } | null>(null);
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const [previewingReceiptId, setPreviewingReceiptId] = useState<string | null>(null);
+  const [receiptPayment, setReceiptPayment] = useState<typeof payments[0] | null>(null);
 
   const handleDownloadPdf = async (url: string, filename: string, id: string) => {
     setDownloadingPdfId(id);
@@ -117,6 +122,63 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
       window.open(url, "_blank");
     } finally {
       if (id) setDownloadingId(null);
+    }
+  };
+
+  const buildReceiptDoc = async (payment: typeof payments[0]) => {
+    setReceiptPayment(payment);
+    // Give React one tick to render the hidden component before html2canvas captures it
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const el = document.getElementById("portal-receipt-export");
+    if (!el) throw new Error("Receipt element not found in DOM");
+
+    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ]);
+
+    await document.fonts.ready;
+    const canvas = await html2canvas(el, { scale: 2, useCORS: true, allowTaint: false, backgroundColor: "#ffffff" });
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const imgH = canvas.height * (pageW / canvas.width);
+    const imgData = canvas.toDataURL("image/jpeg", 0.97);
+    doc.addImage(imgData, "JPEG", 0, 0, pageW, imgH);
+
+    setReceiptPayment(null);
+    return doc;
+  };
+
+  const downloadReceipt = async (payment: typeof payments[0]) => {
+    setDownloadingReceiptId(payment.id);
+    try {
+      const doc = await buildReceiptDoc(payment);
+      const filename = `Receipt_${payment.label.replace(/\s+/g, "_")}_${clientName.replace(/\s+/g, "_")}.pdf`;
+      doc.save(filename);
+    } catch (err) {
+      console.error("Receipt generation failed", err);
+      toast.error("Could not generate receipt");
+      setReceiptPayment(null);
+    } finally {
+      setDownloadingReceiptId(null);
+    }
+  };
+
+  const previewReceipt = async (payment: typeof payments[0]) => {
+    setPreviewingReceiptId(payment.id);
+    try {
+      const doc = await buildReceiptDoc(payment);
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      setPdfPreview({ url, title: `Receipt — ${payment.label}` });
+    } catch (err) {
+      console.error("Receipt preview failed", err);
+      toast.error("Could not preview receipt");
+      setReceiptPayment(null);
+    } finally {
+      setPreviewingReceiptId(null);
     }
   };
 
@@ -359,12 +421,13 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                 </div>
                 <Button
                   className="w-full bg-black hover:bg-black/90 text-white h-11 lg:h-12 text-sm lg:text-base font-bold"
-                  onClick={() => { setSelectedPayment(nextDuePayment); setShowPaymentModal(true); }}
+                  onClick={() => { setSelectedPayment(nextDuePayment); setPaymentMethod("card"); setShowPaymentModal(true); }}
                 >
                   Pay {formatCurrency(nextDuePayment.amount)}
                 </Button>
-                <div className="flex items-center justify-center gap-2 lg:gap-3 text-xs text-gray-500">
-                  <span>CASH</span><span>•</span><span>ACH</span>{/* • <span>APPLE PAY</span> */}<span>•</span><span>WIRE</span>
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <CreditCard className="h-3.5 w-3.5" />
+                  <span>Secure credit card payment</span>
                 </div>
               </div>
             </CardContent>
@@ -749,10 +812,36 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                 {status !== "PAID" && (
                   <Button
                     className="w-full bg-black hover:bg-black/90 text-white mt-4"
-                    onClick={() => { setSelectedPayment(payment); setPaymentMethod(null); setShowPaymentModal(true); }}
+                    onClick={() => { setSelectedPayment(payment); setPaymentMethod("card"); setShowPaymentModal(true); }}
                   >
                     Pay {formatCurrency(payment.amount)}
                   </Button>
+                )}
+                {status === "PAID" && (
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      disabled={previewingReceiptId === payment.id}
+                      onClick={() => previewReceipt(payment)}
+                    >
+                      {previewingReceiptId === payment.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Eye className="h-4 w-4" />}
+                      Preview Receipt
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      disabled={downloadingReceiptId === payment.id}
+                      onClick={() => downloadReceipt(payment)}
+                    >
+                      {downloadingReceiptId === payment.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Download className="h-4 w-4" />}
+                      Download
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -837,11 +926,11 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
     );
   };
 
-  const calculateProcessingFee = () => {
-    if (!selectedPayment || paymentMethod !== "card") return 0;
-    return selectedPayment.amount * 0.023 + 0.30;
-  };
-  const calculateTotal = () => (selectedPayment?.amount ?? 0) + calculateProcessingFee();
+  // const calculateProcessingFee = () => {
+  //   if (!selectedPayment || paymentMethod !== "card") return 0;
+  //   return selectedPayment.amount * 0.023 + 0.30;
+  // };
+  // const calculateTotal = () => (selectedPayment?.amount ?? 0) + calculateProcessingFee();
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
     setShowPaymentModal(false);
@@ -1053,41 +1142,46 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
 
       {/* Payment Modal */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-lg sm:text-xl lg:text-2xl font-black leading-tight" style={{ fontFamily: "Lato, sans-serif" }}>
+        <DialogContent className="w-[92vw] max-w-md p-0 gap-0 flex flex-col max-h-[88vh]">
+
+          {/* Fixed Header */}
+          <div className="px-6 pt-5 pb-4 border-b shrink-0">
+            <DialogTitle className="text-2xl font-black leading-tight" style={{ fontFamily: "Lato, sans-serif" }}>
               Pay {selectedPayment && formatCurrency(selectedPayment.amount)}
             </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">{selectedPayment?.label}</DialogDescription>
-          </DialogHeader>
+            <DialogDescription className="text-sm mt-0.5">{selectedPayment?.label}</DialogDescription>
+          </div>
 
-          <div className="space-y-4 sm:space-y-6 py-4">
+          {/* Scrollable Body — card form always shown (credit card only) */}
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            {/* Payment method picker — commented out (credit card only for now)
             <div>
-              <label className="text-xs sm:text-sm font-bold text-gray-700 mb-3 block tracking-wide" style={{ fontFamily: "Lato, sans-serif" }}>
+              <label className="text-xs font-bold text-gray-700 mb-3 block tracking-wide" style={{ fontFamily: "Lato, sans-serif" }}>
                 SELECT PAYMENT METHOD
               </label>
-              <div className="grid grid-cols-1 gap-2 sm:gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 {[
-                  { id: "card" as const, label: "Credit Card", sub: "+2.3% fee", icon: <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
-                  // { id: "ach" as const, label: "ACH / Bank", sub: "No fee", icon: <Building2 className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
-                  // { id: "apple" as const, label: "Apple Pay", sub: "No fee", icon: <Smartphone className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
+                  { id: "card" as const, label: "Credit Card", sub: "+2.3% fee", icon: <CreditCard className="h-5 w-5" /> },
+                  // { id: "ach" as const, label: "ACH / Bank Transfer", sub: "No fee", icon: <Building2 className="h-5 w-5" /> },
+                  // { id: "apple" as const, label: "Apple Pay", sub: "No fee", icon: <Smartphone className="h-5 w-5" /> },
                 ].map(m => (
                   <button
                     key={m.id}
                     onClick={() => setPaymentMethod(m.id)}
-                    className={`p-2 sm:p-3 lg:p-4 border-2 rounded-lg flex flex-col items-center gap-1 sm:gap-2 transition-all ${
+                    className={`p-4 border-2 rounded-lg flex flex-col items-center gap-1.5 transition-all ${
                       paymentMethod === m.id ? "border-black bg-gray-50" : "border-gray-200 hover:border-gray-300"
                     }`}
                   >
                     {m.icon}
-                    <span className="font-semibold text-xs sm:text-sm text-center leading-tight">{m.label}</span>
-                    <span className="text-[10px] sm:text-xs text-gray-500">{m.sub}</span>
+                    <span className="font-semibold text-sm">{m.label}</span>
+                    <span className="text-xs text-gray-500">{m.sub}</span>
                   </button>
                 ))}
               </div>
             </div>
+            */}
 
-            {paymentMethod === "card" && selectedPayment && (
+            {selectedPayment && (
               <Elements stripe={stripePromise}>
                 <StripeCardForm
                   payment={selectedPayment}
@@ -1098,79 +1192,41 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                 />
               </Elements>
             )}
-
-            {/* Apple Pay — commented out until domain verification is set up with Stripe
-            {paymentMethod === "apple" && (
-              <div className="pt-4 border-t">
-                <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-6 text-center">
-                  <Smartphone className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                  <p className="text-sm text-gray-600 mb-4">You'll be redirected to complete payment with Apple Pay</p>
-                  <Button className="bg-black hover:bg-black/90 text-white w-full">Continue with Apple Pay</Button>
-                </div>
-              </div>
-            )}
-            */}
-
-            {/* ACH / Bank Transfer — commented out until ACH is set up
-            {paymentMethod === "ach" && (
-              <div className="pt-4 border-t space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm font-semibold text-blue-800 mb-1">Bank Transfer (ACH)</p>
-                  <p className="text-sm text-blue-700">
-                    Please contact your project manager to arrange a bank transfer. They will send you the account details.
-                  </p>
-                  {project?.project_manager?.phone && (
-                    <a
-                      href={`tel:${project.project_manager.phone}`}
-                      className="inline-block mt-3 text-sm font-semibold text-blue-800 underline"
-                    >
-                      Call {project.project_manager.first_name} — {project.project_manager.phone}
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-            */}
-
-
-            {/* Summary + buttons shown for ACH and no-selection states only.
-                Card payments use StripeCardForm which has its own summary + buttons. */}
-            {paymentMethod !== "card" && (
-              <>
-                {selectedPayment && (
-                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 space-y-2">
-                    <div className="flex justify-between text-xs sm:text-sm gap-2">
-                      <span className="text-gray-600">Payment Amount</span>
-                      <span className="font-bold text-right">{formatCurrency(selectedPayment.amount)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm gap-2">
-                      <span className="text-gray-600 flex-1">Processing Fee</span>
-                      <span className="font-bold text-right">{formatCurrency(0)}</span>
-                    </div>
-                    <div className="border-t pt-2 flex justify-between gap-2">
-                      <span className="font-bold text-sm sm:text-base">Total</span>
-                      <span className="text-base sm:text-lg lg:text-xl font-black text-right" style={{ fontFamily: "Lato, sans-serif" }}>
-                        {formatCurrency(selectedPayment.amount)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <Button variant="outline" onClick={closePaymentModal} className="flex-1 h-11">
-                    Cancel
-                  </Button>
-                  <Button className="flex-1 bg-black hover:bg-black/90 text-white h-11" disabled={!paymentMethod}>
-                    <span className="truncate">{paymentMethod === "ach" ? "Contact PM for ACH" : "Select a payment method"}</span>
-                  </Button>
-                </div>
-
-                <p className="text-[10px] sm:text-xs text-center text-gray-500 pt-2 leading-relaxed">
-                  🔒 Secure payment powered by Stripe • Your payment information is encrypted
-                </p>
-              </>
-            )}
           </div>
+
+          {/* Fixed footer (method selector state) — commented out (credit card only for now)
+          {paymentMethod !== "card" && (
+            <div className="px-6 pt-4 pb-5 border-t shrink-0 space-y-3">
+              {selectedPayment && (
+                <div className="bg-gray-50 rounded-lg px-4 py-3 space-y-2">
+                  <div className="flex justify-between text-sm gap-2">
+                    <span className="text-gray-600">Payment Amount</span>
+                    <span className="font-semibold">{formatCurrency(selectedPayment.amount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm gap-2">
+                    <span className="text-gray-600">Processing Fee</span>
+                    <span className="font-semibold">{formatCurrency(0)}</span>
+                  </div>
+                  <div className="border-t pt-2 flex justify-between gap-2">
+                    <span className="font-bold">Total</span>
+                    <span className="text-lg font-black" style={{ fontFamily: "Lato, sans-serif" }}>
+                      {formatCurrency(selectedPayment.amount)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={closePaymentModal} className="flex-1 h-11">Cancel</Button>
+                <Button className="flex-1 bg-black hover:bg-black/90 text-white h-11" disabled>
+                  Select a payment method
+                </Button>
+              </div>
+              <p className="text-[10px] text-center text-gray-500 leading-relaxed">
+                🔒 Secure payment powered by Stripe • Your payment information is encrypted
+              </p>
+            </div>
+          )}
+          */}
         </DialogContent>
       </Dialog>
 
@@ -1252,6 +1308,17 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Hidden receipt export — rendered off-screen for html2canvas capture */}
+      {receiptPayment && (
+        <div style={{ position: "absolute", left: -9999, top: 0, pointerEvents: "none", opacity: 0, zIndex: -1 }}>
+          <PortalPaymentReceiptExport
+            payment={receiptPayment}
+            clientName={clientName}
+            clientAddress={jobAddress}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -53,6 +53,7 @@ export interface PortalPayment {
   sort_order: number | null;
   percentage: number | null;
   notes: string | null;
+  stripe_fee_amount: number | null;
 }
 
 export interface PortalPhoto {
