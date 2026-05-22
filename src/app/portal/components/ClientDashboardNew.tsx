@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSearchParams } from "react-router";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements } from "@stripe/react-stripe-js";
+import { StripeCardForm } from "./StripeCardForm";
+import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -36,6 +40,8 @@ import {
 import { validatePortalToken, type PortalData } from "../api/portal";
 import { PortalChangeOrderReview } from "./PortalChangeOrderReview";
 import { PortalProposals } from "./PortalProposals";
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "");
 
 interface Props {
   data: PortalData;
@@ -341,7 +347,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
 
         {/* Next Payment Due */}
         {nextDuePayment && (
-          <Card className="bg-gray-50 border-2">
+          <Card className="bg-gray-50 border-2 mt-6">
             <CardContent className="p-6">
               <div className="space-y-4">
                 <div>
@@ -358,7 +364,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                   Pay {formatCurrency(nextDuePayment.amount)}
                 </Button>
                 <div className="flex items-center justify-center gap-2 lg:gap-3 text-xs text-gray-500">
-                  <span>CASH</span><span>•</span><span>ACH</span><span>•</span><span>APPLE PAY</span><span>•</span><span>WIRE</span>
+                  <span>CASH</span><span>•</span><span>ACH</span>{/* • <span>APPLE PAY</span> */}<span>•</span><span>WIRE</span>
                 </div>
               </div>
             </CardContent>
@@ -837,6 +843,24 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   };
   const calculateTotal = () => (selectedPayment?.amount ?? 0) + calculateProcessingFee();
 
+  const handlePaymentSuccess = async (paymentIntentId: string) => {
+    setShowPaymentModal(false);
+    setPaymentMethod(null);
+    setSelectedPayment(null);
+    toast.success("Payment received! Your account will update shortly.");
+    // Refresh portal data — give webhook ~2s to process
+    setTimeout(async () => {
+      const fresh = await validatePortalToken(token);
+      if (fresh) setPortalData(fresh);
+    }, 2500);
+  };
+
+  const closePaymentModal = () => {
+    setShowPaymentModal(false);
+    setPaymentMethod(null);
+    setSelectedPayment(null);
+  };
+
   // ─── Full-screen views ────────────────────────────────────────────────────
 
   const viewingCO = viewingChangeOrderId ? change_orders.find(c => c.id === viewingChangeOrderId) ?? null : null;
@@ -1042,11 +1066,11 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
               <label className="text-xs sm:text-sm font-bold text-gray-700 mb-3 block tracking-wide" style={{ fontFamily: "Lato, sans-serif" }}>
                 SELECT PAYMENT METHOD
               </label>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="grid grid-cols-1 gap-2 sm:gap-3">
                 {[
                   { id: "card" as const, label: "Credit Card", sub: "+2.3% fee", icon: <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
-                  { id: "ach" as const, label: "ACH / Bank", sub: "No fee", icon: <Building2 className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
-                  { id: "apple" as const, label: "Apple Pay", sub: "No fee", icon: <Smartphone className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
+                  // { id: "ach" as const, label: "ACH / Bank", sub: "No fee", icon: <Building2 className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
+                  // { id: "apple" as const, label: "Apple Pay", sub: "No fee", icon: <Smartphone className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" /> },
                 ].map(m => (
                   <button
                     key={m.id}
@@ -1063,46 +1087,19 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
               </div>
             </div>
 
-            {paymentMethod === "card" && (
-              <div className="space-y-4 pt-4 border-t">
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Card Number</label>
-                  <Input placeholder="1234 5678 9012 3456" className="text-base" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 mb-2 block">Expiry</label>
-                    <Input placeholder="MM / YY" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 mb-2 block">CVC</label>
-                    <Input placeholder="123" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Cardholder Name</label>
-                  <Input placeholder="Name on card" />
-                </div>
-              </div>
+            {paymentMethod === "card" && selectedPayment && (
+              <Elements stripe={stripePromise}>
+                <StripeCardForm
+                  payment={selectedPayment}
+                  token={token}
+                  clientId={client.id}
+                  onSuccess={handlePaymentSuccess}
+                  onCancel={closePaymentModal}
+                />
+              </Elements>
             )}
 
-            {paymentMethod === "ach" && (
-              <div className="space-y-4 pt-4 border-t">
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Account Holder Name</label>
-                  <Input placeholder="Full name" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Routing Number</label>
-                  <Input placeholder="9 digits" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Account Number</label>
-                  <Input placeholder="Account number" />
-                </div>
-              </div>
-            )}
-
+            {/* Apple Pay — commented out until domain verification is set up with Stripe
             {paymentMethod === "apple" && (
               <div className="pt-4 border-t">
                 <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-6 text-center">
@@ -1112,43 +1109,67 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                 </div>
               </div>
             )}
+            */}
 
-            {selectedPayment && (
-              <div className="bg-gray-50 rounded-lg p-3 sm:p-4 space-y-2">
-                <div className="flex justify-between text-xs sm:text-sm gap-2">
-                  <span className="text-gray-600">Payment Amount</span>
-                  <span className="font-bold text-right">{formatCurrency(selectedPayment.amount)}</span>
-                </div>
-                <div className="flex justify-between text-xs sm:text-sm gap-2">
-                  <span className="text-gray-600 flex-1">
-                    Processing Fee
-                    {paymentMethod === "card" && <span className="text-[10px] sm:text-xs text-gray-500 ml-1">(2.3% + $0.30)</span>}
-                  </span>
-                  <span className={`font-bold ${calculateProcessingFee() > 0 ? "text-orange-600" : ""} text-right`}>
-                    {formatCurrency(calculateProcessingFee())}
-                  </span>
-                </div>
-                <div className="border-t pt-2 flex justify-between gap-2">
-                  <span className="font-bold text-sm sm:text-base">Total</span>
-                  <span className="text-base sm:text-lg lg:text-xl font-black text-right" style={{ fontFamily: "Lato, sans-serif" }}>
-                    {formatCurrency(calculateTotal())}
-                  </span>
+            {/* ACH / Bank Transfer — commented out until ACH is set up
+            {paymentMethod === "ach" && (
+              <div className="pt-4 border-t space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-blue-800 mb-1">Bank Transfer (ACH)</p>
+                  <p className="text-sm text-blue-700">
+                    Please contact your project manager to arrange a bank transfer. They will send you the account details.
+                  </p>
+                  {project?.project_manager?.phone && (
+                    <a
+                      href={`tel:${project.project_manager.phone}`}
+                      className="inline-block mt-3 text-sm font-semibold text-blue-800 underline"
+                    >
+                      Call {project.project_manager.first_name} — {project.project_manager.phone}
+                    </a>
+                  )}
                 </div>
               </div>
             )}
+            */}
 
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Button variant="outline" onClick={() => { setShowPaymentModal(false); setPaymentMethod(null); }} className="flex-1 h-11">
-                Cancel
-              </Button>
-              <Button className="flex-1 bg-black hover:bg-black/90 text-white h-11" disabled={!paymentMethod}>
-                <span className="truncate">Pay {selectedPayment && formatCurrency(calculateTotal())}</span>
-              </Button>
-            </div>
 
-            <p className="text-[10px] sm:text-xs text-center text-gray-500 pt-2 leading-relaxed">
-              🔒 Secure payment powered by Stripe • Your payment information is encrypted
-            </p>
+            {/* Summary + buttons shown for ACH and no-selection states only.
+                Card payments use StripeCardForm which has its own summary + buttons. */}
+            {paymentMethod !== "card" && (
+              <>
+                {selectedPayment && (
+                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 space-y-2">
+                    <div className="flex justify-between text-xs sm:text-sm gap-2">
+                      <span className="text-gray-600">Payment Amount</span>
+                      <span className="font-bold text-right">{formatCurrency(selectedPayment.amount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs sm:text-sm gap-2">
+                      <span className="text-gray-600 flex-1">Processing Fee</span>
+                      <span className="font-bold text-right">{formatCurrency(0)}</span>
+                    </div>
+                    <div className="border-t pt-2 flex justify-between gap-2">
+                      <span className="font-bold text-sm sm:text-base">Total</span>
+                      <span className="text-base sm:text-lg lg:text-xl font-black text-right" style={{ fontFamily: "Lato, sans-serif" }}>
+                        {formatCurrency(selectedPayment.amount)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <Button variant="outline" onClick={closePaymentModal} className="flex-1 h-11">
+                    Cancel
+                  </Button>
+                  <Button className="flex-1 bg-black hover:bg-black/90 text-white h-11" disabled={!paymentMethod}>
+                    <span className="truncate">{paymentMethod === "ach" ? "Contact PM for ACH" : "Select a payment method"}</span>
+                  </Button>
+                </div>
+
+                <p className="text-[10px] sm:text-xs text-center text-gray-500 pt-2 leading-relaxed">
+                  🔒 Secure payment powered by Stripe • Your payment information is encrypted
+                </p>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

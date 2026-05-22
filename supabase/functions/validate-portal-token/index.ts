@@ -140,6 +140,20 @@ serve(async (req) => {
     const client = clientRes.data;
     const project = projectRes.data ?? null;
 
+    // If project has no PM, fall back to first admin (Jonathan)
+    if (project && !project.project_manager) {
+      const { data: defaultPm } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, phone")
+        .eq("role", "admin")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (defaultPm) {
+        (project as any).project_manager = defaultPm;
+      }
+    }
+
     // Phases + updates — need project_id
     let phases: any[] = [];
     let updates: any[] = [];

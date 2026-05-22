@@ -136,6 +136,8 @@ export function Payroll() {
           totalProcessed: 0,
         };
       }
+      // Hide pending commissions for discarded clients — keep processed ones (money already paid)
+      if (cp.project?.client?.is_discarded && cp.status === "pending") return;
       byPM[pmId].installments.push(cp);
       if (cp.status === "pending") byPM[pmId].totalPending += parseFloat(cp.amount) || 0;
       if (cp.status === "processed") byPM[pmId].totalProcessed += parseFloat(cp.amount) || 0;
@@ -156,11 +158,12 @@ export function Payroll() {
     // Compute projected commission for sales reps: sum(GP × rate) across their projects
     const { data: repProjects } = await supabase
       .from("projects")
-      .select("id, sales_rep_id, gross_profit, sales_rep_commission_rate")
+      .select("id, sales_rep_id, gross_profit, sales_rep_commission_rate, client:clients(is_discarded)")
       .not("sales_rep_id", "is", null);
     (repProjects ?? []).forEach((proj: any) => {
       const repId = proj.sales_rep_id;
       if (!repId || !byPM[repId]) return;
+      if (proj.client?.is_discarded) return;
       const rate = Number(proj.sales_rep_commission_rate) || Number(byPM[repId].commission_rate) || 0;
       byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) +
         (Number(proj.gross_profit) || 0) * (rate / 100);
@@ -169,11 +172,12 @@ export function Payroll() {
     // Compute projected commission for PMs: sum(projects.commission) across their projects
     const { data: pmProjects } = await supabase
       .from("projects")
-      .select("id, project_manager_id, commission")
+      .select("id, project_manager_id, commission, client:clients(is_discarded)")
       .not("project_manager_id", "is", null);
     (pmProjects ?? []).forEach((proj: any) => {
       const pmId = proj.project_manager_id;
       if (!pmId || !byPM[pmId]) return;
+      if (proj.client?.is_discarded) return;
       byPM[pmId].projectedCommission = (byPM[pmId].projectedCommission ?? 0) +
         (Number(proj.commission) || 0);
     });

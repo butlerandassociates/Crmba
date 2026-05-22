@@ -174,6 +174,21 @@ export async function portalAction(
   return { success: true };
 }
 
+export async function createPaymentIntent(
+  token: string,
+  paymentId: string,
+  clientId: string,
+  amount: number
+): Promise<{ clientSecret: string } | { error: string }> {
+  const { data, error } = await supabase.functions.invoke("create-payment-intent", {
+    body: { token, payment_id: paymentId, client_id: clientId, amount },
+  });
+  if (error || !data?.client_secret) {
+    return { error: data?.error ?? error?.message ?? "Failed to create payment" };
+  }
+  return { clientSecret: data.client_secret };
+}
+
 export async function validatePortalToken(token: string): Promise<PortalData | null> {
   const { data: fnData, error: fnError } = await supabase.functions.invoke(
     "validate-portal-token",

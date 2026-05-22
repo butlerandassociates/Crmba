@@ -107,6 +107,12 @@ importers:
       '@react-oauth/google':
         specifier: ^0.13.4
         version: 0.13.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@stripe/react-stripe-js':
+        specifier: ^6.4.0
+        version: 6.4.0(@stripe/stripe-js@9.6.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@stripe/stripe-js':
+        specifier: ^9.6.0
+        version: 9.6.0
       '@supabase/supabase-js':
         specifier: ^2.99.2
         version: 2.99.3
@@ -1444,6 +1450,17 @@ packages:
     resolution: {integrity: sha512-rhHyrMeLpErT/C7BxcEsU4COHQUzHyrPYW5tOZUeUhziNtRuYxmDWvqQqzpuUt8xpOgmbKa1btGXfnA/ANVO+g==}
     cpu: [x64]
     os: [win32]
+
+  '@stripe/react-stripe-js@6.4.0':
+    resolution: {integrity: sha512-5cAf7GAqf8VHPoPLVnJQ2MHtDWLdiEPs5GW/loU7iDEue3xf620v11skrk5HICUraDOhODPYpttgFC5N579NxA==}
+    peerDependencies:
+      '@stripe/stripe-js': '>=9.5.0 <10.0.0'
+      react: '>=16.8.0 <20.0.0'
+      react-dom: '>=16.8.0 <20.0.0'
+
+  '@stripe/stripe-js@9.6.0':
+    resolution: {integrity: sha512-v5MebYvJbddSRn15fknxTVwypJPzjeIXI1Q2HBxCBrQieWna8PC+RXEVUZ3F4ANAeILEj97HzFlr0r7CXvG7ZA==}
+    engines: {node: '>=12.16'}
 
   '@supabase/auth-js@2.99.3':
     resolution: {integrity: sha512-vMEVLA1kGGYd/kdsJSwtjiFUZM1nGfrz2DWmgMBZtocV48qL+L2+4QpIkueXyBEumMQZFEyhz57i/5zGHjvdBw==}
@@ -3957,6 +3974,15 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.59.1':
     optional: true
+
+  '@stripe/react-stripe-js@6.4.0(@stripe/stripe-js@9.6.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@stripe/stripe-js': 9.6.0
+      prop-types: 15.8.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
+  '@stripe/stripe-js@9.6.0': {}
 
   '@supabase/auth-js@2.99.3':
     dependencies:
