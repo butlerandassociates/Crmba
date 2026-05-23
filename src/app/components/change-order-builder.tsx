@@ -18,6 +18,7 @@ import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { changeOrdersAPI } from "../api/change-orders";
 import { supabase } from "@/lib/supabase";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
@@ -79,6 +80,7 @@ export function ChangeOrderBuilder() {
   const [merging, setMerging]           = useState(false);
   const [downloading, setDownloading]   = useState(false);
   const [deleting, setDeleting]         = useState(false);
+  const [adminApproving, setAdminApproving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [showCoEmailPreview, setShowCoEmailPreview] = useState(false);
@@ -182,6 +184,15 @@ export function ChangeOrderBuilder() {
     };
     load();
   }, [clientId, coId]);
+
+  // Refresh CO status in real-time (e.g. client approves/rejects from portal)
+  // Only updates existingCO — does NOT reset form fields (coTitle, items, etc.)
+  useRealtimeRefetch(async () => {
+    if (!coId || !clientId) return;
+    const cos = await changeOrdersAPI.getByClient(clientId);
+    const co = cos.find((c: any) => c.id === coId);
+    if (co) setExistingCO(co);
+  }, ["change_orders"], `co-builder-${coId}`);
 
   // Warn before leaving with unsaved changes
   useEffect(() => {
@@ -520,6 +531,28 @@ export function ChangeOrderBuilder() {
     } finally {
       setDeleting(false);
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleAdminApprove = async () => {
+    if (!existingCO) return;
+    setAdminApproving(true);
+    try {
+      await supabase.from("change_orders").update({
+        status: "approved",
+        updated_at: new Date().toISOString(),
+      }).eq("id", existingCO.id);
+      setExistingCO((prev: any) => ({ ...prev, status: "approved" }));
+      activityLogAPI.create({
+        client_id: clientId!,
+        action_type: "change_order_approved",
+        description: `Change order "${existingCO.title}" approved directly by admin ($0 impact)`,
+      }).catch(() => {});
+      toast.success("Change order approved. Upload proof and apply it to the proposal.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve — please try again.");
+    } finally {
+      setAdminApproving(false);
     }
   };
 
@@ -884,7 +917,7 @@ export function ChangeOrderBuilder() {
             <p className="text-xs text-muted-foreground truncate">{client.first_name} {client.last_name}</p>
             <p className="font-semibold text-sm truncate">{isEdit ? "Edit Change Order" : "New Change Order"}</p>
           </div>
-          {isEdit && existingCO && existingCO.status !== "merged" && (
+          {isEdit && existingCO && existingCO.status !== "merged" && existingCO.status !== "approved" && (
             <Button
               variant="ghost"
               size="sm"
@@ -897,7 +930,7 @@ export function ChangeOrderBuilder() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!isMerged && !isPending && (
+          {!isMerged && !isPending && !isClientApproved && !isClientRejected && (
             <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={saving || merging || downloading || sendingToClient}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               Save Draft
@@ -916,8 +949,8 @@ export function ChangeOrderBuilder() {
                 onClick={() => setShowSendConfirm(true)}
               >
                 <span className="flex items-center gap-2">
-                  {sendingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : isPending ? <RefreshCw className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-                  {sendingToClient ? "Sending…" : isPending ? "Resend to Client" : "Save & Send"}
+                  {sendingToClient ? <Loader2 className="h-4 w-4 animate-spin" /> : (isPending || isClientRejected) ? <RefreshCw className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                  {sendingToClient ? "Sending…" : (isPending || isClientRejected) ? "Resend to Client" : "Save & Send"}
                 </span>
               </Button>
             </>
@@ -934,7 +967,17 @@ export function ChangeOrderBuilder() {
               Export PDF
             </span>
           </Button>
-          {!isMerged && (
+          {isEdit && existingCO && !isMerged && !isClientApproved && !isClientRejected && !isPending && coImpact === 0 && (
+            <Button size="sm" variant="outline"
+              className="border-green-400 text-green-700 hover:bg-green-50"
+              onClick={handleAdminApprove}
+              disabled={adminApproving || saving || merging}
+            >
+              {adminApproving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              Approve Directly
+            </Button>
+          )}
+          {!isMerged && !isClientRejected && (
             <Button size="sm" onClick={() => { if (!validate()) return; setShowApplyConfirm(true); }} disabled={merging || saving || downloading || !canMerge}
               className="bg-green-600 hover:bg-green-700 text-white">
               {merging ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
@@ -979,7 +1022,7 @@ export function ChangeOrderBuilder() {
               <XCircle className="h-4 w-4 text-red-600 shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-red-800">Declined by Client</p>
-                <p className="text-xs text-red-700 mt-0.5">The client has declined this change order. You can edit and resend it for their review.</p>
+                <p className="text-xs text-red-700 mt-0.5">The client has declined this change order. You can resend it as-is, or create a new change order with different terms.</p>
               </div>
             </div>
           )}
@@ -1005,6 +1048,7 @@ export function ChangeOrderBuilder() {
                 value={coTitle}
                 onChange={e => setCoTitle(e.target.value)}
                 className={touched && !coTitle.trim() ? "border-destructive" : ""}
+                disabled={isClientApproved || isClientRejected || isMerged}
               />
               {touched && !coTitle.trim() && <p className="text-xs text-destructive">Name is required.</p>}
             </div>
@@ -1015,6 +1059,7 @@ export function ChangeOrderBuilder() {
                 value={coDescription}
                 onChange={e => setCoDescription(e.target.value)}
                 rows={3}
+                disabled={isClientApproved || isClientRejected || isMerged}
               />
             </div>
             <div className="space-y-1.5">
@@ -1023,6 +1068,7 @@ export function ChangeOrderBuilder() {
                 placeholder="e.g. 3 additional days"
                 value={timelineImpact}
                 onChange={e => setTimelineImpact(e.target.value)}
+                disabled={isClientApproved || isClientRejected || isMerged}
               />
             </div>
           </div>
@@ -1031,9 +1077,11 @@ export function ChangeOrderBuilder() {
           <div className="bg-background border rounded-lg p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-base">Change Order Items</h2>
-              <Button size="sm" variant="outline" onClick={() => setItems(prev => [...prev, EMPTY_ITEM()])}>
-                <Plus className="h-4 w-4 mr-1" /> Add Item
-              </Button>
+              {!isClientApproved && !isClientRejected && !isMerged && (
+                <Button size="sm" variant="outline" onClick={() => setItems(prev => [...prev, EMPTY_ITEM()])}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                </Button>
+              )}
             </div>
 
             {/* Column headers */}
@@ -1055,7 +1103,7 @@ export function ChangeOrderBuilder() {
                 return (
                   <div key={item.id} className="border rounded-lg p-3 space-y-2 bg-muted/10">
                     {/* Product picker */}
-                    {categories.length > 0 && (
+                    {categories.length > 0 && !isClientApproved && !isClientRejected && !isMerged && (
                       <div className="flex gap-2">
                         <Select
                           value={pickerState[item.id]?.categoryId || ""}
@@ -1105,6 +1153,7 @@ export function ChangeOrderBuilder() {
                             if (item.fromProduct) setItems(prev => prev.map(i => i.id === item.id ? { ...i, fromProduct: false } : i));
                           }}
                           className={`h-8 text-sm ${touched && !item.description.trim() ? "border-destructive" : ""}`}
+                          disabled={isClientApproved || isClientRejected || isMerged}
                         />
                       </div>
                       <div className="col-span-4 sm:col-span-2">
@@ -1113,6 +1162,7 @@ export function ChangeOrderBuilder() {
                           value={item.quantity}
                           onChange={e => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
                           className="h-8 text-sm text-center"
+                          disabled={isClientApproved || isClientRejected || isMerged}
                         />
                       </div>
                       <div className="col-span-4 sm:col-span-2">
@@ -1121,6 +1171,7 @@ export function ChangeOrderBuilder() {
                           value={item.unit}
                           onChange={e => updateItem(item.id, "unit", e.target.value)}
                           className="h-8 text-sm text-center"
+                          disabled={isClientApproved || isClientRejected || isMerged}
                         />
                       </div>
                       <div className="col-span-4 sm:col-span-2">
@@ -1136,16 +1187,19 @@ export function ChangeOrderBuilder() {
                             }
                           }}
                           className="h-8 text-sm text-right"
+                          disabled={isClientApproved || isClientRejected || isMerged}
                         />
                       </div>
                       <div className="col-span-10 sm:col-span-1 text-right text-sm font-medium tabular-nums pr-1">
                         {fmt(item.total)}
                       </div>
                       <div className="col-span-2 sm:col-span-1 flex justify-end">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeItem(item.id)} disabled={items.length === 1}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {!isClientApproved && !isClientRejected && !isMerged && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeItem(item.id)} disabled={items.length === 1}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

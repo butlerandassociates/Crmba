@@ -21,6 +21,8 @@ import { projectsAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
+import { Button } from "./ui/button";
+import { OverheadModal } from "./overhead-modal";
 
 const STATUS_COLORS: Record<string, string> = {
   active:    "bg-green-500",
@@ -38,6 +40,7 @@ export function Financials() {
   const [payments, setPayments] = useState<any[]>([]);
   const [paidPayments, setPaidPayments] = useState<any[]>([]);
   const [collectionView, setCollectionView] = useState<"outstanding" | "collected">("outstanding");
+  const [overheadOpen, setOverheadOpen] = useState(false);
 
   const toDateStr = (d: Date) => d.toISOString().split("T")[0];
   const todayDate = new Date();
@@ -69,7 +72,7 @@ export function Financials() {
   };
 
   useEffect(() => { fetchData(); }, []);
-  useRealtimeRefetch(fetchData, ["projects", "receipts", "project_payments"], "financials");
+  useRealtimeRefetch(fetchData, ["projects", "project_receipts", "project_payments"], "financials");
 
   if (loading) {
     return (
@@ -177,6 +180,13 @@ export function Financials() {
             <p className="text-xs text-muted-foreground mt-1">GP minus all commissions</p>
           </CardContent>
         </Card>
+      </div>
+
+      <div>
+        <Button onClick={() => setOverheadOpen(true)} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+          <Clock className="h-4 w-4" />
+          View Overhead Costs
+        </Button>
       </div>
 
       {/* Charts */}
@@ -518,6 +528,12 @@ export function Financials() {
           )}
         </CardContent>
       </Card>
+      <OverheadModal
+        open={overheadOpen}
+        onOpenChange={setOverheadOpen}
+        totalRevenue={totalRevenue}
+        grossProfit={totalProfit}
+      />
     </div>
   );
 }

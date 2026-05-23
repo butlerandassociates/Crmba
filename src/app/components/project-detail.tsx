@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { EmailTemplatesDialog } from "./email-templates-dialog";
 import { DocuSignDialog } from "./docusign-dialog";
 import { ForemanPaymentBreakdown } from "./foreman-payment-breakdown";
@@ -77,6 +78,9 @@ export function ProjectDetail() {
       .finally(() => setLoadingProject(false));
     receiptsAPI.getByProject(id).then(setReceipts).catch(console.error);
   }, [id]);
+
+  useRealtimeRefetch(() => { if (id) { projectsAPI.getById(id).then(setProject).catch(console.error); receiptsAPI.getByProject(id).then(setReceipts).catch(console.error); } }, ["projects", "project_receipts"], `project-${id}`);
+  useRealtimeRefetch(() => { if (id) projectPaymentsAPI.getByProject(id).then(setProjectPayments).catch(console.error); }, ["project_payments"], `project-payments-${id}`);
 
   const client = project?.client ?? null;
 

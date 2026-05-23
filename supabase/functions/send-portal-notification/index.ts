@@ -213,11 +213,22 @@ serve(async (req) => {
       // PM lookup is non-fatal
     }
 
+    // Check if this CO was already pending_client (resend) to prefix subject with "Updated:"
+    let isResend = false;
+    if (type === "co_pending" && entity_id) {
+      const { data: coRow } = await supabase
+        .from("change_orders")
+        .select("status")
+        .eq("id", entity_id)
+        .maybeSingle();
+      isResend = coRow?.status === "pending_client";
+    }
+
     // Build subject
     const subjects: Record<string, string> = {
       portal_access: "Your project portal is ready — Butler & Associates",
       proposal_ready: `Proposal ready to review${title ? `: ${title}` : ""} — Butler & Associates`,
-      co_pending: `Change order requires your approval${title ? `: ${title}` : ""} — Butler & Associates`,
+      co_pending: `${isResend ? "Updated: " : ""}Change order requires your approval${title ? `: ${title}` : ""} — Butler & Associates`,
     };
     const subject = subjects[type] ?? "Update from Butler & Associates Construction";
 

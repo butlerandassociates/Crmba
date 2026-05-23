@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -66,6 +67,8 @@ export function PayrollPMDetail() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(loadData, ["commission_payments", "projects", "profiles"], `pm-detail-${id}`);
 
   const handleRecordProjectPayout = async (projectId: string) => {
     const amount = parseFloat(payoutAmounts[projectId] ?? "");

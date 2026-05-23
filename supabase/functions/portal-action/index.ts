@@ -91,8 +91,9 @@ serve(async (req) => {
         type: coActionType,
         title: `Change Order ${action === "co_approve" ? "Approved" : "Declined"}`,
         message: `${clientName} has ${actionLabel} a change order via the client portal.${comment ? ` — "${comment}"` : ""}`,
-        client_id: clientId,
-        read: false,
+        metadata: { client_id: clientId },
+        link: `/clients/${clientId}`,
+        is_read: false,
       }).then(() => {});
 
       // Notify admin + PM via email
@@ -105,6 +106,53 @@ serve(async (req) => {
           html: `<p>${clientName} has <strong>${actionLabel}</strong> a change order via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
         }),
       }).catch(() => {});
+
+      // On rejection: SMS alert to admin + PM phones
+      if (action === "co_reject") {
+        const smsBody = `Butler & Associates: ${clientName} declined a change order via the portal.${comment ? ` Reason: ${comment}` : ""} Log in to review.`;
+        const twilioSid = Deno.env.get("TWILIO_ACCOUNT_SID");
+        const twilioToken = Deno.env.get("TWILIO_AUTH_TOKEN");
+        const twilioFrom = Deno.env.get("TWILIO_PHONE_NUMBER");
+        if (twilioSid && twilioToken && twilioFrom) {
+          const creds = btoa(`${twilioSid}:${twilioToken}`);
+          // Fetch admin + PM phones from profiles
+          const { data: adminProfiles } = await supabase
+            .from("profiles")
+            .select("phone, role")
+            .in("role", ["admin"]);
+          // Also fetch PM phone from the active project
+          const { data: proj } = await supabase
+            .from("projects")
+            .select("project_manager_id")
+            .eq("client_id", clientId)
+            .eq("portal_enabled", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const pmPhones: string[] = [];
+          if (proj?.project_manager_id) {
+            const { data: pmProfile } = await supabase
+              .from("profiles")
+              .select("phone")
+              .eq("id", proj.project_manager_id)
+              .maybeSingle();
+            if (pmProfile?.phone) pmPhones.push(pmProfile.phone);
+          }
+          const adminPhones = (adminProfiles ?? []).map((p: any) => p.phone).filter(Boolean);
+          const allPhones = [...new Set([...adminPhones, ...pmPhones])];
+          for (const phone of allPhones) {
+            const digits = phone.replace(/\D/g, "");
+            const e164 = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith("1") ? `+${digits}` : null;
+            if (!e164) continue;
+            const form = new URLSearchParams({ To: e164, From: twilioFrom, Body: smsBody });
+            fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+              method: "POST",
+              headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+              body: form.toString(),
+            }).catch(() => {});
+          }
+        }
+      }
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -167,8 +215,9 @@ serve(async (req) => {
         type: propActionType,
         title: `Proposal ${action === "proposal_accept" ? "Accepted" : "Declined"}`,
         message: `${clientName2} has ${actionLabel2} a proposal via the client portal.${comment ? ` — "${comment}"` : ""}`,
-        client_id: clientId,
-        read: false,
+        metadata: { client_id: clientId },
+        link: `/clients/${clientId}`,
+        is_read: false,
       }).then(() => {});
 
       // Notify admin + PM via email

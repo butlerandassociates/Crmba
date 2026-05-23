@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import {
   Dialog,
   DialogBody,
@@ -74,6 +75,14 @@ export function AppointmentDialog({
       .maybeSingle()
       .then(({ data }) => setCalendarConnected(!!data?.google_calendar_refresh_token));
   }, []);
+
+  useRealtimeRefetch(() => {
+    Promise.all([usersAPI.getByRole("sales_rep"), usersAPI.getByRole("admin")])
+      .then(([reps, admins]) => { setTeamMembers([...reps, ...admins]); setSalesRepIds(new Set(reps.map((r: any) => r.id))); })
+      .catch(console.error);
+    supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setAppointmentTypes(data ?? []));
+  }, ["profiles", "appointment_types"], "appt-dialog");
 
   const INTAKE_FORM_URL = `https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?entry.1284149011=${encodeURIComponent(client?.id ?? "")}`;
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Plus, Trash2, Upload, FileText, Loader2, Receipt } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
@@ -53,6 +54,8 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   useEffect(() => {
     if (open) loadReceipts();
   }, [open, project?.id]);
+
+  useRealtimeRefetch(() => { if (open && project?.id) loadReceipts(); }, ["project_receipts"], `cost-attr-${project?.id}`);
 
   const totalMaterial = receipts.filter((r) => r.category === "material").reduce((s, r) => s + r.amount, 0);
   const totalLabor    = receipts.filter((r) => r.category === "labor").reduce((s, r) => s + r.amount, 0);

@@ -293,7 +293,7 @@ export function EstimateTemplateManager() {
     }
   };
 
-  useRealtimeRefetch(loadAll, ["estimate_templates", "products"], "estimate-templates");
+  useRealtimeRefetch(loadAll, ["estimate_templates", "products_services"], "estimate-templates");
 
   const openCreate = () => {
     setEditingId(null);

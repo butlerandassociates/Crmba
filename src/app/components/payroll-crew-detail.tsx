@@ -4,6 +4,7 @@
  * Route: /payroll/crew/:id  (id = foreman's profile id)
  */
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams, Link } from "react-router";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -92,6 +93,8 @@ export function PayrollCrewDetail() {
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(loadData, ["field_installation_orders", "fio_crew_payments", "profiles"], `crew-detail-${id}`);
 
   const handleMarkPaid = async (fioId: string) => {
     setActionLoading(fioId + "_paid");

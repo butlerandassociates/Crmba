@@ -65,6 +65,11 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
     return () => clearInterval(interval);
   }, [token]);
 
+  const refreshPortalData = async () => {
+    const fresh = await validatePortalToken(token);
+    if (fresh) setPortalData(fresh);
+  };
+
   const [activeTab, setActiveTabState] = useState(initialTab);
   const setActiveTab = useCallback((tab: string) => {
     setActiveTabState(tab);
@@ -695,11 +700,12 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
             </h3>
             <div className="space-y-2">
               {change_orders.map(co => {
-                const isApproved = co.status === "approved" || co.status === "merged";
-                const statusBadge = isApproved ? "border-green-600 text-green-600"
-                  : co.status === "rejected" ? "border-red-500 text-red-500"
+                const statusBadge = co.status === "merged" ? "border-purple-600 text-purple-600"
+                  : co.status === "approved" ? "border-green-600 text-green-600"
                   : "border-orange-600 text-orange-600";
-                const statusLabel = isApproved ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "PENDING";
+                const statusLabel = co.status === "merged" ? "APPLIED"
+                  : co.status === "approved" ? "APPROVED"
+                  : "PENDING";
                 return (
                   <div key={co.id} className="p-3 lg:p-4 border rounded-lg hover:bg-gray-50 transition-colors space-y-2">
                     <div className="flex items-center gap-3">
@@ -879,10 +885,11 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
         ) : (
           change_orders.map(co => {
             const isApproved = co.status === "approved" || co.status === "merged";
-            const badgeClass = isApproved ? "border-green-600 text-green-600"
+            const badgeClass = co.status === "merged" ? "border-purple-600 text-purple-600"
+              : co.status === "approved" ? "border-green-600 text-green-600"
               : co.status === "rejected" ? "border-red-500 text-red-500"
               : "border-orange-600 text-orange-600";
-            const badgeLabel = isApproved ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
+            const badgeLabel = co.status === "merged" ? "APPLIED" : co.status === "approved" ? "APPROVED" : co.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
             return (
               <Card key={co.id}>
                 <CardContent className="p-4 lg:p-6 space-y-2">
@@ -1135,7 +1142,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
             {activeTab === "payments" && renderPayments()}
             {activeTab === "field-updates" && renderFieldUpdates()}
             {activeTab === "change-orders" && renderChangeOrders()}
-            {activeTab === "proposals" && <PortalProposals proposals={proposals} token={token} />}
+            {activeTab === "proposals" && <PortalProposals proposals={proposals} token={token} onActionComplete={refreshPortalData} />}
           </div>
         </div>
       </div>
@@ -1304,6 +1311,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
               projectTotal={totalValue}
               token={token}
               onBack={() => setViewingChangeOrderId(null)}
+              onActionComplete={refreshPortalData}
             />
           )}
         </SheetContent>

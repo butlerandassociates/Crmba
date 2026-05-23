@@ -13,6 +13,7 @@ import { projectPaymentsAPI } from "../api/project-payments";
 import { projectsAPI } from "../api/projects";
 import { productsAPI, notificationsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ChangeOrderExport } from "./change-order-export";
 import { toast } from "sonner";
@@ -125,6 +126,8 @@ export function ChangeOrdersSheet({ open, onOpenChange, client, project, onSave 
       productsAPI.getCategories().then(setCoCategories).catch(() => {});
     }
   }, [open, client?.id]);
+
+  useRealtimeRefetch(() => { if (open && client?.id) loadCOs(); }, ["change_orders"], `co-sheet-${client?.id}`);
 
   // Unsaved changes — warn on browser close/refresh
   useEffect(() => {

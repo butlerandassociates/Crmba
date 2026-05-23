@@ -17,11 +17,11 @@ interface Props {
   projectTotal: number;
   token: string;
   onBack: () => void;
+  onActionComplete?: () => void;
 }
 
-export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBack }: Props) {
+export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBack, onActionComplete }: Props) {
   const [signatureInput, setSignatureInput] = useState("");
-  const [comments, setComments] = useState("");
   const [showSignature, setShowSignature] = useState(false);
   const [submissionType, setSubmissionType] = useState<"approved" | "denied" | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,6 +29,8 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showDeclineForm, setShowDeclineForm] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
 
   const handleDownloadPdf = async () => {
     if (!changeOrder.pdf_url) return;
@@ -84,6 +86,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     setLoading(false);
     if (result.success) {
       setSubmissionType("approved");
+      onActionComplete?.();
     } else {
       setError(result.error ?? "Failed to submit approval. Please try again.");
     }
@@ -92,10 +95,12 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   const handleDeny = async () => {
     setLoading(true);
     setError(null);
-    const result = await portalAction(token, "co_reject", changeOrder.id, comments);
+    const result = await portalAction(token, "co_reject", changeOrder.id, declineReason);
     setLoading(false);
     if (result.success) {
+      setShowDeclineForm(false);
       setSubmissionType("denied");
+      onActionComplete?.();
     } else {
       setError(result.error ?? "Failed to submit response. Please try again.");
     }
@@ -113,8 +118,12 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   }
 
   const isApproved = changeOrder.status === "approved" || changeOrder.status === "merged";
-  const statusLabel = isApproved ? "APPROVED" : changeOrder.status === "rejected" ? "DECLINED" : "AWAITING REVIEW";
-  const statusClass = isApproved ? "border-green-600 text-green-600"
+  const statusLabel = changeOrder.status === "merged" ? "APPLIED TO CONTRACT"
+    : changeOrder.status === "approved" ? "APPROVED"
+    : changeOrder.status === "rejected" ? "DECLINED"
+    : "AWAITING REVIEW";
+  const statusClass = changeOrder.status === "merged" ? "border-purple-600 text-purple-600"
+    : isApproved ? "border-green-600 text-green-600"
     : changeOrder.status === "rejected" ? "border-red-500 text-red-500"
     : "border-orange-600 text-orange-600";
 
@@ -289,21 +298,6 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
           {/* Actions — only when pending */}
           {changeOrder.status === "pending_client" && (
             <>
-              {/* Comments */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Questions or Comments?</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Textarea
-                    placeholder="Add any questions or feedback about this change order..."
-                    value={comments}
-                    onChange={e => setComments(e.target.value)}
-                    className="min-h-[100px] mb-3"
-                  />
-                </CardContent>
-              </Card>
-
               {/* Signature / approve */}
               {!showSignature ? (
                 <Card className="border-2 border-black bg-gray-50">
@@ -316,9 +310,9 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                         </p>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        <Button variant="outline" className="gap-2" onClick={handleDeny} disabled={loading}>
+                        <Button variant="outline" className="gap-2" onClick={() => setShowDeclineForm(true)} disabled={loading}>
                           <MessageSquare className="h-4 w-4" />
-                          {loading ? "Submitting..." : "Decline & Send Feedback"}
+                          Decline & Send Feedback
                         </Button>
                         <Button className="bg-green-600 hover:bg-green-700 text-white gap-2" onClick={handleApprove} disabled={loading}>
                           <CheckCircle2 className="h-4 w-4" />
@@ -359,6 +353,39 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                         onClick={handleSign}
                       >
                         {loading ? "Submitting..." : "Submit Signature"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Inline decline form — shown when Decline button clicked */}
+              {showDeclineForm && (
+                <Card className="border-2 border-red-200 bg-red-50">
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2 text-red-900">
+                      <MessageSquare className="h-4 w-4" /> Reason for Declining <span className="text-sm font-normal text-red-600">(optional)</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Textarea
+                      placeholder="e.g. The cost is higher than expected, I'd like to discuss alternatives..."
+                      value={declineReason}
+                      onChange={e => setDeclineReason(e.target.value)}
+                      className="min-h-[100px] bg-white"
+                      disabled={loading}
+                    />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => setShowDeclineForm(false)} disabled={loading}>
+                        Cancel
+                      </Button>
+                      <Button
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white gap-2"
+                        onClick={handleDeny}
+                        disabled={loading}
+                      >
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                        {loading ? "Submitting..." : "Confirm Decline"}
                       </Button>
                     </div>
                   </CardContent>

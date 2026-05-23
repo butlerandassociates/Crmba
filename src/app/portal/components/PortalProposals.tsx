@@ -15,9 +15,10 @@ import { portalAction } from "../api/portal";
 interface Props {
   proposals: PortalProposal[];
   token: string;
+  onActionComplete?: () => void;
 }
 
-export function PortalProposals({ proposals, token }: Props) {
+export function PortalProposals({ proposals, token, onActionComplete }: Props) {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [declineProposalId, setDeclineProposalId] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
@@ -60,6 +61,7 @@ export function PortalProposals({ proposals, token }: Props) {
       setLocalStatuses(prev => ({ ...prev, [signingProposalId]: "accepted" }));
       setSigningProposalId(null);
       setSignatureName("");
+      onActionComplete?.();
     } else {
       setError(result.error ?? "Failed to accept proposal. Please try again.");
     }
@@ -76,6 +78,7 @@ export function PortalProposals({ proposals, token }: Props) {
       setDeclineProposalId(null);
       setDeclineReason("");
       setViewingId(null);
+      onActionComplete?.();
     } else {
       setError(result.error ?? "Failed to submit response. Please try again.");
     }

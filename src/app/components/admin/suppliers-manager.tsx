@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Plus, Pencil, Trash2, Loader2, Building2, Check, X, ChevronLeft } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "../ui/button";
@@ -35,6 +36,7 @@ export function SuppliersManager() {
   };
 
   useEffect(() => { load(); }, []);
+  useRealtimeRefetch(load, ["suppliers"], "suppliers-manager");
 
   const resetForm = () => {
     setFormName(""); setFormPoc(""); setFormEmail("");

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Plus, Trash2, FileText, Send, ChevronLeft, Loader2, Calendar, Package, X, Pencil, ShieldCheck, Building2, User, Eye, FileDown, Mail } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
@@ -186,6 +187,8 @@ export function PurchaseOrdersSheet({ open, onOpenChange, client, project, onSav
       setLoading(false);
     }
   };
+
+  useRealtimeRefetch(() => { if (open) loadPOs(); }, ["purchase_orders", "suppliers"], `po-sheet-${client?.id}`);
 
   useEffect(() => {
     if (open) {

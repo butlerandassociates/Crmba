@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -120,6 +121,7 @@ export function PortalFieldUpdates({ projectId }: Props) {
   };
 
   useEffect(() => { load(); }, [projectId]);
+  useRealtimeRefetch(load, ["portal_updates", "portal_update_photos", "project_phases"], `field-updates-${projectId}`);
 
   const phaseLabelFor = (phaseId: string | null) =>
     phases.find(p => p.id === phaseId)?.label ?? null;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { Loader2, CheckCircle2, XCircle, ThumbsUp, ThumbsDown } from "lucide-react";
@@ -40,6 +41,23 @@ export function PublicProposal() {
         setLoading(false);
       });
   }, [id]);
+
+  useRealtimeRefetch(() => {
+    if (!id) return;
+    supabase
+      .from("estimates")
+      .select(`*, client:clients(first_name, last_name, email, phone, address, city, state), line_items:estimate_line_items(*)`)
+      .eq("id", id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setProposal(data);
+          setClient(data.client);
+          if (data.status === "accepted") setDone("accepted");
+          if (data.status === "declined") setDone("declined");
+        }
+      });
+  }, ["estimates", "estimate_line_items"], `public-proposal-${id}`);
 
   const formatCurrency = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);

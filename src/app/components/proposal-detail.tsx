@@ -669,6 +669,10 @@ export function ProposalDetail() {
       setProposal(fresh);
       setEditLineItems(fresh.line_items ?? []);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
+      // Regen PDF when a sent proposal is edited so portal clients see the updated version
+      if (proposal.status === "sent") {
+        saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
+      }
       toast.success("Proposal saved.");
     } catch (err: any) {
       toast.error(err.message || "Failed to save.");

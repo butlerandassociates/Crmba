@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useNavigate } from "react-router";
 import { Receipt, ArrowUpDown, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { receiptsAPI } from "../api/receipts";
@@ -42,6 +43,8 @@ export function CostAttributionsAll() {
       .catch(() => toast.error("Failed to load cost attributions"))
       .finally(() => setLoading(false));
   }, []);
+
+  useRealtimeRefetch(() => { receiptsAPI.getAll().then(setReceipts).catch(console.error); }, ["project_receipts"], "cost-attr-all");
 
   useEffect(() => { setPage(1); }, [search, sort]);
 

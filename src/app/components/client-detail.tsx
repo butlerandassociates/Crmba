@@ -307,7 +307,7 @@ export function ClientDetail() {
       Promise.all([productsAPI.getCategories()]).then(([cats]) => { setCategories(cats || []); }).catch(console.error);
       loadScopeOptions().catch(console.error);
     },
-    ["product_categories", "scope_of_work"],
+    ["service_categories", "scope_of_work"],
     "product-manager"
   );
 
@@ -726,6 +726,8 @@ export function ClientDetail() {
   };
 
   useRealtimeRefetch(loadActivityLog, ["activity_log"], `activity-${id}`);
+  useRealtimeRefetch(() => { if (id) changeOrdersAPI.getByClient(id).then(setClientCOs).catch(console.error); }, ["change_orders"], `cos-${id}`);
+  useRealtimeRefetch(() => { if (id) estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error); }, ["estimates"], `proposals-${id}`);
 
   const loadPhotos = async () => {
     if (!id) return;
@@ -1022,7 +1024,7 @@ export function ClientDetail() {
       const projectId = clientProjects[0]?.id;
       if (projectId) loadGpHealth(projectId);
     },
-    ["field_installation_orders", "fio_crew_payments", "cost_attributions", "project_payments", "receipts"],
+    ["field_installation_orders", "fio_crew_payments", "project_receipts", "project_payments"],
     `financials-${id}`
   );
 
@@ -4740,7 +4742,7 @@ export function ClientDetail() {
       <FieldInstallationOrderModal
         open={fioOpen}
         onOpenChange={setFioOpen}
-        project={clientProjects[0] ? { ...clientProjects[0], client: { id: client.id } } : null}
+        project={clientProjects[0] ? { ...clientProjects[0], client: { id: client.id, address: client.address, city: client.city, state: client.state, zip: client.zip } } : null}
         onCrewPayment={() => {
           const projectId = clientProjects[0]?.id;
           if (projectId) loadGpHealth(projectId);

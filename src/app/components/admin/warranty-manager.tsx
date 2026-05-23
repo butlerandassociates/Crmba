@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { warrantyAPI } from "../../api/warranty";
 import type { WarrantySection, WarrantyItem } from "../../api/warranty";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -265,6 +266,7 @@ export function WarrantyManager() {
   };
 
   useEffect(() => { load(); }, []);
+  useRealtimeRefetch(load, ["warranty_sections", "warranty_items"], "warranty-manager");
 
   const handleAddSection = async () => {
     if (!newSectionTitle.trim()) { toast.error("Section title is required."); return; }

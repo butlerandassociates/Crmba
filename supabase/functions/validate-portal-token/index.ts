@@ -121,7 +121,7 @@ serve(async (req) => {
           items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)
-        .neq("status", "draft")
+        .in("status", ["pending_client", "approved", "merged"])
         .order("created_at", { ascending: false }),
 
       supabase
@@ -131,7 +131,7 @@ serve(async (req) => {
           line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
         `)
         .eq("client_id", clientId)
-        .in("status", ["sent", "accepted", "declined"])
+        .in("status", ["sent", "accepted"])
         .order("created_at", { ascending: false })
         .limit(5),
     ]);

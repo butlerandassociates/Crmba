@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -50,6 +51,8 @@ export function PurchaseOrderModal({ open, onOpenChange, project }: PurchaseOrde
   });
 
   const [form, setForm] = useState<any>(emptyForm());
+
+  useRealtimeRefetch(() => { if (open && project?.id) loadAll(); }, ["purchase_orders", "estimates", "estimate_line_items"], `po-modal-${project?.id}`);
 
   useEffect(() => {
     if (!open || !project?.id) return;

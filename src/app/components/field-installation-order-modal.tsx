@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import baLogoUrl from "@/assets/ba-logo.png";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -89,6 +90,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
     if (!open || !project?.id) return;
     loadFIO();
   }, [open, project?.id]);
+
+  useRealtimeRefetch(() => { if (open && project?.id) loadFIO(); }, ["field_installation_orders", "fio_crew_payments"], `fio-${project?.id}`);
 
   const loadCrewPayments = async (fioId: string) => {
     setLoadingPayments(true);
@@ -311,7 +314,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       doc.text("6275 University Drive NW, Suite 37-314, Huntsville, AL 35806", textX, 14);
       doc.text("(256) 617-4691  ·  info@butlerconstruction.co", textX, 18.5);
       doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(187, 152, 77);
-      doc.text("CREW LABOR SCHEDULE", W - M, 9, { align: "right" });
+      doc.text("FIELD INSTALLATION ORDER", W - M, 9, { align: "right" });
       y = HDR;
 
       // ── Gold rule ──
@@ -319,18 +322,21 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       y += 7;
 
       // ── Project / Date ──
+      const addressLine = [project?.client?.address, project?.client?.city, project?.client?.state, project?.client?.zip].filter(Boolean).join(", ") || project?.name || "—";
+      const dateRangeLine = (project?.start_date && project?.end_date)
+        ? `${fmtDate(project.start_date)} – ${fmtDate(project.end_date)}`
+        : project?.start_date ? fmtDate(project.start_date) : today;
+      const dateLabel = `Work Date: ${dateRangeLine}`;
+      const dateLabelW = doc.getTextWidth(dateLabel) + 4;
+      const maxAddrW = W - 2 * M - dateLabelW;
+      const addrTruncated = doc.splitTextToSize(addressLine, maxAddrW)[0];
       doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(187, 152, 77);
-      doc.text(`Project: ${project?.name ?? "—"}`, M, y);
+      doc.text(addrTruncated, M, y);
       doc.setTextColor(107, 114, 128);
-      doc.text(fio?.work_date ? `Work Date: ${fmtDate(fio.work_date)}` : `Date: ${today}`, W - M, y, { align: "right" });
+      doc.text(dateLabel, W - M, y, { align: "right" });
       doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.3);
       doc.line(M, y + 3, W - M, y + 3);
       y += 11;
-
-      // ── Scope heading ──
-      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(58, 58, 56);
-      doc.text(`Scope 1 — ${project?.name ?? "Labor Items"}`, M, y);
-      y += 8;
 
       // ── Table header ──
       const C = { item: M, unit: 128, qty: 148, rate: 170, pay: W - M };
@@ -403,8 +409,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
       doc.setFontSize(7); doc.setTextColor(107, 114, 128);
       doc.text("Signature / Date", rX, y + 18);
 
-      const safeName = (project?.name ?? "FIO").replace(/[^a-zA-Z0-9-_]/g, "_");
-      doc.save(`Crew_Labor_Schedule_${safeName}.pdf`);
+      const safeName = foremanName ? foremanName.replace(/[^a-zA-Z0-9-_ ]/g, "").replace(/\s+/g, "_") : (project?.name ?? "FIO").replace(/[^a-zA-Z0-9-_]/g, "_");
+      doc.save(`Field_Installation_Order_${safeName}.pdf`);
       activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_pdf_exported", description: `FIO PDF exported — project: ${project.name ?? ""}` }).catch(() => {});
     } catch (err) {
       console.error(err);
@@ -1071,7 +1077,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-[9px] font-medium tracking-[0.18em] uppercase text-[#BB984D]">Crew Labor Schedule</div>
+                    <div className="text-[9px] font-medium tracking-[0.18em] uppercase text-[#BB984D]">Field Installation Order</div>
                   </div>
                 </div>
                 <div className="h-[2px] flex-shrink-0" style={{ background: "linear-gradient(90deg, #BB984D, #8A7040)" }} />
@@ -1079,18 +1085,23 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                 {/* Body content */}
                 <div className="flex-1 px-8 pt-5 space-y-5">
                   {/* Project / Date */}
-                  <div className="flex items-center justify-between border-b border-gray-300 pb-3">
-                    <span className="text-[#C9A84C] text-sm font-medium">Project: {project?.name ?? "—"}</span>
-                    <span className="text-sm text-gray-600 flex items-center gap-2">
-                      {fio?.work_date
-                        ? `Work Date: ${new Date(fio.work_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
-                        : `Created: ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
+                  <div className="flex items-start justify-between gap-4 border-b border-gray-300 pb-3">
+                    <span className="text-[#C9A84C] text-sm font-medium min-w-0 break-words">
+                      {[project?.client?.address, project?.client?.city, project?.client?.state, project?.client?.zip].filter(Boolean).join(", ") || project?.name || "—"}
+                    </span>
+                    <span className="text-sm text-gray-600 flex items-center gap-2 flex-shrink-0 whitespace-nowrap">
+                      {`Work Date: ${
+                        project?.start_date && project?.end_date
+                          ? `${new Date(project.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} – ${new Date(project.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                          : project?.start_date
+                          ? new Date(project.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+                          : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+                      }`}
                     </span>
                   </div>
 
-                  {/* Scope heading */}
+                  {/* Items table */}
                   <div>
-                    <h3 className="text-[13px] font-medium mb-3">Scope 1 — {project?.name ?? "Labor Items"}</h3>
                     <table className="w-full border-collapse text-xs">
                       <thead>
                         <tr className="bg-white border-b-2 border-gray-200">
