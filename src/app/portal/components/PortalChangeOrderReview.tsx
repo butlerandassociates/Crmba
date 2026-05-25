@@ -4,7 +4,9 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Badge } from "../../components/ui/badge";
-import { Dialog, DialogContent } from "../../components/ui/dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "../../components/ui/dialog";
 import {
   ArrowLeft, Download, DollarSign, CheckCircle2, AlertCircle, Clock, MessageSquare, ExternalLink, Loader2, Eye,
 } from "lucide-react";
@@ -22,14 +24,14 @@ interface Props {
 
 export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBack, onActionComplete }: Props) {
   const [signatureInput, setSignatureInput] = useState("");
-  const [showSignature, setShowSignature] = useState(false);
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false);
+  const [showDeclineDialog, setShowDeclineDialog] = useState(false);
   const [submissionType, setSubmissionType] = useState<"approved" | "denied" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
-  const [showDeclineForm, setShowDeclineForm] = useState(false);
   const [declineReason, setDeclineReason] = useState("");
 
   const handleDownloadPdf = async () => {
@@ -76,7 +78,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     ? changeOrder.new_total - changeOrder.original_total
     : changeOrder.cost_impact;
 
-  const handleApprove = () => setShowSignature(true);
+  const handleApprove = () => { setError(null); setShowSignatureDialog(true); };
 
   const handleSign = async () => {
     if (!signatureInput.trim()) return;
@@ -85,6 +87,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     const result = await portalAction(token, "co_approve", changeOrder.id, signatureInput);
     setLoading(false);
     if (result.success) {
+      setShowSignatureDialog(false);
       setSubmissionType("approved");
       onActionComplete?.();
     } else {
@@ -98,7 +101,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
     const result = await portalAction(token, "co_reject", changeOrder.id, declineReason);
     setLoading(false);
     if (result.success) {
-      setShowDeclineForm(false);
+      setShowDeclineDialog(false);
       setSubmissionType("denied");
       onActionComplete?.();
     } else {
@@ -297,101 +300,28 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
 
           {/* Actions — only when pending */}
           {changeOrder.status === "pending_client" && (
-            <>
-              {/* Signature / approve */}
-              {!showSignature ? (
-                <Card className="border-2 border-black bg-gray-50">
-                  <CardContent className="p-6">
-                    <div className="text-center space-y-4">
-                      <div>
-                        <h3 className="text-xl font-black mb-2" style={{ fontFamily: "Lato, sans-serif" }}>Ready to Approve?</h3>
-                        <p className="text-sm text-gray-600">
-                          By approving, you authorize the contractor to proceed with this change order and agree to the revised contract amount of {fmt(revisedTotal)}.
-                        </p>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        <Button variant="outline" className="gap-2" onClick={() => setShowDeclineForm(true)} disabled={loading}>
-                          <MessageSquare className="h-4 w-4" />
-                          Decline & Send Feedback
-                        </Button>
-                        <Button className="bg-green-600 hover:bg-green-700 text-white gap-2" onClick={handleApprove} disabled={loading}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Approve & Sign
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="border-2 border-green-600 bg-green-50">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2 text-green-900">
-                      <CheckCircle2 className="h-5 w-5" /> Electronic Signature Required
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <label className="text-sm font-semibold text-gray-700 mb-2 block">Type Your Full Name to Sign</label>
-                      <Input
-                        placeholder="Your full name"
-                        value={signatureInput}
-                        onChange={e => setSignatureInput(e.target.value)}
-                        className="text-lg"
-                        style={{ fontFamily: "Brush Script MT, cursive" }}
-                      />
-                      <p className="text-xs text-gray-500 mt-2">
-                        By typing your name above, you agree to the terms of this change order and authorize work to proceed.
-                      </p>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <Button variant="outline" onClick={() => setShowSignature(false)} className="flex-1" disabled={loading}>
-                        Cancel
-                      </Button>
-                      <Button
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                        disabled={!signatureInput.trim() || loading}
-                        onClick={handleSign}
-                      >
-                        {loading ? "Submitting..." : "Submit Signature"}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Inline decline form — shown when Decline button clicked */}
-              {showDeclineForm && (
-                <Card className="border-2 border-red-200 bg-red-50">
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2 text-red-900">
-                      <MessageSquare className="h-4 w-4" /> Reason for Declining <span className="text-sm font-normal text-red-600">(optional)</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Textarea
-                      placeholder="e.g. The cost is higher than expected, I'd like to discuss alternatives..."
-                      value={declineReason}
-                      onChange={e => setDeclineReason(e.target.value)}
-                      className="min-h-[100px] bg-white"
-                      disabled={loading}
-                    />
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Button variant="outline" className="flex-1" onClick={() => setShowDeclineForm(false)} disabled={loading}>
-                        Cancel
-                      </Button>
-                      <Button
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white gap-2"
-                        onClick={handleDeny}
-                        disabled={loading}
-                      >
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-                        {loading ? "Submitting..." : "Confirm Decline"}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </>
+            <Card className="border-2 border-black bg-gray-50">
+              <CardContent className="p-6">
+                <div className="text-center space-y-4">
+                  <div>
+                    <h3 className="text-xl font-black mb-2" style={{ fontFamily: "Lato, sans-serif" }}>Ready to Approve?</h3>
+                    <p className="text-sm text-gray-600">
+                      By approving, you authorize the contractor to proceed with this change order and agree to the revised contract amount of {fmt(revisedTotal)}.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <Button variant="outline" className="gap-2" onClick={() => { setError(null); setShowDeclineDialog(true); }}>
+                      <MessageSquare className="h-4 w-4" />
+                      Decline & Send Feedback
+                    </Button>
+                    <Button className="bg-green-600 hover:bg-green-700 text-white gap-2" onClick={handleApprove}>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Approve & Sign
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* View-only state for already approved/rejected */}
@@ -443,6 +373,68 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
           )}
         </div>
       </div>
+
+      {/* Approve — signature dialog */}
+      <Dialog open={showSignatureDialog} onOpenChange={open => { if (!open) { setShowSignatureDialog(false); setSignatureInput(""); setError(null); } }}>
+        <DialogContent className="w-[95vw] max-w-lg p-0 flex flex-col max-h-[90vh]">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="text-xl font-black" style={{ fontFamily: "Lato, sans-serif" }}>Approve Change Order</DialogTitle>
+            <DialogDescription>Type your full name to electronically sign and authorize this change order.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">Your Full Name</label>
+              <Input
+                placeholder="Your full name"
+                value={signatureInput}
+                onChange={e => setSignatureInput(e.target.value)}
+                className="text-lg"
+                style={{ fontFamily: "Brush Script MT, cursive" }}
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                By typing your name, you agree to the terms of this change order and authorize work to proceed at the revised total of {fmt(revisedTotal)}.
+              </p>
+            </div>
+            {error && <div className="text-sm text-red-600">{error}</div>}
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => { setShowSignatureDialog(false); setSignatureInput(""); setError(null); }} disabled={loading}>Cancel</Button>
+            <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white" disabled={!signatureInput.trim() || loading} onClick={handleSign}>
+              {loading ? "Submitting..." : "Confirm & Approve"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Decline — reason dialog */}
+      <Dialog open={showDeclineDialog} onOpenChange={open => { if (!open) { setShowDeclineDialog(false); setDeclineReason(""); setError(null); } }}>
+        <DialogContent className="w-[95vw] max-w-lg p-0 flex flex-col max-h-[90vh]">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="text-xl font-black" style={{ fontFamily: "Lato, sans-serif" }}>Decline Change Order</DialogTitle>
+            <DialogDescription>Let us know your concerns and we'll follow up to discuss alternatives.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">Reason <span className="font-normal text-gray-400">(optional)</span></label>
+              <Textarea
+                placeholder="e.g. The cost is higher than expected, I'd like to discuss alternatives..."
+                value={declineReason}
+                onChange={e => setDeclineReason(e.target.value)}
+                className="min-h-[120px]"
+                disabled={loading}
+              />
+            </div>
+            {error && <div className="text-sm text-red-600">{error}</div>}
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => { setShowDeclineDialog(false); setDeclineReason(""); setError(null); }} disabled={loading}>Cancel</Button>
+            <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white gap-2" disabled={loading} onClick={handleDeny}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {loading ? "Submitting..." : "Decline Change Order"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* PDF Preview modal */}
       <Dialog open={showPdfPreview} onOpenChange={setShowPdfPreview}>

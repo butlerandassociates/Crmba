@@ -74,14 +74,14 @@ export function ClientPortalPage() {
             404
           </div>
           <div style={{ fontFamily: "'Lato', sans-serif", fontSize: 22, fontWeight: 900, color: "#0B0C0E", marginBottom: 8 }}>
-            This link has expired or is invalid.
+            Project Completed
           </div>
           <div style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
-            Your project link may have been revoked or changed. Contact{" "}
+            Project completed, please contact your{" "}
             <a href="mailto:info@butlerconstruction.co" style={{ color: "#B8924B" }}>
-              Butler &amp; Associates
+              Butler &amp; Associates Construction
             </a>{" "}
-            for a new link.
+            representative for records!
           </div>
         </div>
       </div>

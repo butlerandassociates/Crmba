@@ -5,6 +5,7 @@ import { UserManagement } from "./user-management";
 import { ForecastDashboard } from "./forecast-dashboard";
 import { ProductManager } from "./product-manager";
 import { PLReport } from "./pl-report";
+import { PhaseTemplateEditor } from "./phase-template-editor";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -70,93 +71,104 @@ function DiscardedClients() {
     );
   });
 
-  if (clients.length === 0) return (
-    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-      <Archive className="h-10 w-10 mb-3 opacity-20" />
-      <p className="text-sm font-medium">No discarded clients</p>
-      <p className="text-xs mt-1">Clients you discard from the pipeline will appear here.</p>
-    </div>
-  );
-
   return (
-    <div className="space-y-3">
-      <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search discarded clients..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setDiscardedPage(0); }}
-            className="pl-9"
-          />
-        </div>
-      </div>
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-          <Archive className="h-8 w-8 mb-2 opacity-20" />
-          <p className="text-sm font-medium">No clients match your search</p>
-        </div>
-      )}
-      <div className="space-y-2">
-      {(() => {
-        const totalPages = Math.ceil(filtered.length / DISCARDED_PAGE_SIZE);
-        const pagedFiltered = filtered.slice(discardedPage * DISCARDED_PAGE_SIZE, (discardedPage + 1) * DISCARDED_PAGE_SIZE);
-        return (<>
-      {pagedFiltered.map((client) => (
-        <div key={client.id} className="flex items-center justify-between border rounded-lg px-4 py-3 bg-card">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Link
-                to={`/clients/${client.id}`}
-                className="font-semibold text-sm hover:opacity-75"
-              >
-                {client.first_name} {client.last_name}
-              </Link>
-              {client.status && (
-                <Badge variant="outline" className="text-xs capitalize">{client.status}</Badge>
-              )}
+    <div className="space-y-0">
+      <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 border-b">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-base">Discarded Clients</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Clients removed from the pipeline. Revive them to bring them back to active status.</p>
+          </div>
+          {clients.length > 0 && (
+            <div className="relative w-64 shrink-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discarded clients..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setDiscardedPage(0); }}
+                className="pl-9"
+              />
             </div>
-            {client.email && <p className="text-xs text-muted-foreground mt-0.5">{client.email}</p>}
-            {client.discarded_reason && (
-              <p className="text-xs text-muted-foreground mt-0.5 italic">"{client.discarded_reason}"</p>
-            )}
-            {client.discarded_at && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Discarded {new Date(client.discarded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-              </p>
-            )}
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleRevive(client)}
-            disabled={reviving === client.id}
-            className="ml-4 shrink-0"
-          >
-            {reviving === client.id
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-              : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
-            Revive
-          </Button>
+          )}
         </div>
-      ))}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
-          <span>{discardedPage * DISCARDED_PAGE_SIZE + 1}–{Math.min((discardedPage + 1) * DISCARDED_PAGE_SIZE, filtered.length)} of {filtered.length} clients</span>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage === 0} onClick={() => setDiscardedPage((p) => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-2">{discardedPage + 1} / {totalPages}</span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage >= totalPages - 1} onClick={() => setDiscardedPage((p) => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+      </div>
+
+      {clients.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <Archive className="h-10 w-10 mb-3 opacity-20" />
+          <p className="text-sm font-medium">No discarded clients</p>
+          <p className="text-xs mt-1">Clients you discard from the pipeline will appear here.</p>
+        </div>
+      ) : (
+        <div className="space-y-3 pt-4">
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Archive className="h-8 w-8 mb-2 opacity-20" />
+              <p className="text-sm font-medium">No clients match your search</p>
+            </div>
+          )}
+          <div className="space-y-2">
+            {(() => {
+              const totalPages = Math.ceil(filtered.length / DISCARDED_PAGE_SIZE);
+              const pagedFiltered = filtered.slice(discardedPage * DISCARDED_PAGE_SIZE, (discardedPage + 1) * DISCARDED_PAGE_SIZE);
+              return (<>
+                {pagedFiltered.map((client) => (
+                  <div key={client.id} className="flex items-center justify-between border rounded-lg px-4 py-3 bg-card">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          to={`/clients/${client.id}`}
+                          className="font-semibold text-sm hover:opacity-75 no-underline"
+                        >
+                          {client.first_name} {client.last_name}
+                        </Link>
+                        {client.status && (
+                          <Badge variant="outline" className="text-xs capitalize">{client.status}</Badge>
+                        )}
+                      </div>
+                      {client.email && <p className="text-xs text-muted-foreground mt-0.5">{client.email}</p>}
+                      {client.discarded_reason && (
+                        <p className="text-xs text-muted-foreground mt-0.5 italic">"{client.discarded_reason}"</p>
+                      )}
+                      {client.discarded_at && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Discarded {new Date(client.discarded_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRevive(client)}
+                      disabled={reviving === client.id}
+                      className="ml-4 shrink-0"
+                    >
+                      {reviving === client.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                        : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
+                      Revive
+                    </Button>
+                  </div>
+                ))}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
+                    <span>{discardedPage * DISCARDED_PAGE_SIZE + 1}–{Math.min((discardedPage + 1) * DISCARDED_PAGE_SIZE, filtered.length)} of {filtered.length} clients</span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage === 0} onClick={() => setDiscardedPage((p) => p - 1)}>
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="px-2">{discardedPage + 1} / {totalPages}</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" disabled={discardedPage >= totalPages - 1} onClick={() => setDiscardedPage((p) => p + 1)}>
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>);
+            })()}
           </div>
         </div>
       )}
-        </>);
-      })()}
-      </div>
     </div>
   );
 }
@@ -199,10 +211,11 @@ export function AdminPortal() {
               </Button>
             </div>
           </div>
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
             <TabsTrigger value="products">Products & Pricing</TabsTrigger>
             <TabsTrigger value="forecast">Forecasting</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
+            <TabsTrigger value="phases">Phase Templates</TabsTrigger>
             <TabsTrigger value="reports">
               <FileBarChart2 className="h-3.5 w-3.5 mr-1.5" />
               Reports
@@ -226,7 +239,19 @@ export function AdminPortal() {
           <UserManagement />
         </TabsContent>
 
+        <TabsContent value="phases" className="mt-0">
+          <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 border-b mb-4">
+            <h2 className="font-semibold text-base">Phase Templates</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage phases and tasks for each job type. Used when loading a template into a project timeline.</p>
+          </div>
+          <PhaseTemplateEditor />
+        </TabsContent>
+
         <TabsContent value="reports" className="mt-0">
+          <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 border-b mb-4">
+            <h2 className="font-semibold text-base">Reports</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">View profit & loss breakdowns and project-level financial summaries.</p>
+          </div>
           <PLReport />
         </TabsContent>
 

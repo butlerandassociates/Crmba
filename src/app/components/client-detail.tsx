@@ -3898,6 +3898,12 @@ export function ClientDetail() {
             setClientPayments(payments);
           }).catch(console.error);
           loadActivityLog();
+          supabase
+            .from("client_portal_tokens")
+            .update({ is_active: false, revoked_at: new Date().toISOString() })
+            .eq("client_id", client.id)
+            .eq("is_active", true)
+            .then(() => {});
           notificationsAPI.create({
             type: "project_completed",
             title: "Project Completed",

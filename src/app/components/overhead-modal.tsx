@@ -13,9 +13,16 @@ import { toast } from "sonner";
 import { formatCurrency } from "@/app/utils/format";
 
 const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#6366f1"];
-
 const TODAY = new Date().toISOString().split("T")[0];
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
+
+type FilterMode = "this_month" | "last_month" | "ytd" | "custom";
+const FILTER_PILLS: { key: FilterMode; label: string }[] = [
+  { key: "this_month", label: "This Month" },
+  { key: "last_month", label: "Last Month" },
+  { key: "ytd", label: "YTD" },
+  { key: "custom", label: "Custom" },
+];
 
 interface OverheadModalProps {
   open: boolean;
@@ -33,7 +40,26 @@ function isInMonth(item: OverheadCost, year: number, month: number): boolean {
   const freq = item.recurring_frequency ?? "monthly";
   if (freq === "monthly") return true;
   if (freq === "quarterly") return ((year - iy) * 12 + (month - im)) % 3 === 0;
-  return im === month; // yearly
+  return true; // yearly: applies every month once started
+}
+
+function monthlyEquivalent(item: OverheadCost): number {
+  if (!item.is_recurring) return item.amount;
+  if (item.recurring_frequency === "yearly") return item.amount / 12;
+  if (item.recurring_frequency === "quarterly") return item.amount / 3;
+  return item.amount;
+}
+
+function monthsInRange(from: string, to: string): { year: number; month: number }[] {
+  const months: { year: number; month: number }[] = [];
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  let y = fy, m = fm;
+  while (y < ty || (y === ty && m <= tm)) {
+    months.push({ year: y, month: m });
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return months;
 }
 
 export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }: OverheadModalProps) {
@@ -42,7 +68,9 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
 
   const [items, setItems] = useState<OverheadCost[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dateFilter, setDateFilter] = useState(CURRENT_MONTH);
+  const [filterMode, setFilterMode] = useState<FilterMode>("this_month");
+  const [customFrom, setCustomFrom] = useState(CURRENT_MONTH);
+  const [customTo, setCustomTo] = useState(CURRENT_MONTH);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showROI, setShowROI] = useState(true);
 
@@ -70,7 +98,6 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
 
   // ROI data
   const [leadSourceData, setLeadSourceData] = useState<Record<string, { revenue: number; count: number }>>({});
-  const [roiLoaded, setRoiLoaded] = useState(false);
   const [roiLoading, setRoiLoading] = useState(false);
 
   const load = async () => {
@@ -88,7 +115,6 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
     if (open) load();
   }, [open]);
 
-  // Escape key to close
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
@@ -96,14 +122,15 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
 
-  const loadROI = async () => {
-    if (roiLoaded) return;
+  const loadROI = async (fromDate: string, toDate: string) => {
     setRoiLoading(true);
     try {
       const { data } = await supabase
         .from("projects")
         .select("total_value, clients(lead_sources!lead_source_id(name))")
-        .in("status", ["sold", "active", "completed"]);
+        .in("status", ["sold", "active", "completed"])
+        .gte("sold_at", fromDate)
+        .lte("sold_at", toDate);
       const grouped: Record<string, { revenue: number; count: number }> = {};
       (data ?? []).forEach((p: any) => {
         const ls = (p.clients?.lead_sources?.name as string | null) || "Unknown";
@@ -112,7 +139,6 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
         grouped[ls].count += 1;
       });
       setLeadSourceData(grouped);
-      setRoiLoaded(true);
     } catch {
       toast.error("Failed to load ROI data");
     } finally {
@@ -121,36 +147,80 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   };
 
   useEffect(() => {
-    if (open && showROI) loadROI();
-  }, [open, showROI]);
+    if (!open || !showROI) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const lastDay = (yr: number, mo: number) => new Date(yr, mo, 0).getDate();
+    let from: string, to: string;
+    if (filterMode === "this_month") {
+      from = `${y}-${pad(m)}-01`;
+      to = `${y}-${pad(m)}-${lastDay(y, m)}`;
+    } else if (filterMode === "last_month") {
+      const lm = new Date(y, m - 2, 1);
+      const lmY = lm.getFullYear(), lmM = lm.getMonth() + 1;
+      from = `${lmY}-${pad(lmM)}-01`;
+      to = `${lmY}-${pad(lmM)}-${lastDay(lmY, lmM)}`;
+    } else if (filterMode === "ytd") {
+      from = `${y}-01-01`;
+      to = `${y}-${pad(m)}-${lastDay(y, m)}`;
+    } else {
+      const [fy, fm] = customFrom.split("-").map(Number);
+      const [ty, tm] = customTo.split("-").map(Number);
+      from = `${fy}-${pad(fm)}-01`;
+      to = `${ty}-${pad(tm)}-${lastDay(ty, tm)}`;
+    }
+    loadROI(from, to);
+  }, [open, showROI, filterMode, customFrom, customTo]);
+
+  // ── Period derivation ─────────────────────────────────────────
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonthNum = now.getMonth() + 1;
+  const lmDate = new Date(thisYear, thisMonthNum - 2, 1);
+
+  const rangeMonths: { year: number; month: number }[] =
+    filterMode === "this_month" ? [{ year: thisYear, month: thisMonthNum }] :
+    filterMode === "last_month" ? [{ year: lmDate.getFullYear(), month: lmDate.getMonth() + 1 }] :
+    filterMode === "ytd" ? Array.from({ length: thisMonthNum }, (_, i) => ({ year: thisYear, month: i + 1 })) :
+    monthsInRange(customFrom, customTo);
 
   // ── Derived data ──────────────────────────────────────────────
-  const [fy, fm] = dateFilter.split("-").map(Number);
-  const visible = items.filter((i) => isInMonth(i, fy, fm));
+  const visible = items.filter((i) => rangeMonths.some(({ year, month }) => isInMonth(i, year, month)));
+
   const roots = visible.filter((i) => !i.parent_id);
   const getChildren = (pid: string) => visible.filter((i) => i.parent_id === pid);
   const allChildren = (pid: string) => items.filter((i) => i.parent_id === pid);
 
-  const totalOverhead = visible.reduce((s, i) => s + i.amount, 0);
+  const getDisplayAmount = (item: OverheadCost): number => {
+    if (rangeMonths.length === 1) return monthlyEquivalent(item);
+    let total = 0;
+    for (const { year, month } of rangeMonths) {
+      if (isInMonth(item, year, month)) total += monthlyEquivalent(item);
+    }
+    return total;
+  };
+
+  const isLeaf = (id: string) => !items.some((j) => j.parent_id === id);
+  const totalOverhead = visible.filter((i) => isLeaf(i.id)).reduce((s, i) => s + getDisplayAmount(i), 0);
   const trueGrossProfit = grossProfit - totalOverhead;
   const overheadPct = totalRevenue > 0 ? ((totalOverhead / totalRevenue) * 100).toFixed(1) : "0.0";
   const trueGrossPct = totalRevenue > 0 ? ((trueGrossProfit / totalRevenue) * 100).toFixed(1) : "0.0";
 
   const chartData = roots
     .map((r) => {
-      const childTotal = getChildren(r.id).reduce((s, c) => s + c.amount, 0);
-      return { name: r.name, value: r.amount + childTotal };
+      const childTotal = getChildren(r.id).reduce((s, c) => s + getDisplayAmount(c), 0);
+      const value = getChildren(r.id).length > 0 ? childTotal : getDisplayAmount(r);
+      return { name: r.name, value };
     })
     .filter((d) => d.value > 0);
 
-  // Marketing ROI matching — exact match first, then partial
   const findLeadSource = (channelName: string) => {
     const entries = Object.entries(leadSourceData);
     const lower = channelName.toLowerCase().trim();
-    // 1. Exact (case-insensitive)
     const exact = entries.find(([ls]) => ls.toLowerCase().trim() === lower);
     if (exact) return exact;
-    // 2. Partial — require meaningful word overlap (min 4 chars)
     return entries.find(([ls]) => {
       const lsLower = ls.toLowerCase().trim();
       return lsLower.includes(lower) || lower.includes(lsLower) ||
@@ -166,8 +236,9 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
       const match = findLeadSource(ch.name);
       if (!match) return null;
       const [ls, lsData] = match;
-      const roi = ch.amount > 0 ? ((lsData.revenue - ch.amount) / ch.amount) * 100 : null;
-      return { channel: ch.name, leadSource: ls, cost: ch.amount, revenue: lsData.revenue, jobs: lsData.count, roi };
+      const cost = getDisplayAmount(ch);
+      const roi = cost > 0 ? ((lsData.revenue - cost) / cost) * 100 : null;
+      return { channel: ch.name, leadSource: ls, cost, revenue: lsData.revenue, jobs: lsData.count, roi };
     })
     .filter(Boolean) as { channel: string; leadSource: string; cost: number; revenue: number; jobs: number; roi: number | null }[];
 
@@ -181,14 +252,14 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   const startEdit = (item: OverheadCost) => {
     setEditingId(item.id);
     setEditName(item.name);
-    setEditAmount(String(item.amount));
+    setEditAmount(item.amount > 0 ? String(item.amount) : "");
     setEditIsRecurring(item.is_recurring);
     setEditFrequency(item.recurring_frequency ?? "monthly");
     setEditDate(item.date);
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId || !editName.trim() || !editAmount) { toast.error("Name and amount are required"); return; }
+    if (!editingId || !editName.trim()) { toast.error("Name is required"); return; }
     setSavingEdit(true);
     try {
       const updated = await overheadAPI.update(editingId, {
@@ -209,7 +280,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   };
 
   const handleAddNew = async () => {
-    if (!newName.trim() || !newAmount) { toast.error("Name and amount are required"); return; }
+    if (!newName.trim()) { toast.error("Name is required"); return; }
     setSavingNew(true);
     try {
       const saved = await overheadAPI.create({
@@ -259,14 +330,15 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
     const children = getChildren(item.id);
     const hasChildren = children.length > 0;
     const isExpanded = expandedIds.has(item.id);
-    const childTotal = children.reduce((s, c) => s + c.amount, 0);
-    const totalWithChildren = item.amount + childTotal;
+    const childTotal = children.reduce((s, c) => s + getDisplayAmount(c), 0);
+    const totalWithChildren = hasChildren ? childTotal : getDisplayAmount(item);
     const isEditing = editingId === item.id;
     const pct = totalOverhead > 0 ? ((totalWithChildren / totalOverhead) * 100).toFixed(1) : "0.0";
+    const moEquiv = item.is_recurring && item.recurring_frequency !== "monthly" && item.amount > 0;
 
     return (
       <div key={item.id}>
-        <div className={`flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 ${level > 0 ? "ml-8" : ""}`}>
+        <div className={`flex gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 ${isEditing ? "items-start" : "items-center"} ${level > 0 ? "ml-8" : ""}`}>
           {hasChildren && (
             <button onClick={() => toggleExpand(item.id)} className="p-1 hover:bg-gray-200 rounded transition-colors shrink-0">
               {isExpanded ? <ChevronDown className="w-4 h-4 text-gray-600" /> : <ChevronRight className="w-4 h-4 text-gray-600" />}
@@ -274,53 +346,68 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
           )}
 
           {isEditing ? (
-            <>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                placeholder="Item name"
-              />
-              <input
-                type="number"
-                value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
-                className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                placeholder="Amount"
-              />
-              <label className="flex items-center gap-2 text-sm text-gray-700 shrink-0">
-                <input type="checkbox" checked={editIsRecurring} onChange={(e) => setEditIsRecurring(e.target.checked)} className="rounded" />
-                Recurring
-              </label>
-              {editIsRecurring && (
-                <select
-                  value={editFrequency}
-                  onChange={(e) => setEditFrequency(e.target.value as "monthly" | "quarterly" | "yearly")}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="yearly">Yearly</option>
-                </select>
+            <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  placeholder="Item name"
+                />
+                {hasChildren ? (
+                  <span className="w-28 px-3 py-1.5 text-xs text-gray-400 border border-dashed border-gray-300 rounded-lg flex items-center">
+                    Container
+                  </span>
+                ) : (
+                  <input
+                    type="number"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    placeholder="Amount"
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-1.5 text-sm text-gray-700 shrink-0">
+                  <input type="checkbox" checked={editIsRecurring} onChange={(e) => setEditIsRecurring(e.target.checked)} className="rounded" />
+                  Recurring
+                </label>
+                {editIsRecurring && (
+                  <select
+                    value={editFrequency}
+                    onChange={(e) => setEditFrequency(e.target.value as "monthly" | "quarterly" | "yearly")}
+                    className="px-2 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                )}
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="px-2 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <div className="ml-auto flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={savingEdit}
+                    className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => setEditingId(null)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">
+                    <X className="w-4 h-4 text-gray-600" />
+                  </button>
+                </div>
+              </div>
+              {hasChildren && (
+                <p className="text-xs text-amber-600">Amount not needed for categories — add amounts to subcategories instead.</p>
               )}
-              <input
-                type="date"
-                value={editDate}
-                onChange={(e) => setEditDate(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-              <button
-                onClick={handleSaveEdit}
-                disabled={savingEdit}
-                className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shrink-0"
-              >
-                {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              </button>
-              <button onClick={() => setEditingId(null)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors shrink-0">
-                <X className="w-4 h-4 text-gray-600" />
-              </button>
-            </>
+            </div>
           ) : (
             <>
               <div className="flex-1 min-w-0">
@@ -334,16 +421,17 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                     <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded shrink-0">one-time</span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">{pct}% of overhead • {item.date}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {pct}% of overhead • {item.date}
+                  {moEquiv && <> • <span className="text-gray-400">{formatCurrency(monthlyEquivalent(item))}/mo</span></>}
+                </p>
               </div>
               <p className="font-semibold text-gray-900 text-sm shrink-0">{formatCurrency(totalWithChildren)}</p>
               {canEdit && (
                 <>
-                  {!hasChildren && (
-                    <button onClick={() => startEdit(item)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors shrink-0">
-                      <Edit2 className="w-4 h-4 text-gray-600" />
-                    </button>
-                  )}
+                  <button onClick={() => startEdit(item)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors shrink-0">
+                    <Edit2 className="w-4 h-4 text-gray-600" />
+                  </button>
                   <button
                     onClick={() => setDeleteTarget(item)}
                     disabled={deletingId === item.id}
@@ -381,6 +469,10 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   };
 
   const parentName = newParentId ? (items.find((i) => i.id === newParentId)?.name ?? "Category") : null;
+  const newAmountNum = parseFloat(newAmount);
+  const newMonthlyPreview = newAmount && !isNaN(newAmountNum) && newIsRecurring && newFrequency !== "monthly"
+    ? (newFrequency === "yearly" ? newAmountNum / 12 : newAmountNum / 3)
+    : null;
 
   if (!open) return null;
 
@@ -397,18 +489,42 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
           <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Overhead Costs</h2>
-              <p className="text-sm text-gray-500 mt-1">Monthly overhead breakdown and analysis with ROI tracking</p>
+              <p className="text-sm text-gray-500 mt-1">Overhead breakdown and analysis with ROI tracking</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Date Filter:</label>
-                <input
-                  type="month"
-                  value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
+            <div className="flex items-center gap-3">
+              {/* Filter pills */}
+              <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+                {FILTER_PILLS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setFilterMode(key)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${filterMode === key ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
+              {filterMode === "custom" && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="month"
+                    value={customFrom}
+                    onChange={(e) => {
+                      setCustomFrom(e.target.value);
+                      if (e.target.value > customTo) setCustomTo(e.target.value);
+                    }}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                  <span className="text-sm text-gray-500 shrink-0">to</span>
+                  <input
+                    type="month"
+                    value={customTo}
+                    min={customFrom}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+              )}
               <button onClick={close} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -462,7 +578,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                     {roots.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-14 border border-dashed border-gray-300 rounded-lg mb-6">
                         <Receipt className="h-10 w-10 mb-3 text-gray-300" />
-                        <p className="text-sm font-semibold text-gray-700">No overhead costs for this month</p>
+                        <p className="text-sm font-semibold text-gray-700">No overhead costs for this period</p>
                         <p className="text-xs mt-1 text-gray-400">Add your first expense below to start tracking true profit.</p>
                       </div>
                     ) : (
@@ -485,15 +601,15 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                               onChange={(e) => setNewName(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") handleAddNew(); }}
                               className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                              placeholder="e.g., Google Ads, Utilities, Software, etc."
+                              placeholder="e.g., Marketing, Utilities, Software..."
                             />
                             <input
                               type="number"
                               value={newAmount}
                               onChange={(e) => setNewAmount(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") handleAddNew(); }}
-                              className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                              placeholder="Amount"
+                              className="w-36 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              placeholder="Amount (optional)"
                             />
                           </div>
                           <div className="flex items-center gap-3 flex-wrap">
@@ -533,12 +649,17 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                             )}
                             <button
                               onClick={handleAddNew}
-                              disabled={savingNew || !newName || !newAmount}
+                              disabled={savingNew || !newName.trim()}
                               className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                             >
                               {savingNew ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                             </button>
                           </div>
+                          {newMonthlyPreview !== null && (
+                            <p className="text-xs text-gray-500">
+                              Monthly equivalent: <span className="font-medium text-gray-700">{formatCurrency(newMonthlyPreview)}/mo</span>
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -549,20 +670,18 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Cost Distribution</h3>
                     <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-6">
                       {chartData.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-[250px]">
+                        <div className="flex flex-col items-center justify-center h-[280px]">
                           <BarChart2 className="h-10 w-10 mb-3 text-gray-200" />
-                          <p className="text-sm font-semibold text-gray-500">No data for this month</p>
+                          <p className="text-sm font-semibold text-gray-500">No data for this period</p>
                           <p className="text-xs mt-1 text-gray-400 text-center">Add overhead items to see distribution.</p>
                         </div>
                       ) : (
-                        <ResponsiveContainer width="100%" height={250}>
+                        <ResponsiveContainer width="100%" height={280}>
                           <PieChart>
                             <Pie
                               data={chartData}
                               cx="50%"
-                              cy="50%"
-                              labelLine={false}
-                              label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+                              cy="45%"
                               outerRadius={80}
                               dataKey="value"
                             >
@@ -571,6 +690,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                               ))}
                             </Pie>
                             <Tooltip formatter={(v) => formatCurrency(v as number)} />
+                            <Legend />
                           </PieChart>
                         </ResponsiveContainer>
                       )}

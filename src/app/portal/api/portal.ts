@@ -30,6 +30,17 @@ export interface PortalProject {
   project_manager: { first_name: string; last_name: string; phone: string | null } | null;
 }
 
+export interface PortalPhaseTask {
+  id: string;
+  task_label: string;
+  order_index: number;
+  is_completed: boolean;
+  photo_required: boolean;
+  note_required: boolean;
+  photo_url: string | null;
+  note: string | null;
+}
+
 export interface PortalPhase {
   id: string;
   label: string;
@@ -38,6 +49,7 @@ export interface PortalPhase {
   progress_pct: number;
   expected_date: string | null;
   completed_date: string | null;
+  tasks: PortalPhaseTask[];
 }
 
 export interface PortalPayment {

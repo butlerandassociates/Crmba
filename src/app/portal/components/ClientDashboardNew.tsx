@@ -19,6 +19,8 @@ import { Sheet, SheetContent } from "../../components/ui/sheet";
 import {
   FileText,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Check,
   Clock,
   CreditCard,
@@ -86,6 +88,9 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [viewingChangeOrderId, setViewingChangeOrderId] = useState<string | null>(initialCoId);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; isImage: boolean } | null>(null);
+  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(
+    () => new Set(data.phases.filter(p => p.status === "in-progress").map(p => p.id))
+  );
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
   const [pdfPreview, setPdfPreview] = useState<{ url: string; title: string } | null>(null);
@@ -243,8 +248,15 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
             {update.photos.length > 0
               ? update.photos.slice(0, 3).map(photo => (
-                  <div key={photo.id} className="aspect-video rounded-lg overflow-hidden bg-gray-100">
-                    <img src={photo.public_url ?? ""} alt={photo.label ?? ""} className="w-full h-full object-cover" />
+                  <div
+                    key={photo.id}
+                    className="aspect-video rounded-lg overflow-hidden bg-gray-100 cursor-pointer group relative"
+                    onClick={() => photo.public_url && setPreviewFile({ url: photo.public_url, name: photo.label ?? "Field Update Photo", isImage: true })}
+                  >
+                    <img src={photo.public_url ?? ""} alt={photo.label ?? ""} className="w-full h-full object-cover group-hover:opacity-90 transition-opacity" />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
+                      <Eye className="h-6 w-6 text-white drop-shadow" />
+                    </div>
                   </div>
                 ))
               : [1, 2, 3].map(i => (
@@ -352,6 +364,14 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
               {phases.map((phase, index) => {
                 const isActive = phase.status === "in-progress";
                 const isDone = phase.status === "complete";
+                const taskCount = (phase.tasks ?? []).length;
+                const doneCount = (phase.tasks ?? []).filter(t => t.is_completed).length;
+                const isExpanded = expandedPhases.has(phase.id);
+                const toggleExpanded = () => setExpandedPhases(prev => {
+                  const next = new Set(prev);
+                  if (next.has(phase.id)) next.delete(phase.id); else next.add(phase.id);
+                  return next;
+                });
                 return (
                   <div
                     key={phase.id}
@@ -368,11 +388,26 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                         {isDone ? "✓ Complete" : isActive ? "● In Progress" : `○ Upcoming`}
                       </span>
                       <span className="text-[10px] text-gray-300 shrink-0">#{index + 1}</span>
-                      <p className={`text-sm font-bold leading-tight ${
+                      <p className={`text-sm font-bold leading-tight flex-1 ${
                         isActive ? "text-gray-900" : isDone ? "text-gray-700" : "text-gray-500"
                       }`} style={{ fontFamily: "Lato, sans-serif" }}>
                         {phase.label}
                       </p>
+                      {taskCount > 0 && (
+                        <button
+                          onClick={toggleExpanded}
+                          className={`flex items-center gap-1 text-[10px] font-semibold shrink-0 transition-colors ${
+                            isActive ? "text-orange-500 hover:text-orange-700"
+                            : isDone ? "text-green-600 hover:text-green-800"
+                            : "text-gray-400 hover:text-gray-600"
+                          }`}
+                        >
+                          {doneCount}/{taskCount}
+                          {isExpanded
+                            ? <ChevronUp className="h-3 w-3" />
+                            : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mb-2">
                       <div className={`flex-1 h-2 rounded-full overflow-hidden ${
@@ -399,6 +434,45 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                         <span className="text-gray-500">Completed: <span className="font-semibold text-green-700">{fmtDate(phase.completed_date)}</span></span>
                       )}
                     </div>
+
+                    {/* Task checklist */}
+                    {taskCount > 0 && isExpanded && (
+                      <div className="mt-3 space-y-1.5">
+                        {(phase.tasks ?? []).map(task => (
+                          <div key={task.id} className="flex items-start gap-2">
+                            <div className={`mt-0.5 h-3.5 w-3.5 rounded-sm border flex-shrink-0 flex items-center justify-center ${
+                              task.is_completed
+                                ? "bg-green-500 border-green-500"
+                                : isActive ? "border-orange-300" : "border-gray-300"
+                            }`}>
+                              {task.is_completed && (
+                                <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                                  <path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className={`text-[11px] leading-snug block ${
+                                task.is_completed ? "line-through text-gray-400" : "text-gray-600"
+                              }`}>
+                                {task.task_label}
+                              </span>
+                              {task.photo_url && (
+                                <button
+                                  onClick={() => setPreviewFile({ url: task.photo_url!, name: task.task_label, isImage: true })}
+                                  className="inline-flex items-center gap-1 text-[10px] text-blue-500 mt-0.5 hover:text-blue-700"
+                                >
+                                  <Camera className="h-2.5 w-2.5" /> View photo
+                                </button>
+                              )}
+                              {task.note && (
+                                <p className="text-[10px] text-gray-400 italic mt-0.5 leading-snug">"{task.note}"</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}

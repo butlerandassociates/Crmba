@@ -116,7 +116,7 @@ export function Payroll() {
     const { data, error } = await supabase
       .from("commission_payments")
       .select(`
-        id, amount, status, created_at,
+        id, amount, status, payout_type, created_at,
         project:projects(id, name, gross_profit, commission, client:clients(first_name, last_name, is_discarded)),
         profile:profiles!commission_payments_profile_id_fkey(id, first_name, last_name, commission_rate, role),
         progress_payment:project_payments!commission_payments_progress_payment_id_fkey(id, label, amount, percentage)
@@ -136,11 +136,12 @@ export function Payroll() {
           totalProcessed: 0,
         };
       }
-      // Hide pending commissions for discarded clients — keep processed ones (money already paid)
-      if (cp.project?.client?.is_discarded && cp.status === "pending") return;
       byPM[pmId].installments.push(cp);
-      if (cp.status === "pending") byPM[pmId].totalPending += parseFloat(cp.amount) || 0;
-      if (cp.status === "processed") byPM[pmId].totalProcessed += parseFloat(cp.amount) || 0;
+      // Only count manual_payout records as processed — payout_type:'project' rows are stale auto-generated artifacts
+      if (cp.payout_type === "manual_payout" && cp.status === "processed") {
+        byPM[pmId].totalProcessed += parseFloat(cp.amount) || 0;
+      }
+      // totalPending is derived after projectedCommission is computed below
     });
 
     // Also include PMs + Sales Reps with no commission_payments yet
@@ -169,17 +170,26 @@ export function Payroll() {
         (Number(proj.gross_profit) || 0) * (rate / 100);
     });
 
-    // Compute projected commission for PMs: sum(projects.commission) across their projects
+    // Compute projected commission for PMs: live GP × commission_rate (matches detail page)
     const { data: pmProjects } = await supabase
       .from("projects")
-      .select("id, project_manager_id, commission, client:clients(is_discarded)")
+      .select("id, project_manager_id, gross_profit, commission_override_total, client:clients(is_discarded)")
       .not("project_manager_id", "is", null);
     (pmProjects ?? []).forEach((proj: any) => {
       const pmId = proj.project_manager_id;
       if (!pmId || !byPM[pmId]) return;
       if (proj.client?.is_discarded) return;
-      byPM[pmId].projectedCommission = (byPM[pmId].projectedCommission ?? 0) +
-        (Number(proj.commission) || 0);
+      const rate = Number(byPM[pmId].commission_rate) || 0;
+      const gp = Number(proj.gross_profit) || 0;
+      const commission = proj.commission_override_total != null
+        ? Number(proj.commission_override_total)
+        : gp * (rate / 100);
+      byPM[pmId].projectedCommission = (byPM[pmId].projectedCommission ?? 0) + commission;
+    });
+
+    // Derive totalPending = projected − processed (never negative)
+    Object.values(byPM).forEach((pm: any) => {
+      pm.totalPending = Math.max(0, (pm.projectedCommission ?? 0) - pm.totalProcessed);
     });
 
     setPmData(Object.values(byPM).sort((a: any, b: any) =>

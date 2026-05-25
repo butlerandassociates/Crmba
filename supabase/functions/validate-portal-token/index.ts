@@ -80,7 +80,7 @@ serve(async (req) => {
       });
 
     // Fetch client + payments + files + change_orders + proposals in parallel
-    const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes] = await Promise.all([
+    const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes, priorPortalViewRes] = await Promise.all([
       supabase
         .from("clients")
         .select("id, first_name, last_name, phone, email, address, city, state, zip")
@@ -134,11 +134,30 @@ serve(async (req) => {
         .in("status", ["sent", "accepted"])
         .order("created_at", { ascending: false })
         .limit(5),
+
+      supabase
+        .from("activity_log")
+        .select("id")
+        .eq("client_id", clientId)
+        .eq("action_type", "portal_viewed")
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     if (clientRes.error) throw new Error("Client not found: " + clientRes.error.message);
     const client = clientRes.data;
     const project = projectRes.data ?? null;
+
+    // Notify admin on first-ever portal open
+    if (!priorPortalViewRes.data) {
+      const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+      supabase.from("notifications").insert({
+        type: "portal_first_opened",
+        title: "Client Opened Portal",
+        message: `${fullName} opened their client portal for the first time`,
+        link: `/clients/${clientId}`,
+      }).then(() => {});
+    }
 
     // If project has no PM, fall back to first admin (Jonathan)
     if (project && !project.project_manager) {
@@ -162,7 +181,10 @@ serve(async (req) => {
       const [phasesResult, updatesResult] = await Promise.all([
         supabase
           .from("project_phases")
-          .select("id, label, order_index, status, progress_pct, expected_date, completed_date")
+          .select(`
+            id, label, order_index, status, progress_pct, expected_date, completed_date,
+            tasks:phase_task_completions(id, task_label, order_index, is_completed, photo_required, note_required, photo_url, photo_approval_status, note)
+          `)
           .eq("project_id", project.id)
           .eq("is_active", true)
           .order("order_index", { ascending: true }),
@@ -181,7 +203,13 @@ serve(async (req) => {
           .order("posted_at", { ascending: false }),
       ]);
 
-      phases = phasesResult.data ?? [];
+      phases = (phasesResult.data ?? []).map((p: any) => ({
+        ...p,
+        tasks: [...(p.tasks ?? [])].sort((a: any, b: any) => a.order_index - b.order_index).map((t: any) => ({
+          ...t,
+          photo_url: t.photo_approval_status === "approved" ? t.photo_url : null,
+        })),
+      }));
       updates = (updatesResult.data ?? []).map((u: any) => ({
         ...u,
         phase_label: u.phase?.label ?? null,
