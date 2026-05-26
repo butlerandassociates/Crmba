@@ -232,8 +232,8 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
 
   const nextDuePayment = payments.find(p => !p.is_paid);
 
-  const pendingCOs = change_orders.filter(co => co.status === "pending_client");
-  const pendingProposals = proposals.filter(p => p.status === "sent").length;
+  const pendingCOs = change_orders.filter(co => co.status === "pending_client" || co.status === "opened");
+  const pendingProposals = proposals.filter(p => p.status === "sent" || p.status === "opened").length;
   const duePayments = payments.filter(p => {
     const s = getPaymentStatus(p);
     return s === "DUE" || s === "OVERDUE";
@@ -988,7 +988,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
                         </div>
                       );
                     })()}
-                    {co.status === "pending_client" ? (
+                    {(co.status === "pending_client" || co.status === "opened") ? (
                       <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => setViewingChangeOrderId(co.id)}>
                         Review
                       </Button>

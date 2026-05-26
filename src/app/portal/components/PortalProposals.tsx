@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -29,6 +29,14 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
   const [localStatuses, setLocalStatuses] = useState<Record<string, "accepted" | "declined">>({});
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!viewingId) return;
+    const proposal = proposals.find(p => p.id === viewingId);
+    if (proposal?.status === "sent") {
+      portalAction(token, "proposal_opened", viewingId).catch(() => {});
+    }
+  }, [viewingId]);
 
   const handleDownloadPdf = async (proposal: PortalProposal) => {
     if (!proposal.pdf_url) return;
@@ -102,7 +110,7 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
       <div className="space-y-4">
         {proposals.map(proposal => {
           const effectiveStatus = localStatuses[proposal.id] ?? proposal.status;
-          const isPending = effectiveStatus === "sent";
+          const isPending = effectiveStatus === "sent" || effectiveStatus === "opened";
           const isAccepted = effectiveStatus === "accepted";
           const badgeClass = isAccepted
             ? "border-green-600 text-green-600"
@@ -157,7 +165,7 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
         <SheetContent side="right" className="w-full sm:max-w-3xl p-0 flex flex-col overflow-hidden">
           {viewingProposal && (() => {
             const effectiveStatus = localStatuses[viewingProposal.id] ?? viewingProposal.status;
-            const isPending = effectiveStatus === "sent";
+            const isPending = effectiveStatus === "sent" || effectiveStatus === "opened";
             const isAccepted = effectiveStatus === "accepted";
             const badgeClass = isAccepted ? "border-green-600 text-green-600"
               : effectiveStatus === "declined" ? "border-red-500 text-red-500"

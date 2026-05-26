@@ -2353,6 +2353,7 @@ export function ClientDetail() {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold capitalize border ${
                             proposal.status === "accepted" ? "bg-green-50 text-green-700 border-green-200"
                             : proposal.status === "declined" ? "bg-red-50 text-red-700 border-red-200"
+                            : proposal.status === "opened"  ? "bg-purple-50 text-purple-700 border-purple-200"
                             : proposal.status === "sent"    ? "bg-blue-50 text-blue-700 border-blue-200"
                             : proposal.status === "voided"  ? "bg-gray-100 text-gray-400 border-gray-200"
                             : "bg-gray-50 text-gray-500 border-gray-200"
@@ -2415,6 +2416,7 @@ export function ClientDetail() {
                 if (status === "merged")         return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Merged</span>;
                 if (status === "approved")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Approved</span>;
                 if (status === "rejected")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Rejected</span>;
+                if (status === "opened")         return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Opened</span>;
                 if (status === "pending_client") return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Pending</span>;
                 return null;
               };

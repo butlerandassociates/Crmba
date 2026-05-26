@@ -35,6 +35,7 @@ import {
   Ban,
   BadgePercent,
   Check,
+  Clock,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
@@ -670,7 +671,7 @@ export function ProposalDetail() {
       setEditLineItems(fresh.line_items ?? []);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       // Regen PDF when a sent proposal is edited so portal clients see the updated version
-      if (proposal.status === "sent") {
+      if (proposal.status === "sent" || proposal.status === "opened") {
         saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
       }
       toast.success("Proposal saved.");
@@ -1206,7 +1207,7 @@ export function ProposalDetail() {
         .update({ status: "voided", voided_at: now })
         .eq("client_id", proposal.client_id)
         .neq("id", proposal.id)
-        .in("status", ["draft", "sent"])
+        .in("status", ["draft", "sent", "opened"])
         .select("id, title, estimate_number");
       (voidedProposals ?? []).forEach((vp: any) => {
         activityLogAPI.create({
@@ -1558,7 +1559,14 @@ export function ProposalDetail() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{proposal.title}</h1>
-              <Badge variant="outline">{proposal.status}</Badge>
+              <Badge variant="outline" className={
+                proposal.status === "accepted" ? "border-green-300 text-green-700 bg-green-50"
+                : proposal.status === "declined" ? "border-red-300 text-red-700 bg-red-50"
+                : proposal.status === "opened"   ? "border-purple-300 text-purple-700 bg-purple-50"
+                : proposal.status === "sent"     ? "border-blue-300 text-blue-700 bg-blue-50"
+                : proposal.status === "voided"   ? "border-gray-300 text-gray-400 bg-gray-50"
+                : "border-gray-200 text-gray-500"
+              }>{proposal.status}</Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : ""}
@@ -1721,6 +1729,28 @@ export function ProposalDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Sent — awaiting client banner */}
+      {proposal.status === "sent" && (
+        <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+          <Clock className="h-4 w-4 text-orange-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-orange-800">Awaiting Client Review</p>
+            <p className="text-xs text-orange-700 mt-0.5">This proposal has been sent to the client and is pending their review.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Opened — client has viewed banner */}
+      {proposal.status === "opened" && (
+        <div className="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+          <Eye className="h-4 w-4 text-purple-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-purple-800">Client Has Viewed This Proposal</p>
+            <p className="text-xs text-purple-700 mt-0.5">The client opened this proposal but hasn't accepted or declined yet.</p>
+          </div>
+        </div>
+      )}
 
       {/* Accepted banner */}
       {proposal.status === "accepted" && (

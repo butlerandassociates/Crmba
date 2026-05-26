@@ -37,6 +37,29 @@ export function PublicProposal() {
           setClient(data.client);
           if (data.status === "accepted") setDone("accepted");
           if (data.status === "declined") setDone("declined");
+          // Mark as opened the first time a client views a sent proposal
+          if (data.status === "sent") {
+            supabase.from("estimates")
+              .update({ status: "opened", opened_at: new Date().toISOString() })
+              .eq("id", id)
+              .then(() => {});
+            const clientName = data.client ? `${data.client.first_name ?? ""} ${data.client.last_name ?? ""}`.trim() : "Client";
+            supabase.from("notifications").insert({
+              type: "proposal_opened",
+              title: "Proposal Opened",
+              message: `${clientName} opened the proposal${data.title ? ` "${data.title}"` : ""}`,
+              link: `/proposals/${id}`,
+              is_read: false,
+            }).then(() => {});
+            if (data.client_id) {
+              supabase.from("activity_log").insert({
+                client_id: data.client_id,
+                action_type: "proposal_viewed",
+                description: `Client opened proposal: "${data.title}"`,
+                created_at: new Date().toISOString(),
+              }).then(() => {});
+            }
+          }
         }
         setLoading(false);
       });
@@ -74,7 +97,7 @@ export function PublicProposal() {
         .update({ status: "voided", voided_at: new Date().toISOString() })
         .eq("client_id", proposal.client_id)
         .neq("id", id)
-        .in("status", ["draft", "sent"])
+        .in("status", ["draft", "sent", "opened"])
         .select("id, title, estimate_number")
         .then(({ data: voidedProposals }) => {
           (voidedProposals ?? []).forEach((vp: any) => {

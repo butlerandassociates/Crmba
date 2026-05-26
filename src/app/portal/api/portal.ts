@@ -124,7 +124,7 @@ export interface PortalChangeOrder {
   reason: string | null;
   timeline_impact: string | null;
   cost_impact: number;
-  status: "pending_client" | "approved" | "rejected" | "merged";
+  status: "pending_client" | "opened" | "approved" | "rejected" | "merged";
   created_at: string;
   approval_verified: boolean | null;
   approval_file_url: string | null;
@@ -149,7 +149,7 @@ export interface PortalProposalLineItem {
 export interface PortalProposal {
   id: string;
   title: string;
-  status: "sent" | "accepted" | "declined";
+  status: "sent" | "opened" | "accepted" | "declined";
   subtotal: number;
   tax_rate: number;
   tax_amount: number;
@@ -174,7 +174,7 @@ export interface PortalData {
 
 export async function portalAction(
   token: string,
-  action: "co_approve" | "co_reject" | "proposal_accept" | "proposal_decline",
+  action: "co_approve" | "co_reject" | "co_opened" | "proposal_opened" | "proposal_accept" | "proposal_decline",
   entityId: string,
   comment?: string
 ): Promise<{ success: boolean; error?: string }> {

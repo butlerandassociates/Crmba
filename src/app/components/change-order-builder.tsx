@@ -880,6 +880,7 @@ export function ChangeOrderBuilder() {
 
   const isMerged         = existingCO?.status === "merged";
   const isPending        = existingCO?.status === "pending_client";
+  const isOpened         = existingCO?.status === "opened";
   const isClientApproved = existingCO?.status === "approved";
   const isClientRejected = existingCO?.status === "rejected";
   const isApproved       = isClientApproved || isClientRejected;
@@ -1012,6 +1013,17 @@ export function ChangeOrderBuilder() {
               <div>
                 <p className="text-sm font-semibold text-orange-800">Awaiting Client Approval</p>
                 <p className="text-xs text-orange-700 mt-0.5">This change order has been sent to the client and is pending their review. You can resend the email if needed.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Client has opened banner */}
+          {isOpened && (
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+              <Eye className="h-4 w-4 text-blue-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Client Has Viewed This Change Order</p>
+                <p className="text-xs text-blue-700 mt-0.5">The client opened this change order but hasn't approved or declined yet.</p>
               </div>
             </div>
           )}
@@ -1650,7 +1662,7 @@ export function ChangeOrderBuilder() {
                     <p>This change order has already been <strong>approved</strong>. Deleting it will not affect the proposal — the approval is simply discarded.</p>
                   </div>
                 )}
-                {existingCO?.status === "pending_client" && (
+                {(existingCO?.status === "pending_client" || existingCO?.status === "opened") && (
                   <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-800">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <p>This change order was <strong>sent to the client</strong> for review. Make sure to notify them it has been cancelled.</p>

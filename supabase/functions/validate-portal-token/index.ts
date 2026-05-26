@@ -104,7 +104,7 @@ serve(async (req) => {
         .from("project_payments")
         .select("id, label, amount, is_paid, due_date, paid_date, payment_method, confirmation_code, breakdown, sort_order, percentage, notes, stripe_fee_amount")
         .eq("client_id", clientId)
-        .order("sort_order", { ascending: true }),
+        .order("due_date", { ascending: true, nullsFirst: false }),
 
       supabase
         .from("client_files")
@@ -121,7 +121,7 @@ serve(async (req) => {
           items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)
-        .in("status", ["pending_client", "approved", "merged"])
+        .in("status", ["pending_client", "opened", "approved", "merged"])
         .order("created_at", { ascending: false }),
 
       supabase
@@ -131,7 +131,7 @@ serve(async (req) => {
           line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
         `)
         .eq("client_id", clientId)
-        .in("status", ["sent", "accepted"])
+        .in("status", ["sent", "opened", "accepted"])
         .order("created_at", { ascending: false })
         .limit(5),
 

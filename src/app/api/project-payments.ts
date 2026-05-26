@@ -12,7 +12,7 @@ export const projectPaymentsAPI = {
       .from("project_payments")
       .select("*")
       .eq("project_id", project_id)
-      .order("sort_order", { ascending: true });
+      .order("due_date", { ascending: true, nullsFirst: false });
     if (error) throw new Error(error.message);
     return data;
   },
@@ -23,7 +23,7 @@ export const projectPaymentsAPI = {
       .from("project_payments")
       .select("*, project:projects(id, name)")
       .eq("client_id", client_id)
-      .order("sort_order", { ascending: true });
+      .order("due_date", { ascending: true, nullsFirst: false });
     if (error) throw new Error(error.message);
     return data;
   },

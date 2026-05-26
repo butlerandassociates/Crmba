@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -33,6 +33,12 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [declineReason, setDeclineReason] = useState("");
+
+  useEffect(() => {
+    if (changeOrder.status === "pending_client") {
+      portalAction(token, "co_opened", changeOrder.id).catch(() => {});
+    }
+  }, [changeOrder.id]);
 
   const handleDownloadPdf = async () => {
     if (!changeOrder.pdf_url) return;
@@ -121,13 +127,16 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
   }
 
   const isApproved = changeOrder.status === "approved" || changeOrder.status === "merged";
+  const isPendingAction = changeOrder.status === "pending_client" || changeOrder.status === "opened";
   const statusLabel = changeOrder.status === "merged" ? "APPLIED TO CONTRACT"
     : changeOrder.status === "approved" ? "APPROVED"
     : changeOrder.status === "rejected" ? "DECLINED"
+    : changeOrder.status === "opened" ? "OPENED — AWAITING REVIEW"
     : "AWAITING REVIEW";
   const statusClass = changeOrder.status === "merged" ? "border-purple-600 text-purple-600"
     : isApproved ? "border-green-600 text-green-600"
     : changeOrder.status === "rejected" ? "border-red-500 text-red-500"
+    : changeOrder.status === "opened" ? "border-blue-600 text-blue-600"
     : "border-orange-600 text-orange-600";
 
   return (
@@ -172,8 +181,8 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
       <div className="p-4 lg:p-8 w-full">
         <div className="max-w-6xl mx-auto space-y-6">
 
-          {/* Alert — only show when pending */}
-          {changeOrder.status === "pending_client" && (
+          {/* Alert — only show when pending/opened */}
+          {isPendingAction && (
             <Card className="border-orange-200 bg-orange-50">
               <CardContent className="p-4 flex items-start gap-3">
                 <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
@@ -298,8 +307,8 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">{error}</div>
           )}
 
-          {/* Actions — only when pending */}
-          {changeOrder.status === "pending_client" && (
+          {/* Actions — when pending or opened */}
+          {isPendingAction && (
             <Card className="border-2 border-black bg-gray-50">
               <CardContent className="p-6">
                 <div className="text-center space-y-4">
@@ -324,8 +333,8 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
             </Card>
           )}
 
-          {/* View-only state for already approved/rejected */}
-          {changeOrder.status !== "pending_client" && (
+          {/* View-only state for already approved/rejected/merged */}
+          {!isPendingAction && (
             <Card className={`border-2 ${isApproved ? "border-green-600 bg-green-50" : "border-red-200 bg-red-50"}`}>
               <CardContent className="p-6 text-center space-y-4">
                 <p className="font-semibold text-lg" style={{ fontFamily: "Lato, sans-serif" }}>

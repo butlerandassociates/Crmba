@@ -42,6 +42,92 @@ serve(async (req) => {
 
     const clientId = tokenRow.client_id;
 
+    if (action === "proposal_opened") {
+      // Mark proposal as opened the first time a client views it via the portal
+      const { data: proposal } = await supabase
+        .from("estimates")
+        .select("id, client_id, status, title")
+        .eq("id", entity_id)
+        .eq("client_id", clientId)
+        .maybeSingle();
+
+      if (!proposal || proposal.status !== "sent") {
+        // Silently succeed — already opened/accepted/declined or not found
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabase
+        .from("estimates")
+        .update({ status: "opened", opened_at: new Date().toISOString() })
+        .eq("id", entity_id);
+
+      const { data: clientRow } = await supabase.from("clients").select("first_name, last_name").eq("id", clientId).maybeSingle();
+      const clientName = clientRow ? `${clientRow.first_name} ${clientRow.last_name}` : "Client";
+
+      await supabase.from("notifications").insert({
+        type: "proposal_opened",
+        title: "Proposal Opened",
+        message: `${clientName} opened the proposal${proposal.title ? ` "${proposal.title}"` : ""}`,
+        link: `/clients/${clientId}`,
+        is_read: false,
+      }).then(() => {});
+
+      await supabase.from("activity_log").insert({
+        client_id: clientId,
+        action_type: "proposal_viewed",
+        description: `Client opened proposal${proposal.title ? `: "${proposal.title}"` : ""}`,
+      }).then(() => {});
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "co_opened") {
+      // Mark CO as opened the first time a client views it
+      const { data: co } = await supabase
+        .from("change_orders")
+        .select("id, client_id, status, title")
+        .eq("id", entity_id)
+        .eq("client_id", clientId)
+        .maybeSingle();
+
+      if (!co || co.status !== "pending_client") {
+        // Silently succeed — either not found or already past pending (e.g. already opened/approved/rejected)
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabase
+        .from("change_orders")
+        .update({ status: "opened", opened_at: new Date().toISOString() })
+        .eq("id", entity_id);
+
+      const { data: clientRow } = await supabase.from("clients").select("first_name, last_name").eq("id", clientId).maybeSingle();
+      const clientName = clientRow ? `${clientRow.first_name} ${clientRow.last_name}` : "Client";
+
+      await supabase.from("notifications").insert({
+        type: "co_opened",
+        title: "Change Order Opened",
+        message: `${clientName} opened the change order${co.title ? ` "${co.title}"` : ""}`,
+        link: `/clients/${clientId}`,
+        is_read: false,
+      }).then(() => {});
+
+      await supabase.from("activity_log").insert({
+        client_id: clientId,
+        action_type: "co_viewed",
+        description: `Client opened change order${co.title ? `: "${co.title}"` : ""}`,
+      }).then(() => {});
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "co_approve" || action === "co_reject") {
       // Verify this CO belongs to this client
       const { data: co } = await supabase
@@ -58,7 +144,7 @@ serve(async (req) => {
         });
       }
 
-      if (co.status !== "pending_client") {
+      if (co.status !== "pending_client" && co.status !== "opened") {
         return new Response(JSON.stringify({ success: false, error: "Change order is not pending client action" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -175,7 +261,7 @@ serve(async (req) => {
         });
       }
 
-      if (proposal.status !== "sent") {
+      if (proposal.status !== "sent" && proposal.status !== "opened") {
         return new Response(JSON.stringify({ success: false, error: "Proposal is not in sent status" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },

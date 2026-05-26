@@ -34,6 +34,7 @@ type View = "list" | "create" | "edit" | "detail" | "payment";
 const STATUS_CONFIG = {
   draft:          { label: "Draft",          className: "bg-gray-100 text-gray-700" },
   pending_client: { label: "Pending Client", className: "bg-amber-100 text-amber-700" },
+  opened:         { label: "Opened",         className: "bg-blue-100 text-blue-700" },
   approved:       { label: "Approved",       className: "bg-green-100 text-green-700" },
   rejected:       { label: "Rejected",       className: "bg-red-100 text-red-700" },
   merged:         { label: "Merged",         className: "bg-purple-100 text-purple-700" },
