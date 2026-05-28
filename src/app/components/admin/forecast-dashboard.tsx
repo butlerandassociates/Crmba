@@ -53,7 +53,11 @@ export function ForecastDashboard() {
   const sellingRevenue   = sellingProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
-  const totalCommissions = projects.reduce((s, p) => s + (p.commission || 0) + (p.salesRepCommission || 0), 0);
+  const totalCommissions = projects.reduce((s, p) => {
+    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+    const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+    return s + pmComm + repComm;
+  }, 0);
 
   // Monthly revenue — last 6 months by created_at
   const now = new Date();

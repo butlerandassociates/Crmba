@@ -83,6 +83,8 @@ export function ChangeOrderBuilder() {
   const [adminApproving, setAdminApproving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [allCos, setAllCos]               = useState<any[]>([]);
+  const [showCoPicker, setShowCoPicker]   = useState(false);
   const [showCoEmailPreview, setShowCoEmailPreview] = useState(false);
   const [showPreview, setShowPreview]   = useState(false);
   const [previewPages, setPreviewPages] = useState<string[]>([]);
@@ -137,6 +139,7 @@ export function ChangeOrderBuilder() {
 
         // Load existing COs — if editing load by coId, else redirect to latest draft
         const cos = await changeOrdersAPI.getByClient(clientId);
+        setAllCos(cos);
         if (coId) {
           const co = cos.find((c: any) => c.id === coId);
           if (co) {
@@ -168,12 +171,7 @@ export function ChangeOrderBuilder() {
             initialModsRef.current = JSON.stringify(modsMap);
           }
         } else {
-          // No coId — check if a draft CO already exists and redirect to it
-          const draft = cos.find((c: any) => c.status === "draft");
-          if (draft) {
-            navigate(`/clients/${clientId}/change-order/${draft.id}`, { replace: true });
-            return;
-          }
+          // No coId — new blank CO form; user can switch to existing COs via the CO switcher
         }
       } catch (err) {
         toast.error("Failed to load — please refresh.");
@@ -190,6 +188,7 @@ export function ChangeOrderBuilder() {
   useRealtimeRefetch(async () => {
     if (!coId || !clientId) return;
     const cos = await changeOrdersAPI.getByClient(clientId);
+    setAllCos(cos);
     const co = cos.find((c: any) => c.id === coId);
     if (co) setExistingCO(co);
   }, ["change_orders"], `co-builder-${coId}`);
@@ -897,18 +896,17 @@ export function ChangeOrderBuilder() {
     : newTotal;
   const displayCoImpact = displayNewTotal - displayOriginalTotal;
 
+  const isDirty = loadedRef.current && (
+    (initialItemsRef.current !== "" && JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest)) !== initialItemsRef.current) ||
+    JSON.stringify(modifications) !== initialModsRef.current
+  );
+
   return (
     <div className="h-full flex flex-col bg-muted/20">
       {/* Top bar */}
       <div className="shrink-0 bg-background border-b px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => {
-            const currentItems = JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest));
-            const currentMods  = JSON.stringify(modifications);
-            const isDirty = loadedRef.current && (
-              (initialItemsRef.current !== "" && currentItems !== initialItemsRef.current) ||
-              currentMods !== initialModsRef.current
-            );
             if (isDirty) { setShowBackConfirm(true); } else { navigate(`/clients/${clientId}`); }
           }} className="shrink-0">
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
@@ -928,6 +926,73 @@ export function ChangeOrderBuilder() {
             >
               <Trash2 className="h-4 w-4" />
             </Button>
+          )}
+
+          {/* CO Switcher — only show when multiple COs exist */}
+          {allCos.length > 0 && (
+            <div className="relative shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs h-7 px-2.5"
+                onClick={() => setShowCoPicker(p => !p)}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                {allCos.length} CO{allCos.length !== 1 ? "s" : ""}
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+              {showCoPicker && (
+                <div className="absolute left-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-lg w-64 py-1" onClick={() => setShowCoPicker(false)}>
+                  {allCos.map((co, idx) => {
+                    const isCurrent = co.id === coId;
+                    const statusColors: Record<string, string> = {
+                      draft: "bg-gray-100 text-gray-700",
+                      pending_client: "bg-amber-100 text-amber-700",
+                      opened: "bg-blue-100 text-blue-700",
+                      approved: "bg-green-100 text-green-700",
+                      rejected: "bg-red-100 text-red-700",
+                      merged: "bg-purple-100 text-purple-700",
+                    };
+                    const statusLabel: Record<string, string> = {
+                      draft: "Draft", pending_client: "Pending", opened: "Opened",
+                      approved: "Approved", rejected: "Rejected", merged: "Merged",
+                    };
+                    return (
+                      <button
+                        key={co.id}
+                        className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center justify-between gap-2 ${isCurrent ? "bg-accent/50" : ""}`}
+                        onClick={() => {
+                          if (isCurrent) return;
+                          const doNav = () => navigate(`/clients/${clientId}/change-order/${co.id}`);
+                          if (isDirty) { if (window.confirm("You have unsaved changes. Switch anyway?")) doNav(); }
+                          else doNav();
+                        }}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium truncate">CO {idx + 1} — {co.title || "Untitled"}</p>
+                        </div>
+                        <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${statusColors[co.status] || "bg-gray-100 text-gray-700"}`}>
+                          {statusLabel[co.status] || co.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <div className="border-t mt-1 pt-1">
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 text-xs font-medium text-primary"
+                      onClick={() => {
+                        const doNav = () => navigate(`/clients/${clientId}/change-order`);
+                        if (isDirty) { if (window.confirm("You have unsaved changes. Start a new CO anyway?")) doNav(); }
+                        else doNav();
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> New Change Order
+                    </button>
+                  </div>
+                </div>
+              )}
+              {showCoPicker && <div className="fixed inset-0 z-40" onClick={() => setShowCoPicker(false)} />}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -1741,18 +1806,27 @@ export function ChangeOrderBuilder() {
         </AlertDialogContent>
       </AlertDialog>
 
+
       {/* CO Email Preview */}
-      <Dialog open={showCoEmailPreview} onOpenChange={setShowCoEmailPreview}>
-        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
-          <div className="shrink-0 px-6 py-4 border-b">
-            <p className="font-semibold text-sm">Email Preview — Change Order</p>
-            <p className="text-xs text-muted-foreground mt-0.5">This is exactly what {client?.email ?? "the client"} will receive.</p>
+      {showCoEmailPreview && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowCoEmailPreview(false)} />
+          <div className="relative flex flex-col bg-background rounded-lg border shadow-lg overflow-hidden" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+            <div className="shrink-0 px-6 py-4 border-b flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-sm">Email Preview — Change Order</p>
+                <p className="text-xs text-muted-foreground mt-0.5">This is exactly what {client?.email ?? "the client"} will receive.</p>
+              </div>
+              <button onClick={() => setShowCoEmailPreview(false)} className="opacity-60 hover:opacity-100 transition-opacity">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 bg-white">
+              <iframe srcDoc={buildCoEmailPreviewHtml()} className="w-full h-full border-0" title="CO Email Preview" />
+            </div>
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
-            <iframe srcDoc={buildCoEmailPreviewHtml()} className="w-full h-full border-0" title="CO Email Preview" />
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
       {/* Apply to Proposal — confirmation dialog */}
       <AlertDialog open={showApplyConfirm} onOpenChange={setShowApplyConfirm}>

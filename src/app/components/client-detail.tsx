@@ -2163,17 +2163,15 @@ export function ClientDetail() {
               const margin = clientProjects[0]?.profitMargin ?? 0;
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
               const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
-              const commission = pmProfileId
-                ? projectCommPayments.filter((cp: any) => cp.profile_id === pmProfileId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
-                : (clientProjects[0]?.commission ?? 0);
-              const salesRepCommission = repProfileId
-                ? projectCommPayments.filter((cp: any) => cp.profile_id === repProfileId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
-                : (clientProjects[0]?.salesRepCommission ?? 0);
-              const salesRepName = clientProjects[0]?.salesRepName ?? "";
+              const commission = grossProfit > 0 && (clientProjects[0]?.commissionRate ?? 0) > 0
+                ? grossProfit * ((clientProjects[0].commissionRate) / 100)
+                : 0;
               const salesRepRate = clientProjects[0]?.salesRepCommissionRate ?? 0;
-              const projectedSalesRepCommission = grossProfit > 0 && salesRepRate > 0
+              const salesRepCommission = grossProfit > 0 && salesRepRate > 0
                 ? Math.round(grossProfit * (salesRepRate / 100) * 100) / 100
                 : 0;
+              const salesRepName = clientProjects[0]?.salesRepName ?? "";
+              const projectedSalesRepCommission = salesRepCommission;
               const donutData = totalValue > 0
                 ? [
                     { name: "Cost", value: cost < 0 ? 0 : cost },
@@ -2391,7 +2389,6 @@ export function ClientDetail() {
             {/* ── Change Order History ── */}
             {(() => {
               const visibleCOs = clientCOs
-                .filter((co: any) => co.status !== "draft")
                 .sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
               if (visibleCOs.length === 0) return null;
 
@@ -2413,6 +2410,7 @@ export function ClientDetail() {
                 : (currentProposalTotal > 0 ? currentProposalTotal : null);
 
               const coStatusBadge = (status: string) => {
+                if (status === "draft")          return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">Draft</span>;
                 if (status === "merged")         return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Merged</span>;
                 if (status === "approved")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Approved</span>;
                 if (status === "rejected")       return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Rejected</span>;
@@ -2424,7 +2422,7 @@ export function ClientDetail() {
               return (
                 <div className="border-t mt-4 pt-3">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2 flex items-center gap-1">
-                    <History className="h-3 w-3" /> Change Order History
+                    <History className="h-3 w-3" /> Change Orders
                   </p>
                   <div className="space-y-1 max-h-[160px] overflow-y-auto thin-scroll pr-1">
                     {visibleCOs.map((co: any) => {
@@ -2445,11 +2443,23 @@ export function ClientDetail() {
                             </div>
                             <span className="text-[10px] text-muted-foreground">{new Date(co.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                           </div>
-                          {co.status === "merged" || co.status === "approved" ? (
-                            <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-green-600" : "text-red-600"}`}>
-                              {impact >= 0 ? "+" : ""}{formatCurrency(impact)}
-                            </span>
-                          ) : null}
+                          {(() => {
+                            const impactStr = `${impact >= 0 ? "+" : ""}${formatCurrency(impact)}`;
+                            if (co.status === "merged") {
+                              return <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-green-600" : "text-red-600"}`}>{impactStr}</span>;
+                            }
+                            if (co.status === "approved") {
+                              return <span className={`text-xs font-semibold tabular-nums shrink-0 ${impact >= 0 ? "text-blue-600" : "text-red-500"}`}>{impactStr}</span>;
+                            }
+                            if (co.status === "rejected") {
+                              return <span className="text-xs font-semibold tabular-nums shrink-0 text-red-400 line-through opacity-60">{impactStr}</span>;
+                            }
+                            if (co.status === "pending_client" || co.status === "opened") {
+                              return <span className="text-xs font-semibold tabular-nums shrink-0 text-amber-500">{impactStr}</span>;
+                            }
+                            // draft
+                            return <span className="text-xs font-semibold tabular-nums shrink-0 text-muted-foreground opacity-60">{impactStr}</span>;
+                          })()}
                         </button>
                       );
                     })}
@@ -2529,12 +2539,12 @@ export function ClientDetail() {
               {(() => {
                 const pmId = project.project_manager_id ?? null;
                 const repId = project.sales_rep_id ?? null;
-                const pmComm = pmId
-                  ? projectCommPayments.filter((cp: any) => cp.profile_id === pmId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
-                  : (project.commission ?? 0);
-                const repComm = repId
-                  ? projectCommPayments.filter((cp: any) => cp.profile_id === repId).reduce((s: number, cp: any) => s + Number(cp.amount), 0)
-                  : (project.salesRepCommission ?? 0);
+                const pmComm  = pmId  && (project.commissionRate        || 0) > 0
+                  ? (project.grossProfit || 0) * ((project.commissionRate) / 100)
+                  : 0;
+                const repComm = repId && (project.salesRepCommissionRate || 0) > 0
+                  ? (project.grossProfit || 0) * ((project.salesRepCommissionRate) / 100)
+                  : 0;
                 return (<>
                   <div>
                     <p className="text-xs text-muted-foreground">Start Date</p>

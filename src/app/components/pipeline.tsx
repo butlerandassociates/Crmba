@@ -120,11 +120,13 @@ export function Pipeline() {
   // Commission Calculations
   const salesReps = users.filter(u => u.role === 'sales');
   
-  const pendingCommissions = soldClients.reduce((sum, c) => {
-    const salesCommission = (c.totalRevenue || 0) * 0.05; // 5% for sales
-    const pmCommission = (c.totalRevenue || 0) * 0.03; // 3% for PM
-    return sum + salesCommission + pmCommission;
-  }, 0);
+  const pendingCommissions = projects
+    .filter(p => ["sold", "active"].includes(p.status ?? ""))
+    .reduce((sum, p) => {
+      const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+      const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+      return sum + pmComm + repComm;
+    }, 0);
 
   // ── Smart Alerts ──
   const today = new Date();
@@ -547,7 +549,7 @@ export function Pipeline() {
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <div className="text-xs text-muted-foreground mb-1">Pending Commissions</div>
                 <div className="text-2xl font-bold text-green-600">{formatCurrency(pendingCommissions)}</div>
-                <div className="text-xs text-muted-foreground mt-1">From sold contracts</div>
+                <div className="text-xs text-muted-foreground mt-1">From sold &amp; active projects</div>
               </div>
 
               <div className="space-y-2">
@@ -555,7 +557,10 @@ export function Pipeline() {
                 {salesReps
                   .map((rep) => {
                     const repClients = soldClients.filter(c => c.salesRepId === rep.id);
-                    const commission = repClients.reduce((sum, c) => sum + ((c.totalRevenue || 0) * 0.05), 0);
+                    const commission = repClients.reduce((sum, c) => {
+                      const proj = projects.find(p => p.client_id === c.id && p.sales_rep_id === rep.id);
+                      return sum + (proj ? (proj.grossProfit || 0) * ((proj.salesRepCommissionRate || 0) / 100) : 0);
+                    }, 0);
                     return { ...rep, commission };
                   })
                   .sort((a, b) => b.commission - a.commission)

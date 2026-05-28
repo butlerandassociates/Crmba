@@ -46,6 +46,7 @@ export function Dashboard() {
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [showCustomPickers, setShowCustomPickers] = useState(false);
+  const [showRevenueBreakdown, setShowRevenueBreakdown] = useState(false);
   
   useEffect(() => {
     fetchData();
@@ -445,18 +446,16 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Link to="/financials" className="block no-underline">
-          <Card className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-              <p className="text-xs text-muted-foreground mt-1">{role !== "sales_rep" && role !== "project_manager" ? getDateRangeLabel() : "Tap to view breakdown"}</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{role !== "sales_rep" && role !== "project_manager" ? getDateRangeLabel() : "Tap to view breakdown"}</p>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -676,6 +675,65 @@ export function Dashboard() {
       )}
 
       {/* Collections — hidden for sales reps; PM sees only their assigned projects */}
+      {/* Revenue & Profit Breakdown Popup */}
+      {showRevenueBreakdown && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setShowRevenueBreakdown(false)} />
+          <div className="relative bg-background rounded-lg border shadow-lg overflow-hidden flex flex-col" style={{ width: 720, maxWidth: "95vw", maxHeight: "80vh" }}>
+            <div className="px-5 py-4 border-b flex items-center justify-between shrink-0">
+              <div>
+                <p className="font-semibold text-sm">Period Summary</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{getDateRangeLabel()} · {periodProjects.length} client{periodProjects.length !== 1 ? "s" : ""} with collected payments</p>
+              </div>
+              <button onClick={() => setShowRevenueBreakdown(false)} className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">✕</button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {periodProjects.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No payments collected in this period.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background border-b">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Client</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Current $</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP %</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Net Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {[...periodProjects]
+                      .sort((a: any, b: any) => (b.totalValue || 0) - (a.totalValue || 0))
+                      .map((proj: any) => {
+                        const commissions = projectCostsMap[proj.id]?.commissions ?? 0;
+                        const netProfit = (proj.grossProfit || 0) - commissions;
+                        return (
+                          <tr key={proj.id} className="hover:bg-accent/50">
+                            <td className="px-4 py-2.5 font-medium">{proj.clientName || "—"}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{formatCurrency(proj.totalValue || 0)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatCurrency(proj.grossProfit || 0)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{(proj.profitMargin || 0).toFixed(1)}%</td>
+                            <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>{formatCurrency(Math.max(0, netProfit))}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                  <tfoot className="border-t-2 bg-muted/30">
+                    <tr className="font-bold">
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{periodProjects.length} client{periodProjects.length !== 1 ? "s" : ""}</td>
+                      <td className="px-4 py-2.5 text-right">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.totalValue || 0), 0))}</td>
+                      <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.grossProfit || 0), 0))}</td>
+                      <td className="px-4 py-2.5 text-right">{avgProfitMargin.toFixed(1)}%</td>
+                      <td className="px-4 py-2.5 text-right text-orange-600">{formatCurrency(Math.max(0, periodProjects.reduce((s: number, p: any) => s + Math.max(0, (p.grossProfit || 0) - (projectCostsMap[p.id]?.commissions ?? 0)), 0)))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {role !== "sales_rep" && (() => {
         const today = new Date().toISOString().split('T')[0];
         const overdue = visibleCollections.filter(p => p.due_date < today);

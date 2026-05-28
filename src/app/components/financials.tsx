@@ -41,16 +41,15 @@ export function Financials() {
   const [paidPayments, setPaidPayments] = useState<any[]>([]);
   const [collectionView, setCollectionView] = useState<"outstanding" | "collected">("outstanding");
   const [overheadOpen, setOverheadOpen] = useState(false);
+  const [projectIdsWithDueDates, setProjectIdsWithDueDates] = useState<Set<string>>(new Set());
 
-  const toDateStr = (d: Date) => d.toISOString().split("T")[0];
-  const todayDate = new Date();
-  const [fromDate, setFromDate] = useState(toDateStr(new Date(todayDate.getTime() - 30 * 86400000)));
-  const [toDate,   setToDate]   = useState(toDateStr(new Date(todayDate.getTime() + 30 * 86400000)));
+  const [fromDate, setFromDate] = useState("");
+  const [toDate,   setToDate]   = useState("");
 
   const PAYMENT_SELECT = `id, label, amount, due_date, paid_date, payment_method, project_id, client_id, projects(id, name), clients(id, first_name, last_name)`;
 
   const fetchData = async () => {
-    const [projectsResult, unpaidResult, paidResult] = await Promise.all([
+    const [projectsResult, unpaidResult, paidResult, dueDatesResult] = await Promise.all([
       projectsAPI.getAll(),
       supabase
         .from("project_payments")
@@ -64,10 +63,16 @@ export function Financials() {
         .eq("is_paid", true)
         .not("paid_date", "is", null)
         .order("paid_date", { ascending: false }),
+      // Which projects have at least one payment with a due_date (any time)
+      supabase
+        .from("project_payments")
+        .select("project_id")
+        .not("due_date", "is", null),
     ]);
     setProjects(projectsResult);
     setPayments(unpaidResult.data ?? []);
     setPaidPayments(paidResult.data ?? []);
+    setProjectIdsWithDueDates(new Set((dueDatesResult.data ?? []).map((p: any) => p.project_id)));
     setLoading(false);
   };
 
@@ -84,13 +89,46 @@ export function Financials() {
     );
   }
 
-  const revenueProjects = projects.filter((p) => ["sold", "active", "completed"].includes(p.status));
+  // Earned: active + completed always count; sold only counts if it has start_date AND payment due dates
+  const earnedProjects = projects.filter((p) => {
+    if (p.status === "active" || p.status === "completed") return true;
+    if (p.status === "sold") return !!p.startDate && projectIdsWithDueDates.has(p.id);
+    return false;
+  });
+  // Projected: sold jobs missing start_date OR payment due dates — real contract but not yet earned
+  const projectedProjects = projects.filter((p) =>
+    p.status === "sold" && (!p.startDate || !projectIdsWithDueDates.has(p.id))
+  );
+  // Apply date filter to KPIs when fromDate/toDate are set (apples-to-apples with dashboard)
+  const parseDt = (d: string) => new Date(d.includes("T") ? d : `${d}T00:00:00`);
+  const filterFrom = fromDate ? parseDt(fromDate) : null;
+  const filterTo   = toDate   ? parseDt(toDate)   : null;
+  const hasDateFilter = !!(filterFrom || filterTo);
+  const projectIdsInPeriod = hasDateFilter ? new Set(
+    paidPayments
+      .filter((p: any) => {
+        const paid = parseDt(p.paid_date);
+        if (filterFrom && paid < filterFrom) return false;
+        if (filterTo   && paid > filterTo)   return false;
+        return true;
+      })
+      .map((p: any) => p.project_id)
+  ) : null;
+  const revenueProjects = hasDateFilter
+    ? earnedProjects.filter((p: any) => projectIdsInPeriod!.has(p.id))
+    : earnedProjects;
+
   const totalRevenue = revenueProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
-  const totalCommissions = revenueProjects.reduce((sum, p) => sum + (p.commission || 0) + (p.salesRepCommission || 0), 0);
+  const totalCommissions = revenueProjects.reduce((sum, p) => {
+    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+    const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+    return sum + pmComm + repComm;
+  }, 0);
   const totalNetProfit = totalProfit - totalCommissions;
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const projectedRevenue = projectedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
 
   // Monthly financial trends — sold + active + completed projects by created_at (last 6 months)
   const now = new Date();
@@ -120,8 +158,35 @@ export function Financials() {
   return (
     <div className="p-6 space-y-6">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-6 px-6 pt-6 pb-4 -mt-6">
-        <h1 className="text-2xl font-bold">Financial Overview</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Track revenue, costs, and profitability</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Financial Overview</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {hasDateFilter ? "Filtered by payment date range" : "All earned revenue — active + completed + qualifying sold"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 border rounded-md px-3 py-1.5 bg-background self-start sm:self-auto">
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="border-0 p-0 h-auto text-sm w-32 focus-visible:ring-0 shadow-none"
+              placeholder="From"
+            />
+            <span className="text-muted-foreground text-sm">—</span>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="border-0 p-0 h-auto text-sm w-32 focus-visible:ring-0 shadow-none"
+              placeholder="To"
+            />
+            {hasDateFilter && (
+              <button onClick={() => { setFromDate(""); setToDate(""); }} className="text-xs text-muted-foreground hover:text-foreground ml-1">✕</button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Financial Stats */}
@@ -133,7 +198,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Sold + Active + Completed</p>
+            <p className="text-xs text-muted-foreground mt-1">Earned revenue only</p>
           </CardContent>
         </Card>
 
@@ -166,7 +231,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{avgProfitMargin.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground mt-1">Across all clients</p>
+            <p className="text-xs text-muted-foreground mt-1">Earned projects only</p>
           </CardContent>
         </Card>
 
@@ -181,6 +246,22 @@ export function Financials() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Projected Revenue Banner */}
+      {projectedProjects.length > 0 && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Projected Revenue: {formatCurrency(projectedRevenue)}</p>
+            <p className="text-xs mt-0.5 text-amber-700">
+              {projectedProjects.length} sold project{projectedProjects.length !== 1 ? "s" : ""} excluded from earned totals above — missing start date or payment due dates:&nbsp;
+              {projectedProjects.map((p, i) => (
+                <span key={p.id}>{p.clientName || p.name}{i < projectedProjects.length - 1 ? ", " : ""}</span>
+              ))}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div>
         <Button onClick={() => setOverheadOpen(true)} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
@@ -264,12 +345,17 @@ export function Financials() {
                     <p className="text-sm text-muted-foreground mt-1">{project.clientName}</p>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold">{formatCurrency(project.commission || 0)}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {project.totalValue > 0
-                        ? `${(((project.commission || 0) / project.totalValue) * 100).toFixed(1)}% of ${formatCurrency(project.totalValue)}`
-                        : "—"}
-                    </div>
+                    {(() => {
+                      const comm = project.project_manager_id ? (project.grossProfit || 0) * ((project.commissionRate || 0) / 100) : 0;
+                      return (<>
+                        <div className="font-semibold">{formatCurrency(comm)}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {project.grossProfit > 0 && (project.commissionRate || 0) > 0
+                            ? `${project.commissionRate}% of GP`
+                            : "—"}
+                        </div>
+                      </>);
+                    })()}
                   </div>
                 </div>
               ))}
@@ -281,10 +367,8 @@ export function Financials() {
       {/* Payment Collections */}
       {(() => {
         const today = new Date(); today.setHours(0,0,0,0);
-        const from  = fromDate ? new Date(fromDate + "T00:00:00") : null;
-        const to    = toDate   ? new Date(toDate   + "T00:00:00") : null;
-
-        const parseDt = (d: string) => new Date(d.includes("T") ? d : `${d}T00:00:00`);
+        const from  = filterFrom;
+        const to    = filterTo;
 
         // Outstanding (unpaid) — filter by due_date within range
         const outstanding = payments.filter((p) => {
@@ -487,13 +571,19 @@ export function Financials() {
                   </tr>
                 </thead>
                 <tbody>
-                  {revenueProjects.map((project) => {
-                    const projectNetProfit = (project.grossProfit || 0) - (project.commission || 0) - (project.salesRepCommission || 0);
+                  {[...earnedProjects, ...projectedProjects].map((project) => {
+                    const isProjected = projectedProjects.some((p) => p.id === project.id);
+                    const projectPMComm  = project.project_manager_id ? (project.grossProfit || 0) * ((project.commissionRate || 0) / 100) : 0;
+                    const projectRepComm = project.sales_rep_id       ? (project.grossProfit || 0) * ((project.salesRepCommissionRate || 0) / 100) : 0;
+                    const projectNetProfit = (project.grossProfit || 0) - projectPMComm - projectRepComm;
                     return (
-                    <tr key={project.id} className="border-b hover:bg-accent">
+                    <tr key={project.id} className={`border-b hover:bg-accent ${isProjected ? "opacity-60" : ""}`}>
                       <td className="p-3">
                         <Link to={`/clients/${project.client?.id}`} className="hover:text-primary no-underline">
-                          <div className="font-medium">{project.clientName || project.name || "Unnamed"}</div>
+                          <div className="font-medium flex items-center gap-1.5">
+                            {project.clientName || project.name || "Unnamed"}
+                            {isProjected && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Projected</span>}
+                          </div>
                           <div className="text-sm text-muted-foreground">{project.name}</div>
                         </Link>
                       </td>
@@ -506,8 +596,8 @@ export function Financials() {
                       <td className="text-right p-3">               {formatCurrency(project.totalCosts  || 0)}</td>
                       <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
                       <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
-                      <td className="text-right p-3">{formatCurrency(project.commission  || 0)}</td>
-                      <td className="text-right p-3 font-medium text-orange-600">{formatCurrency(Math.max(0, projectNetProfit))}</td>
+                      <td className="text-right p-3">{formatCurrency(projectPMComm + projectRepComm)}</td>
+                      <td className="text-right p-3 font-medium text-orange-600">{isProjected ? "—" : formatCurrency(Math.max(0, projectNetProfit))}</td>
                     </tr>
                     );
                   })}

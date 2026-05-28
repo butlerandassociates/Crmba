@@ -140,7 +140,11 @@ export function PipelineForecast() {
 
   const pendingCommissions = projects
     .filter((p) => ["sold", "active"].includes(p.status))
-    .reduce((sum, p) => sum + (p.commission ?? 0), 0);
+    .reduce((sum, p) => {
+      const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+      const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+      return sum + pmComm + repComm;
+    }, 0);
 
   if (loading) {
     return (
@@ -428,7 +432,7 @@ export function PipelineForecast() {
                     const repProjects = projects.filter(
                       (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
                     );
-                    const commission = repProjects.reduce((s, p) => s + (p.commission ?? 0), 0);
+                    const commission = repProjects.reduce((s, p) => s + (p.sales_rep_id === rep.id ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0), 0);
                     return { ...rep, commission };
                   })
                   .sort((a, b) => b.commission - a.commission)
