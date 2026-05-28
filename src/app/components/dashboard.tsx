@@ -676,10 +676,18 @@ export function Dashboard() {
 
       {/* Collections — hidden for sales reps; PM sees only their assigned projects */}
       {/* Revenue & Profit Breakdown Popup */}
-      {showRevenueBreakdown && (
+      {showRevenueBreakdown && (() => {
+        // Total collected per project across ALL time (not just this period)
+        const totalCollectedByProject = paidPayments.reduce((acc: Record<string, number>, p: any) => {
+          const pid = p.project?.id;
+          if (!pid) return acc;
+          acc[pid] = (acc[pid] || 0) + (parseFloat(p.amount) || 0);
+          return acc;
+        }, {});
+        return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowRevenueBreakdown(false)} />
-          <div className="relative bg-background rounded-lg border shadow-lg overflow-hidden flex flex-col" style={{ width: 720, maxWidth: "95vw", maxHeight: "80vh" }}>
+          <div className="relative bg-background rounded-lg border shadow-lg overflow-hidden flex flex-col" style={{ width: 900, maxWidth: "95vw", maxHeight: "80vh" }}>
             <div className="px-5 py-4 border-b flex items-center justify-between shrink-0">
               <div>
                 <p className="font-semibold text-sm">Period Summary</p>
@@ -696,6 +704,7 @@ export function Dashboard() {
                     <tr>
                       <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Client</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Current $</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Collected %</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP %</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Net Profit</th>
@@ -707,10 +716,25 @@ export function Dashboard() {
                       .map((proj: any) => {
                         const commissions = projectCostsMap[proj.id]?.commissions ?? 0;
                         const netProfit = (proj.grossProfit || 0) - commissions;
+                        const totalCollected = totalCollectedByProject[proj.id] || 0;
+                        const collectedPct = proj.totalValue > 0 ? (totalCollected / proj.totalValue) * 100 : 0;
                         return (
                           <tr key={proj.id} className="hover:bg-accent/50">
                             <td className="px-4 py-2.5 font-medium">{proj.clientName || "—"}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums">{formatCurrency(proj.totalValue || 0)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">
+                              <div className="flex items-center justify-end gap-2">
+                                <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${collectedPct >= 100 ? "bg-green-500" : "bg-blue-500"}`} style={{ width: `${Math.min(100, collectedPct)}%` }} />
+                                </div>
+                                <div className="text-right">
+                                  <div className={`${collectedPct >= 100 ? "text-green-600" : collectedPct >= 50 ? "text-blue-600" : "text-amber-600"}`}>{collectedPct.toFixed(0)}%</div>
+                                  {collectedPct < 100 && (
+                                    <div className="text-[10px] text-muted-foreground">{formatCurrency(Math.max(0, (proj.totalValue || 0) - totalCollected))} left</div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
                             <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatCurrency(proj.grossProfit || 0)}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums">{(proj.profitMargin || 0).toFixed(1)}%</td>
                             <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>{formatCurrency(Math.max(0, netProfit))}</td>
@@ -722,6 +746,7 @@ export function Dashboard() {
                     <tr className="font-bold">
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">{periodProjects.length} client{periodProjects.length !== 1 ? "s" : ""}</td>
                       <td className="px-4 py-2.5 text-right">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.totalValue || 0), 0))}</td>
+                      <td />
                       <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.grossProfit || 0), 0))}</td>
                       <td className="px-4 py-2.5 text-right">{avgProfitMargin.toFixed(1)}%</td>
                       <td className="px-4 py-2.5 text-right text-orange-600">{formatCurrency(Math.max(0, periodProjects.reduce((s: number, p: any) => s + Math.max(0, (p.grossProfit || 0) - (projectCostsMap[p.id]?.commissions ?? 0)), 0)))}</td>
@@ -732,7 +757,8 @@ export function Dashboard() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {role !== "sales_rep" && (() => {
         const today = new Date().toISOString().split('T')[0];

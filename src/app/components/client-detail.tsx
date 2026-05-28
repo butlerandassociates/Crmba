@@ -68,7 +68,11 @@ import {
   Copy,
   RefreshCw,
   Check,
+  Bell,
+  BellOff,
+  MessageSquareOff,
 } from "lucide-react";
+import { Switch } from "./ui/switch";
 import {
   Dialog,
   DialogBody,
@@ -1685,6 +1689,46 @@ export function ClientDetail() {
               <div>
                 <div className="text-sm font-medium">Client Since</div>
                 <div className="text-sm text-muted-foreground">{formatDate(client.created_at)}</div>
+              </div>
+            </div>
+
+            {/* Payment Reminder Toggles */}
+            <div className="border-t pt-3 mt-1 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {client.payment_reminders_enabled !== false ? (
+                    <Bell className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <BellOff className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <div>
+                    <div className="text-sm font-medium">Payment Reminders</div>
+                    <div className="text-xs text-muted-foreground">SMS + email 1 &amp; 3 days before due</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={client.payment_reminders_enabled !== false}
+                  onCheckedChange={async (val) => {
+                    await clientsAPI.update(client.id, { payment_reminders_enabled: val });
+                    setClient((prev: any) => ({ ...prev, payment_reminders_enabled: val }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquareOff className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <div className="text-sm font-medium">SMS Opt-Out</div>
+                    <div className="text-xs text-muted-foreground">Client requested no SMS</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={!!client.sms_opt_out}
+                  onCheckedChange={async (val) => {
+                    await clientsAPI.update(client.id, { sms_opt_out: val });
+                    setClient((prev: any) => ({ ...prev, sms_opt_out: val }));
+                  }}
+                />
               </div>
             </div>
           </CardContent>
@@ -3597,6 +3641,10 @@ export function ClientDetail() {
           const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
           const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
           activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent to ${clientLabel}${client.email ? ` (${client.email})` : ""} on ${sentDateLabel} — envelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+          // SMS + email alert to client
+          supabase.functions.invoke("send-portal-notification", {
+            body: { client_id: client.id, type: "contract_ready" },
+          }).catch(() => {});
         }}
       />
       <AppointmentDialog

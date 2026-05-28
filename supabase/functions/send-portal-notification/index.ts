@@ -7,8 +7,32 @@ const corsHeaders = {
 };
 
 const SENDGRID_API_KEY = Deno.env.get("SENDGRID_API_KEY")!;
+const TWILIO_SID   = Deno.env.get("TWILIO_ACCOUNT_SID");
+const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
+const TWILIO_FROM  = Deno.env.get("TWILIO_PHONE_NUMBER");
 const PORTAL_BASE = "https://client.butlerconstruction.co/portal";
 const NOTIFY_EMAIL = "info@butlerconstruction.co";
+
+function toE164(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+}
+
+async function sendSms(to: string, body: string) {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return;
+  const e164 = toE164(to);
+  if (!e164) return;
+  const creds = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`);
+  const params = new URLSearchParams({ To: e164, From: TWILIO_FROM, Body: body });
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  if (!res.ok) console.error("[send-portal-notification] Twilio error:", await res.text());
+}
 
 async function sendEmail(to: string, subject: string, html: string, cc: string[]) {
   const personalization: Record<string, unknown> = { to: [{ email: to }] };
@@ -126,6 +150,14 @@ function buildHtml(type: string, firstName: string, portalUrl: string, payload: 
     `);
   }
 
+  if (type === "contract_ready") {
+    return emailWrapper(`
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 4px 0;">Hi ${firstName},</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 20px 0;">Your contract from Butler &amp; Associates Construction is ready for your signature. Please check your email for a message from DocuSign — it contains your secure signing link.</p>
+      <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">If you don't see the DocuSign email, please check your spam folder or contact us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+    `);
+  }
+
   return emailWrapper(`<p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 20px 0;">You have a new update from Butler &amp; Associates Construction.</p>${portalButton(portalUrl, "Open Your Portal")}`);
 }
 
@@ -149,7 +181,7 @@ serve(async (req) => {
     // Look up client email + name
     const { data: client, error: clientErr } = await supabase
       .from("clients")
-      .select("email, first_name, last_name")
+      .select("email, first_name, last_name, phone, sms_opt_out")
       .eq("id", client_id)
       .maybeSingle();
 
@@ -166,7 +198,20 @@ serve(async (req) => {
       });
     }
 
-    // Look up active portal token
+    // contract_ready doesn't need a portal token — just notifies client about DocuSign email
+    if (type === "contract_ready") {
+      const firstName = client.first_name ?? "there";
+      const emailHtml = buildHtml("contract_ready", firstName, "", {});
+      await sendEmail(client.email, "Your contract is ready to sign — Butler & Associates", emailHtml, [NOTIFY_EMAIL]);
+      if (client.phone && !client.sms_opt_out) {
+        await sendSms(client.phone, `Hi ${firstName}, your contract from Butler & Associates Construction is ready for your signature. Please check your email for the DocuSign signing link. Questions? Call us at (256) 617-4691.`);
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Look up active portal token (required for all other notification types)
     const { data: tokenRow } = await supabase
       .from("client_portal_tokens")
       .select("token")
@@ -181,9 +226,9 @@ serve(async (req) => {
     }
 
     const tabMap: Record<string, string> = {
-      portal_access: "overview",
+      portal_access:  "overview",
       proposal_ready: "proposals",
-      co_pending: "change-orders",
+      co_pending:     "change-orders",
     };
     const tab = tabMap[type] ?? "overview";
     const deepLink = type === "co_pending" && entity_id
@@ -226,9 +271,10 @@ serve(async (req) => {
 
     // Build subject
     const subjects: Record<string, string> = {
-      portal_access: "Your project portal is ready — Butler & Associates",
+      portal_access:  "Your project portal is ready — Butler & Associates",
       proposal_ready: `Proposal ready to review${title ? `: ${title}` : ""} — Butler & Associates`,
-      co_pending: `${isResend ? "Updated: " : ""}Change order requires your approval${title ? `: ${title}` : ""} — Butler & Associates`,
+      co_pending:     `${isResend ? "Updated: " : ""}Change order requires your approval${title ? `: ${title}` : ""} — Butler & Associates`,
+      contract_ready: "Your contract is ready to sign — Butler & Associates",
     };
     const subject = subjects[type] ?? "Update from Butler & Associates Construction";
 
