@@ -3021,6 +3021,7 @@ export function ClientDetail() {
                     : type === "note_deleted"            ? <StickyNote className="h-3.5 w-3.5 text-red-400" />
                     : type === "file_uploaded"           ? <Upload className="h-3.5 w-3.5 text-cyan-500" />
                     : type === "file_deleted"            ? <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                    : type === "payment_reminder_sent"  ? <Bell className="h-3.5 w-3.5 text-amber-500" />
                     : type === "payment_received"        ? <DollarSign className="h-3.5 w-3.5 text-green-500" />
                     : type === "payment_milestone_added" ? <CreditCard className="h-3.5 w-3.5 text-green-400" />
                     : type === "status_changed"          ? <MoveRight className="h-3.5 w-3.5 text-orange-500" />

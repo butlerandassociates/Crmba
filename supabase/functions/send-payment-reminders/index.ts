@@ -193,6 +193,14 @@ Deno.serve(async (req) => {
         await sendSms(client.phone, smsBody);
       }
 
+      // Activity log stamp
+      await supabase.from("activity_log").insert({
+        client_id: client.id,
+        action_type: "payment_reminder_sent",
+        description: `Automated payment reminder sent — ${payment.label ?? "Payment"} of ${fmt(amount)} due ${dayLabel} (${dueDateFmt})`,
+        performed_by: null,
+      }).catch(() => {});
+
       sent++;
     }
 
