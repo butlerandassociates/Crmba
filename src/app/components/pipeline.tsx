@@ -123,7 +123,7 @@ export function Pipeline() {
   const pendingCommissions = projects
     .filter(p => ["sold", "active"].includes(p.status ?? ""))
     .reduce((sum, p) => {
-      const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+      const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
       const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
       return sum + pmComm + repComm;
     }, 0);

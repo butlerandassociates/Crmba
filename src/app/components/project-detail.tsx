@@ -488,9 +488,9 @@ export function ProjectDetail() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(project.project_manager_id ? (project.grossProfit || 0) * ((project.commissionRate || 0) / 100) : 0)}</div>
+            <div className="text-2xl font-bold text-blue-600">{formatCurrency(project.project_manager_id ? (project.grossProfit || 0) * ((project.pmCommissionRate || 0) / 100) : 0)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {project.commissionRate}% of GP
+              {project.pmCommissionRate}% of GP
             </p>
           </CardContent>
         </Card>
