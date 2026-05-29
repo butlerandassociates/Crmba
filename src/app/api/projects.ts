@@ -15,6 +15,7 @@ const mapProject = (p: any) => ({
   profitMargin:       Number(p.profit_margin    ?? 0),
   commission:            Number(p.commission                ?? 0),
   commissionRate:        Number(p.commission_rate           ?? 0),
+  pmCommissionRate:      Number(p.project_manager?.commission_rate ?? p.commission_rate ?? 0),
   salesRepCommission:    Number(p.sales_rep_commission      ?? 0),
   salesRepCommissionRate:Number(p.sales_rep_commission_rate || p.sales_rep?.commission_rate || 0),
   clientName: p.client
@@ -32,7 +33,7 @@ const mapProject = (p: any) => ({
 const FULL_SELECT = `
   *,
   client:clients(id, first_name, last_name, company, is_discarded),
-  project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active),
+  project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active, commission_rate),
   foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
   sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active, commission_rate)
 `;
@@ -57,7 +58,7 @@ export const projectsAPI = {
       .select(`
         *,
         client:clients(id, first_name, last_name, company, email, phone),
-        project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active),
+        project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active, commission_rate),
         foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
         sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active, commission_rate)
       `)

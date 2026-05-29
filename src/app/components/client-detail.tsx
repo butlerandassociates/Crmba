@@ -2207,8 +2207,10 @@ export function ClientDetail() {
               const margin = clientProjects[0]?.profitMargin ?? 0;
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
               const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
-              const commission = grossProfit > 0 && (clientProjects[0]?.commissionRate ?? 0) > 0
-                ? grossProfit * ((clientProjects[0].commissionRate) / 100)
+              // Always use live commission_rate from profile (not stale projects.commission_rate)
+              const pmLiveRate = clientProjects[0]?.pmCommissionRate ?? 0;
+              const commission = grossProfit > 0 && pmLiveRate > 0
+                ? Math.round(grossProfit * (pmLiveRate / 100) * 100) / 100
                 : 0;
               const salesRepRate = clientProjects[0]?.salesRepCommissionRate ?? 0;
               const salesRepCommission = grossProfit > 0 && salesRepRate > 0
@@ -2583,8 +2585,8 @@ export function ClientDetail() {
               {(() => {
                 const pmId = project.project_manager_id ?? null;
                 const repId = project.sales_rep_id ?? null;
-                const pmComm  = pmId  && (project.commissionRate        || 0) > 0
-                  ? (project.grossProfit || 0) * ((project.commissionRate) / 100)
+                const pmComm  = pmId  && (project.pmCommissionRate        || 0) > 0
+                  ? Math.round((project.grossProfit || 0) * ((project.pmCommissionRate) / 100) * 100) / 100
                   : 0;
                 const repComm = repId && (project.salesRepCommissionRate || 0) > 0
                   ? (project.grossProfit || 0) * ((project.salesRepCommissionRate) / 100)

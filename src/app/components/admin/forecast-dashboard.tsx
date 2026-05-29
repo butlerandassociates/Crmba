@@ -54,7 +54,7 @@ export function ForecastDashboard() {
   const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const totalCommissions = projects.reduce((s, p) => {
-    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
     const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
     return s + pmComm + repComm;
   }, 0);

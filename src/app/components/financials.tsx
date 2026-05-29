@@ -122,7 +122,7 @@ export function Financials() {
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const totalCommissions = revenueProjects.reduce((sum, p) => {
-    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.commissionRate || 0) / 100) : 0;
+    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
     const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
     return sum + pmComm + repComm;
   }, 0);
@@ -346,12 +346,12 @@ export function Financials() {
                   </div>
                   <div className="text-right">
                     {(() => {
-                      const comm = project.project_manager_id ? (project.grossProfit || 0) * ((project.commissionRate || 0) / 100) : 0;
+                      const comm = project.project_manager_id ? (project.grossProfit || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
                       return (<>
                         <div className="font-semibold">{formatCurrency(comm)}</div>
                         <div className="text-sm text-muted-foreground">
-                          {project.grossProfit > 0 && (project.commissionRate || 0) > 0
-                            ? `${project.commissionRate}% of GP`
+                          {project.grossProfit > 0 && (project.pmCommissionRate || 0) > 0
+                            ? `${project.pmCommissionRate}% of GP`
                             : "—"}
                         </div>
                       </>);
@@ -573,7 +573,7 @@ export function Financials() {
                 <tbody>
                   {[...earnedProjects, ...projectedProjects].map((project) => {
                     const isProjected = projectedProjects.some((p) => p.id === project.id);
-                    const projectPMComm  = project.project_manager_id ? (project.grossProfit || 0) * ((project.commissionRate || 0) / 100) : 0;
+                    const projectPMComm  = project.project_manager_id ? (project.grossProfit || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
                     const projectRepComm = project.sales_rep_id       ? (project.grossProfit || 0) * ((project.salesRepCommissionRate || 0) / 100) : 0;
                     const projectNetProfit = (project.grossProfit || 0) - projectPMComm - projectRepComm;
                     return (
