@@ -491,7 +491,7 @@ export function ProductManager() {
                     Sales Tax Applicable
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Adds 9% sales tax to material cost only (not labor)
+                    Tax rate applied to material cost at proposal time based on client zip code
                   </p>
                 </div>
               </div>
@@ -927,7 +927,7 @@ export function ProductManager() {
                     Sales Tax Applicable
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Adds 9% sales tax to material cost only (not labor)
+                    Tax rate applied to material cost at proposal time based on client zip code
                   </p>
                 </div>
               </div>

@@ -44,6 +44,7 @@ interface LineItem {
   markupPercent: number;
   pricePerUnit: number;
   totalPrice: number;
+  salesTaxApplicable?: boolean;
 }
 
 
@@ -329,6 +330,7 @@ export function ProposalBuilder() {
         pricePerUnit,
         materialCost,
         laborCost,
+        salesTaxApplicable: product.sales_tax_rate != null,
       });
 
       setSelectedCategory("");
@@ -404,7 +406,9 @@ export function ProposalBuilder() {
       const grossProfitVal = revenueVal - totalCostVal;
       const profitMarginVal = revenueVal > 0 ? (grossProfitVal / revenueVal) * 100 : 0;
 
-      const taxableVal = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
+      const taxableVal = lineItems
+        .filter((item) => item.salesTaxApplicable)
+        .reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
       const taxAmountVal = taxableVal * (taxRate / 100);
 
       // Use badPrice from component scope — respects manual override if set
@@ -488,9 +492,11 @@ export function ProposalBuilder() {
     return acc;
   }, {} as Record<string, LineItem[]>);
 
-  // Calculate totals — tax on materials only
+  // Calculate totals — tax on materials only, for products flagged as tax-applicable
   const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
-  const taxableMaterials = lineItems.reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
+  const taxableMaterials = lineItems
+    .filter((item) => item.salesTaxApplicable)
+    .reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
   const tax = taxableMaterials * (taxRate / 100);
 
   // Base, Aggregate & Disposal — 1.5% of qualifying scope subtotals, 50% markup
