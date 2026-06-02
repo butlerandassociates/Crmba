@@ -242,6 +242,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="text-left p-3 lg:p-4 text-xs font-bold text-gray-600">DESCRIPTION</th>
+                        <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">QTY</th>
                         <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">UNIT PRICE</th>
                         <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">TOTAL</th>
                       </tr>
@@ -253,6 +254,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                             <div className="text-sm font-medium">{item.description}</div>
                             {item.category && <div className="text-xs text-gray-400">{item.category}</div>}
                           </td>
+                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{item.quantity}</td>
                           <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{fmt(item.unit_price)}</td>
                           <td className="p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.total)}</td>
                         </tr>
@@ -263,6 +265,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                             <div className="text-sm font-medium">{mod.name}</div>
                             <div className="text-xs text-gray-400">{[mod.category, mod.action === "delete" ? "Removed" : "Modified"].filter(Boolean).join(" · ")}</div>
                           </td>
+                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{mod.quantity}</td>
                           <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{fmt(mod.unit_price)}</td>
                           <td className={`p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap ${mod.delta >= 0 ? "text-orange-600" : "text-green-700"}`}>
                             {mod.delta >= 0 ? "+" : ""}{fmt(mod.delta)}
@@ -272,7 +275,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                     </tbody>
                     <tfoot className="border-t-2 bg-gray-50">
                       <tr>
-                        <td colSpan={2} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
+                        <td colSpan={3} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
                         <td className="p-3 lg:p-4 text-right text-lg font-black whitespace-nowrap">{netImpact >= 0 ? "+" : ""}{fmt(netImpact)}</td>
                       </tr>
                     </tfoot>

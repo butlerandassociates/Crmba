@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { formatCurrency } from "@/app/utils/format";
-import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2 } from "lucide-react";
+import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2, Car } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { Link } from "react-router";
 import {
@@ -47,10 +47,20 @@ export function Dashboard() {
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [showCustomPickers, setShowCustomPickers] = useState(false);
   const [showRevenueBreakdown, setShowRevenueBreakdown] = useState(false);
-  
+  const [activeMileagePeriod, setActiveMileagePeriod] = useState<boolean>(false);
+
   useEffect(() => {
     fetchData();
     fetchWeather();
+    // Check for active mileage period for PM/Sales Rep dashboard card
+    if (role === "project_manager" || role === "sales_rep") {
+      supabase.from("mileage_periods")
+        .select("id")
+        .eq("status", "open")
+        .eq("is_active", true)
+        .maybeSingle()
+        .then(({ data }) => setActiveMileagePeriod(!!data));
+    }
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       supabase.from("profiles").select("first_name").eq("id", user.id).single()
@@ -677,13 +687,26 @@ export function Dashboard() {
       {/* Collections — hidden for sales reps; PM sees only their assigned projects */}
       {/* Revenue & Profit Breakdown Popup */}
       {showRevenueBreakdown && (() => {
-        // Total collected per project across ALL time (not just this period)
+        // Total collected per project across ALL time (for Collected % progress)
         const totalCollectedByProject = paidPayments.reduce((acc: Record<string, number>, p: any) => {
           const pid = p.project?.id;
           if (!pid) return acc;
           acc[pid] = (acc[pid] || 0) + (parseFloat(p.amount) || 0);
           return acc;
         }, {});
+        // Cash collected in the SELECTED period per project — drives GP to match the dashboard card
+        const periodCollectedByProject = periodPayments.reduce((acc: Record<string, number>, p: any) => {
+          const pid = p.project?.id;
+          if (!pid) return acc;
+          acc[pid] = (acc[pid] || 0) + (parseFloat(p.amount) || 0);
+          return acc;
+        }, {});
+        // Live GP rate per project (same formula as the dashboard GP card)
+        const gpRateFor = (proj: any) => {
+          if (!proj.totalValue || proj.totalValue === 0) return 0;
+          const c = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+          return Math.max(0, (proj.totalValue - (c.materials + c.labor + c.commissions)) / proj.totalValue);
+        };
         return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowRevenueBreakdown(false)} />
@@ -703,9 +726,9 @@ export function Dashboard() {
                   <thead className="sticky top-0 bg-background border-b">
                     <tr>
                       <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Client</th>
-                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Current $</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Contract $</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Collected %</th>
-                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $ <span className="normal-case text-[9px]">(period)</span></th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP %</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Net Profit</th>
                     </tr>
@@ -714,8 +737,13 @@ export function Dashboard() {
                     {[...periodProjects]
                       .sort((a: any, b: any) => (b.totalValue || 0) - (a.totalValue || 0))
                       .map((proj: any) => {
+                        const gpRate = gpRateFor(proj);
+                        const periodCollected = periodCollectedByProject[proj.id] || 0;
+                        const periodGP = periodCollected * gpRate;
                         const commissions = projectCostsMap[proj.id]?.commissions ?? 0;
-                        const netProfit = (proj.grossProfit || 0) - commissions;
+                        // Proportional paid commission against the period's collected share
+                        const periodCommission = proj.totalValue > 0 ? commissions * (periodCollected / proj.totalValue) : 0;
+                        const netProfit = periodGP - periodCommission;
                         const totalCollected = totalCollectedByProject[proj.id] || 0;
                         const collectedPct = proj.totalValue > 0 ? (totalCollected / proj.totalValue) * 100 : 0;
                         return (
@@ -735,8 +763,8 @@ export function Dashboard() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatCurrency(proj.grossProfit || 0)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums">{(proj.profitMargin || 0).toFixed(1)}%</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatCurrency(periodGP)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{(gpRate * 100).toFixed(1)}%</td>
                             <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${netProfit >= 0 ? "text-orange-600" : "text-red-600"}`}>{formatCurrency(Math.max(0, netProfit))}</td>
                           </tr>
                         );
@@ -747,9 +775,16 @@ export function Dashboard() {
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">{periodProjects.length} client{periodProjects.length !== 1 ? "s" : ""}</td>
                       <td className="px-4 py-2.5 text-right">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.totalValue || 0), 0))}</td>
                       <td />
-                      <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(periodProjects.reduce((s: number, p: any) => s + (p.grossProfit || 0), 0))}</td>
+                      <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(totalProfit)}</td>
                       <td className="px-4 py-2.5 text-right">{avgProfitMargin.toFixed(1)}%</td>
-                      <td className="px-4 py-2.5 text-right text-orange-600">{formatCurrency(Math.max(0, periodProjects.reduce((s: number, p: any) => s + Math.max(0, (p.grossProfit || 0) - (projectCostsMap[p.id]?.commissions ?? 0)), 0)))}</td>
+                      <td className="px-4 py-2.5 text-right text-orange-600">{formatCurrency(Math.max(0, periodProjects.reduce((s: number, p: any) => {
+                        const gpRate = gpRateFor(p);
+                        const periodCollected = periodCollectedByProject[p.id] || 0;
+                        const periodGP = periodCollected * gpRate;
+                        const commissions = projectCostsMap[p.id]?.commissions ?? 0;
+                        const periodCommission = p.totalValue > 0 ? commissions * (periodCollected / p.totalValue) : 0;
+                        return s + Math.max(0, periodGP - periodCommission);
+                      }, 0)))}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -857,6 +892,31 @@ export function Dashboard() {
           </Card>
         );
       })()}
+
+      {/* Mileage quick-action card — PM and Sales Rep only, when period is open */}
+      {(role === "project_manager" || role === "sales_rep") && activeMileagePeriod && (
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardContent className="p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-full bg-blue-100">
+                <Car className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">Mileage Reimbursement</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Upload your Everlance CSV to submit this week's mileage</p>
+              </div>
+            </div>
+            <Link
+              to="/mileage"
+              className="no-underline"
+            >
+              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 shrink-0">
+                Submit Mileage →
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

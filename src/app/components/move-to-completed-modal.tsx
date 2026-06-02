@@ -19,6 +19,8 @@ interface MoveToCompletedModalProps {
   client: any;
   project: any;
   onSuccess: () => void;
+  /** Opens the Certificate of Completion DocuSign dialog (only available once the contract is signed) */
+  onSendCertificate?: () => void;
 }
 
 interface GateStatus {
@@ -31,7 +33,7 @@ interface GateStatus {
 
 const SITE_PHOTO_MIN = 5;
 
-export function MoveToCompletedModal({ open, onOpenChange, client, project, onSuccess }: MoveToCompletedModalProps) {
+export function MoveToCompletedModal({ open, onOpenChange, client, project, onSuccess, onSendCertificate }: MoveToCompletedModalProps) {
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
   const [gates, setGates]             = useState<GateStatus>({
@@ -310,6 +312,19 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
                 </div>
               );
             })
+          )}
+
+          {!loading && onSendCertificate && client?.docusign_status === "completed" && !gates.certificateUploaded && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-blue-200 bg-blue-50">
+              <div className="flex items-center gap-2 text-sm text-blue-900">
+                <FileText className="h-4 w-4 shrink-0" />
+                <span>Send the Certificate of Completion for signature?</span>
+              </div>
+              <Button size="sm" variant="outline" className="shrink-0 bg-white"
+                onClick={() => { onOpenChange(false); onSendCertificate(); }}>
+                Send Certificate
+              </Button>
+            </div>
           )}
 
           {!loading && amberWarnings.length > 0 && (

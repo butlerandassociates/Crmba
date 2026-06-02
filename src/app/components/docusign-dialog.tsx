@@ -28,6 +28,8 @@ interface DocuSignDialogProps {
   client: Record<string, any>;
   project?: Record<string, any>;
   onSent?: (envelopeId: string) => void;
+  /** "contract" (default) or "certificate" — changes labels, email subject, and auto-selects the matching template */
+  documentType?: "contract" | "certificate";
 }
 
 interface DocuSignTemplate {
@@ -43,7 +45,9 @@ export function DocuSignDialog({
   client,
   project,
   onSent,
+  documentType = "contract",
 }: DocuSignDialogProps) {
+  const isCertificate = documentType === "certificate";
   const [templates, setTemplates] = useState<DocuSignTemplate[]>([]);
   const [dbTemplates, setDbTemplates] = useState<{ id: string; name: string; template_id: string }[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -108,13 +112,17 @@ export function DocuSignDialog({
       }
 
       const templateList = data.envelopeTemplates || [];
-      setTemplates(
-        templateList.map((t: any) => ({
-          templateId: t.templateId,
-          name: t.name,
-          description: t.description,
-        }))
-      );
+      const mapped = templateList.map((t: any) => ({
+        templateId: t.templateId,
+        name: t.name,
+        description: t.description,
+      }));
+      setTemplates(mapped);
+      // Auto-select the Certificate of Completion template when sending a certificate
+      if (isCertificate) {
+        const match = mapped.find((t: DocuSignTemplate) => /certificate of completion/i.test(t.name));
+        if (match) setSelectedTemplate(match.templateId);
+      }
     } catch (error) {
       console.error("Error loading DocuSign templates:", error);
       await loadDbTemplates();
@@ -142,17 +150,23 @@ export function DocuSignDialog({
     try {
       const requestBody = {
         templateId: templateToUse,
-        emailSubject: project
-          ? `${project.name} Agreement | Butler & Associates Construction, Inc`
-          : `Contract | Butler & Associates Construction, Inc`,
-        emailBlurb: `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
+        emailSubject: isCertificate
+          ? `Certificate of Completion${project ? ` — ${project.name}` : ""} | Butler & Associates Construction, Inc`
+          : project
+            ? `${project.name} Agreement | Butler & Associates Construction, Inc`
+            : `Contract | Butler & Associates Construction, Inc`,
+        emailBlurb: isCertificate
+          ? `Please review and sign the Certificate of Completion${project ? ` for your ${project.name} project` : ""} with Butler & Associates Construction, Inc.`
+          : `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
         clientEmail: client.email,
         clientName: fullName || client.email || "Client",
 
         adminEmail: "info@butlerconstruction.co",
         adminName: "Jonathan Butler",
         tabs: {},
-        returnUrl: window.location.href,
+        // Carry the document type back so the client page routes the status to the
+        // correct columns (contract vs certificate) — avoids fuzzy envelope-id matching.
+        returnUrl: `${window.location.origin}/clients/${client.id}?${isCertificate ? "certdocusign" : "docusign"}=sent`,
       };
 
       const response = await fetch(
@@ -208,10 +222,12 @@ export function DocuSignDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSignature className="h-5 w-5" />
-            Send DocuSign Document
+            {isCertificate ? "Send Certificate of Completion" : "Send DocuSign Document"}
           </DialogTitle>
           <DialogDescription>
-            Select a template and send for signature to {client.name}
+            {isCertificate
+              ? `Send the Certificate of Completion for signature to ${fullName || "the client"}`
+              : `Select a template and send for signature to ${fullName || "the client"}`}
           </DialogDescription>
         </DialogHeader>
 

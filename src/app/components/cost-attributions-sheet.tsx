@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Plus, Trash2, Upload, FileText, Loader2, Receipt } from "lucide-react";
+import { Plus, Trash2, Upload, FileText, Loader2, Receipt, Car } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
@@ -8,6 +8,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Badge } from "./ui/badge";
 import { receiptsAPI } from "../api/receipts";
+import { mileageTripsAPI } from "../api/mileage";
 import { activityLogAPI } from "../api/activity-log";
 import { usePermissions } from "../hooks/usePermissions";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
   const { can } = usePermissions();
   const canEdit = can("can_edit_financials");
   const [receipts, setReceipts] = useState<any[]>([]);
+  const [mileageTrips, setMileageTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY });
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
@@ -42,8 +44,12 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
     if (!project?.id) return;
     setLoading(true);
     try {
-      const data = await receiptsAPI.getByProject(project.id);
+      const [data, trips] = await Promise.all([
+        receiptsAPI.getByProject(project.id),
+        mileageTripsAPI.getProjectCostTrips(project.id).catch(() => []),
+      ]);
       setReceipts(data || []);
+      setMileageTrips(trips || []);
     } catch {
       toast.error("Failed to load receipts — please refresh.");
     } finally {
@@ -55,10 +61,11 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
     if (open) loadReceipts();
   }, [open, project?.id]);
 
-  useRealtimeRefetch(() => { if (open && project?.id) loadReceipts(); }, ["project_receipts"], `cost-attr-${project?.id}`);
+  useRealtimeRefetch(() => { if (open && project?.id) loadReceipts(); }, ["project_receipts", "mileage_trips", "mileage_submissions"], `cost-attr-${project?.id}`);
 
   const totalMaterial = receipts.filter((r) => r.category === "material").reduce((s, r) => s + r.amount, 0);
   const totalLabor    = receipts.filter((r) => r.category === "labor").reduce((s, r) => s + r.amount, 0);
+  const totalMileage  = mileageTrips.reduce((s, t) => s + Number(t.payout || 0), 0);
 
   const handleAdd = async () => {
     if (!form.name || !form.amount) { toast.error("Receipt name and amount are required."); return; }
@@ -114,7 +121,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
           </div>
           <div className="text-right shrink-0">
             <p className="text-xs text-muted-foreground">Total</p>
-            <p className="font-bold text-lg">{fmt(totalMaterial + totalLabor)}</p>
+            <p className="font-bold text-lg">{fmt(totalMaterial + totalLabor + totalMileage)}</p>
           </div>
         </SheetHeader>
 
@@ -169,14 +176,14 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
           <div className="p-4 space-y-2">
             {loading ? (
               <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-            ) : receipts.length === 0 ? (
+            ) : receipts.length === 0 && mileageTrips.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Receipt className="h-10 w-10 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No receipts yet</p>
-                <p className="text-xs mt-1">Upload receipts to track material and labor costs.</p>
+                <p className="text-sm font-medium">No costs yet</p>
+                <p className="text-xs mt-1">Upload receipts or approve mileage to track this job's costs.</p>
               </div>
-            ) : (
-              receipts.map((r) => (
+            ) : (<>
+              {receipts.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 border rounded-lg p-3 hover:bg-accent/30">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -208,8 +215,38 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, onR
                     </button>
                   )}
                 </div>
-              ))
-            )}
+              ))}
+
+              {/* Mileage — read-only; auto-attributed from approved/paid trips, counts toward GP$ */}
+              {mileageTrips.length > 0 && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between px-1 pb-2 pt-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Car className="h-3.5 w-3.5" />Mileage <span className="font-normal normal-case">(from approved trips)</span>
+                    </p>
+                    <span className="text-sm font-semibold">{fmt(totalMileage)}</span>
+                  </div>
+                  {mileageTrips.map((t) => {
+                    const emp = t._sub?.user ? `${t._sub.user.first_name ?? ""} ${t._sub.user.last_name ?? ""}`.trim() : "Employee";
+                    return (
+                      <div key={t.id} className="flex items-center gap-3 border rounded-lg p-3 hover:bg-accent/30 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm truncate">{emp}</span>
+                            <Badge variant="outline" className="text-xs shrink-0 border-blue-300 text-blue-700">mileage</Badge>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            {new Date(t.trip_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            {" · "}{Number(t.miles).toFixed(1)} mi
+                          </p>
+                        </div>
+                        <span className="font-semibold text-sm shrink-0">{fmt(Number(t.payout))}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>)}
           </div>
         </div>
       </SheetContent>

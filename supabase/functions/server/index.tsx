@@ -955,44 +955,81 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
     }
 
     if (clientStatus) {
-      const updateData: Record<string, string> = { docusign_status: clientStatus };
-      if (completedDate) updateData.docusign_completed_date = completedDate;
+      // Determine which document this envelope belongs to: contract or certificate of completion.
+      // Look up by contract column first, then certificate column.
+      let docType: "contract" | "certificate" | null = null;
+      let clientRow: { id: string; first_name: string | null; last_name: string | null } | null = null;
 
-      const { data: clientRow, error } = await supabase
+      const { data: contractRow } = await supabase
         .from("clients")
-        .update(updateData)
-        .eq("docusign_envelope_id", envelopeId)
         .select("id, first_name, last_name")
-        .single();
+        .eq("docusign_envelope_id", envelopeId)
+        .maybeSingle();
 
-      if (error) {
-        console.error("Failed to update client DocuSign status:", error);
+      if (contractRow) {
+        docType = "contract";
+        clientRow = contractRow;
       } else {
-        console.log(`Client updated to ${clientStatus} for envelope ${envelopeId}`);
+        const { data: certRow } = await supabase
+          .from("clients")
+          .select("id, first_name, last_name")
+          .eq("cert_docusign_envelope_id", envelopeId)
+          .maybeSingle();
+        if (certRow) {
+          docType = "certificate";
+          clientRow = certRow;
+        }
       }
 
-      // Bell notification for declined or voided
-      if ((clientStatus === "declined" || clientStatus === "voided") && clientRow?.id) {
-        const clientName = `${clientRow.first_name ?? ""} ${clientRow.last_name ?? ""}`.trim();
+      if (!docType || !clientRow) {
+        console.warn(`No client matched envelope ${envelopeId} (contract or certificate)`);
+        return c.json({ received: true });
+      }
+
+      // Column names + labels per document type
+      const statusCol    = docType === "contract" ? "docusign_status" : "cert_docusign_status";
+      const completedCol = docType === "contract" ? "docusign_completed_date" : "cert_docusign_completed_date";
+      const docLabel     = docType === "contract" ? "contract" : "Certificate of Completion";
+      const fileLabel    = docType === "contract" ? "Signed Contract" : "Signed Certificate of Completion";
+
+      const updateData: Record<string, string> = { [statusCol]: clientStatus };
+      if (completedDate) updateData[completedCol] = completedDate;
+
+      const { error } = await supabase
+        .from("clients")
+        .update(updateData)
+        .eq("id", clientRow.id);
+
+      if (error) {
+        console.error(`Failed to update client ${docType} DocuSign status:`, error);
+      } else {
+        console.log(`Client ${clientRow.id} ${docType} updated to ${clientStatus} for envelope ${envelopeId}`);
+      }
+
+      const clientName = `${clientRow.first_name ?? ""} ${clientRow.last_name ?? ""}`.trim() || "Client";
+
+      // Bell notification for declined / voided
+      if (clientStatus === "declined" || clientStatus === "voided") {
         const label = clientStatus === "declined" ? "Declined" : "Voided";
         await supabase.from("notifications").insert({
-          type: `docusign_${clientStatus}`,
-          title: `DocuSign ${label}`,
-          message: `${clientName} ${clientStatus === "declined" ? "declined to sign" : "voided"} the contract`,
+          type: `${docType === "contract" ? "docusign" : "cert_docusign"}_${clientStatus}`,
+          title: `${docType === "contract" ? "DocuSign" : "Certificate"} ${label}`,
+          message: `${clientName} ${clientStatus === "declined" ? "declined to sign" : "voided"} the ${docLabel}`,
           link: `/clients/${clientRow.id}`,
-          metadata: { client_id: clientRow.id, client_name: clientName, envelope_id: envelopeId },
+          metadata: { client_id: clientRow.id, client_name: clientName, envelope_id: envelopeId, document_type: docType },
         });
       }
 
-      // Auto-upload signed PDF to client files when contract is completed
-      if (clientStatus === "completed" && clientRow?.id) {
+      // Auto-upload signed PDF to client files when completed (matches existing contract behavior).
+      // The "completed" bell notification is fired by the frontend status refresh, same as the contract.
+      if (clientStatus === "completed") {
         try {
           const config = docusign.getDocuSignConfig();
           const pdfBuffer = await docusign.getEnvelopeDocuments(config, envelopeId);
 
-          const clientName = `${clientRow.first_name ?? ""} ${clientRow.last_name ?? ""}`.trim() || "Client";
           const timestamp = Date.now();
-          const filePath = `${clientRow.id}/${timestamp}-signed-contract.pdf`;
+          const fileSlug = docType === "contract" ? "signed-contract" : "signed-certificate-of-completion";
+          const filePath = `${clientRow.id}/${timestamp}-${fileSlug}.pdf`;
 
           const { error: uploadError } = await supabase.storage
             .from("client-files")
@@ -1005,13 +1042,13 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
 
             await supabase.from("client_files").insert({
               client_id: clientRow.id,
-              file_name: `Signed Contract — ${clientName}.pdf`,
+              file_name: `${fileLabel} — ${clientName}.pdf`,
               file_url: publicUrl,
-              file_type: "contract",
+              file_type: docType, // "contract" or "certificate"
               mime_type: "application/pdf",
             });
 
-            console.log(`Signed contract PDF auto-uploaded for client ${clientRow.id}`);
+            console.log(`${fileLabel} PDF auto-uploaded for client ${clientRow.id}`);
           } else {
             console.error("Failed to upload signed PDF to storage:", uploadError);
           }

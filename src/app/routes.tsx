@@ -39,6 +39,7 @@ import { ForemanLayout } from "./components/foreman/foreman-layout";
 import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
 import { ForemanJobDetail } from "./components/foreman/foreman-job-detail";
 import { PermissionGuard } from "./components/permission-guard";
+import { MileagePage } from "./components/mileage/mileage-page";
 
 function NotFound() {
   return (
@@ -85,6 +86,7 @@ export const router = createBrowserRouter([
       { path: "payroll",                              Component: G("can_view_payroll", Payroll) },
       { path: "payroll/pm/:id",                       Component: G("can_view_payroll", PayrollPMDetail) },
       { path: "payroll/crew/:id",                     Component: G("can_view_payroll", PayrollCrewDetail) },
+      { path: "mileage",                               Component: MileagePage },
       { path: "my-portal",                            Component: MyPortal },
       { path: "*",                                    Component: NotFound },
     ],

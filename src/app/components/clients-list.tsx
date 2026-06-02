@@ -7,7 +7,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, TrendingUp, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -613,13 +613,36 @@ export function ClientsList() {
   const ClientTable = ({ list, stage }: { list: any[]; stage?: string }) => {
     const navigate = useNavigate();
     const [page, setPage] = useState(0);
+    // Date-column sort (Jonathan: asc/desc arrows on the appointment/date column, all stages)
+    const [dateSort, setDateSort] = useState<"asc" | "desc" | null>(null);
+    const dateField = stage === "completed" ? "updated_at"
+      : (stage === "sold" || stage === "active") ? "project_start_date"
+      : "appointment_date";
+    const cycleDateSort = () => setDateSort((d) => (d === null ? "asc" : d === "asc" ? "desc" : null));
+    const SortArrow = () => (
+      <button onClick={(e) => { e.stopPropagation(); cycleDateSort(); }} title="Sort by date"
+        className="ml-1 inline-flex items-center align-middle text-muted-foreground hover:text-foreground">
+        {dateSort === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : dateSort === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />}
+      </button>
+    );
+
     const visible = filterClients(list);
-    const totalPages = Math.ceil(visible.length / PAGE_SIZE);
-    const paged = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    const sortedVisible = dateSort
+      ? [...visible].sort((a, b) => {
+          const av = a[dateField] ? new Date(a[dateField]).getTime() : null;
+          const bv = b[dateField] ? new Date(b[dateField]).getTime() : null;
+          if (av === null && bv === null) return 0;
+          if (av === null) return 1;   // missing dates always last
+          if (bv === null) return -1;
+          return dateSort === "asc" ? av - bv : bv - av;
+        })
+      : visible;
+    const totalPages = Math.ceil(sortedVisible.length / PAGE_SIZE);
+    const paged = sortedVisible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
     const allSelected = paged.length > 0 && paged.every((c) => selectedIds.has(c.id));
     const someSelected = paged.some((c) => selectedIds.has(c.id));
 
-    useEffect(() => { setPage(0); }, [visible.length]);
+    useEffect(() => { setPage(0); }, [visible.length, dateSort]);
 
     const totalValue = visible.reduce((sum, c) => sum + clientProjectTotal(c), 0);
 
@@ -711,16 +734,16 @@ export function ClientsList() {
 
                   {isActive && (
                     <>
-                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Start Date</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Start Date<SortArrow /></th>
                       <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">End Date</th>
                     </>
                   )}
                   {isCompleted && (
-                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Completed On</th>
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">Completed On<SortArrow /></th>
                   )}
                   {!isProjectStage && (
-                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">
-                      {stage === "sold" ? "Start Date" : "Appointment"}
+                    <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase whitespace-nowrap">
+                      {stage === "sold" ? "Start Date" : "Appointment"}<SortArrow />
                     </th>
                   )}
 

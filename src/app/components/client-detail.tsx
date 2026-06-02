@@ -95,6 +95,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { clientsAPI, photosAPI, projectsAPI, estimatesAPI, appointmentsAPI, leadSourcesAPI, notesAPI, activityLogAPI, pipelineStagesAPI, projectPaymentsAPI, receiptsAPI, productsAPI, notificationsAPI, fioAPI, usersAPI, commissionPaymentsAPI } from "../utils/api";
+import { mileageTripsAPI } from "../api/mileage";
 import { changeOrdersAPI } from "../api/change-orders";
 import { usePermissions } from "../hooks/usePermissions";
 import { MoveToSoldModal } from "./move-to-sold-modal";
@@ -243,21 +244,27 @@ export function ClientDetail() {
     fetchClient();
   }, [id]);
 
-  // Handle return from DocuSign sender view — event=Send means sender clicked Send
+  // Handle return from DocuSign sender view — event=Send means sender clicked Send.
+  // Route to the correct document (contract vs certificate) by matching the envelope id.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !client) return;
     const params = new URLSearchParams(window.location.search);
     const event = params.get("event");
     const envelopeId = params.get("envelopeId");
     if (event === "Send" && envelopeId) {
-      supabase.from("clients").update({ docusign_status: "sent_to_client" }).eq("id", id).then(() => {
-        setClient((prev: any) => prev ? { ...prev, docusign_status: "sent_to_client" } : prev);
+      // Determine document type from the explicit return-URL marker (deterministic),
+      // falling back to envelope-id matching only if the marker is absent.
+      const isCert = params.get("certdocusign") === "sent"
+        || (params.get("docusign") !== "sent" && !!client.cert_docusign_envelope_id && envelopeId === client.cert_docusign_envelope_id);
+      const col = isCert ? "cert_docusign_status" : "docusign_status";
+      supabase.from("clients").update({ [col]: "sent_to_client" }).eq("id", id).then(() => {
+        setClient((prev: any) => prev ? { ...prev, [col]: "sent_to_client" } : prev);
       });
       // Clean URL params without reloading
       const clean = window.location.pathname;
       window.history.replaceState({}, "", clean);
     }
-  }, [id]);
+  }, [id, client?.docusign_envelope_id, client?.cert_docusign_envelope_id]);
 
   useEffect(() => {
     if (!id) return;
@@ -327,6 +334,13 @@ export function ClientDetail() {
     }
   }, [searchParams, client?.docusign_envelope_id]);
 
+  // Same for the Certificate of Completion sender view
+  useEffect(() => {
+    if (searchParams.get("certdocusign") === "sent" && client?.cert_docusign_envelope_id) {
+      refreshCertDocusignStatus();
+    }
+  }, [searchParams, client?.cert_docusign_envelope_id]);
+
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
@@ -350,6 +364,10 @@ export function ClientDetail() {
   const [docusignDialogOpen, setDocusignDialogOpen] = useState(false);
   const [refreshingDocusign, setRefreshingDocusign] = useState(false);
   const [openingContractorSigning, setOpeningContractorSigning] = useState(false);
+  // Certificate of Completion DocuSign (separate document, tracked via cert_docusign_* columns)
+  const [certDocusignDialogOpen, setCertDocusignDialogOpen] = useState(false);
+  const [refreshingCertDocusign, setRefreshingCertDocusign] = useState(false);
+  const [openingCertSigning, setOpeningCertSigning] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
@@ -531,6 +549,84 @@ export function ClientDetail() {
       toast.error(e.message || "Failed to open document");
     } finally {
       setOpeningContractorSigning(false);
+    }
+  };
+
+  // ── Certificate of Completion DocuSign (mirrors the contract flow, cert_ columns) ──
+  const refreshCertDocusignStatus = async () => {
+    if (!client?.cert_docusign_envelope_id) return;
+    setRefreshingCertDocusign(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/status/${client.cert_docusign_envelope_id}`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const dsStatus = data.status;
+
+      let certStatus = client.cert_docusign_status;
+      let completedDate = client.cert_docusign_completed_date;
+
+      if (dsStatus === "completed") {
+        certStatus = "completed";
+        completedDate = data.completedDateTime || new Date().toISOString();
+      } else if (dsStatus === "sent") {
+        certStatus = "sent_to_client";
+      } else if (dsStatus === "declined") {
+        certStatus = "declined";
+      } else if (dsStatus === "voided") {
+        certStatus = "voided";
+      }
+
+      if (certStatus !== client.cert_docusign_status) {
+        await supabase.from("clients").update({
+          cert_docusign_status: certStatus,
+          cert_docusign_completed_date: completedDate ?? null,
+        }).eq("id", client.id);
+        setClient((prev: any) => ({ ...prev, cert_docusign_status: certStatus, cert_docusign_completed_date: completedDate }));
+        if (certStatus === "completed" && client.cert_docusign_status !== "completed") {
+          const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+          notificationsAPI.create({
+            type: "cert_docusign_completed",
+            title: "Certificate of Completion Signed",
+            message: `${clientName} has signed the Certificate of Completion.`,
+            link: `/clients/${client.id}`,
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error("Failed to refresh Certificate DocuSign status:", e);
+    } finally {
+      setRefreshingCertDocusign(false);
+    }
+  };
+
+  const openCertSenderView = async () => {
+    if (!client?.cert_docusign_envelope_id) return;
+    setOpeningCertSigning(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/get-sender-view`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({
+            envelopeId: client.cert_docusign_envelope_id,
+            returnUrl: `${window.location.origin}/clients/${client.id}?certdocusign=sent`,
+          }),
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.details || err.error || "Failed to open document");
+      }
+      const data = await response.json();
+      window.open(data.senderViewUrl, "_blank");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to open document");
+    } finally {
+      setOpeningCertSigning(false);
     }
   };
 
@@ -742,6 +838,9 @@ export function ClientDetail() {
       console.error("Failed to load photos:", error);
     }
   };
+
+  // Files list (incl. auto-uploaded signed contract / certificate PDFs from the DocuSign webhook)
+  useRealtimeRefetch(loadPhotos, ["client_files"], `files-${id}`);
 
   const handleSaveNotes = async () => {
     if (!notes.trim()) { setNotesErr("Note cannot be empty."); return; }
@@ -1005,6 +1104,11 @@ export function ClientDetail() {
       // This matches the DB trigger logic in migration 050
       const laborActual = laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments);
 
+      // Mileage attributed to this job (approved/paid, non-personal) — matches migration 095
+      const mileageTrips = await mileageTripsAPI.getProjectCostTrips(projectId).catch(() => [] as any[]);
+      let mileageActual = 0;
+      for (const t of mileageTrips as any[]) mileageActual += Number((t as any).payout || 0);
+
       setGpHealthData((prev) => ({
         ...prev,
         [projectId]: {
@@ -1012,6 +1116,7 @@ export function ClientDetail() {
           laborBudget: effectiveLaborBudget,
           materialActual,
           laborActual,
+          mileageActual,
           fioAssigned,
           crewPaid: laborFromCrewPayments,
           receipts,
@@ -2182,6 +2287,75 @@ export function ClientDetail() {
                 </button>
               </div>
             )}
+
+            {/* Certificate of Completion — only after the contract is signed */}
+            {client.docusign_status === "completed" && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2 text-center">Certificate of Completion</p>
+                {client.cert_docusign_status === "completed" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <CheckCircle2 className="h-8 w-8 text-green-500" />
+                    <Badge className="bg-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Signed
+                    </Badge>
+                    {client.cert_docusign_completed_date && (
+                      <span className="text-xs text-muted-foreground">{formatDate(client.cert_docusign_completed_date)}</span>
+                    )}
+                  </div>
+                ) : client.cert_docusign_status === "preparing" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <FileSignature className="h-8 w-8 text-blue-400" />
+                    <Badge className="bg-blue-500 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Review Pending
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">Click Send in DocuSign tab to continue</span>
+                    <button
+                      onClick={openCertSenderView}
+                      disabled={openingCertSigning}
+                      className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {openingCertSigning ? (
+                        <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
+                      ) : (
+                        <><FileSignature className="h-3 w-3" /> Back to Review</>
+                      )}
+                    </button>
+                  </div>
+                ) : client.cert_docusign_status === "sent_to_client" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <Clock className="h-8 w-8 text-orange-400" />
+                    <Badge className="bg-orange-500 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Awaiting Signature
+                    </Badge>
+                    {client.cert_docusign_sent_date && (
+                      <span className="text-xs text-muted-foreground">Sent {formatDate(client.cert_docusign_sent_date)}</span>
+                    )}
+                    <button
+                      onClick={refreshCertDocusignStatus}
+                      disabled={refreshingCertDocusign}
+                      className="mt-1 px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {refreshingCertDocusign ? (
+                        <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Checking...</>
+                      ) : (
+                        <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Refresh Status</>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <FileSignature className="h-8 w-8 text-muted-foreground/40" />
+                    <p className="text-xs font-medium text-muted-foreground">No certificate sent yet</p>
+                    <button
+                      onClick={() => setCertDocusignDialogOpen(true)}
+                      className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
+                    >
+                      Send Certificate of Completion
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -2640,7 +2814,7 @@ export function ClientDetail() {
 
               const contractValue = project.totalValue ?? 0;
               const totalBudget = d.materialBudget + d.laborBudget;
-              const totalActual = d.materialActual + d.laborActual;
+              const totalActual = d.materialActual + d.laborActual + (d.mileageActual ?? 0);
               const liveGP = contractValue - totalActual;
               const liveGPPct = contractValue > 0 ? (liveGP / contractValue) * 100 : 0;
               const budgetedGP = project.grossProfit ?? 0;
@@ -2754,6 +2928,20 @@ export function ClientDetail() {
                       </div>
                     )}
                   </div>
+
+                  {/* Mileage — actual cost from approved/paid attributed trips (no budget line) */}
+                  {(d.mileageActual ?? 0) > 0 && (
+                    <div className="border rounded-lg p-3 space-y-1.5 bg-blue-50 border-blue-200">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold">Mileage</p>
+                        <span className="text-[11px] text-muted-foreground">from approved trips</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Reimbursed to employees</span>
+                        <span className="font-semibold text-blue-700">{formatCurrency(d.mileageActual)}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {totalActual === 0 && (
                     <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet — live GP updates automatically as you add receipts.</p>
@@ -3019,6 +3207,8 @@ export function ClientDetail() {
                     : type === "docusign_sent"           ? <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
                     : type === "docusign_completed"      ? <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
                     : type === "docusign_declined"       ? <XCircle className="h-3.5 w-3.5 text-red-500" />
+                    : type === "cert_docusign_sent"      ? <FileSignature className="h-3.5 w-3.5 text-indigo-500" />
+                    : type === "cert_docusign_completed" ? <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
                     : type === "note_added"              ? <StickyNote className="h-3.5 w-3.5 text-amber-500" />
                     : type === "note_deleted"            ? <StickyNote className="h-3.5 w-3.5 text-red-400" />
                     : type === "file_uploaded"           ? <Upload className="h-3.5 w-3.5 text-cyan-500" />
@@ -3650,6 +3840,24 @@ export function ClientDetail() {
           }).catch(() => {});
         }}
       />
+      <DocuSignDialog
+        open={certDocusignDialogOpen}
+        onOpenChange={setCertDocusignDialogOpen}
+        client={client}
+        documentType="certificate"
+        onSent={async (envelopeId: string) => {
+          const sentDate = new Date().toISOString();
+          await supabase.from("clients").update({
+            cert_docusign_status: "preparing",
+            cert_docusign_sent_date: sentDate,
+            cert_docusign_envelope_id: envelopeId,
+          }).eq("id", client.id);
+          setClient((prev: any) => ({ ...prev, cert_docusign_status: "preparing", cert_docusign_sent_date: sentDate, cert_docusign_envelope_id: envelopeId }));
+          const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
+          activityLogAPI.create({ client_id: client.id, action_type: "cert_docusign_sent", description: `Certificate of Completion sent to ${clientLabel}${client.email ? ` (${client.email})` : ""} on ${sentDateLabel} — envelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+        }}
+      />
       <AppointmentDialog
         open={appointmentDialogOpen}
         onOpenChange={setAppointmentDialogOpen}
@@ -3975,6 +4183,7 @@ export function ClientDetail() {
             metadata: { client_id: client.id },
           }).catch(() => {});
         }}
+        onSendCertificate={() => setCertDocusignDialogOpen(true)}
       />
 
       {/* Backward Stage Move — Confirmation */}
