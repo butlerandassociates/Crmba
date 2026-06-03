@@ -10,7 +10,7 @@ export const usersAPI = {
   getAll: async (includeInactive = false) => {
     let query = supabase
       .from("profiles")
-      .select("id, first_name, last_name, email, phone, role, is_active, commission_rate, insurance_expiration_date, permissions")
+      .select("id, first_name, last_name, email, phone, role, is_active, commission_rate, insurance_expiration_date, permissions, home_address")
       .order("first_name");
     if (!includeInactive) query = query.eq("is_active", true);
     const { data, error } = await query;

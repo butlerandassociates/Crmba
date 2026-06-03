@@ -448,7 +448,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         if (updated) setDrawerTrip({ ...updated, _subId: subId, _subUser: (drawerTrip as any)?._subUser, _subStatus: (drawerTrip as any)?._subStatus } as any);
       }
       toast.success(next ? "Trip marked personal — excluded from payout." : "Trip marked business.");
-      load(); onRefresh();
+      load(true); onRefresh();
     } catch (e: any) { toast.error(e.message ?? "Failed to update trip."); }
   };
 
@@ -479,7 +479,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
       link: "/mileage", recipient_id: sub.user_id,
     });
     toast.success(`${name}'s submission approved.`);
-    load(); onRefresh();
+    load(true); onRefresh();
   };
 
   const handleDeny = async (reason: string) => {
@@ -492,7 +492,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
       link: "/mileage", recipient_id: denyTarget.user_id,
     });
     toast.success(`${name}'s submission denied.`);
-    setDenyTarget(null); load(); onRefresh();
+    setDenyTarget(null); load(true); onRefresh();
   };
 
   // Admin manually marks an approved submission as Paid (Jonathan: manual pay step)
@@ -508,7 +508,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         link: "/mileage", recipient_id: payTarget.user_id,
       }).catch(() => {});
       toast.success(`${name}'s mileage marked as paid.`);
-      setPayTarget(null); load(); onRefresh();
+      setPayTarget(null); load(true); onRefresh();
     } catch (e: any) {
       toast.error(e.message ?? "Failed to mark as paid.");
     } finally {
@@ -540,7 +540,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         }).catch(() => {});
       }
       toast.success(`Marked ${ids.length} submission${ids.length !== 1 ? "s" : ""} as paid.`);
-      setBulkPayOpen(false); setSelected(new Set()); load(); onRefresh();
+      setBulkPayOpen(false); setSelected(new Set()); load(true); onRefresh();
     } catch (e: any) {
       toast.error(e.message ?? "Bulk mark-as-paid failed.");
     } finally {
@@ -581,7 +581,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
       await mileageSubmissionsAPI.recalcTotals(trip.submission_id, adminId);
       await reloadTripsFor(trip.submission_id);
       await notifyTripDecision(trip.submission_id, status, 1, reason);
-      load(); onRefresh();
+      load(true); onRefresh();
     } catch (e: any) { toast.error(e.message ?? "Failed to update trip."); }
   };
 
@@ -599,7 +599,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         await notifyTripDecision(subId, "approved", cnt || ids.length);
       }
       toast.success(`Approved ${ids.length} trip${ids.length !== 1 ? "s" : ""}.`);
-      setSelected(new Set()); load(); onRefresh();
+      setSelected(new Set()); load(true); onRefresh();
     } catch (e: any) { toast.error(e.message ?? "Bulk approve failed."); }
   };
 
@@ -616,7 +616,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         await notifyTripDecision(subId, "denied", cnt || ids.length, reason);
       }
       toast.success(`Denied ${ids.length} trip${ids.length !== 1 ? "s" : ""}.`);
-      setBulkDenyOpen(false); setSelected(new Set()); load(); onRefresh();
+      setBulkDenyOpen(false); setSelected(new Set()); load(true); onRefresh();
     } catch (e: any) { toast.error(e.message ?? "Bulk deny failed."); }
   };
 
@@ -749,7 +749,8 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
       ) : filtered.map(sub => {
         const name = sub.user ? `${sub.user.first_name} ${sub.user.last_name}` : "Unknown";
         const trips = tripMap[sub.id] ?? [];
-        const unmatched = trips.filter(t => t.match_confidence === "unmatched").length;
+        // Personal trips have no project by design — they're not "unmatched".
+        const unmatched = trips.filter(t => !t.is_personal && t.match_confidence === "unmatched").length;
         const isExp = expanded.has(sub.id);
         const isLoading = loadingTrips === sub.id;
         const pendingMiles = Number(sub.total_miles);
@@ -1139,8 +1140,11 @@ function AllTripsTab() {
     return true;
   });
 
-  const totalMiles = filtered.reduce((s, t) => s + Number(t.miles), 0);
-  const totalAmt = filtered.reduce((s, t) => s + Number(t.payout), 0);
+  // Reimbursable only (exclude personal + denied) so the chip's miles & $ reflect
+  // what's actually payable — consistent with the employee My History summary.
+  const reimb = filtered.filter(t => !t.is_personal && effectiveTripStatus(t.status, t._sub?.status) !== "denied");
+  const totalMiles = reimb.reduce((s, t) => s + Number(t.miles), 0);
+  const totalAmt = reimb.reduce((s, t) => s + Number(t.payout), 0);
 
   const exportCSV = () => {
     if (filtered.length === 0) { toast.info("No trips to export."); return; }
@@ -1349,7 +1353,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   onUploaded: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [employees, setEmployees] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; role: string; home_address: string }[]>([]);
   const [selectedEmp, setSelectedEmp] = useState<string>("");
   const [empOpen, setEmpOpen] = useState(false);
   const [projects, setProjects] = useState<any[]>([]);
@@ -1364,14 +1368,16 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
 
   // Dirty when: CSV parsed but not saved, OR trips saved to a draft but not yet submitted.
   useEffect(() => {
-    onDirtyChange?.(uploadParsed || savedCount > 0);
+    // Only genuinely-unsaved parsed CSV should warn on leave. Trips already saved
+    // to a draft are persisted in the DB — navigating away loses nothing.
+    onDirtyChange?.(uploadParsed);
     return () => onDirtyChange?.(false);
-  }, [uploadParsed, savedCount]);
+  }, [uploadParsed]);
 
   useEffect(() => {
-    supabase.from("profiles").select("id, first_name, last_name, role")
+    supabase.from("profiles").select("id, first_name, last_name, role, home_address")
       .in("role", ["project_manager", "sales_rep"]).eq("is_active", true).order("first_name")
-      .then(({ data }) => setEmployees((data ?? []).map((p: any) => ({ id: p.id, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), role: p.role }))));
+      .then(({ data }) => setEmployees((data ?? []).map((p: any) => ({ id: p.id, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), role: p.role, home_address: p.home_address ?? "" }))));
     supabase.from("projects").select("id, name, client_id, client:clients(address, first_name, last_name)")
       .in("status", ["active", "sold", "selling"]).order("name")
       .then(({ data }) => setProjects(data ?? []));
@@ -1399,12 +1405,39 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
     onUploaded();
   };
 
+  // Auto-sync the selected employee's submission so this tab updates the moment
+  // they submit it themselves (status leaves "draft") — no manual refresh needed.
+  const syncSelected = async () => {
+    if (!period || !selectedEmp) return;
+    try {
+      const d = await mileageSubmissionsAPI.getOrCreateDraft(period.id, selectedEmp, rate);
+      setDraft(d);
+      const trips = await mileageTripsAPI.getBySubmission(d.id);
+      setExistingTrips(trips.map(t => ({ trip_date: t.trip_date, end_address: t.end_address })));
+      setSavedCount(trips.length);
+    } catch { /* ignore transient errors */ }
+  };
+  const syncRef = useRef(syncSelected);
+  syncRef.current = syncSelected;
+  useRealtimeRefetch(() => { if (selectedEmp) syncRef.current(); }, ["mileage_submissions", "mileage_trips"]);
+  useEffect(() => {
+    const id = setInterval(() => { if (!document.hidden && selectedEmp) syncRef.current(); }, 15000);
+    return () => clearInterval(id);
+  }, [selectedEmp]);
+
   const handleSubmit = async () => {
     if (!draft) return;
     setSubmitting(true);
     try {
-      await mileageSubmissionsAPI.submit(draft.id, adminId);
       const emp = employees.find(e => e.id === selectedEmp);
+      const didSubmit = await mileageSubmissionsAPI.submit(draft.id, adminId);
+      if (!didSubmit) {
+        // Employee already submitted this week themselves — nothing to do here.
+        toast.info(`${emp?.name ?? "This employee"} already submitted this week — review it in Pending Review.`);
+        setDraft(null); setSelectedEmp(""); setSavedCount(0);
+        onUploaded();
+        return;
+      }
       if (selectedEmp) await notificationsAPI.create({
         type: "mileage_submitted", title: "Mileage Submitted",
         message: `Admin submitted your mileage for ${period ? periodLabel(period) : "this period"} on your behalf — it's now pending approval.`,
@@ -1479,16 +1512,24 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
               userId={adminId}
               existingTrips={existingTrips}
               projects={projects}
+              homeAddress={employees.find(e => e.id === selectedEmp)?.home_address ?? ""}
               onSaved={refreshDraft}
               onDirtyChange={setUploadParsed}
             />
-            {savedCount > 0 && (
+            {draft?.status === "draft" && savedCount > 0 && (
               <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
                 <span style={{ fontSize: 13, color: "#059669", fontWeight: 600 }}>{savedCount} trip{savedCount !== 1 ? "s" : ""} saved to {selName}'s draft</span>
                 <button onClick={handleSubmit} disabled={submitting}
                   style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
                   {submitting ? "Submitting…" : "Submit for Review"}
                 </button>
+              </div>
+            )}
+            {draft && draft.status !== "draft" && (
+              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10 }}>
+                <span style={{ fontSize: 13, color: "#1d4ed8", fontWeight: 600 }}>
+                  {selName}'s mileage is already {draft.status === "submitted" ? "submitted for review" : draft.status === "approved" ? "approved" : draft.status === "denied" ? "denied" : draft.status === "paid" ? "paid" : draft.status} — review it in the Pending Review tab.
+                </span>
               </div>
             )}
           </>
@@ -2004,7 +2045,14 @@ export function MileageAdmin() {
           }
         }
       }).catch(() => {});
-      await loadPeriods();
+      const fresh = await loadPeriods();
+      // Default the selected period to the one that actually contains today,
+      // so admin upload targets the SAME period employees see as "current".
+      // LOCAL date (not UTC) — matches getCurrent() and avoids TZ off-by-one.
+      const tn = new Date();
+      const today = `${tn.getFullYear()}-${String(tn.getMonth() + 1).padStart(2, "0")}-${String(tn.getDate()).padStart(2, "0")}`;
+      const idx = fresh.findIndex(p => p.week_start <= today && p.week_end >= today);
+      if (idx >= 0) setPeriodIdx(idx);
     };
     init().catch(console.error).finally(() => setLoading(false));
   }, []);
@@ -2130,9 +2178,9 @@ export function MileageAdmin() {
       {tab === "pending" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginTop: 28 }}>
           {[
-            { label: "Pending Approval",        value: fmtMoney(kpi.pendingAmt),  sub: `${kpi.pendingTrips} trips · ${kpi.pendingEmps} employees`, valueColor: "#d97706", iconBg: "#fef3c7", iconColor: "#d97706", icon: <Clock style={{ width: 18, height: 18 }} /> },
-            { label: "Approved This Period",     value: fmtMoney(kpi.approvedAmt), sub: `${kpi.approvedTrips} trips approved`,                       valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <TrendingUp style={{ width: 18, height: 18 }} /> },
-            { label: "Total Reimbursable Miles", value: Math.round(kpi.totalMiles).toLocaleString(), sub: `@ $${settings?.rate_per_mile ?? 0.725}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
+            { label: "Pending Approval",        value: fmtMoney(kpi.pendingAmt),  sub: `${kpi.pendingEmps} ${kpi.pendingEmps === 1 ? "employee" : "employees"}`, valueColor: "#d97706", iconBg: "#fef3c7", iconColor: "#d97706", icon: <Clock style={{ width: 18, height: 18 }} /> },
+            { label: "Approved This Period",     value: fmtMoney(kpi.approvedAmt), sub: `${kpi.approvedTrips} ${kpi.approvedTrips === 1 ? "employee" : "employees"} approved`, valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <TrendingUp style={{ width: 18, height: 18 }} /> },
+            { label: "Total Reimbursable Miles", value: kpi.totalMiles.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), sub: `@ $${settings?.rate_per_mile ?? 0.725}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
             { label: `${freqLabel} Estimated Payout`, value: fmtMoney(kpi.pendingAmt + kpi.approvedAmt), sub: currentPeriod ? `paid ${fmt(currentPeriod.payment_date)}` : "—", valueColor: "#0a0a0a", iconBg: "#f3f4f6", iconColor: "#6b7280", icon: <DollarSign style={{ width: 18, height: 18 }} /> },
           ].map(c => (
             <div key={c.label} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 20px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>

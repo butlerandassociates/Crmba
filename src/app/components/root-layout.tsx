@@ -469,7 +469,7 @@ export function RootLayout() {
 
   // My Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "", home_address: "" });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileTouched, setProfileTouched] = useState(false);
 
@@ -497,6 +497,7 @@ export function RootLayout() {
       first_name: user?.profile?.first_name ?? "",
       last_name:  user?.profile?.last_name  ?? "",
       phone:      user?.profile?.phone      ?? "",
+      home_address: (user?.profile as any)?.home_address ?? "",
     });
     setNewPassword("");
     setConfirmPassword("");
@@ -520,7 +521,15 @@ export function RootLayout() {
     if (!user?.profile?.id) return;
     setSavingProfile(true);
     try {
-      await usersAPI.update(user.profile.id, profileForm);
+      // Home address only applies to PMs/Sales Reps (mileage). Don't touch it for other roles.
+      const isMileageRole = role === "project_manager" || role === "sales_rep";
+      const payload: Record<string, unknown> = {
+        first_name: profileForm.first_name,
+        last_name:  profileForm.last_name,
+        phone:      profileForm.phone,
+      };
+      if (isMileageRole) payload.home_address = profileForm.home_address.trim() || null;
+      await usersAPI.update(user.profile.id, payload);
       await refreshProfile();
       toast.success("Profile updated.");
       setProfileOpen(false);
@@ -888,6 +897,17 @@ export function RootLayout() {
                 />
                 {profileTouched && profilePhoneErr && <p className="text-xs text-red-500">{profilePhoneErr}</p>}
               </div>
+              {(role === "project_manager" || role === "sales_rep") && (
+                <div className="grid gap-1.5">
+                  <Label>Home Address</Label>
+                  <Input
+                    placeholder="123 Main St, City, ST"
+                    value={profileForm.home_address}
+                    onChange={(e) => setProfileForm({ ...profileForm, home_address: e.target.value })}
+                  />
+                  <p className="text-[11px] text-muted-foreground">Used to auto-suggest business vs. personal mileage trips (home → job site = business).</p>
+                </div>
+              )}
               <Button type="submit" size="sm" disabled={savingProfile}>
                 {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
               </Button>

@@ -77,6 +77,7 @@ function historyBucket(eff: string): "pending" | "approved" | "denied" {
 function EmployeeMileagePage() {
   const { user } = useAuth();
   const userId = user?.profile?.id ?? "";
+  const homeAddress = (user?.profile as any)?.home_address ?? "";
 
   const [tab, setTab] = useState<EmpTab>("mileage");
   const [loading, setLoading] = useState(true);
@@ -183,7 +184,7 @@ function EmployeeMileagePage() {
         link: "/mileage",
       }).catch(() => {}); // never block the submit on a notification failure
       toast.success("Mileage submitted for review!");
-      fetchAll();
+      fetchAll(true);
     } catch (err: any) {
       toast.error(err.message ?? "Failed to submit.");
     } finally {
@@ -198,7 +199,7 @@ function EmployeeMileagePage() {
     try {
       await mileageSubmissionsAPI.reopen(submission.id, userId);
       toast.success("Reopened — edit your trips and resubmit before the cutoff.");
-      fetchAll();
+      fetchAll(true);
     } catch (err: any) {
       toast.error(err.message ?? "Could not reopen submission.");
     }
@@ -212,7 +213,7 @@ function EmployeeMileagePage() {
       await mileageTripsAPI.remove(removeTarget.id, userId);
       await mileageSubmissionsAPI.recalcTotals(submission.id, userId);
       setRemoveTarget(null);
-      fetchAll();
+      fetchAll(true);
     } catch (err: any) {
       toast.error(err.message ?? "Could not remove trip.");
     } finally {
@@ -226,7 +227,7 @@ function EmployeeMileagePage() {
     try {
       await mileageTripsAPI.setPersonal(tripId, next, userId);
       await mileageSubmissionsAPI.recalcTotals(submission.id, userId);
-      fetchAll();
+      fetchAll(true);
     } catch (err: any) {
       toast.error(err.message ?? "Could not update trip.");
     }
@@ -311,7 +312,9 @@ function EmployeeMileagePage() {
   // (Jonathan: "they can continue uploading until cutoff"). Approved/paid/denied are not editable here.
   const canEdit = (submission?.status === "draft" || submission?.status === "submitted") && !isDeadlinePassed;
   // Submit (draft → submitted) only happens from a draft with every trip matched.
-  const canSubmit = submission?.status === "draft" && !isDeadlinePassed && trips.length > 0 && trips.every((t) => t.match_confidence !== "unmatched");
+  // A trip is "ready" if it's Personal (needs no project) OR has a project matched.
+  const unmatchedBusiness = trips.filter((t) => !t.is_personal && t.match_confidence === "unmatched").length;
+  const canSubmit = submission?.status === "draft" && !isDeadlinePassed && trips.length > 0 && unmatchedBusiness === 0;
 
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px 96px", fontFamily: "inherit" }}>
@@ -507,9 +510,14 @@ function EmployeeMileagePage() {
 
           {/* Submit button */}
           {period && submission?.status === "draft" && trips.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 16 }}>
+              {unmatchedBusiness > 0 && (
+                <span style={{ fontSize: 12.5, color: "#b45309" }}>
+                  Assign a project to {unmatchedBusiness} trip{unmatchedBusiness > 1 ? "s" : ""} (or mark Personal) before submitting.
+                </span>
+              )}
               <button onClick={handleSubmit} disabled={!canSubmit || submitting}
-                style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 9, cursor: "pointer", opacity: (!canSubmit || submitting) ? 0.5 : 1 }}>
+                style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 9, cursor: (!canSubmit || submitting) ? "not-allowed" : "pointer", opacity: (!canSubmit || submitting) ? 0.5 : 1 }}>
                 {submitting ? "Submitting…" : "Submit for Approval"}
               </button>
             </div>
@@ -555,6 +563,7 @@ function EmployeeMileagePage() {
                     userId={userId}
                     existingTrips={existingTrips}
                     projects={projects}
+                    homeAddress={homeAddress}
                     onSaved={fetchAll}
                   />
                 )}

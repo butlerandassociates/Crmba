@@ -88,6 +88,8 @@ export interface ParsedTrip {
   is_duplicate: boolean;
   payout: number;
   map_image_url: string | null;
+  is_personal: boolean;          // suggested business/personal (admin/employee confirms before save)
+  auto_personal: boolean;        // true = system suggested personal (so UI can show "auto" hint)
   // UI only
   _id: string; // temp client-side key
 }
@@ -128,13 +130,20 @@ export const mileagePeriodsAPI = {
   },
 
   getCurrent: async (): Promise<MileagePeriod | null> => {
-    const today = new Date().toISOString().split("T")[0];
+    // Use LOCAL calendar date (not toISOString/UTC) — in UTC+ timezones the UTC
+    // date can be a day behind, which mis-resolves the current week.
+    const n = new Date();
+    const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
     const { data, error } = await supabase
       .from("mileage_periods")
       .select("*")
       .eq("is_active", true)
       .lte("week_start", today)
       .gte("week_end", today)
+      // If overlapping periods ever exist, always pick the latest-starting one —
+      // this matches getAll()'s DESC ordering (periods[0]) used on the admin side,
+      // so employee My Mileage and admin upload resolve to the SAME period.
+      .order("week_start", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -146,7 +155,10 @@ export const mileagePeriodsAPI = {
     const existing = await mileagePeriodsAPI.getCurrent();
     if (existing) return existing;
 
-    const toDate = (d: Date) => d.toISOString().split("T")[0];
+    // LOCAL calendar date — toISOString() would shift to UTC and, in UTC+
+    // timezones, push a Friday week_start back to Thursday (violating the
+    // Friday-only constraint and breaking period creation entirely).
+    const toDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const now = new Date();
 
     // Pay week runs Friday → Thursday (Jonathan confirmed Jun 2 2026).
@@ -267,17 +279,22 @@ export const mileageSubmissionsAPI = {
     if (error) throw new Error(error.message);
   },
 
-  /** Employee submits for review */
-  submit: async (submissionId: string, userId: string): Promise<void> => {
-    const { error } = await supabase
+  /** Submit for review. Only acts on a DRAFT submission (so it can't re-submit /
+   *  re-stamp one the employee already submitted). Returns true if it actually
+   *  transitioned draft → submitted, false if it was already past draft. */
+  submit: async (submissionId: string, userId: string): Promise<boolean> => {
+    const { data, error } = await supabase
       .from("mileage_submissions")
       .update({
         status: "submitted",
         submitted_at: new Date().toISOString(),
         updated_by: userId,
       })
-      .eq("id", submissionId);
+      .eq("id", submissionId)
+      .eq("status", "draft")
+      .select("id");
     if (error) throw new Error(error.message);
+    return (data?.length ?? 0) > 0;
   },
 
   /** Admin: approve */
@@ -408,7 +425,7 @@ export const mileageTripsAPI = {
   },
 
   /** Bulk insert parsed trips from CSV (status/denial_reason use DB defaults) */
-  bulkInsert: async (trips: Omit<MileageTrip, "id" | "created_at" | "updated_at" | "status" | "denial_reason" | "is_personal">[]): Promise<MileageTrip[]> => {
+  bulkInsert: async (trips: Omit<MileageTrip, "id" | "created_at" | "updated_at" | "status" | "denial_reason">[]): Promise<MileageTrip[]> => {
     const { data, error } = await supabase
       .from("mileage_trips")
       .insert(trips)
@@ -557,7 +574,8 @@ export function parseEverlanceCSV(
   csvText: string,
   ratePerMile: number,
   existingTrips: { trip_date: string; end_address: string }[] = [],
-  projects: { id: string; name: string; client_id: string; client?: { address?: string; first_name: string; last_name: string } }[] = []
+  projects: { id: string; name: string; client_id: string; client?: { address?: string; first_name: string; last_name: string } }[] = [],
+  homeAddress: string = ""
 ): CSVParseResult {
   const allRows = parseCSV(csvText);
   if (allRows.length === 0) {
@@ -600,6 +618,16 @@ export function parseEverlanceCSV(
   let skippedRows = 0;
 
   const cell = (row: string[], idx: number) => (idx >= 0 ? decodeEntities((row[idx] ?? "").trim()) : "");
+
+  // ── Business/personal classifier (suggestion only — admin/employee confirms before save) ──
+  // Rule (Jonathan): business = home/office → job site (and supplier runs); personal = everything else ($0).
+  const streetOf = (a: string) => (a || "").toLowerCase().split(",")[0].trim();
+  const homeStreet = streetOf(homeAddress);
+  const isJobAddr = (addr: string) => {
+    const low = (addr || "").toLowerCase();
+    return projects.some((p) => { const s = streetOf(p.client?.address ?? ""); return !!s && low.includes(s); });
+  };
+  const isHomeAddr = (addr: string) => !!homeStreet && (addr || "").toLowerCase().includes(homeStreet);
 
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
@@ -650,6 +678,18 @@ export function parseEverlanceCSV(
       (t) => t.trip_date === trip_date && t.end_address.toLowerCase() === endLower
     );
 
+    // Suggested business vs personal:
+    //  - touches a job site (start or end) → Business
+    //  - else if it involves home but no job (home↔non-job) → Personal (suggested)
+    //  - else (unmatched, no home signal) → leave Business-pending for admin review
+    const touchesJob = match_confidence === "auto" || isJobAddr(start_address);
+    let is_personal = false;
+    let auto_personal = false;
+    if (!touchesJob && (isHomeAddr(start_address) || isHomeAddr(end_address))) {
+      is_personal = true;
+      auto_personal = true;
+    }
+
     trips.push({
       _id: `parsed-${i}-${Date.now()}`,
       trip_date,
@@ -662,6 +702,8 @@ export function parseEverlanceCSV(
       is_duplicate,
       payout,
       map_image_url,
+      is_personal,
+      auto_personal,
     });
   }
 

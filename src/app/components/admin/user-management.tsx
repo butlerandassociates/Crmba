@@ -5,7 +5,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound, Pencil, UserX } from "lucide-react";
+import { Plus, Mail, Phone, Shield, CheckCircle, XCircle, Loader2, KeyRound, Pencil, UserX, MapPin } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { usersAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -46,7 +46,7 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
   onClose: () => void;
   onToggleActive: (u: any) => void;
   onResendInvite: (u: any) => void;
-  onUpdateUser: (u: any, changes: { first_name: string; last_name: string; email: string; phone: string }) => Promise<void>;
+  onUpdateUser: (u: any, changes: { first_name: string; last_name: string; email: string; phone: string; home_address: string }) => Promise<void>;
   resending: string | null;
   updatingUser: string | null;
   getRoleBadgeColor: (r: string) => string;
@@ -59,8 +59,9 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
   const [editing, setEditing] = useState(false);
   const [editingPerms, setEditingPerms] = useState(false);
   const [draftPerms, setDraftPerms] = useState<Record<string, boolean>>({});
-  const [draft, setDraft] = useState({ first_name: "", last_name: "", email: "", phone: "" });
+  const [draft, setDraft] = useState({ first_name: "", last_name: "", email: "", phone: "", home_address: "" });
   const perms = user ? getUserPermissions(user) : [];
+  const showHomeAddress = user?.role === "project_manager" || user?.role === "sales_rep";
 
   useEffect(() => {
     setEditingPerms(false);
@@ -73,6 +74,7 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
       last_name:  user.last_name  ?? "",
       email:      user.email      ?? "",
       phone:      user.phone      ?? "",
+      home_address: user.home_address ?? "",
     });
     setEditing(true);
   };
@@ -127,6 +129,13 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
                     <Label className="text-xs">Phone</Label>
                     <Input type="tel" value={draft.phone} onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))} />
                   </div>
+                  {showHomeAddress && (
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Home Address</Label>
+                      <Input value={draft.home_address} onChange={(e) => setDraft((d) => ({ ...d, home_address: e.target.value }))} placeholder="123 Main St, City, ST" />
+                      <p className="text-[11px] text-muted-foreground">Used to auto-suggest business vs. personal mileage trips (home → job site = business).</p>
+                    </div>
+                  )}
                   {draft.email && draft.email !== user.email && (
                     <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                       Email changed — a new invite will be sent to {draft.email}
@@ -155,7 +164,13 @@ function UserDetailModal({ user, onClose, onToggleActive, onResendInvite, onUpda
                           <a href={`tel:${user.phone}`} className="hover:text-primary">{user.phone}</a>
                         </div>
                       )}
-                      {!user.email && !user.phone && (
+                      {showHomeAddress && user.home_address && (
+                        <div className="flex items-start gap-2.5 text-muted-foreground">
+                          <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="truncate" title={user.home_address}>{user.home_address}</span>
+                        </div>
+                      )}
+                      {!user.email && !user.phone && !(showHomeAddress && user.home_address) && (
                         <span className="text-muted-foreground text-sm">No contact info</span>
                       )}
                     </div>
@@ -419,7 +434,7 @@ export function UserManagement() {
     }
   };
 
-  const handleUpdateUser = async (user: any, changes: { first_name: string; last_name: string; email: string; phone: string }) => {
+  const handleUpdateUser = async (user: any, changes: { first_name: string; last_name: string; email: string; phone: string; home_address: string }) => {
     setUpdatingEmail(user.id);
     try {
       const emailChanged = changes.email.trim() && changes.email.trim() !== user.email;
@@ -444,6 +459,7 @@ export function UserManagement() {
         last_name:  changes.last_name.trim()  || null,
         email:      changes.email.trim()      || null,
         phone:      changes.phone.trim()      || null,
+        home_address: changes.home_address.trim() || null,
       });
 
       // If email changed, resend invite to new address
