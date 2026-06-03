@@ -243,6 +243,7 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                   <thead className="border-b bg-muted/50">
                     <tr>
                       <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date</th>
+                      <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Departure</th>
                       <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Destination</th>
                       <th className="text-right p-3 text-xs font-medium text-muted-foreground uppercase">Miles</th>
                       <th className="text-right p-3 text-xs font-medium text-muted-foreground uppercase">Payout</th>
@@ -256,7 +257,10 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                         <td className="p-3 text-sm whitespace-nowrap">
                           {new Date(trip.trip_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </td>
-                        <td className="p-3 text-sm max-w-[200px]">
+                        <td className="p-3 text-sm max-w-[180px]">
+                          <p className="truncate text-muted-foreground" title={trip.start_address}>{trip.start_address}</p>
+                        </td>
+                        <td className="p-3 text-sm max-w-[180px]">
                           <p className="truncate" title={trip.end_address}>{trip.end_address}</p>
                           {trip.is_duplicate && (
                             <span className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
@@ -268,24 +272,28 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                         <td className="p-3 text-sm text-right tabular-nums font-medium">{formatCurrency(trip.payout)}</td>
                         <td className="p-3 min-w-[200px]">
                           {trip.match_confidence === "auto" ? (
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-50">Auto</Badge>
-                              <span className="text-xs truncate max-w-[150px]" title={projects.find(p => p.id === trip.project_id)?.name}>
-                                {projects.find(p => p.id === trip.project_id)?.name ?? "—"}
-                              </span>
-                            </div>
+                            (() => {
+                              const pr = projects.find(p => p.id === trip.project_id);
+                              const cn = pr?.client ? `${pr.client.first_name ?? ""} ${pr.client.last_name ?? ""}`.trim() : "";
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-50">Auto</Badge>
+                                  <span className="text-xs truncate max-w-[150px]" title={cn}>{cn || "—"}</span>
+                                </div>
+                              );
+                            })()
                           ) : (
                             <Select
                               value={trip.project_id ?? ""}
                               onValueChange={(v) => assignProject(trip._id, v)}
                             >
                               <SelectTrigger className={`h-8 text-xs ${trip.match_confidence === "unmatched" ? "border-amber-400 bg-amber-50/50" : ""}`}>
-                                <SelectValue placeholder="Select project…" />
+                                <SelectValue placeholder="Select client…" />
                               </SelectTrigger>
                               <SelectContent>
                                 {projects.map((p) => (
                                   <SelectItem key={p.id} value={p.id} className="text-xs">
-                                    {p.name} {p.client ? `— ${p.client.first_name} ${p.client.last_name}` : ""}
+                                    {p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "Client"}{p.client?.address ? ` — ${p.client.address}` : ""}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

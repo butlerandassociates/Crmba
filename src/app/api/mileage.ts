@@ -72,7 +72,7 @@ export interface MileageTrip {
   created_at: string;
   // joined
   project?: { id: string; name: string };
-  client?: { id: string; first_name: string; last_name: string };
+  client?: { id: string; first_name: string; last_name: string; address?: string | null };
 }
 
 // ─── Parsed CSV trip (pre-save) ──────────────────────────────────────────────
@@ -367,11 +367,27 @@ export const mileageTripsAPI = {
       .select(`
         *,
         project:projects(id, name),
-        client:clients(id, first_name, last_name)
+        client:clients(id, first_name, last_name, address)
       `)
       .eq("submission_id", submissionId)
       .eq("is_active", true)
       .order("trip_date", { ascending: true });
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  },
+
+  /** All trips across every period (admin All Trips view) with project, client + employee/submission joins */
+  getAll: async (): Promise<(MileageTrip & { _sub?: any })[]> => {
+    const { data, error } = await supabase
+      .from("mileage_trips")
+      .select(`
+        *,
+        project:projects(id, name),
+        client:clients(id, first_name, last_name, address),
+        _sub:mileage_submissions!inner(id, status, period_id, user:profiles!mileage_submissions_user_id_fkey(id, first_name, last_name, role))
+      `)
+      .eq("is_active", true)
+      .order("trip_date", { ascending: false });
     if (error) throw new Error(error.message);
     return data ?? [];
   },

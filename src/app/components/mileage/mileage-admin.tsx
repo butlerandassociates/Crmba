@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { toast } from "sonner";
 import {
   Car, ChevronLeft, ChevronRight, Upload, Search, Download,
@@ -169,7 +170,7 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
   employeeName?: string;
   employeeRole?: string;
   status?: string;
-  projects: { id: string; name: string; client_id: string; clientName?: string }[];
+  projects: { id: string; name: string; client_id: string; clientName?: string; clientAddress?: string }[];
   onClose: () => void;
   onReassign?: (tripId: string, projectId: string) => void;
   onApprove?: (tripId: string) => void;
@@ -179,7 +180,9 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
   const tripStatus = trip?.status && trip.status !== "pending" ? trip.status : (status ?? "pending");
   const matchLabel = trip?.match_confidence === "auto" ? "Auto-matched" : trip?.match_confidence === "manual" ? "Manually assigned" : "Unmatched";
   const [reassignOpen, setReassignOpen] = useState(false);
-  const selectedProjName = projects.find((p) => p.id === trip?.project?.id)?.name;
+  const selectedProj = projects.find((p) => p.id === trip?.project?.id);
+  const selectedClientLabel = selectedProj ? `${selectedProj.clientName || "Client"}${selectedProj.clientAddress ? ` — ${selectedProj.clientAddress}` : ""}` : undefined;
+  const tripClientName = trip?.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "";
   return (
     <>
       {/* Scrim */}
@@ -267,7 +270,7 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
 
             {/* Project attribution + reassign */}
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Project Attribution</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Client Attribution</p>
               {trip.is_personal && (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 mb-3">
                   <div className="text-[11px] font-semibold text-gray-600 mb-0.5">Personal trip</div>
@@ -278,11 +281,8 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
                 <div className={`text-[11px] font-semibold mb-1 ${trip.match_confidence === "unmatched" ? "text-amber-700" : "text-blue-700"}`}>
                   {matchLabel}{trip.match_confidence === "auto" ? " · matched on destination" : ""}
                 </div>
-                <div className="text-sm font-semibold">{trip.project?.name ?? "No project assigned"}</div>
-                {(() => {
-                  const cn = projects.find((p) => p.id === trip.project?.id)?.clientName;
-                  return cn ? <div className="text-xs text-gray-500 mt-0.5">Client: {cn}</div> : null;
-                })()}
+                <div className="text-sm font-semibold">{tripClientName || "No client assigned"}</div>
+                {trip.end_address && <div className="text-xs text-gray-500 mt-0.5">{trip.end_address}</div>}
               </div>
               {onReassign && (
                 <div className="grid grid-cols-[90px_1fr] gap-3 items-center">
@@ -290,7 +290,7 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
                   <div className="relative">
                     <button onClick={() => setReassignOpen((o) => !o)}
                       className="w-full flex items-center justify-between gap-2 border rounded-lg px-3 py-2 text-sm bg-white text-left">
-                      <span className="truncate">{selectedProjName ?? "Select a project…"}</span>
+                      <span className="truncate">{selectedClientLabel ?? "Select a client…"}</span>
                       <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
                     </button>
                     {reassignOpen && (
@@ -301,11 +301,11 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
                             <button key={p.id}
                               onClick={() => { onReassign(trip.id, p.id); setReassignOpen(false); }}
                               className={`w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-100 ${trip.project?.id === p.id ? "bg-gray-100" : ""}`}>
-                              <div className="font-medium truncate">{p.name}</div>
-                              {p.clientName && <div className="text-xs text-gray-500 truncate">{p.clientName}</div>}
+                              <div className="font-medium truncate">{p.clientName || "Client"}</div>
+                              {p.clientAddress && <div className="text-xs text-gray-500 truncate">{p.clientAddress}</div>}
                             </button>
                           ))}
-                          {projects.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No projects available.</p>}
+                          {projects.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No clients available.</p>}
                         </div>
                       </>
                     )}
@@ -363,11 +363,12 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   const [bulkDenyOpen, setBulkDenyOpen] = useState(false);
   const [drawerTrip, setDrawerTrip] = useState<(MileageTrip & { _subId?: string }) | null>(null);
   const [denyTarget, setDenyTarget] = useState<MileageSubmission | null>(null);
+  const [denyTripTarget, setDenyTripTarget] = useState<MileageTrip | null>(null);
   const [payTarget, setPayTarget] = useState<MileageSubmission | null>(null);
   const [paying, setPaying] = useState(false);
   const [bulkPayOpen, setBulkPayOpen] = useState(false);
   const [bulkPaying, setBulkPaying] = useState(false);
-  const [projects, setProjects] = useState<{ id: string; name: string; client_id: string; clientName?: string }[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string; client_id: string; clientName?: string; clientAddress?: string }[]>([]);
 
   const load = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -393,11 +394,12 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   }, []);
 
   useEffect(() => {
-    supabase.from("projects").select("id, name, client_id, client:clients(first_name, last_name)")
+    supabase.from("projects").select("id, name, client_id, client:clients(first_name, last_name, address)")
       .in("status", ["active", "sold", "selling"]).order("name")
       .then(({ data }) => setProjects((data ?? []).map((p: any) => ({
         id: p.id, name: p.name, client_id: p.client_id,
         clientName: p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "",
+        clientAddress: p.client?.address ?? "",
       }))));
   }, []);
 
@@ -677,6 +679,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   return (
     <div>
       {denyTarget && <DenyModal name={denyTarget.user ? `${denyTarget.user.first_name} ${denyTarget.user.last_name}` : "Employee"} onConfirm={handleDeny} onCancel={() => setDenyTarget(null)} />}
+      {denyTripTarget && <DenyModal name="this trip" onConfirm={async (reason) => { await setTripStatus(denyTripTarget, "denied", reason); setDenyTripTarget(null); }} onCancel={() => setDenyTripTarget(null)} />}
       <TripDrawer
         trip={drawerTrip}
         employeeName={(drawerTrip as any)?._subUser ? `${(drawerTrip as any)._subUser.first_name ?? ""} ${(drawerTrip as any)._subUser.last_name ?? ""}`.trim() : undefined}
@@ -686,7 +689,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         onClose={() => setDrawerTrip(null)}
         onReassign={reassignTrip}
         onApprove={(drawerTrip as any)?._subStatus === "submitted" ? (id) => { const t = drawerTrip!; setTripStatus(t, "approved"); } : undefined}
-        onDeny={(drawerTrip as any)?._subStatus === "submitted" ? (id) => { const t = drawerTrip!; setTripStatus(t, "denied"); } : undefined}
+        onDeny={(drawerTrip as any)?._subStatus === "submitted" ? () => { const t = drawerTrip!; setDrawerTrip(null); setDenyTripTarget(t); } : undefined}
         onTogglePersonal={(drawerTrip as any)?._subStatus === "submitted" ? toggleTripPersonal : undefined}
       />
 
@@ -878,10 +881,16 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                                 {trip.is_personal
                                   ? <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>
-                                  : <ProjectChip name={trip.project?.name} unmatched={trip.match_confidence === "unmatched"} />}
+                                  : <ProjectChip name={(trip.client?.address || (trip.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "")) || undefined} unmatched={trip.match_confidence === "unmatched"} />}
                                 {isApproved && <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#f0fdf4", color: "#059669", border: "1px solid #bbf7d0" }}>Approved</span>}
                                 {isDenied && <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>Denied</span>}
                               </div>
+                              {!trip.is_personal && trip.match_confidence !== "unmatched" && trip.client?.address && trip.client && (
+                                <div style={{ fontSize: 11.5, color: "#6b7280", marginTop: 3 }}>{`${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim()}</div>
+                              )}
+                              {isDenied && trip.denial_reason && (
+                                <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4 }}>Reason: {trip.denial_reason}</div>
+                              )}
                             </div>
                           </div>
 
@@ -898,7 +907,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
                               className="hover:bg-green-50 hover:border-green-200 hover:text-green-700">
                               <Check style={{ width: 14, height: 14 }} />
                             </button>
-                            <button onClick={() => setTripStatus(trip, "denied")} title="Deny trip"
+                            <button onClick={() => setDenyTripTarget(trip)} title="Deny trip"
                               style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${isDenied ? "#fecaca" : "#e5e7eb"}`, background: isDenied ? "#fef2f2" : "#fff", display: "grid", placeItems: "center", color: isDenied ? "#dc2626" : "#6b7280", cursor: "pointer" }}
                               className="hover:bg-red-50 hover:border-red-200 hover:text-red-600">
                               <X style={{ width: 14, height: 14 }} />
@@ -1037,7 +1046,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
 
 // ─── All Trips Tab ────────────────────────────────────────────────────────────
 
-function AllTripsTab({ period }: { period: MileagePeriod }) {
+function AllTripsTab() {
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1045,6 +1054,9 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [allEmployees, setAllEmployees] = useState<{ id: string; name: string }[]>([]);
   const [empOpen, setEmpOpen] = useState(false);
+  const [range, setRange] = useState<"week" | "lastweek" | "month" | "all" | "custom">("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
     supabase.from("profiles")
@@ -1058,16 +1070,31 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
   const loadTrips = async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const subs = await mileageSubmissionsAPI.getByPeriod(period.id);
-      const arrays = await Promise.all(subs.map(s =>
-        mileageTripsAPI.getBySubmission(s.id).then(ts => ts.map(t => ({ ...t, _sub: s })))
-      ));
-      setTrips(arrays.flat().sort((a, b) => b.trip_date.localeCompare(a.trip_date)));
+      const all = await mileageTripsAPI.getAll();
+      setTrips(all);
     } catch (e) { console.error(e); }
     finally { if (!quiet) setLoading(false); }
   };
 
-  useEffect(() => { loadTrips(); }, [period.id]);
+  useEffect(() => { loadTrips(); }, []);
+
+  // Selected date range [from, to] inclusive (YYYY-MM-DD); null = open-ended
+  const dateRange = useMemo<{ from: string | null; to: string | null }>(() => {
+    const iso = (d: Date) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().split("T")[0]; };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (range === "all") return { from: null, to: null };
+    if (range === "custom") return { from: customFrom || null, to: customTo || null };
+    if (range === "month") {
+      const f = new Date(today.getFullYear(), today.getMonth(), 1);
+      const t = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      return { from: iso(f), to: iso(t) };
+    }
+    // Friday–Thursday week (matches the pay week)
+    const start = new Date(today); start.setDate(today.getDate() - ((today.getDay() - 5 + 7) % 7));
+    if (range === "lastweek") start.setDate(start.getDate() - 7);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return { from: iso(start), to: iso(end) };
+  }, [range, customFrom, customTo]);
 
   // Live-update the All Trips list on any change (no page refresh)
   const allTripsRef = useRef(loadTrips);
@@ -1099,8 +1126,11 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
   const selectedEmpName = employeeFilter === "all" ? "All employees" : (employeeOptions.find(e => e.id === employeeFilter)?.name ?? "All employees");
 
   const filtered = trips.filter(t => {
+    if (dateRange.from && t.trip_date < dateRange.from) return false;
+    if (dateRange.to && t.trip_date > dateRange.to) return false;
     const name = t._sub?.user ? `${t._sub.user.first_name} ${t._sub.user.last_name}`.toLowerCase() : "";
-    const addr = `${t.start_address} ${t.end_address}`.toLowerCase();
+    const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""} ${t.client.address ?? ""}` : "";
+    const addr = `${t.start_address} ${t.end_address} ${cn}`.toLowerCase();
     if (search && !name.includes(search.toLowerCase()) && !addr.includes(search.toLowerCase())) return false;
     const bucket = t.is_personal ? "personal"
       : (() => { const e = effectiveTripStatus(t.status, t._sub?.status); return e === "denied" ? "denied" : (e === "approved" || e === "paid") ? "approved" : "pending"; })();
@@ -1118,7 +1148,7 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
       const s = String(v ?? "");
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const headers = ["Date", "Employee", "Role", "Start Address", "End Address", "Project", "Miles", "Amount", "Source", "Status"];
+    const headers = ["Date", "Employee", "Role", "From", "To", "Client", "Miles", "Amount", "Source", "Status"];
     const rows = filtered.map(t => {
       const u = t._sub?.user;
       const status = t.is_personal ? "Personal" : (() => { const e = effectiveTripStatus(t.status, t._sub?.status); return e === "denied" ? "Denied" : (e === "approved" || e === "paid") ? "Approved" : "Pending"; })();
@@ -1128,7 +1158,7 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
         u?.role === "project_manager" ? "Project Manager" : u?.role === "sales_rep" ? "Sales Rep" : "",
         t.start_address,
         t.end_address,
-        t.project?.name ?? "Unmatched",
+        t.is_personal ? "Personal" : (t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "Unmatched"),
         Number(t.miles).toFixed(1),
         Number(t.payout).toFixed(2),
         t.match_confidence === "auto" ? "Everlance" : "Manual",
@@ -1140,7 +1170,7 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `mileage-trips-${period.week_start}-to-${period.week_end}.csv`;
+    a.download = `mileage-trips${dateRange.from ? `-${dateRange.from}-to-${dateRange.to ?? dateRange.from}` : "-all"}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1153,8 +1183,26 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search by employee, address..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search by employee, address, client..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
+        {/* Date range dropdown (right side of search row) */}
+        <Select value={range} onValueChange={(v) => setRange(v as typeof range)}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All time</SelectItem>
+            <SelectItem value="week">This week</SelectItem>
+            <SelectItem value="lastweek">Last week</SelectItem>
+            <SelectItem value="month">This month</SelectItem>
+            <SelectItem value="custom">Custom range</SelectItem>
+          </SelectContent>
+        </Select>
+        {range === "custom" && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+            <span style={{ color: "#9ca3af", fontSize: 13 }}>to</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+          </div>
+        )}
         <button onClick={exportCSV} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: "1px solid #e5e7eb", background: "#fff", color: "#0a0a0a", cursor: "pointer" }}>
           <Download style={{ width: 14, height: 14 }} />Export CSV
         </button>
@@ -1261,9 +1309,18 @@ function AllTripsTab({ period }: { period: MileagePeriod }) {
                     {t.start_address.split(",")[0]} &nbsp;→&nbsp; {t.end_address.split(",")[0]}
                   </div>
                 </div>
-                <div>{t.is_personal
-                  ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>
-                  : <ProjectChip name={t.project?.name} unmatched={t.match_confidence === "unmatched"} />}</div>
+                <div style={{ minWidth: 0 }}>{(() => {
+                  if (t.is_personal) return <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>;
+                  const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "";
+                  const addr = t.client?.address || "";
+                  const matched = t.match_confidence !== "unmatched";
+                  return (
+                    <>
+                      <ProjectChip name={(addr || cn) || undefined} unmatched={!matched} />
+                      {matched && addr && cn && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={cn}>{cn}</div>}
+                    </>
+                  );
+                })()}</div>
                 <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtMiles(Number(t.miles))}</div>
                 <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.is_personal ? "#9ca3af" : "#0a0a0a", textDecoration: t.is_personal ? "line-through" : undefined }}>{fmtMoney(Number(t.payout))}</div>
                 <div>
@@ -1303,7 +1360,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [submitting, setSubmitting] = useState(false);
   const [uploadParsed, setUploadParsed] = useState(false); // MileageUpload has parsed-but-unsaved trips
 
-  const rate = settings?.rate_per_mile ?? 0.70;
+  const rate = settings?.rate_per_mile ?? 0.725;
 
   // Dirty when: CSV parsed but not saved, OR trips saved to a draft but not yet submitted.
   useEffect(() => {
@@ -1489,7 +1546,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
         <div style={{ padding: "12px 14px", background: "#eff6ff", border: "1px solid #dbeafe", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
           <Info style={{ width: 16, height: 16, color: "#2563eb", flexShrink: 0, marginTop: 1 }} />
           <p style={{ margin: 0, fontSize: 12.5, color: "#1e293b", lineHeight: 1.55 }}>
-            <strong style={{ fontWeight: 700 }}>Reimbursement rate:</strong> $0.70 per business mile. Personal trips and home-to-office commute are excluded automatically.
+            <strong style={{ fontWeight: 700 }}>Reimbursement rate:</strong> ${settings?.rate_per_mile ?? 0.725} per business mile. Personal trips and home-to-office commute are excluded automatically.
           </p>
         </div>
       </div>
@@ -1504,6 +1561,9 @@ function PaymentHistoryTab() {
   const [stats, setStats] = useState<Record<string, { miles: number; payout: number; employees: number; trips: number; paidOn?: string }>>({});
   const [loading, setLoading] = useState(true);
   const [previewTitle, setPreviewTitle] = useState("");
+  const [range, setRange] = useState<"all" | "year" | "month" | "lastmonth" | "custom">("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   type ReportData = { period: MileagePeriod; groups: { sub: MileageSubmission; trips: MileageTrip[] }[]; paidLabel: string; totalMiles: number; totalAmt: number };
   const [reportData, setReportData] = useState<ReportData | null>(null);
 
@@ -1553,10 +1613,29 @@ function PaymentHistoryTab() {
     return () => clearInterval(id);
   }, []);
 
-  const totalPaid   = Object.values(stats).reduce((s, p) => s + p.payout, 0);
-  const totalMiles  = Object.values(stats).reduce((s, p) => s + p.miles, 0);
-  const totalEmps   = Object.values(stats).reduce((s, p) => s + p.employees, 0);
-  const totalTrips  = Object.values(stats).reduce((s, p) => s + (p.trips ?? 0), 0);
+  // Date range — filters paid periods by their paid date
+  const dateRange = useMemo<{ from: string | null; to: string | null }>(() => {
+    const iso = (d: Date) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().split("T")[0]; };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (range === "all") return { from: null, to: null };
+    if (range === "custom") return { from: customFrom || null, to: customTo || null };
+    if (range === "year") return { from: iso(new Date(today.getFullYear(), 0, 1)), to: iso(new Date(today.getFullYear(), 11, 31)) };
+    if (range === "lastmonth") return { from: iso(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: iso(new Date(today.getFullYear(), today.getMonth(), 0)) };
+    return { from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), to: iso(new Date(today.getFullYear(), today.getMonth() + 1, 0)) };
+  }, [range, customFrom, customTo]);
+
+  const visiblePeriods = useMemo(() => periods.filter(p => {
+    const paid = stats[p.id]?.paidOn ? stats[p.id]!.paidOn!.split("T")[0] : p.payment_date;
+    if (dateRange.from && paid < dateRange.from) return false;
+    if (dateRange.to && paid > dateRange.to) return false;
+    return true;
+  }), [periods, stats, dateRange]);
+
+  const rangeLabel = range === "all" ? "all time" : range === "year" ? "this year" : range === "month" ? "this month" : range === "lastmonth" ? "last month" : "selected range";
+  const totalPaid   = visiblePeriods.reduce((s, p) => s + (stats[p.id]?.payout ?? 0), 0);
+  const totalMiles  = visiblePeriods.reduce((s, p) => s + (stats[p.id]?.miles ?? 0), 0);
+  const totalEmps   = visiblePeriods.reduce((s, p) => s + (stats[p.id]?.employees ?? 0), 0);
+  const totalTrips  = visiblePeriods.reduce((s, p) => s + (stats[p.id]?.trips ?? 0), 0);
 
   // Gather report data once — shared by the HTML preview and the PDF download
   const gatherReportData = async (p: MileagePeriod) => {
@@ -1611,11 +1690,11 @@ function PaymentHistoryTab() {
     doc.text(`Paid on: ${paidLabel}`, 14, 53);
     doc.text(`Status: Paid`, 14, 59);
 
-    const C = { date: 14, project: 40, client: 104, miles: 166, amount: 196 };
+    const C = { date: 14, from: 30, to: 80, client: 128, miles: 170, amount: 196 };
     let y = 72;
     const drawHead = () => {
-      doc.setTextColor(150, 150, 150); doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
-      doc.text("DATE", C.date, y); doc.text("PROJECT", C.project, y); doc.text("CLIENT", C.client, y);
+      doc.setTextColor(150, 150, 150); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.text("DATE", C.date, y); doc.text("FROM", C.from, y); doc.text("TO", C.to, y); doc.text("CLIENT", C.client, y);
       doc.text("MILES", C.miles, y, { align: "right" }); doc.text("AMOUNT", C.amount, y, { align: "right" });
       doc.setDrawColor(220, 220, 220); doc.line(14, y + 2.5, 196, y + 2.5);
       y += 8;
@@ -1632,13 +1711,16 @@ function PaymentHistoryTab() {
       doc.text(`${name}  ·  ${role}`, 14, y); y += 6;
       doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
       let sMiles = 0, sAmt = 0;
+      doc.setFontSize(8.5);
       for (const t of g.trips) {
-        if (y > 280) { doc.addPage(); y = 20; drawHead(); }
-        const proj = t.project?.name ?? "Unmatched";
+        if (y > 280) { doc.addPage(); y = 20; drawHead(); doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(40, 40, 40); }
+        const from = (t.start_address || "—").split(",")[0];
+        const to = (t.end_address || "—").split(",")[0];
         const client = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "—";
         doc.text(fmt(t.trip_date), C.date, y);
-        doc.text(trunc(proj, 34), C.project, y);
-        doc.text(trunc(client || "—", 30), C.client, y);
+        doc.text(trunc(from, 28), C.from, y);
+        doc.text(trunc(to, 28), C.to, y);
+        doc.text(trunc(client || "—", 16), C.client, y);
         doc.text(fmtMiles(Number(t.miles)), C.miles, y, { align: "right" });
         doc.text(fmtMoney(Number(t.payout)), C.amount, y, { align: "right" });
         y += 6; sMiles += Number(t.miles); sAmt += Number(t.payout);
@@ -1684,8 +1766,8 @@ function PaymentHistoryTab() {
       {/* 3 KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 20 }}>
         {[
-          { label: "Paid YTD",          value: fmtMoney(totalPaid),                      sub: `${periods.length} periods`,      valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <DollarSign style={{ width: 18, height: 18 }} /> },
-          { label: "Total Miles YTD",   value: Math.round(totalMiles).toLocaleString(),  sub: "across all employees",             valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
+          { label: "Paid",              value: fmtMoney(totalPaid),                      sub: `${visiblePeriods.length} period${visiblePeriods.length !== 1 ? "s" : ""} · ${rangeLabel}`, valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <DollarSign style={{ width: 18, height: 18 }} /> },
+          { label: "Total Miles",       value: Math.round(totalMiles).toLocaleString(),  sub: "across all employees",             valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
           { label: "Trips Reimbursed",  value: totalTrips > 0 ? totalTrips.toString() : "—", sub: `${totalEmps} employee${totalEmps !== 1 ? "s" : ""}`, valueColor: "#0a0a0a", iconBg: "#f3f4f6", iconColor: "#9ca3af", icon: <CheckCircle2 style={{ width: 18, height: 18 }} /> },
         ].map(c => (
           <div key={c.label} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 20px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -1699,7 +1781,28 @@ function PaymentHistoryTab() {
         ))}
       </div>
 
-      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280", margin: "0 0 12px" }}>Paid periods</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 12px" }}>
+        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280", margin: 0 }}>Paid periods</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Select value={range} onValueChange={(v) => setRange(v as typeof range)}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="year">This year</SelectItem>
+              <SelectItem value="month">This month</SelectItem>
+              <SelectItem value="lastmonth">Last month</SelectItem>
+              <SelectItem value="custom">Custom range</SelectItem>
+            </SelectContent>
+          </Select>
+          {range === "custom" && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+              <span style={{ color: "#9ca3af", fontSize: 13 }}>to</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+            </div>
+          )}
+        </div>
+      </div>
 
       {loading ? (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
@@ -1731,16 +1834,16 @@ function PaymentHistoryTab() {
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Period</div><div>Paid On</div><div style={{ textAlign: "right" }}>Trips</div><div style={{ textAlign: "right" }}>Miles</div><div style={{ textAlign: "right" }}>Total Paid</div><div></div>
           </div>
-          {periods.length === 0 && (
+          {visiblePeriods.length === 0 && (
             <div style={{ padding: "64px 24px", textAlign: "center", color: "#9ca3af" }}>
               <div style={{ width: 56, height: 56, borderRadius: 14, background: "#f3f4f6", display: "grid", placeItems: "center", margin: "0 auto 14px" }}>
                 <Clock style={{ width: 22, height: 22 }} />
               </div>
-              <p style={{ color: "#0a0a0a", fontWeight: 700, fontSize: 15, margin: "0 0 6px" }}>No paid periods yet</p>
-              <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>Approved mileage periods will appear here after payout.</p>
+              <p style={{ color: "#0a0a0a", fontWeight: 700, fontSize: 15, margin: "0 0 6px" }}>{periods.length === 0 ? "No paid periods yet" : "No paid periods in this range"}</p>
+              <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>{periods.length === 0 ? "Approved mileage periods will appear here after payout." : "Try a different date range."}</p>
             </div>
           )}
-          {periods.map(p => {
+          {visiblePeriods.map(p => {
             const s = stats[p.id] ?? { miles: 0, payout: 0, employees: 0, trips: 0 };
             return (
               <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
@@ -1804,8 +1907,8 @@ function PaymentHistoryTab() {
                   <div style={{ color: "#6b7280", fontSize: 12 }}>Status: Paid</div>
 
                   {/* Column header */}
-                  <div style={{ display: "grid", gridTemplateColumns: "70px 1.4fr 1.2fr 70px 80px", gap: 10, padding: "10px 0 6px", borderBottom: "1px solid #e5e7eb", marginTop: 18, color: "#9ca3af", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em" }}>
-                    <div>DATE</div><div>PROJECT</div><div>CLIENT</div><div style={{ textAlign: "right" }}>MILES</div><div style={{ textAlign: "right" }}>AMOUNT</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1.3fr 1.3fr 1fr 54px 72px", gap: 10, padding: "10px 0 6px", borderBottom: "1px solid #e5e7eb", marginTop: 18, color: "#9ca3af", fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em" }}>
+                    <div>DATE</div><div>FROM</div><div>TO</div><div>CLIENT</div><div style={{ textAlign: "right" }}>MILES</div><div style={{ textAlign: "right" }}>AMOUNT</div>
                   </div>
 
                   {reportData.groups.map((g) => {
@@ -1817,16 +1920,17 @@ function PaymentHistoryTab() {
                       <div key={g.sub.id}>
                         <div style={{ fontWeight: 700, fontSize: 12.5, marginTop: 14, marginBottom: 4 }}>{name} &nbsp;·&nbsp; <span style={{ fontWeight: 500, color: "#6b7280" }}>{role}</span></div>
                         {g.trips.map((t) => (
-                          <div key={t.id} style={{ display: "grid", gridTemplateColumns: "70px 1.4fr 1.2fr 70px 80px", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: "1px solid #f3f4f6", color: "#374151" }}>
+                          <div key={t.id} style={{ display: "grid", gridTemplateColumns: "56px 1.3fr 1.3fr 1fr 54px 72px", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: "1px solid #f3f4f6", color: "#374151" }}>
                             <div>{fmt(t.trip_date)}</div>
-                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.project?.name ?? "Unmatched"}</div>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.start_address}>{(t.start_address || "—").split(",")[0]}</div>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.end_address}>{(t.end_address || "—").split(",")[0]}</div>
                             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() || "—" : "—"}</div>
                             <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMiles(Number(t.miles))}</div>
                             <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMoney(Number(t.payout))}</div>
                           </div>
                         ))}
-                        <div style={{ display: "grid", gridTemplateColumns: "70px 1.4fr 1.2fr 70px 80px", gap: 10, padding: "6px 0", fontSize: 12, fontWeight: 700, color: "#6b7280" }}>
-                          <div></div><div></div><div style={{ textAlign: "right" }}>Subtotal</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "56px 1.3fr 1.3fr 1fr 54px 72px", gap: 10, padding: "6px 0", fontSize: 12, fontWeight: 700, color: "#6b7280" }}>
+                          <div></div><div></div><div></div><div style={{ textAlign: "right" }}>Subtotal</div>
                           <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMiles(sMiles)}</div>
                           <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMoney(sAmt)}</div>
                         </div>
@@ -1835,8 +1939,8 @@ function PaymentHistoryTab() {
                   })}
 
                   {/* Grand total */}
-                  <div style={{ display: "grid", gridTemplateColumns: "70px 1.4fr 1.2fr 70px 80px", gap: 10, padding: "10px 0 0", marginTop: 8, borderTop: "2px solid #d1d5db", fontSize: 13, fontWeight: 800 }}>
-                    <div>Total</div><div></div><div></div>
+                  <div style={{ display: "grid", gridTemplateColumns: "56px 1.3fr 1.3fr 1fr 54px 72px", gap: 10, padding: "10px 0 0", marginTop: 8, borderTop: "2px solid #d1d5db", fontSize: 13, fontWeight: 800 }}>
+                    <div>Total</div><div></div><div></div><div></div>
                     <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMiles(reportData.totalMiles)}</div>
                     <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#059669" }}>{fmtMoney(reportData.totalAmt)}</div>
                   </div>
@@ -1911,11 +2015,13 @@ export function MileageAdmin() {
     const subs = await mileageSubmissionsAPI.getByPeriod(currentPeriod.id).catch(() => [] as MileageSubmission[]);
     const submitted = subs.filter(s => s.status === "submitted");
     const approved  = subs.filter(s => s.status === "approved");
+    // Reimbursable miles = submitted + approved + paid (exclude denied + draft; personal already excluded at trip level)
+    const reimbursable = subs.filter(s => s.status === "submitted" || s.status === "approved" || s.status === "paid");
     setPendingCount(submitted.length);
     setKpi({
       pendingAmt:   submitted.reduce((s, sub) => s + Number(sub.total_payout), 0),
       approvedAmt:  approved.reduce((s, sub) => s + Number(sub.total_payout), 0),
-      totalMiles:   subs.reduce((s, sub) => s + Number(sub.total_miles), 0),
+      totalMiles:   reimbursable.reduce((s, sub) => s + Number(sub.total_miles), 0),
       pendingTrips: submitted.length,
       approvedTrips: approved.length,
       pendingEmps:  submitted.length,
@@ -2020,13 +2126,13 @@ export function MileageAdmin() {
       </div>
       </div>{/* end sticky header */}
 
-      {/* KPI cards — pending + all trips tabs */}
-      {(tab === "pending" || tab === "all") && (
+      {/* KPI cards — Pending Review only (they reflect the current week, not the All Trips range) */}
+      {tab === "pending" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginTop: 28 }}>
           {[
             { label: "Pending Approval",        value: fmtMoney(kpi.pendingAmt),  sub: `${kpi.pendingTrips} trips · ${kpi.pendingEmps} employees`, valueColor: "#d97706", iconBg: "#fef3c7", iconColor: "#d97706", icon: <Clock style={{ width: 18, height: 18 }} /> },
             { label: "Approved This Period",     value: fmtMoney(kpi.approvedAmt), sub: `${kpi.approvedTrips} trips approved`,                       valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <TrendingUp style={{ width: 18, height: 18 }} /> },
-            { label: "Total Reimbursable Miles", value: Math.round(kpi.totalMiles).toLocaleString(), sub: `@ $${settings?.rate_per_mile ?? 0.70}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
+            { label: "Total Reimbursable Miles", value: Math.round(kpi.totalMiles).toLocaleString(), sub: `@ $${settings?.rate_per_mile ?? 0.725}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
             { label: `${freqLabel} Estimated Payout`, value: fmtMoney(kpi.pendingAmt + kpi.approvedAmt), sub: currentPeriod ? `paid ${fmt(currentPeriod.payment_date)}` : "—", valueColor: "#0a0a0a", iconBg: "#f3f4f6", iconColor: "#6b7280", icon: <DollarSign style={{ width: 18, height: 18 }} /> },
           ].map(c => (
             <div key={c.label} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 20px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -2078,16 +2184,7 @@ export function MileageAdmin() {
             <p style={{ margin: 0, fontSize: 13.5, color: "#6b7280" }}>The current mileage period is being created. Refresh in a moment.</p>
           </div>
         )}
-        {tab === "all" && currentPeriod && <AllTripsTab period={currentPeriod} />}
-        {tab === "all" && !currentPeriod && (
-          <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", textAlign: "center", padding: "64px 24px" }}>
-            <div style={{ width: 56, height: 56, borderRadius: 14, background: "#f3f4f6", display: "grid", placeItems: "center", margin: "0 auto 14px", color: "#9ca3af" }}>
-              <Car style={{ width: 24, height: 24 }} />
-            </div>
-            <p style={{ color: "#0a0a0a", fontWeight: 700, fontSize: 16, margin: "0 0 6px" }}>No trips yet</p>
-            <p style={{ margin: 0, fontSize: 13.5, color: "#6b7280" }}>Trips will appear here once employees submit their mileage for the current period.</p>
-          </div>
-        )}
+        {tab === "all" && <AllTripsTab />}
         {tab === "upload" && (
           <UploadCSVTab
             period={currentPeriod}

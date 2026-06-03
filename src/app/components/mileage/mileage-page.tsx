@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { usePermissions } from "../../hooks/usePermissions";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { useAuth } from "../../contexts/auth-context";
-import { Car, Clock, CheckCircle2, Search, Download, Info, Upload } from "lucide-react";
+import { Car, Clock, CheckCircle2, Search, Download, Info, Upload, MapPin } from "lucide-react";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { supabase } from "@/lib/supabase";
 import { MileageUpload } from "./mileage-upload";
 import { MileageAdmin } from "./mileage-admin";
@@ -42,7 +43,7 @@ function ProjectChip({ name, unmatched }: { name?: string; unmatched?: boolean }
   }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 border border-blue-100 text-blue-700 max-w-[200px] truncate">
-      {name}
+      <MapPin className="h-2.5 w-2.5 shrink-0" />{name}
     </span>
   );
 }
@@ -93,8 +94,11 @@ function EmployeeMileagePage() {
   // My History tab filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [histRange, setHistRange] = useState<"all" | "week" | "lastweek" | "month" | "custom">("all");
+  const [histFrom, setHistFrom] = useState("");
+  const [histTo, setHistTo] = useState("");
 
-  const rate = settings?.rate_per_mile ?? 0.70;
+  const rate = settings?.rate_per_mile ?? 0.725;
   const isDeadlinePassed = period ? new Date() > new Date(period.submission_deadline) : false;
 
   const fetchAll = async (quiet = false) => {
@@ -236,30 +240,51 @@ function EmployeeMileagePage() {
   const approvedAmt = submission?.status === "approved" || submission?.status === "paid" ? Number(submission.total_payout) : 0;
   const tripCount = trips.length;
   // Denied = all trips when the whole submission is denied, else individually-denied trips
-  const deniedCount = submission?.status === "denied" ? trips.length : trips.filter((t) => t.status === "denied").length;
+  const deniedCount = submission?.status === "denied" ? trips.filter((t) => !t.is_personal).length : trips.filter((t) => t.status === "denied" && !t.is_personal).length;
+
+  // Date range for My History (same presets as admin All Trips)
+  const histDateRange = useMemo<{ from: string | null; to: string | null }>(() => {
+    const iso = (d: Date) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().split("T")[0]; };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (histRange === "all") return { from: null, to: null };
+    if (histRange === "custom") return { from: histFrom || null, to: histTo || null };
+    if (histRange === "month") {
+      return { from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), to: iso(new Date(today.getFullYear(), today.getMonth() + 1, 0)) };
+    }
+    const start = new Date(today); start.setDate(today.getDate() - ((today.getDay() - 5 + 7) % 7));
+    if (histRange === "lastweek") start.setDate(start.getDate() - 7);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return { from: iso(start), to: iso(end) };
+  }, [histRange, histFrom, histTo]);
 
   // ── My History filtered trips ──
   const filteredHistory = useMemo(() => allTrips.filter((t) => {
+    if (histDateRange.from && t.trip_date < histDateRange.from) return false;
+    if (histDateRange.to && t.trip_date > histDateRange.to) return false;
     const status = t.is_personal ? "personal" : historyBucket(effectiveTripStatus(t.status, t._sub?.status));
     if (statusFilter !== "all" && status !== statusFilter) return false;
     if (search) {
-      const hay = `${t.start_address} ${t.end_address} ${t.project?.name ?? ""} ${t.trip_date}`.toLowerCase();
+      const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""} ${t.client.address ?? ""}` : "";
+      const hay = `${t.start_address} ${t.end_address} ${cn} ${t.trip_date}`.toLowerCase();
       if (!hay.includes(search.toLowerCase())) return false;
     }
     return true;
-  }), [allTrips, statusFilter, search]);
+  }), [allTrips, statusFilter, search, histDateRange]);
 
-  const histMiles = filteredHistory.reduce((s, t) => s + Number(t.miles), 0);
-  const histAmt = filteredHistory.reduce((s, t) => s + Number(t.payout), 0);
+  // Summary totals reflect only reimbursable trips (exclude personal + denied)
+  const reimbursableHist = filteredHistory.filter((t) => !t.is_personal && historyBucket(effectiveTripStatus(t.status, t._sub?.status)) !== "denied");
+  const histMiles = reimbursableHist.reduce((s, t) => s + Number(t.miles), 0);
+  const histAmt = reimbursableHist.reduce((s, t) => s + Number(t.payout), 0);
 
   const exportCSV = () => {
     if (filteredHistory.length === 0) { toast.info("No trips to export."); return; }
     const esc = (v: any) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const headers = ["Date", "From", "To", "Project", "Miles", "Amount", "Status"];
+    const headers = ["Date", "From", "To", "Client", "Miles", "Amount", "Status"];
     const rows = filteredHistory.map((t) => {
       const eff = historyBucket(effectiveTripStatus(t.status, t._sub?.status));
       const status = eff === "approved" ? "Approved" : eff === "denied" ? "Denied" : "Pending";
-      return [t.trip_date, t.start_address, t.end_address, t.project?.name ?? "Unmatched", Number(t.miles).toFixed(1), Number(t.payout).toFixed(2), status].map(esc).join(",");
+      const cn = t.is_personal ? "Personal" : (t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "Unmatched");
+      return [t.trip_date, t.start_address, t.end_address, cn, Number(t.miles).toFixed(1), Number(t.payout).toFixed(2), status].map(esc).join(",");
     });
     const csv = [headers.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -405,9 +430,17 @@ function EmployeeMileagePage() {
                   <div><div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div></div>
                   <div><div style={{ fontWeight: 500 }}>{t.end_address.split(",")[0]}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>from {t.start_address.split(",")[0]}</div></div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                    {t.is_personal
-                      ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", display: "inline-flex", alignItems: "center", gap: 4 }}>Personal</span>
-                      : <ProjectChip name={t.project?.name} unmatched={t.match_confidence === "unmatched"} />}
+                    {t.is_personal ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", display: "inline-flex", alignItems: "center", gap: 4 }}>Personal</span>
+                    ) : (() => {
+                      const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "";
+                      const addr = t.client?.address || "";
+                      const matched = t.match_confidence !== "unmatched";
+                      return (<>
+                        <ProjectChip name={(addr || cn) || undefined} unmatched={!matched} />
+                        {matched && addr && cn && <div style={{ color: "#6b7280", fontSize: 11, maxWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={cn}>{cn}</div>}
+                      </>);
+                    })()}
                     {canEdit && (
                       <button onClick={() => toggleTripPersonal(t.id, !t.is_personal)}
                         style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
@@ -418,7 +451,9 @@ function EmployeeMileagePage() {
                   <div style={{ textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", opacity: t.is_personal ? 0.4 : 1 }}>{fmtMiles(Number(t.miles))}</div>
                   <div style={{ textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums", textDecoration: t.is_personal ? "line-through" : undefined, color: t.is_personal ? "#9ca3af" : undefined }}>{fmtMoney(Number(t.payout))}</div>
                   <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                    <StatusPill status={effectiveTripStatus(t.status, submission?.status)} />
+                    {t.is_personal
+                      ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", textTransform: "uppercase" }}>Personal</span>
+                      : <StatusPill status={effectiveTripStatus(t.status, submission?.status)} />}
                     {canEdit && (
                       <button onClick={() => setRemoveTarget(t)}
                         style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0 }}>
@@ -558,8 +593,25 @@ function EmployeeMileagePage() {
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
             <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search by project, address, date..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+              <Input placeholder="Search by client, address, date..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
             </div>
+            <Select value={histRange} onValueChange={(v) => setHistRange(v as typeof histRange)}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All time</SelectItem>
+                <SelectItem value="week">This week</SelectItem>
+                <SelectItem value="lastweek">Last week</SelectItem>
+                <SelectItem value="month">This month</SelectItem>
+                <SelectItem value="custom">Custom range</SelectItem>
+              </SelectContent>
+            </Select>
+            {histRange === "custom" && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <input type="date" value={histFrom} onChange={e => setHistFrom(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+                <span style={{ color: "#9ca3af", fontSize: 13 }}>to</span>
+                <input type="date" value={histTo} onChange={e => setHistTo(e.target.value)} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+              </div>
+            )}
             <button onClick={exportCSV} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: "1px solid #e5e7eb", background: "#fff", color: "#0a0a0a", cursor: "pointer" }}>
               <Download style={{ width: 14, height: 14 }} />Export CSV
             </button>
@@ -598,9 +650,17 @@ function EmployeeMileagePage() {
                 <div key={t.id} style={{ display: "grid", gridTemplateColumns: "130px 1.4fr 1fr 90px 90px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                   <div><div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div></div>
                   <div style={{ color: "#6b7280", fontSize: 11.5 }}>{t.start_address.split(",")[0]} &nbsp;→&nbsp; {t.end_address.split(",")[0]}</div>
-                  <div>{isPersonal
-                    ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>
-                    : <ProjectChip name={t.project?.name} unmatched={t.match_confidence === "unmatched"} />}</div>
+                  <div style={{ minWidth: 0 }}>{isPersonal ? (
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>
+                  ) : (() => {
+                    const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "";
+                    const addr = t.client?.address || "";
+                    const matched = t.match_confidence !== "unmatched";
+                    return (<>
+                      <ProjectChip name={(addr || cn) || undefined} unmatched={!matched} />
+                      {matched && addr && cn && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={cn}>{cn}</div>}
+                    </>);
+                  })()}</div>
                   <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtMiles(Number(t.miles))}</div>
                   <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, textDecoration: isPersonal ? "line-through" : undefined, color: isPersonal ? "#9ca3af" : undefined }}>{fmtMoney(Number(t.payout))}</div>
                   <div>{isPersonal
