@@ -396,6 +396,7 @@ export function ClientDetail() {
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityLoadingMore, setActivityLoadingMore] = useState(false);
   const [activityTotal, setActivityTotal] = useState(0);
+  const [activityExpanded, setActivityExpanded] = useState<Set<string>>(new Set());
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -1262,7 +1263,7 @@ export function ClientDetail() {
       activityLogAPI.create({
         client_id: id!,
         action_type: "portal_link_generated",
-        description: "Client portal link generated",
+        description: `Client portal link generated||URL: https://client.butlerconstruction.co/portal/${generatedToken}`,
       }).then(loadActivityLog).catch(() => {});
       toast.success("Portal link generated!");
     } catch (err: any) {
@@ -3256,11 +3257,56 @@ export function ClientDetail() {
                     : type === "crew_payment_submitted"  ? <DollarSign className="h-3.5 w-3.5 text-amber-500" />
                     : type.includes("pdf_exported")      ? <FileDown className="h-3.5 w-3.5 text-slate-400" />
                     : <History className="h-3.5 w-3.5 text-muted-foreground" />;
+                  // Normalize both new format (uses "||") and legacy formats into [shortDesc, detailText]
+                  const normalizeActivity = (desc: string): [string, string] => {
+                    if (!desc) return ["", ""];
+                    // New format: "short||detail lines"
+                    if (desc.includes("||")) return desc.split("||") as [string, string];
+                    // Legacy: DocuSign/Certificate — "X sent to Name (email) on Date — envelope ID: id"
+                    const docuMatch = desc.match(/^(.+?)\s*\(([^)]+@[^)]+)\)\s+on\s+(.+?)\s+—\s+envelope ID:\s*(.+)$/);
+                    if (docuMatch) return [
+                      docuMatch[1].trim(),
+                      `Email: ${docuMatch[2]}\nDate: ${docuMatch[3]}\nEnvelope ID: ${docuMatch[4]}`,
+                    ];
+                    // Legacy: portal link — "Client portal link generated: https://..."
+                    const portalMatch = desc.match(/^(Client portal link generated):\s*(https?:\/\/.+)$/);
+                    if (portalMatch) return [portalMatch[1], `URL: ${portalMatch[2]}`];
+                    // Legacy: proposal/CO sent with trailing email — "... — email@domain.com"
+                    const emailTrailMatch = desc.match(/^(.+?)\s+—\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})$/);
+                    if (emailTrailMatch) return [emailTrailMatch[1], `Email: ${emailTrailMatch[2]}`];
+                    // Legacy: "Email sent to email@...: Subject"
+                    const emailSentMatch = desc.match(/^(Email sent to)\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}):\s*(.+)$/);
+                    if (emailSentMatch) return [`${emailSentMatch[1]} client`, `Email: ${emailSentMatch[2]}\nSubject: ${emailSentMatch[3]}`];
+                    // No detail to extract
+                    return [desc, ""];
+                  };
+                  const [shortDesc, detailText] = normalizeActivity(entry.description ?? "");
                   return (
                     <div key={entry.id} className="flex gap-3 py-2.5 border-b last:border-0">
                       <div className="shrink-0 mt-0.5">{icon}</div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm">{entry.description}</p>
+                        <p className="text-sm">{shortDesc}</p>
+                        {detailText && (
+                          <div className="mt-1">
+                            <button
+                              onClick={() => setActivityExpanded(prev => {
+                                const next = new Set(prev);
+                                next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id);
+                                return next;
+                              })}
+                              className="text-[11px] text-blue-600 hover:underline font-medium focus:outline-none"
+                            >
+                              {activityExpanded.has(entry.id) ? "Hide detail ▴" : "Show detail ▾"}
+                            </button>
+                            {activityExpanded.has(entry.id) && (
+                              <div className="mt-1.5 pl-2 border-l-2 border-muted space-y-0.5">
+                                {detailText.split("\n").map((line, i) => (
+                                  <p key={i} className="text-xs text-muted-foreground break-all">{line}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           {(() => {
                             const roleStyles: Record<string, string> = {
@@ -3833,7 +3879,7 @@ export function ClientDetail() {
           setClient((prev: any) => ({ ...prev, docusign_status: "preparing", docusign_sent_date: sentDate, docusign_envelope_id: envelopeId }));
           const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
           const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
-          activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent to ${clientLabel}${client.email ? ` (${client.email})` : ""} on ${sentDateLabel} — envelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+          activityLogAPI.create({ client_id: client.id, action_type: "docusign_sent", description: `DocuSign contract sent to ${clientLabel}||Email: ${client.email || "—"}\nDate: ${sentDateLabel}\nEnvelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
           // SMS + email alert to client
           supabase.functions.invoke("send-portal-notification", {
             body: { client_id: client.id, type: "contract_ready" },
@@ -3855,7 +3901,7 @@ export function ClientDetail() {
           setClient((prev: any) => ({ ...prev, cert_docusign_status: "preparing", cert_docusign_sent_date: sentDate, cert_docusign_envelope_id: envelopeId }));
           const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
           const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
-          activityLogAPI.create({ client_id: client.id, action_type: "cert_docusign_sent", description: `Certificate of Completion sent to ${clientLabel}${client.email ? ` (${client.email})` : ""} on ${sentDateLabel} — envelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+          activityLogAPI.create({ client_id: client.id, action_type: "cert_docusign_sent", description: `Certificate of Completion sent to ${clientLabel}||Email: ${client.email || "—"}\nDate: ${sentDateLabel}\nEnvelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
         }}
       />
       <AppointmentDialog
@@ -4354,10 +4400,25 @@ export function ClientDetail() {
                   setSavingClient(true);
                   try {
                     await clientsAPI.update(client.id, clientForm);
+                    // Build a field-level diff for the activity log
+                    const fieldLabels: Record<string, string> = {
+                      first_name: "First Name", last_name: "Last Name", company: "Company",
+                      email: "Email", phone: "Phone", address: "Address",
+                      city: "City", state: "State", zip: "ZIP",
+                    };
+                    const diffLines = Object.keys(fieldLabels)
+                      .filter(k => (clientForm[k] ?? "").trim() !== (client[k] ?? "").trim())
+                      .map(k => `${fieldLabels[k]}: ${(client[k] ?? "—") || "—"} → ${(clientForm[k] ?? "—") || "—"}`);
+                    const changedNames = Object.keys(fieldLabels)
+                      .filter(k => (clientForm[k] ?? "").trim() !== (client[k] ?? "").trim())
+                      .map(k => fieldLabels[k]);
+                    const logDesc = changedNames.length
+                      ? `Client info updated: ${changedNames.join(", ")}||${diffLines.join("\n")}`
+                      : "Client info updated";
                     setClient({ ...client, ...clientForm });
                     setEditClientOpen(false);
                     setEditClientTouched(false);
-                    activityLogAPI.create({ client_id: client.id, action_type: "client_updated", description: `Client info updated` }).then(loadActivityLog).catch(() => {});
+                    activityLogAPI.create({ client_id: client.id, action_type: "client_updated", description: logDesc }).then(loadActivityLog).catch(() => {});
                     toast.success("Client updated.");
                   } catch (err: any) {
                     toast.error(err.message || "Failed to update client.");
