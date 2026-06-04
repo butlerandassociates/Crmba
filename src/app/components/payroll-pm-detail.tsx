@@ -383,8 +383,8 @@ export function PayrollPMDetail() {
                     </div>
 
                     {isHistoryOpen && (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
+                      <div className="border rounded-lg overflow-x-auto">
+                        <table className="w-full min-w-[680px] text-sm">
                           <thead>
                             <tr className="bg-muted/50 border-b">
                               <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground">Date</th>

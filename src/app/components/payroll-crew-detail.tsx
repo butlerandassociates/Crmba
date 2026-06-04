@@ -333,8 +333,8 @@ export function PayrollCrewDetail() {
 
                   {/* Line items */}
                   {fio.items && fio.items.length > 0 && (
-                    <div className="border rounded-md overflow-hidden mb-3">
-                      <table className="w-full text-xs">
+                    <div className="border rounded-md overflow-x-auto mb-3">
+                      <table className="w-full min-w-[560px] text-xs">
                         <thead>
                           <tr className="bg-muted/40 border-b">
                             <th className="text-left py-1.5 px-2 font-semibold text-muted-foreground">Item</th>

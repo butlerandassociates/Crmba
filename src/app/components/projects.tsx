@@ -122,7 +122,7 @@ export function Projects() {
 
   const ProjectTable = ({ projects }: { projects: any[] }) => (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="w-full min-w-[920px]">
         <thead className="border-b bg-muted/50">
           <tr>
             <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Status</th>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { usePermissions } from "../../hooks/usePermissions";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAuth } from "../../contexts/auth-context";
 import { Car, Clock, CheckCircle2, Search, Download, Info, Upload, MapPin } from "lucide-react";
 import { Input } from "../ui/input";
@@ -78,6 +79,8 @@ function EmployeeMileagePage() {
   const { user } = useAuth();
   const userId = user?.profile?.id ?? "";
   const homeAddress = (user?.profile as any)?.home_address ?? "";
+  // iPad portrait + phones reflow into cards; >=861px (desktop + iPad landscape) is untouched.
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
 
   const [tab, setTab] = useState<EmpTab>("mileage");
   const [loading, setLoading] = useState(true);
@@ -317,7 +320,7 @@ function EmployeeMileagePage() {
   const canSubmit = submission?.status === "draft" && !isDeadlinePassed && trips.length > 0 && unmatchedBusiness === 0;
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px 96px", fontFamily: "inherit" }}>
+    <div style={{ maxWidth: 1240, margin: "0 auto", padding: isNarrow ? "0 16px 96px" : "0 32px 96px", fontFamily: "inherit" }}>
       {/* Sticky header — title + tabs */}
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#fff", paddingTop: 32 }}>
         <div>
@@ -342,7 +345,7 @@ function EmployeeMileagePage() {
       {tab === "mileage" && (
         <div style={{ marginTop: 28 }}>
           {/* Earnings hero */}
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr 1fr" : "1.6fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
             {/* Big dark earnings card */}
             <div style={{ gridRow: "span 2", background: "#0a0a0a", borderRadius: 16, padding: "24px 28px", color: "#fff", display: "flex", flexDirection: "column", justifyContent: "center" }}>
               <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "#9ca3af", marginBottom: 10 }}>
@@ -425,10 +428,62 @@ function EmployeeMileagePage() {
                 )}
               </div>
               <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
+              {!isNarrow && (
               <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr 80px 90px 100px", gap: 16, padding: "10px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
                 <div>Date</div><div>Route</div><div>Project</div><div style={{ textAlign: "right" }}>Miles</div><div style={{ textAlign: "right" }}>Amount</div><div style={{ textAlign: "right" }}>Status</div>
               </div>
-              {trips.map((t) => (
+              )}
+              {trips.map((t) => isNarrow ? (
+                /* iPad portrait / phone — stacked card */
+                <div key={t.id} style={{ padding: "14px 16px", borderBottom: "1px solid #f1f3f5", fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div>
+                      <div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                      {t.is_personal
+                        ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", textTransform: "uppercase" }}>Personal</span>
+                        : <StatusPill status={effectiveTripStatus(t.status, submission?.status)} />}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontWeight: 500 }}>{t.end_address.split(",")[0]}</div>
+                    <div style={{ color: "#6b7280", fontSize: 11.5 }}>from {t.start_address.split(",")[0]}</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, marginBottom: 10 }}>
+                    {t.is_personal ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", display: "inline-flex", alignItems: "center", gap: 4 }}>Personal</span>
+                    ) : (() => {
+                      const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "";
+                      const addr = t.client?.address || "";
+                      const matched = t.match_confidence !== "unmatched";
+                      return (<>
+                        <ProjectChip name={(addr || cn) || undefined} unmatched={!matched} />
+                        {matched && addr && cn && <div style={{ color: "#6b7280", fontSize: 11 }} title={cn}>{cn}</div>}
+                      </>);
+                    })()}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, borderTop: "1px solid #f1f3f5", paddingTop: 10 }}>
+                    <div style={{ display: "flex", gap: 18 }}>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", opacity: t.is_personal ? 0.4 : 1 }}>{fmtMiles(Number(t.miles))} mi</span>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", textDecoration: t.is_personal ? "line-through" : undefined, color: t.is_personal ? "#9ca3af" : undefined }}>{fmtMoney(Number(t.payout))}</span>
+                    </div>
+                    {canEdit && (
+                      <div style={{ display: "flex", gap: 16 }}>
+                        <button onClick={() => toggleTripPersonal(t.id, !t.is_personal)}
+                          style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+                          {t.is_personal ? "Mark business" : "Mark personal"}
+                        </button>
+                        <button onClick={() => setRemoveTarget(t)}
+                          style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 0" }}>
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
                 <div key={t.id} style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr 80px 90px 100px", gap: 16, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                   <div><div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div></div>
                   <div><div style={{ fontWeight: 500 }}>{t.end_address.split(",")[0]}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>from {t.start_address.split(",")[0]}</div></div>
@@ -553,8 +608,8 @@ function EmployeeMileagePage() {
               <p style={{ margin: 0, fontSize: 13.5 }}>Use <strong>Fix &amp; Resubmit</strong> on the My Mileage tab to reopen it, then upload.</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, alignItems: "start" }}>
-              <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "1.4fr 1fr", gap: 20, alignItems: "start", minWidth: 0 }}>
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24, minWidth: 0 }}>
                 {submission && (
                   <MileageUpload
                     submissionId={submission.id}
@@ -641,8 +696,8 @@ function EmployeeMileagePage() {
             </span>
           </div>
 
-          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "130px 1.4fr 1fr 90px 90px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", overflowX: isNarrow ? "auto" : undefined }}>
+            <div style={{ display: "grid", minWidth: isNarrow ? 760 : undefined, gridTemplateColumns: "130px 1.4fr 1fr 90px 90px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
               <div>Date</div><div>Route</div><div>Project</div><div>Miles</div><div>Amount</div><div>Status</div>
             </div>
             {filteredHistory.length === 0 && (
@@ -656,7 +711,7 @@ function EmployeeMileagePage() {
               const status = effectiveTripStatus(t.status, t._sub?.status);
               const isPersonal = t.is_personal;
               return (
-                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "130px 1.4fr 1fr 90px 90px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
+                <div key={t.id} style={{ display: "grid", minWidth: isNarrow ? 760 : undefined, gridTemplateColumns: "130px 1.4fr 1fr 90px 90px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                   <div><div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div><div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div></div>
                   <div style={{ color: "#6b7280", fontSize: 11.5 }}>{t.start_address.split(",")[0]} &nbsp;→&nbsp; {t.end_address.split(",")[0]}</div>
                   <div style={{ minWidth: 0 }}>{isPersonal ? (

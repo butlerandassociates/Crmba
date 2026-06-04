@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -350,6 +351,7 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
 function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange }: {
   period: MileagePeriod; adminId: string; settings: MileageSettings; onRefresh: () => void; onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
   const [subs, setSubs] = useState<MileageSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -759,10 +761,10 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         return (
           <div key={sub.id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", marginBottom: 12, overflow: "hidden", boxShadow: isExp ? "0 8px 24px -8px rgba(15,23,42,.12)" : undefined, borderColor: isExp ? "#d1d5db" : "#e5e7eb" }}>
             {/* Card head */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr auto", gap: 16, padding: "20px 24px", alignItems: "center", cursor: "pointer" }}
+            <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr 1fr 1fr" : "1.6fr 1fr 1fr 1fr auto", gap: 16, padding: isNarrow ? "16px 18px" : "20px 24px", alignItems: "center", cursor: "pointer" }}
               onClick={() => toggle(sub)}>
               {/* Person */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, gridColumn: isNarrow ? "1 / -1" : undefined }}>
                 <Avatar name={name} size={36} />
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{name}</div>
@@ -815,7 +817,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
               </div>
 
               {/* View trips + actions */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", gridColumn: isNarrow ? "1 / -1" : undefined, marginTop: isNarrow ? 4 : undefined }}>
                 {sub.status === "submitted" && (
                   <>
                     <button title="Approve the entire submission" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#059669", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
@@ -850,14 +852,14 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
                 ) : trips.length === 0 ? (
                   <p style={{ padding: 20, color: "#9ca3af", fontSize: 13 }}>No trips recorded.</p>
                 ) : (
-                  <div style={{ padding: "16px 16px 16px" }}>
+                  <div style={{ padding: "16px 16px 16px", overflowX: isNarrow ? "auto" : undefined }}>
                     {trips.map(trip => {
                       const sel = selected.has(trip.id);
                       const isApproved = trip.status === "approved";
                       const isDenied = trip.status === "denied";
                       return (
                         <div key={trip.id}
-                          style={{ display: "grid", gridTemplateColumns: "26px 100px 1fr 80px 80px 84px", gap: 14, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #e5e7eb", cursor: "pointer", alignItems: "center", opacity: isDenied ? 0.6 : 1 }}
+                          style={{ display: "grid", minWidth: isNarrow ? 540 : undefined, gridTemplateColumns: "26px 100px 1fr 80px 80px 84px", gap: 14, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #e5e7eb", cursor: "pointer", alignItems: "center", opacity: isDenied ? 0.6 : 1 }}
                           onClick={() => setDrawerTrip({ ...trip, _subId: sub.id, _subUser: sub.user, _subStatus: sub.status } as any)}>
                           {/* Checkbox */}
                           <div style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid #d1d5db", background: sel ? "#0a0a0a" : "#fff", display: "inline-grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}
@@ -1048,6 +1050,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
 // ─── All Trips Tab ────────────────────────────────────────────────────────────
 
 function AllTripsTab() {
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1282,9 +1285,9 @@ function AllTripsTab() {
           ))}
         </div>
       ) : (
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", overflowX: isNarrow ? "auto" : undefined }}>
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Date</div><div>Employee &amp; Route</div><div>Project</div><div>Miles</div><div>Amount</div><div>Source</div><div>Status</div>
           </div>
           {filtered.length === 0 && (
@@ -1300,7 +1303,7 @@ function AllTripsTab() {
             const userName = t._sub?.user ? `${t._sub.user.first_name} ${t._sub.user.last_name}` : "—";
             const status = effectiveTripStatus(t.status, t._sub?.status);
             return (
-              <div key={t.id} style={{ display: "grid", gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
+              <div key={t.id} style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div>
                   <div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div>
@@ -1365,6 +1368,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [uploadParsed, setUploadParsed] = useState(false); // MileageUpload has parsed-but-unsaved trips
 
   const rate = settings?.rate_per_mile ?? 0.725;
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
 
   // Dirty when: CSV parsed but not saved, OR trips saved to a draft but not yet submitted.
   useEffect(() => {
@@ -1460,9 +1464,9 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "1.4fr 1fr", gap: 20, alignItems: "start", minWidth: 0 }}>
       {/* Left: employee picker + upload */}
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24 }}>
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24, minWidth: 0 }}>
         {/* Employee picker */}
         <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Upload on behalf of</label>
         <div style={{ position: "relative", marginBottom: 18 }}>
@@ -1598,6 +1602,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
 // ─── Payment History Tab ──────────────────────────────────────────────────────
 
 function PaymentHistoryTab() {
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
   const [periods, setPeriods] = useState<MileagePeriod[]>([]);
   const [stats, setStats] = useState<Record<string, { miles: number; payout: number; employees: number; trips: number; paidOn?: string }>>({});
   const [loading, setLoading] = useState(true);
@@ -1870,9 +1875,9 @@ function PaymentHistoryTab() {
           ))}
         </div>
       ) : (
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", overflowX: isNarrow ? "auto" : undefined }}>
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Period</div><div>Paid On</div><div style={{ textAlign: "right" }}>Trips</div><div style={{ textAlign: "right" }}>Miles</div><div style={{ textAlign: "right" }}>Total Paid</div><div></div>
           </div>
           {visiblePeriods.length === 0 && (
@@ -1887,7 +1892,7 @@ function PaymentHistoryTab() {
           {visiblePeriods.map(p => {
             const s = stats[p.id] ?? { miles: 0, payout: 0, employees: 0, trips: 0 };
             return (
-              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
+              <div key={p.id} style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{periodLabelFull(p)}</div>
                   <div style={{ color: "#6b7280", fontSize: 11.5, marginTop: 2 }}>{s.employees} employee{s.employees !== 1 ? "s" : ""}</div>

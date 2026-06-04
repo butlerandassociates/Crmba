@@ -333,12 +333,12 @@ export function ProductManager() {
   return (
     <div className="space-y-4">
       {/* Header — sticky below admin portal's title+tabs block (~120px) */}
-      <div className="sticky top-[120px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3 flex items-center justify-between gap-4">
+      <div className="sticky top-[120px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="shrink-0">
           <h2 className="text-xl font-bold">Product & Pricing Manager</h2>
           <p className="text-sm text-muted-foreground">Manage all products, materials, and pricing</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -622,7 +622,7 @@ export function ProductManager() {
           ) : (
           <>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[880px]">
               <thead className="border-b bg-muted/50">
                 <tr>
                   <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">

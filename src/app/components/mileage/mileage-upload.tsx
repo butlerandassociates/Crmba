@@ -284,7 +284,7 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead className="border-b bg-muted/50">
                     <tr>
                       <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Date</th>

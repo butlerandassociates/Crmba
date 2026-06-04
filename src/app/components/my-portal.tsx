@@ -210,8 +210,8 @@ export function MyPortal() {
           </p>
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-lg overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground uppercase">Client</th>

@@ -372,7 +372,7 @@ export function Dashboard() {
 
   return (
     <div className="p-4 space-y-4 overflow-x-hidden">
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
@@ -718,11 +718,11 @@ export function Dashboard() {
               </div>
               <button onClick={() => setShowRevenueBreakdown(false)} className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">✕</button>
             </div>
-            <div className="overflow-y-auto flex-1">
+            <div className="overflow-auto flex-1">
               {periodProjects.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No payments collected in this period.</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[640px] text-sm">
                   <thead className="sticky top-0 bg-background border-b">
                     <tr>
                       <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Client</th>

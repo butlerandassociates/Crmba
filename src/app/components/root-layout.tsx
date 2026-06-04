@@ -29,8 +29,11 @@ import {
   Receipt,
   Briefcase,
   Car,
+  Menu,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "./ui/sheet";
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
 import { usersAPI } from "../utils/api";
@@ -83,6 +86,10 @@ export function RootLayout() {
   );
   const navigate = useNavigate();
   const { user, loading, isInviteFlow, signOut, refreshProfile } = useAuth();
+  // ≤1024px (all iPad portraits incl. Pro 12.9", + phones) use a hamburger menu;
+  // ≥1025px (desktop/laptops + iPad landscape) keep the full horizontal nav — unchanged.
+  const isNarrow = useMediaQuery("(max-width: 1024px)");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Bell alerts — per-user dismissed state stored in Supabase
   type NavAlert = { id: string; clientId: string; clientName: string; label: string; description: string; severity: "red" | "amber" };
@@ -594,28 +601,68 @@ export function RootLayout() {
       <header className="border-b bg-card">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-8">
-            <nav className="hidden md:flex items-center gap-2">
-              {navigation.map((item) => {
-                const isActive = item.href === "/"
-                  ? location.pathname === "/"
-                  : location.pathname + location.search === item.href ||
-                    (item.href.includes("?") ? false : location.pathname.startsWith(item.href));
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    }`}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="font-medium text-sm">{item.name}</span>
-                  </Link>
-                );
-              })}
-            </nav>
+            {/* iPad portrait / phone (≤860px): hamburger → slide-out nav */}
+            {isNarrow ? (
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetTrigger asChild>
+                  <button aria-label="Open menu" className="p-2 -ml-2 rounded-md hover:bg-accent transition-colors">
+                    <Menu className="h-6 w-6 text-foreground" />
+                  </button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-[280px] p-0 [&>button]:text-white [&>button]:opacity-100">
+                  {/* Black company bar — matches the app's top business-name bar */}
+                  <SheetTitle className="bg-black px-5 py-3 text-white text-xs font-medium tracking-widest uppercase text-left">
+                    Butler &amp; Associates Construction, Inc.
+                  </SheetTitle>
+                  <nav className="flex flex-col gap-1 px-3 py-4">
+                    {navigation.map((item) => {
+                      const isActive = item.href === "/"
+                        ? location.pathname === "/"
+                        : location.pathname + location.search === item.href ||
+                          (item.href.includes("?") ? false : location.pathname.startsWith(item.href));
+                      return (
+                        <Link
+                          key={item.name}
+                          to={item.href}
+                          onClick={() => setMobileNavOpen(false)}
+                          className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors no-underline ${
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "text-foreground hover:bg-accent"
+                          }`}
+                        >
+                          <item.icon className="h-5 w-5 shrink-0" />
+                          <span className="font-medium text-sm">{item.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </nav>
+                </SheetContent>
+              </Sheet>
+            ) : (
+              <nav className="hidden md:flex items-center gap-2">
+                {navigation.map((item) => {
+                  const isActive = item.href === "/"
+                    ? location.pathname === "/"
+                    : location.pathname + location.search === item.href ||
+                      (item.href.includes("?") ? false : location.pathname.startsWith(item.href));
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.href}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      }`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span className="font-medium text-sm">{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            )}
           </div>
           <div className="flex items-center gap-4">
             <Popover>

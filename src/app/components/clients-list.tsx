@@ -661,7 +661,7 @@ export function ClientsList() {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed">
+            <table className="w-full min-w-[1140px] table-fixed">
               {isActive ? (
                 <colgroup>
                   {role === "admin" && <col className="w-10" />}

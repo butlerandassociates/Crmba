@@ -449,7 +449,7 @@ export function Financials() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
-                      <table className="w-full">
+                      <table className="w-full min-w-[760px]">
                         <thead className="sticky top-0 bg-background z-10">
                           <tr className="border-b">
                             <th className="text-left p-3 font-medium w-[30%]">Client</th>
@@ -504,7 +504,7 @@ export function Financials() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
-                      <table className="w-full">
+                      <table className="w-full min-w-[760px]">
                         <thead className="sticky top-0 bg-background z-10">
                           <tr className="border-b">
                             <th className="text-left p-3 font-medium w-[30%]">Client</th>
@@ -557,7 +557,7 @@ export function Financials() {
             </div>
           ) : (
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[760px]">
                 <thead className="sticky top-0 bg-background z-10">
                   <tr className="border-b">
                     <th className="text-left p-3 font-medium">Client</th>

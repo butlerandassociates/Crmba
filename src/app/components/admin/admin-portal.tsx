@@ -179,12 +179,12 @@ export function AdminPortal() {
       <Tabs defaultValue="products" className="w-full">
         {/* Sticky block: title + quick links + tabs */}
         <div className="sticky top-0 z-20 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 -mt-4 pb-0">
-          <div className="flex items-center justify-between pb-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-5">
             <div>
               <h1 className="text-2xl font-bold">Admin Portal</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Manage users, products, and forecasts</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" asChild>
                 <Link to="/admin/estimate-templates" className="flex items-center gap-1.5 no-underline">
                   <FileText className="h-4 w-4" />
@@ -211,7 +211,8 @@ export function AdminPortal() {
               </Button>
             </div>
           </div>
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
+          <div className="overflow-x-auto -mx-4 px-4">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl min-w-[680px]">
             <TabsTrigger value="products">Products & Pricing</TabsTrigger>
             <TabsTrigger value="forecast">Forecasting</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
@@ -225,6 +226,7 @@ export function AdminPortal() {
               Discarded
             </TabsTrigger>
           </TabsList>
+          </div>
         </div>
 
         <TabsContent value="products" className="mt-0">
