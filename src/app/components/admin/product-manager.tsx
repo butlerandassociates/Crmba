@@ -30,6 +30,7 @@ import { Textarea } from "../ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { SkeletonTable } from "../ui/page-loader";
+import { WizardMaterialsManager } from "./wizard-materials-manager";
 
 const emptyForm = {
   name: "",
@@ -611,6 +612,9 @@ export function ProductManager() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Wizard Materials — block/paver variants + pricing for the estimate wizards */}
+      <WizardMaterialsManager products={allProducts} />
 
       {/* Products Table */}
       <Card>

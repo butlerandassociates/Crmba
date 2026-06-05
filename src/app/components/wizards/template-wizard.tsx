@@ -17,17 +17,87 @@ import {
 interface TemplateWizardProps {
   template: any;
   dbProducts: any[];
+  wizardVariants?: any[];
   onComplete: (items: any[], formData: Record<string, any>) => void;
   onCancel: () => void;
   initialData?: Record<string, any>;
 }
 
-export function TemplateWizard({ template, dbProducts, onComplete, onCancel, initialData }: TemplateWizardProps) {
+// Which picker shows for each variant role, and which step field anchors it.
+const ROLE_PICKER: Record<string, { label: string; stepFieldId: string; showWhen: (fd: Record<string, any>) => boolean }> = {
+  gravity_wall_block: {
+    label: "Wall block material",
+    stepFieldId: "retainingWallType",
+    showWhen: (fd) => fd.retainingWallType === "Gravity Wall",
+  },
+  paver_material: {
+    label: "Paver material",
+    stepFieldId: "squareFootage",
+    showWhen: () => true,
+  },
+};
+
+const CATEGORY_TO_WIZARD_TYPE: Record<string, string> = {
+  "Retaining Walls": "retaining_walls",
+  "Pavers": "pavers",
+};
+
+export function TemplateWizard({ template, dbProducts, wizardVariants = [], onComplete, onCancel, initialData }: TemplateWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<Record<string, any>>(initialData ?? {});
 
   const steps: any[] = template.steps ?? [];
   const calcRules: any[] = template.calc_rules ?? [];
+
+  // ── Material variants (e.g. Gravity Wall block types, paver brands) ──────────
+  const wizardType = CATEGORY_TO_WIZARD_TYPE[template.category] ?? null;
+  const variantsByRole: Record<string, any[]> = {};
+  if (wizardType) {
+    wizardVariants
+      .filter((v) => v.wizard_type === wizardType)
+      .forEach((v) => { (variantsByRole[v.role] ??= []).push(v); });
+  }
+
+  const defaultVariant = (role: string) =>
+    variantsByRole[role]?.find((v) => v.is_default) ?? variantsByRole[role]?.[0] ?? null;
+  const selectedVariant = (role: string) => {
+    const chosenId = formData[`__variant_${role}`];
+    return variantsByRole[role]?.find((v) => v.id === chosenId) ?? defaultVariant(role);
+  };
+
+  // Map the DEFAULT variant's product/cap names (the "anchors" baked into the calc
+  // rules) → the currently-selected variant's product/cap name + price override.
+  const buildSwapMap = (): Record<string, { name: string; price: number | null }> => {
+    const map: Record<string, { name: string; price: number | null }> = {};
+    Object.keys(variantsByRole).forEach((role) => {
+      const def = defaultVariant(role);
+      const sel = selectedVariant(role);
+      if (!def || !sel) return;
+      if (def.product_name) {
+        map[def.product_name.trim().toLowerCase()] = { name: sel.product_name, price: sel.price_override ?? null };
+      }
+      if (def.cap_product_name) {
+        map[def.cap_product_name.trim().toLowerCase()] = { name: sel.cap_product_name ?? def.cap_product_name, price: sel.cap_price_override ?? null };
+      }
+    });
+    return map;
+  };
+
+  // Resolve a calc rule's effective product (after variant swap) + price-per-unit.
+  const resolveProduct = (rule: any, swapMap: Record<string, { name: string; price: number | null }>) => {
+    const swap = swapMap[(rule.product_name ?? "").trim().toLowerCase()];
+    const effectiveName = swap?.name ?? rule.product_name;
+    const product = dbProducts.find((p: any) =>
+      (!swap && rule.product_id && p.id === rule.product_id) ||
+      p.name?.trim().toLowerCase() === effectiveName?.trim().toLowerCase()
+    );
+    // price_override is the pre-markup unit cost for the variant (material; labor 0).
+    const baseCost = swap?.price != null
+      ? swap.price
+      : (product?.material_cost ?? 0) + (product?.labor_cost ?? 0);
+    const pricePerUnit = baseCost * (1 + (product?.markup_percentage ?? 0) / 100);
+    return { effectiveName, product, pricePerUnit, baseCost };
+  };
 
   const visibleSteps = steps.filter((step: any) => {
     if (!step.conditional_on) return true;
@@ -90,6 +160,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
     if (!activeStep) return [];
     const stepFieldIds = new Set<string>((activeStep.fields ?? []).map((f: any) => f.id as string));
     const vars = buildVars();
+    const swapMap = buildSwapMap();
 
     return calcRules
       .filter((rule: any) => {
@@ -114,22 +185,14 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
         if (deliveryOverride > 0 && rule.product_name === 'Wall Delivery' && qty > 0) {
           qty = deliveryOverride;
         }
-        const product = dbProducts.find(
-          (p: any) =>
-            (rule.product_id && p.id === rule.product_id) ||
-            p.name?.trim().toLowerCase() === rule.product_name?.trim().toLowerCase()
-        );
-        const costPerUnit = (product?.material_cost ?? 0) + (product?.labor_cost ?? 0);
-        const price = product
-          ? costPerUnit * (1 + (product.markup_percentage ?? 0) / 100)
-          : 0;
+        const { effectiveName, product, pricePerUnit } = resolveProduct(rule, swapMap);
         return {
-          name: rule.product_name,
+          name: effectiveName,
           description: rule.description,
           qty: qty > 0 ? Math.ceil(qty * 10) / 10 : null,
           unit: rule.unit ?? product?.unit ?? "each",
-          price: qty > 0 ? qty * price : null,
-          hasPrice: price > 0,
+          price: qty > 0 ? qty * pricePerUnit : null,
+          hasPrice: pricePerUnit > 0,
         };
       })
       .filter((r) => r.qty !== null);
@@ -141,6 +204,7 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
   const calculateAndComplete = () => {
     const items: any[] = [];
     const vars = buildVars();
+    const swapMap = buildSwapMap();
     const deliveryOverride = parseFloat(formData.deliveryLoadsOverride as string) || 0;
 
     calcRules.forEach((rule: any) => {
@@ -155,25 +219,23 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
       }
       if (qty <= 0) return;
 
-      const product = dbProducts.find(
-        (p: any) =>
-          (rule.product_id && p.id === rule.product_id) ||
-          p.name?.toLowerCase() === rule.product_name?.toLowerCase()
-      );
+      const { effectiveName, product, pricePerUnit, baseCost } = resolveProduct(rule, swapMap);
+      const swapped = swapMap[(rule.product_name ?? "").trim().toLowerCase()];
+      // When a variant price override is set, treat it as material cost (labor 0 for material variants)
+      const materialCost = swapped?.price != null ? swapped.price : (product?.material_cost ?? 0);
+      const laborCost = swapped?.price != null ? 0 : (product?.labor_cost ?? 0);
 
       items.push({
         category: template.category,
-        productName: product?.name ?? rule.product_name,
+        productName: product?.name ?? effectiveName,
         description: product?.description ?? rule.description,
         quantity: Math.ceil(qty * 10) / 10,
         unit: rule.unit ?? product?.unit ?? "each",
-        materialCost: product?.material_cost ?? 0,
-        laborCost: product?.labor_cost ?? 0,
-        costPerUnit: (product?.material_cost ?? 0) + (product?.labor_cost ?? 0),
+        materialCost,
+        laborCost,
+        costPerUnit: baseCost,
         markupPercent: product?.markup_percentage ?? 0,
-        pricePerUnit: product
-          ? ((product.material_cost ?? 0) + (product.labor_cost ?? 0)) * (1 + (product.markup_percentage ?? 0) / 100)
-          : 0,
+        pricePerUnit,
         product_service_id: product?.id ?? null,
       });
     });
@@ -188,6 +250,16 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
   if (!activeStep) return null;
 
   const liveCalcs = getLiveCalcsForStep();
+
+  // Variant pickers to show on this step (only when there's a real choice)
+  const stepPickers = Object.entries(ROLE_PICKER)
+    .map(([role, cfg]) => ({ role, cfg, options: variantsByRole[role] ?? [] }))
+    .filter(({ cfg, options }) =>
+      options.length > 1 &&
+      (activeStep.fields ?? []).some((f: any) => f.id === cfg.stepFieldId) &&
+      cfg.showWhen(formData)
+    )
+    .map((p) => ({ ...p, selectedId: selectedVariant(p.role)?.id ?? "" }));
 
   const FieldLabel = ({ field }: { field: any }) => (
     <div className="space-y-0.5">
@@ -344,6 +416,31 @@ export function TemplateWizard({ template, dbProducts, onComplete, onCancel, ini
           <div className="space-y-6">
             {activeStep.fields.map((field: any) => renderField(field))}
           </div>
+
+          {/* Material variant pickers (e.g. Gravity Wall block type → cap auto-matches) */}
+          {stepPickers.map(({ role, cfg, options, selectedId }) => {
+            const sel = options.find((v) => v.id === selectedId);
+            return (
+              <div key={role} className="space-y-2 pt-2 border-t">
+                <Label className="text-sm font-semibold">
+                  {cfg.label}<span className="text-destructive ml-1">*</span>
+                </Label>
+                <Select value={selectedId} onValueChange={(v) => handleFieldChange(`__variant_${role}`, v)}>
+                  <SelectTrigger className="h-11 text-sm">
+                    <SelectValue placeholder="Select material…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((v) => (
+                      <SelectItem key={v.id} value={v.id} className="text-sm">{v.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {sel?.cap_product_name && (
+                  <p className="text-xs text-muted-foreground">Cap auto-set to <span className="font-medium">{sel.cap_product_name}</span></p>
+                )}
+              </div>
+            );
+          })}
 
           {/* Live calculations preview */}
           {liveCalcs.length > 0 && (

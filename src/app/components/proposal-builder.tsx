@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check } from "lucide-react";
-import { clientsAPI, productsAPI, estimateTemplatesAPI, estimatesAPI, activityLogAPI } from "../utils/api";
+import { clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
 import { toast } from "sonner";
@@ -85,12 +85,14 @@ export function ProposalBuilder() {
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
+  const [wizardVariants, setWizardVariants] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
 
   const loadProducts = () => {
     productsAPI.getCategories().then(setCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
     estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
+    wizardVariantsAPI.getAll().then(setWizardVariants).catch(console.error);
   };
 
   useEffect(() => { loadProducts(); }, []);
@@ -1662,6 +1664,7 @@ export function ProposalBuilder() {
             <TemplateWizard
               template={activeTemplate}
               dbProducts={dbProducts}
+              wizardVariants={wizardVariants}
               onComplete={addLineItemsFromWizard}
               initialData={wizardInputs[wizardTargetCategory] ?? undefined}
               onCancel={() => {

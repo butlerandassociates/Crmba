@@ -37,7 +37,7 @@ import {
   Check,
   Clock,
 } from "lucide-react";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { TemplateWizard } from "./wizards/template-wizard";
@@ -100,6 +100,7 @@ export function ProposalDetail() {
   const [pickerCategory, setPickerCategory] = useState("");
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
+  const [wizardVariants, setWizardVariants] = useState<any[]>([]);
 
   // Custom item form (inside picker)
   const [customItem, setCustomItem] = useState({ name: "", category: "", qty: 1, unit: "", materialCost: 0, laborCost: 0, markup: 0 });
@@ -188,6 +189,7 @@ export function ProposalDetail() {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
     productsAPI.getAll().then(setDbProducts).catch(console.error);
     estimateTemplatesAPI.getAll().then(setTemplates).catch(console.error);
+    wizardVariantsAPI.getAll().then(setWizardVariants).catch(console.error);
     supabase
       .from("proposal_reviews")
       .select("reviewer_name, rating, review_text")
@@ -2458,6 +2460,7 @@ export function ProposalDetail() {
                 <TemplateWizard
                   template={activeTemplate}
                   dbProducts={dbProducts}
+                  wizardVariants={wizardVariants}
                   onComplete={handleWizardComplete}
                   onCancel={() => setShowWizard(false)}
                   initialData={proposal?.wizard_inputs?.[wizardCategory] ?? undefined}
@@ -2582,6 +2585,7 @@ export function ProposalDetail() {
                 <TemplateWizard
                   template={appendTemplate}
                   dbProducts={dbProducts}
+                  wizardVariants={wizardVariants}
                   onComplete={handleWizardAppend}
                   onCancel={() => setShowAppendWizard(false)}
                 />

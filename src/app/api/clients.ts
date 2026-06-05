@@ -21,7 +21,7 @@ export const clientsAPI = {
         pipeline_stage:pipeline_stages(id, name, color, order_index),
         sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active),
         projects(
-          total_value, start_date, end_date, profit_margin, sales_rep_id, project_manager_id,
+          total_value, start_date, end_date, profit_margin, gross_profit, sales_rep_id, project_manager_id,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name, is_active),
           foreman:profiles!projects_foreman_id_fkey(first_name, last_name, is_active),
           sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name, is_active)
@@ -44,6 +44,7 @@ export const clientsAPI = {
       const project_start_date  = firstProject?.start_date  ?? null;
       const project_end_date    = firstProject?.end_date    ?? null;
       const project_profit_margin = firstProject?.profit_margin != null ? Number(firstProject.profit_margin) : null;
+      const project_gross_profit = firstProject?.gross_profit != null ? Number(firstProject.gross_profit) : null;
 
       const projectSalesRepName = firstProject?.sales_rep
         ? `${firstProject.sales_rep.first_name ?? ""} ${firstProject.sales_rep.last_name ?? ""}`.trim()
@@ -78,6 +79,7 @@ export const clientsAPI = {
         project_start_date,
         project_end_date,
         project_profit_margin,
+        project_gross_profit,
         project_staff_label,
         salesRepName,
         salesRepId,

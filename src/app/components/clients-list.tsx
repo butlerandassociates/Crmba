@@ -916,7 +916,7 @@ export function ClientsList() {
                       </td>
                     )}
 
-                    {/* GP% — project stages only */}
+                    {/* GP% — project stages only. Completed tab also shows GP$ below it. */}
                     {isProjectStage && (
                       <td className="p-3">
                         {client.project_profit_margin != null ? (
@@ -926,6 +926,11 @@ export function ClientsList() {
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                        {isCompleted && client.project_gross_profit != null && (
+                          <div className="text-xs font-semibold text-foreground mt-0.5">
+                            {formatCurrency(client.project_gross_profit)}
+                          </div>
                         )}
                       </td>
                     )}

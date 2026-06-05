@@ -94,6 +94,8 @@ function EmployeeMileagePage() {
   const [submitting, setSubmitting] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<MileageTrip | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [uploadParsed, setUploadParsed] = useState(false); // CSV parsed-but-unsaved in Upload tab
+  const [navConfirm, setNavConfirm] = useState<EmpTab | null>(null); // pending tab switch needing confirm
 
   // My History tab filters
   const [search, setSearch] = useState("");
@@ -161,14 +163,24 @@ function EmployeeMileagePage() {
     return () => clearInterval(id);
   }, []);
 
-  // Warn on browser close/reload when trips are saved to the draft but not yet submitted
-  const hasUnsubmitted = submission?.status === "draft" && trips.length > 0 && !isDeadlinePassed;
+  // Warn on browser close/reload when there's a parsed-but-unsaved CSV (data would be lost).
+  // Saved-to-draft is persisted (no warning needed) — matches the admin side.
   useEffect(() => {
-    if (!hasUnsubmitted) return;
+    if (!uploadParsed) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [hasUnsubmitted]);
+  }, [uploadParsed]);
+
+  // Guard switching away from the Upload tab while a CSV is parsed but not saved.
+  const switchTab = (next: EmpTab) => {
+    if (next === tab) return;
+    if (tab === "upload" && uploadParsed) { setNavConfirm(next); return; }
+    setTab(next);
+  };
+  const confirmLeaveTab = () => {
+    if (navConfirm) { setUploadParsed(false); setTab(navConfirm); setNavConfirm(null); }
+  };
 
   const handleSubmit = async () => {
     if (!submission) return;
@@ -333,7 +345,7 @@ function EmployeeMileagePage() {
             { key: "upload",  label: "Upload CSV" },
             { key: "history", label: "My History" },
           ] as { key: EmpTab; label: string }[]).map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => switchTab(t.key)}
               style={{ background: "transparent", border: 0, padding: "12px 2px 14px", fontSize: 14, fontWeight: tab === t.key ? 600 : 500, color: tab === t.key ? "#0a0a0a" : "#6b7280", borderBottom: `2px solid ${tab === t.key ? "#0a0a0a" : "transparent"}`, marginBottom: -1, cursor: "pointer", transition: "color .15s" }}>
               {t.label}
             </button>
@@ -620,6 +632,7 @@ function EmployeeMileagePage() {
                     projects={projects}
                     homeAddress={homeAddress}
                     onSaved={fetchAll}
+                    onDirtyChange={setUploadParsed}
                   />
                 )}
               </div>
@@ -733,6 +746,31 @@ function EmployeeMileagePage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved-CSV leave guard (switching tabs while a CSV is parsed but not saved) */}
+      {navConfirm && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.4)" }} onClick={() => setNavConfirm(null)} />
+          <div style={{ position: "relative", background: "#fff", borderRadius: 16, width: "100%", maxWidth: 420, margin: "0 16px", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px 16px" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 8px" }}>Leave without saving?</h3>
+              <p style={{ margin: 0, fontSize: 13.5, color: "#6b7280", lineHeight: 1.5 }}>
+                You have uploaded trips that haven't been saved yet. If you leave, they'll be lost.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "12px 24px 20px" }}>
+              <button onClick={() => setNavConfirm(null)}
+                style={{ padding: "9px 16px", borderRadius: 9, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                Stay
+              </button>
+              <button onClick={confirmLeaveTab}
+                style={{ padding: "9px 16px", borderRadius: 9, border: 0, background: "#dc2626", color: "#fff", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                Leave &amp; discard
+              </button>
+            </div>
           </div>
         </div>
       )}
