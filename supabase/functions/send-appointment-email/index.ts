@@ -281,6 +281,10 @@ serve(async (req) => {
         },
         subject,
         content: [{ type: "text/html", value: html }],
+        // Disable SendGrid click tracking — keeps links raw (the broken branded-link
+        // domain url####.butlerconstruction.co was breaking the intake form link).
+        // Matches every other send-* function which already sets this.
+        tracking_settings: { click_tracking: { enable: false, enable_text: false } },
       }),
     });
 

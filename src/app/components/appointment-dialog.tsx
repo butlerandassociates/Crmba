@@ -192,8 +192,10 @@ export function AppointmentDialog({
         clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
       }
 
-      // Log appointment scheduled
-      activityLogAPI.create({
+      // Log appointment scheduled — awaited so it's written before the heavy
+      // email/SMS calls and the dialog closing (a fire-and-forget insert here was
+      // getting dropped before it completed). .catch keeps it non-blocking.
+      await activityLogAPI.create({
         client_id: client.id,
         action_type: "appointment_scheduled",
         description: `${typeLabel} scheduled for ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}${assignedUser ? ` — assigned to ${assignedUser.first_name} ${assignedUser.last_name}` : ""}`,
