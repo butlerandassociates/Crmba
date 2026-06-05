@@ -40,7 +40,7 @@ const emptyForm = {
   laborCost: "",
   markupPercent: "50",
   description: "",
-  salesTaxApplicable: false,
+  salesTaxApplicable: true, // default taxable — most products are materials; uncheck for labor/service
   additionalCosts: "",
   supplier_id: "",
 };

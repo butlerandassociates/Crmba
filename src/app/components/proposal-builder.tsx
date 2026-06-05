@@ -195,6 +195,8 @@ export function ProposalBuilder() {
       costPerUnit: customCostPerUnit,
       markupPercent: customItem.markup,
       pricePerUnit: customPricePerUnit,
+      // Tax custom items that carry a material cost (labor-only customs have 0 material → no tax)
+      salesTaxApplicable: customItem.materialCost > 0,
     });
     resetCustomForm();
     setShowItemPicker(false);
@@ -1623,6 +1625,7 @@ export function ProposalBuilder() {
                                   costPerUnit,
                                   markupPercent: markup,
                                   pricePerUnit,
+                                  salesTaxApplicable: product.sales_tax_rate != null,
                                 });
                                 setShowItemPicker(false);
                                 setPickerCategory("");

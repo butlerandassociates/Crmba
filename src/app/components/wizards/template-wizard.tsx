@@ -237,6 +237,9 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
         markupPercent: product?.markup_percentage ?? 0,
         pricePerUnit,
         product_service_id: product?.id ?? null,
+        // Carry the product's tax flag so wizard items are included in sales tax
+        // (was missing → wizard-built proposals weren't taxing materials).
+        salesTaxApplicable: (product?.sales_tax_rate ?? null) != null,
       });
     });
 
