@@ -1285,10 +1285,10 @@ export function ProposalDetail() {
   };
 
   const handleEmail = () => {
-    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "";
+    const firstName = (client?.first_name ?? "").trim() || "there";
     setEmailTo(client?.email ?? "");
     setEmailSubject(`Proposal: ${proposal.title}`);
-    setEmailMessage(`Hi ${clientName},\n\nPlease review our proposal for your project. You can view, accept, or decline it using the link below.\n\nBest regards,\nButler & Associates Construction`);
+    setEmailMessage(`Hi ${firstName},\n\nPlease review our proposal for your project. By clicking the button below; you can view, accept, or decline the proposal. Once accepted, we will receive a notification and will reach out to discuss next step!\n\nPlease let us know if you have any questions!`);
     setAttachProposalPdf(true);
     setShowEmailDialog(true);
   };
@@ -1503,7 +1503,7 @@ export function ProposalDetail() {
       <!-- CTA — placed right under the scope/total card (before reviews) so clients see it -->
       <div style="text-align:center;margin:0 0 28px 0;">
         <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">
-          View &amp; Accept Proposal
+          View Proposal
         </a>
       </div>
 
@@ -2830,7 +2830,7 @@ export function ProposalDetail() {
     <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
     <p style="font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${emailMessage.replace(/\n/g, '<br>')}</p>
     ${scopeRowsP.length > 0 ? `<div style="margin:0 0 28px 0;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Scope of Work</p><table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;"><tr style="background:#0A0A0A;"><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;">Item</td><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;text-align:right;">Amount</td></tr>${scopeHtmlP}<tr style="background:#F5F3EF;border-top:2px solid #E8E4DC;"><td style="padding:14px 16px;font-size:14px;font-weight:700;color:#0A0A0A;">Total Investment</td><td style="padding:14px 16px;font-size:22px;color:#BB984D;text-align:right;">${grandTotalP}</td></tr></table></div>` : ""}
-    <div style="text-align:center;margin:0 0 28px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a></div>
+    <div style="text-align:center;margin:0 0 28px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View Proposal</a></div>
     ${reviewsHtmlP}
     <p style="font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">This proposal is valid for 30 days. Questions? Reply to this email or call <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
   </div>
