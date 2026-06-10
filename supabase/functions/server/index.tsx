@@ -907,7 +907,10 @@ app.post("/make-server-9d56a30d/docusign/create-embedded-envelope", async (c) =>
       body.emailSubject || "Please sign this document",
       body.emailBlurb || "",
       body.tabs || {},
-      body.returnUrl || "https://controller.butlerconstruction.co"
+      body.returnUrl || "https://controller.butlerconstruction.co",
+      // Optional role-name overrides (Subcontractor Agreement uses different template roles)
+      body.adminRoleName || "Admin",
+      body.signerRoleName || "Client"
     );
 
     console.log("DocuSign envelope created, sender view URL generated:", result.envelopeId);
@@ -956,8 +959,8 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
 
     if (clientStatus) {
       // Determine which document this envelope belongs to: contract or certificate of completion.
-      // Look up by contract column first, then certificate column.
-      let docType: "contract" | "certificate" | null = null;
+      // Look up by contract column first, then certificate, then subcontractor agreement.
+      let docType: "contract" | "certificate" | "subcontractor" | null = null;
       let clientRow: { id: string; first_name: string | null; last_name: string | null } | null = null;
 
       const { data: contractRow } = await supabase
@@ -978,19 +981,29 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
         if (certRow) {
           docType = "certificate";
           clientRow = certRow;
+        } else {
+          const { data: subRow } = await supabase
+            .from("clients")
+            .select("id, first_name, last_name")
+            .eq("sub_docusign_envelope_id", envelopeId)
+            .maybeSingle();
+          if (subRow) {
+            docType = "subcontractor";
+            clientRow = subRow;
+          }
         }
       }
 
       if (!docType || !clientRow) {
-        console.warn(`No client matched envelope ${envelopeId} (contract or certificate)`);
+        console.warn(`No client matched envelope ${envelopeId} (contract, certificate or subcontractor)`);
         return c.json({ received: true });
       }
 
       // Column names + labels per document type
-      const statusCol    = docType === "contract" ? "docusign_status" : "cert_docusign_status";
-      const completedCol = docType === "contract" ? "docusign_completed_date" : "cert_docusign_completed_date";
-      const docLabel     = docType === "contract" ? "contract" : "Certificate of Completion";
-      const fileLabel    = docType === "contract" ? "Signed Contract" : "Signed Certificate of Completion";
+      const statusCol    = docType === "contract" ? "docusign_status" : docType === "certificate" ? "cert_docusign_status" : "sub_docusign_status";
+      const completedCol = docType === "contract" ? "docusign_completed_date" : docType === "certificate" ? "cert_docusign_completed_date" : "sub_docusign_completed_date";
+      const docLabel     = docType === "contract" ? "contract" : docType === "certificate" ? "Certificate of Completion" : "Subcontractor Agreement";
+      const fileLabel    = docType === "contract" ? "Signed Contract" : docType === "certificate" ? "Signed Certificate of Completion" : "Signed Subcontractor Agreement";
 
       const updateData: Record<string, string> = { [statusCol]: clientStatus };
       if (completedDate) updateData[completedCol] = completedDate;
@@ -1011,9 +1024,11 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
       // Bell notification for declined / voided
       if (clientStatus === "declined" || clientStatus === "voided") {
         const label = clientStatus === "declined" ? "Declined" : "Voided";
+        const notifPrefix = docType === "contract" ? "docusign" : docType === "certificate" ? "cert_docusign" : "sub_docusign";
+        const notifTitle  = docType === "contract" ? "DocuSign" : docType === "certificate" ? "Certificate" : "Subcontractor Agreement";
         await supabase.from("notifications").insert({
-          type: `${docType === "contract" ? "docusign" : "cert_docusign"}_${clientStatus}`,
-          title: `${docType === "contract" ? "DocuSign" : "Certificate"} ${label}`,
+          type: `${notifPrefix}_${clientStatus}`,
+          title: `${notifTitle} ${label}`,
           message: `${clientName} ${clientStatus === "declined" ? "declined to sign" : "voided"} the ${docLabel}`,
           link: `/clients/${clientRow.id}`,
           metadata: { client_id: clientRow.id, client_name: clientName, envelope_id: envelopeId, document_type: docType },
@@ -1028,7 +1043,7 @@ app.post("/make-server-9d56a30d/docusign/webhook", async (c) => {
           const pdfBuffer = await docusign.getEnvelopeDocuments(config, envelopeId);
 
           const timestamp = Date.now();
-          const fileSlug = docType === "contract" ? "signed-contract" : "signed-certificate-of-completion";
+          const fileSlug = docType === "contract" ? "signed-contract" : docType === "certificate" ? "signed-certificate-of-completion" : "signed-subcontractor-agreement";
           const filePath = `${clientRow.id}/${timestamp}-${fileSlug}.pdf`;
 
           const { error: uploadError } = await supabase.storage

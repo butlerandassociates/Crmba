@@ -137,9 +137,16 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
 
         {/* Project title */}
         {proposal?.title && (
-          <h2 style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 400, color: B.black, margin: "0 0 24px 0" }}>
+          <h2 style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 400, color: B.black, margin: "0 0 12px 0" }}>
             {proposal.title}
           </h2>
+        )}
+
+        {/* Proposal description (from the CRM) */}
+        {proposal?.description && (
+          <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, lineHeight: 1.6, margin: "0 0 24px 0", opacity: 0.8, whiteSpace: "pre-wrap" as const }}>
+            {proposal.description}
+          </p>
         )}
 
         {/* 2-col: Prepared For + Proposal Details */}
@@ -188,7 +195,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
                   {group.items.map((item, iIdx) => (
-                    <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
+                    <div key={iIdx} data-group="true" style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}</p>
                         {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.45, lineHeight: 1.4 }}>{item.description}</p>}
@@ -202,7 +209,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
             return (
               <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
                 {group.items.map((item, iIdx) => (
-                  <div key={iIdx} style={{ display: "flex", alignItems: "flex-start", padding: "4px 0" }}>
+                  <div key={iIdx} data-group="true" style={{ display: "flex", alignItems: "flex-start", padding: "4px 0" }}>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}</p>
                       {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.5, lineHeight: 1.4 }}>{item.description}</p>}

@@ -20,7 +20,7 @@ export const changeOrdersAPI = {
   /** Create a CO with items and optional modifications */
   create: async (
     co: { client_id: string; project_id?: string; title: string; reason?: string; timeline_impact?: string; status?: string; original_total?: number; new_total?: number; cost_impact?: number },
-    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[],
+    items: { category: string; description: string; quantity: number; unit_price: number; total: number; material_cost?: number }[],
     modifications?: any[]
   ) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -88,10 +88,10 @@ export const changeOrdersAPI = {
     // 2. Apply modifications to existing line items (edit/delete)
     const mods = modifications ?? (co.modifications ?? []);
 
-    // Fetch original line items BEFORE modifications — needed for BAD delta calculation
+    // Fetch original line items BEFORE modifications — needed for BAD + tax delta calculation
     const { data: originalLineItems } = await supabase
       .from("estimate_line_items")
-      .select("id, category, labor_cost, total_price")
+      .select("id, category, labor_cost, total_price, material_cost, product_name, quantity")
       .eq("estimate_id", estimate.id);
 
     for (const mod of mods) {
@@ -129,6 +129,7 @@ export const changeOrdersAPI = {
             description: `Change Order: ${co.title}`,
             category: item.category,
             quantity: item.quantity,
+            material_cost: item.material_cost ?? 0,
             client_price: item.unit_price,
             total_price: item.total,
             sort_order: startSort + i,
@@ -140,7 +141,7 @@ export const changeOrdersAPI = {
     // 5. Re-sum subtotal from all remaining line items (accurate after edits/deletes/additions)
     const { data: allLineItems } = await supabase
       .from("estimate_line_items")
-      .select("total_price, category, labor_cost")
+      .select("total_price, category, labor_cost, material_cost, product_name, quantity")
       .eq("estimate_id", estimate.id);
     const newSubtotal = (allLineItems ?? []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
 
@@ -169,10 +170,46 @@ export const changeOrdersAPI = {
 
     const subtotalAfterDiscount = newSubtotal - newDiscountAmount;
 
-    // Recalculate tax — preserve ratio from original (if tax was $0, keep $0)
-    const origSubtotalAfterDiscount = (estimate.subtotal || 0) - (estimate.discount_amount || 0);
-    const taxRatio = origSubtotalAfterDiscount > 0 ? (estimate.tax_amount || 0) / origSubtotalAfterDiscount : 0;
-    const newTaxAmount = subtotalAfterDiscount * taxRatio;
+    // Tax — ADDITIVE: preserve the original proposal's tax and only ADD 9% (client
+    // zip rate) on the change order's OWN net new materials (new CO items + the
+    // material delta from edits/deletes). This guarantees ACTIVE jobs aren't
+    // retroactively changed — the existing tax baseline is untouched; only the CO's
+    // materials add tax (labor never taxed). If the zip rate is unknown, no tax is
+    // added (original preserved).
+    let zipRate = 0;
+    const { data: clientRow } = await supabase
+      .from("clients").select("zip").eq("id", clientId).maybeSingle();
+    if (clientRow?.zip) {
+      const { data: zr } = await supabase
+        .from("zip_tax_rates").select("total_rate").eq("zip_code", String(clientRow.zip).trim()).maybeSingle();
+      zipRate = Number(zr?.total_rate || 0);
+    }
+    let newTaxAmount = Number(estimate.tax_amount || 0); // preserve original baseline
+    if (zipRate > 0) {
+      const { data: prodRows } = await supabase
+        .from("products_services").select("name, sales_tax_rate");
+      const prodMap = new Map((prodRows ?? []).map((p: any) => [String(p.name).toLowerCase(), p.sales_tax_rate]));
+      const isTaxable = (name: string, mat: number) => {
+        const k = String(name || "").toLowerCase();
+        return prodMap.has(k) ? prodMap.get(k) != null : mat > 0;
+      };
+      // 9% on new CO items' material
+      const coMaterial = coItems.reduce((s: number, it: any) => {
+        const mat = Number(it.material_cost || 0);
+        return s + (isTaxable(it.description || co.title, mat) ? Number(it.quantity || 0) * mat : 0);
+      }, 0);
+      // material delta from edits/deletes of original items
+      const modMaterialDelta = mods.reduce((s: number, mod: any) => {
+        const li = (originalLineItems ?? []).find((l: any) => l.id === mod.estimate_item_id);
+        if (!li) return s;
+        const mat = Number(li.material_cost || 0);
+        if (!isTaxable(li.product_name, mat)) return s;
+        if (mod.action === "delete") return s - Number(li.quantity || 0) * mat;
+        if (mod.action === "edit")   return s + (Number(mod.quantity || 0) - Number(li.quantity || 0)) * mat;
+        return s;
+      }, 0);
+      newTaxAmount = Math.round((Number(estimate.tax_amount || 0) + (coMaterial + modMaterialDelta) * (zipRate / 100)) * 100) / 100;
+    }
 
     // Recalculate CC processing fee if enabled (2.9% + $0.30 flat)
     const preStripeTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount;
@@ -256,7 +293,7 @@ export const changeOrdersAPI = {
   update: async (
     id: string,
     co: { title: string; reason?: string; timeline_impact?: string; approval_verified?: boolean; approval_file_url?: string },
-    items: { category: string; description: string; quantity: number; unit_price: number; total: number }[],
+    items: { category: string; description: string; quantity: number; unit_price: number; total: number; material_cost?: number }[],
     modifications?: any[]
   ) => {
     const costImpact = items.reduce((s, i) => s + i.total, 0);

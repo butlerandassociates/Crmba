@@ -110,6 +110,8 @@ serve(async (req) => {
         .from("client_files")
         .select("id, file_name, file_url, file_type, created_at, file_size_bytes")
         .eq("client_id", clientId)
+        // Subcontractor Agreement is an internal Butler↔foreman doc — never expose it to the client portal
+        .neq("file_type", "subcontractor")
         .order("created_at", { ascending: false }),
 
       supabase

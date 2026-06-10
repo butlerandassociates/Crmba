@@ -374,19 +374,53 @@ export async function createEmbeddedEnvelope(
   emailSubject: string,
   emailBlurb: string,
   tabs: any,
-  returnUrl: string
+  returnUrl: string,
+  // Role names default to the contract/certificate template roles. The Subcontractor
+  // Agreement template uses different roles ("Owner/General Manager" + "Subcontractor"),
+  // so callers can override these to match whatever template they're sending.
+  adminRoleName: string = "Admin",
+  signerRoleName: string = "Client"
 ): Promise<{ envelopeId: string; senderViewUrl: string }> {
   const accessToken = await getAccessToken(config);
 
-  // Create as draft — sender fills fields in DocuSign UI before routing to signers
+  // Pin each recipient to the template's REAL roleName + recipientId so DocuSign MERGES
+  // into the existing template roles instead of creating duplicate recipients. (This is the
+  // version that worked. routingOrder is hard-set 1/2 so admin/owner signs FIRST → then the
+  // 2nd signer — i.e. Jonathan signs, then the foreman — without needing the template's own
+  // "Set signing order" feature, which reshuffles recipient ids and breaks the merge.)
+  const norm = (s: string) => (s || "").trim().toLowerCase();
+  let adminRoleFinal  = adminRoleName,  adminRecipientId  = "1";
+  let signerRoleFinal = signerRoleName, signerRecipientId = "2";
+  try {
+    const tmpl = await getTemplateRecipientsWithTabs(config, templateId);
+    const signers: any[] = tmpl?.signers || [];
+    const adminMatch  = signers.find((r) => norm(r.roleName) === norm(adminRoleName));
+    const signerMatch = signers.find((r) => norm(r.roleName) === norm(signerRoleName));
+    if (adminMatch) {
+      adminRoleFinal   = adminMatch.roleName ?? adminRoleName;
+      adminRecipientId = adminMatch.recipientId ?? "1";
+    }
+    if (signerMatch) {
+      signerRoleFinal   = signerMatch.roleName ?? signerRoleName;
+      signerRecipientId = signerMatch.recipientId ?? "2";
+    }
+    console.log("Template role mapping:", JSON.stringify({
+      templateRoles: signers.map((r) => ({ role: r.roleName, recipientId: r.recipientId })),
+      matched: { admin: { role: adminRoleFinal, id: adminRecipientId }, signer: { role: signerRoleFinal, id: signerRecipientId } },
+    }));
+  } catch (e: any) {
+    console.log("Template recipient lookup failed, using defaults 1/2:", e.message);
+  }
+
+  // Create as draft — sender fills fields in DocuSign UI before routing to signers.
   const envelopeDefinition = {
     templateId,
     templateRoles: [
       {
         email: adminEmail,
         name: adminName,
-        roleName: "Admin",
-        recipientId: "1",
+        roleName: adminRoleFinal,
+        recipientId: adminRecipientId,
         routingOrder: "1",
         emailNotification: {
           emailSubject,
@@ -396,8 +430,8 @@ export async function createEmbeddedEnvelope(
       {
         email: clientEmail,
         name: clientName,
-        roleName: "Client",
-        recipientId: "2",
+        roleName: signerRoleFinal,
+        recipientId: signerRecipientId,
         routingOrder: "2",
         tabs,
         emailNotification: {

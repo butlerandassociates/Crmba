@@ -977,6 +977,121 @@ function EmailTemplatesSection({
   );
 }
 
+function GlobalRepEmailCard() {
+  const [subject, setSubject] = useState("");
+  const [body, setBody]       = useState("");
+  const [loaded, setLoaded]   = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    supabase.from("company_settings")
+      .select("rep_email_subject, rep_email_body")
+      .limit(1).maybeSingle()
+      .then(({ data }) => {
+        setSubject(data?.rep_email_subject ?? "");
+        setBody(data?.rep_email_body ?? "");
+        setLoaded(true);
+      });
+  }, []);
+
+  const subjectErr = subject.trim().length === 0 ? "Email Subject is required."
+    : subject.trim().length < 3 ? "Must be at least 3 characters." : "";
+  const bodyErr = body.trim().length === 0 ? "Email Body is required."
+    : body.trim().length < 10 ? "Must be at least 10 characters." : "";
+  const hasErrors = !!subjectErr || !!bodyErr;
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (hasErrors) return;
+    setSaving(true);
+    try {
+      const { data: row } = await supabase.from("company_settings").select("id").limit(1).maybeSingle();
+      if (!row) { toast.error("Company settings not found."); return; }
+      const { error } = await supabase.from("company_settings")
+        .update({ rep_email_subject: subject.trim(), rep_email_body: body.trim() })
+        .eq("id", row.id);
+      if (error) throw new Error(error.message);
+      toast.success("Sales rep email template saved.");
+    } catch (err: any) { toast.error(err.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Sales Rep Email Template</CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Sent to the assigned sales rep when an Initial Appointment is scheduled.
+          The branded layout, date/time card, and client-info table are added automatically.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!loaded ? (
+          <SkeletonList rows={2} />
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Subject <span className="text-destructive">*</span>
+              </label>
+              <Input
+                placeholder="e.g. New {type}: {client_name} — {date}"
+                value={subject}
+                onChange={(e) => { setSubject(e.target.value); if (touched) setTouched(false); }}
+                maxLength={200}
+                className={touched && subjectErr ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {touched && subjectErr
+                ? <p className="text-xs text-destructive">{subjectErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Variables: <code className="bg-muted px-1 rounded">{"{rep_name}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{client_name}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{date}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{time}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{type}"}</code>
+                  </p>}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Body <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                placeholder="Hi {rep_name}, you've been assigned a {type} with {client_name}. Their details are below."
+                value={body}
+                onChange={(e) => { setBody(e.target.value); if (touched) setTouched(false); }}
+                rows={5}
+                className={`resize-none ${touched && bodyErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {touched && bodyErr
+                ? <p className="text-xs text-destructive">{bodyErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Variables: <code className="bg-muted px-1 rounded">{"{rep_name}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{client_name}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{date}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{time}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{type}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{address}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{phone}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{email}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{scope}"}</code>
+                  </p>}
+            </div>
+
+            <div className="flex justify-end">
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save Template
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AppointmentTypeSection({
   items, loading, onAdd, onUpdate, onDelete,
 }: {
@@ -994,6 +1109,7 @@ function AppointmentTypeSection({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [search, setSearch] = useState("");
 
   const nameErr    = name.trim().length === 0 ? "Type Name is required."
@@ -1026,6 +1142,7 @@ function AppointmentTypeSection({
     try {
       if (sheet === "new") {
         await onAdd(name.trim(), subject.trim() || null, body.trim() || null);
+        // New types are created name-only; rep email fields are set on next edit
         toast.success(`"${name.trim()}" added.`);
       } else {
         await onUpdate((sheet as AppointmentType).id, {
@@ -1096,7 +1213,7 @@ function AppointmentTypeSection({
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                    onClick={() => handleDelete(item.id, item.name)} disabled={deletingId === item.id}>
+                    onClick={() => setConfirmDelete({ id: item.id, name: item.name })} disabled={deletingId === item.id}>
                     {deletingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
@@ -1176,6 +1293,7 @@ function AppointmentTypeSection({
                     <code className="bg-muted px-1 rounded">{"{address}"}</code>
                   </p>}
             </div>
+
           </div>
 
           <div className="px-6 py-4 border-t shrink-0 flex justify-end gap-2">
@@ -1187,6 +1305,25 @@ function AppointmentTypeSection({
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove "{confirmDelete?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the appointment type and its client email template. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDelete) { handleDelete(confirmDelete.id, confirmDelete.name); setConfirmDelete(null); } }}
+            >Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -2017,6 +2154,8 @@ export function ListManagement() {
             setLeadSources((prev) => prev.filter((s) => s.id !== id));
           }}
         />
+
+        <GlobalRepEmailCard />
 
         <AppointmentTypeSection
           items={appointmentTypes}

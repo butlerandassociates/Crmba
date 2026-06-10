@@ -620,7 +620,7 @@ function EmployeeMileagePage() {
               <p style={{ margin: 0, fontSize: 13.5 }}>Use <strong>Fix &amp; Resubmit</strong> on the My Mileage tab to reopen it, then upload.</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "1.4fr 1fr", gap: 20, alignItems: "start", minWidth: 0 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
               <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24, minWidth: 0 }}>
                 {submission && (
                   <MileageUpload
@@ -636,8 +636,8 @@ function EmployeeMileagePage() {
                   />
                 )}
               </div>
-              {/* How it works + reimbursement note (employee — no integrations panel) */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingLeft: 4 }}>
+              {/* How it works + reimbursement note — stacked below the upload box, same as iPad */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div>
                   <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280", margin: "0 0 14px" }}>How It Works</p>
                   {[
@@ -651,6 +651,38 @@ function EmployeeMileagePage() {
                       <p style={{ margin: 0, fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>{parts[0]}<strong style={{ color: "#0a0a0a", fontWeight: 600 }}>{parts[1]}</strong>{parts[2]}</p>
                     </div>
                   ))}
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280", margin: "0 0 12px" }}>Supported Integrations</p>
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+                    {[
+                      { key: "ev", label: "Everlance",            sub: "CSV export · auto-mapping ready", gradient: "linear-gradient(135deg,#7c2d12,#ea580c)", active: true },
+                      { key: "mi", label: "MileIQ",               sub: "CSV export · coming soon",        gradient: "linear-gradient(135deg,#1e40af,#2563eb)", active: false },
+                      { key: "tr", label: "TripLog",              sub: "CSV export · coming soon",        gradient: "linear-gradient(135deg,#166534,#16a34a)", active: false },
+                      { key: "go", label: "Google Maps Timeline", sub: "KML/JSON · coming soon",          gradient: "linear-gradient(135deg,#0f172a,#475569)", active: false },
+                    ].map((intg, idx) => (
+                      <div key={intg.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderTop: idx === 0 ? "none" : "1px solid #f1f3f5", gap: 16, opacity: intg.active ? 1 : 0.55 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: 9, background: intg.active ? intg.gradient : "#9ca3af", display: "grid", placeItems: "center", color: "#fff", fontWeight: 800, fontSize: 12, flexShrink: 0 }}>
+                            {intg.key === "go" ? "GO" : intg.key.toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{intg.label}</div>
+                            <div style={{ color: "#6b7280", fontSize: 11.5 }}>{intg.sub}</div>
+                          </div>
+                        </div>
+                        {intg.active ? (
+                          <span style={{ fontSize: 11.5, fontWeight: 600, color: "#059669", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "4px 10px", display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+                            <CheckCircle2 style={{ width: 12, height: 12 }} />Ready
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11.5, fontWeight: 600, color: "#6b7280", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 999, padding: "4px 10px", whiteSpace: "nowrap" }}>
+                            Coming soon
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div style={{ padding: "12px 14px", background: "#eff6ff", border: "1px solid #dbeafe", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
                   <Info style={{ width: 16, height: 16, color: "#2563eb", flexShrink: 0, marginTop: 1 }} />

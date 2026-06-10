@@ -26,11 +26,10 @@ export function PublicProposal() {
 
   useEffect(() => {
     if (!id) return;
+    // Anonymous clients can't read the tables directly — use the SECURITY DEFINER
+    // RPC that returns just this one proposal (+ client + line items).
     supabase
-      .from("estimates")
-      .select(`*, client:clients(first_name, last_name, email, phone, address, city, state), line_items:estimate_line_items(*)`)
-      .eq("id", id)
-      .single()
+      .rpc("get_public_proposal", { p_id: id })
       .then(({ data, error }) => {
         if (!error && data) {
           setProposal(data);
@@ -39,26 +38,7 @@ export function PublicProposal() {
           if (data.status === "declined") setDone("declined");
           // Mark as opened the first time a client views a sent proposal
           if (data.status === "sent") {
-            supabase.from("estimates")
-              .update({ status: "opened", opened_at: new Date().toISOString() })
-              .eq("id", id)
-              .then(() => {});
-            const clientName = data.client ? `${data.client.first_name ?? ""} ${data.client.last_name ?? ""}`.trim() : "Client";
-            supabase.from("notifications").insert({
-              type: "proposal_opened",
-              title: "Proposal Opened",
-              message: `${clientName} opened the proposal${data.title ? ` "${data.title}"` : ""}`,
-              link: `/proposals/${id}`,
-              is_read: false,
-            }).then(() => {});
-            if (data.client_id) {
-              supabase.from("activity_log").insert({
-                client_id: data.client_id,
-                action_type: "proposal_viewed",
-                description: `Client opened proposal: "${data.title}"`,
-                created_at: new Date().toISOString(),
-              }).then(() => {});
-            }
+            supabase.rpc("mark_public_proposal_opened", { p_id: id }).then(() => {});
           }
         }
         setLoading(false);
@@ -68,10 +48,7 @@ export function PublicProposal() {
   useRealtimeRefetch(() => {
     if (!id) return;
     supabase
-      .from("estimates")
-      .select(`*, client:clients(first_name, last_name, email, phone, address, city, state), line_items:estimate_line_items(*)`)
-      .eq("id", id)
-      .single()
+      .rpc("get_public_proposal", { p_id: id })
       .then(({ data }) => {
         if (data) {
           setProposal(data);
@@ -87,47 +64,9 @@ export function PublicProposal() {
 
   const handleAccept = async () => {
     setSubmitting(true);
-    await supabase.from("estimates").update({
-      status: "accepted",
-      accepted_at: new Date().toISOString(),
-    }).eq("id", id);
-    // Auto-void all draft/sent proposals for this client — only client-declined stays as "declined"
-    if (proposal?.client_id) {
-      supabase.from("estimates")
-        .update({ status: "voided", voided_at: new Date().toISOString() })
-        .eq("client_id", proposal.client_id)
-        .neq("id", id)
-        .in("status", ["draft", "sent", "opened"])
-        .select("id, title, estimate_number")
-        .then(({ data: voidedProposals }) => {
-          (voidedProposals ?? []).forEach((vp: any) => {
-            supabase.from("activity_log").insert({
-              client_id: proposal.client_id,
-              action_type: "status_changed",
-              description: `Proposal ${vp.title} — voided by accepted proposal ${proposal.title}`,
-              created_at: new Date().toISOString(),
-            }).then(() => {});
-          });
-        });
-    }
-    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
-    supabase.from("notifications").insert({
-      type: "proposal_accepted",
-      title: "Proposal Accepted",
-      message: `Accepted the proposal${proposal?.title ? ` "${proposal.title}"` : ""}.`,
-      link: `/proposals/${id}`,
-      is_read: false,
-      created_by: null,
-      metadata: { proposal_id: id, client_id: proposal?.client_id, client_name: clientName },
-    }).then(() => {});
-    if (proposal?.client_id) {
-      supabase.from("activity_log").insert({
-        client_id: proposal.client_id,
-        action_type: "proposal_accepted",
-        description: `Client accepted proposal: "${proposal.title}"`,
-        created_at: new Date().toISOString(),
-      }).then(() => {});
-    }
+    // All side effects (status, auto-void others, notification, activity log) run
+    // atomically inside the SECURITY DEFINER RPC — anon has no direct table write.
+    await supabase.rpc("respond_to_public_proposal", { p_id: id, p_action: "accept" });
     setDone("accepted");
     setSubmitting(false);
     setAction(null);
@@ -135,30 +74,11 @@ export function PublicProposal() {
 
   const handleDecline = async () => {
     setSubmitting(true);
-    await supabase.from("estimates").update({
-      status: "declined",
-      declined_at: new Date().toISOString(),
-      decline_reason: declineReason.trim() || null,
-      declined_by: null,
-    }).eq("id", id);
-    const clientName = client ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() : "Client";
-    supabase.from("notifications").insert({
-      type: "proposal_declined",
-      title: "Proposal Declined",
-      message: `Declined the proposal${proposal?.title ? ` "${proposal.title}"` : ""}${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}.`,
-      link: `/proposals/${id}`,
-      is_read: false,
-      created_by: null,
-      metadata: { proposal_id: id, client_id: proposal?.client_id, client_name: clientName },
-    }).then(() => {});
-    if (proposal?.client_id) {
-      supabase.from("activity_log").insert({
-        client_id: proposal.client_id,
-        action_type: "proposal_rejected",
-        description: `Client declined proposal: "${proposal.title}"${declineReason.trim() ? ` — "${declineReason.trim()}"` : ""}`,
-        created_at: new Date().toISOString(),
-      }).then(() => {});
-    }
+    await supabase.rpc("respond_to_public_proposal", {
+      p_id: id,
+      p_action: "decline",
+      p_reason: declineReason.trim() || null,
+    });
     setDone("declined");
     setSubmitting(false);
     setAction(null);

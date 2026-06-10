@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
-import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck, FileSignature, XCircle, FileCheck2, FileX2 } from "lucide-react";
+import { Loader2, Bell, AlertCircle, CheckCircle2, ClipboardCheck, FileSignature, XCircle, FileCheck2, FileX2, MailX } from "lucide-react";
 import { notificationsAPI } from "../utils/api";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { toast } from "sonner";
@@ -730,13 +730,15 @@ export function RootLayout() {
                             ? <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
                             : n.type === "mileage_submitted"
                             ? <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+                            : n.type === "email_bounced"
+                            ? <MailX className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
                             : <ClipboardCheck className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
                           }
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                                 n.type === "proposal_accepted" || n.type === "docusign_completed" || n.type === "cert_docusign_completed" || n.type === "change_order_approved" || n.type === "mileage_approved" ? "bg-green-100 text-green-700"
-                                : n.type === "proposal_declined" || n.type === "change_order_rejected" || n.type === "mileage_denied" ? "bg-red-100 text-red-700"
+                                : n.type === "proposal_declined" || n.type === "change_order_rejected" || n.type === "mileage_denied" || n.type === "email_bounced" ? "bg-red-100 text-red-700"
                                 : n.type === "mileage_deadline" || n.type === "mileage_submitted" ? "bg-amber-100 text-amber-700"
                                 : n.type === "mileage_paid" ? "bg-blue-100 text-blue-700"
                                 : "bg-blue-100 text-blue-700"

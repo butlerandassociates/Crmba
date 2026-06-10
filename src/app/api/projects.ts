@@ -25,6 +25,8 @@ const mapProject = (p: any) => ({
   projectManagerActive:   p.project_manager?.is_active ?? true,
   foremanName:            p.foreman ? `${p.foreman.first_name ?? ""} ${p.foreman.last_name ?? ""}`.trim() : "",
   foremanPhone:           p.foreman?.phone ?? null,
+  foremanEmail:           p.foreman?.email ?? null,
+  foremanId:              p.foreman?.id ?? p.foreman_id ?? null,
   foremanActive:          p.foreman?.is_active ?? true,
   salesRepName:           p.sales_rep ? `${p.sales_rep.first_name ?? ""} ${p.sales_rep.last_name ?? ""}`.trim() : "",
   salesRepActive:         p.sales_rep?.is_active ?? true,
@@ -34,7 +36,7 @@ const FULL_SELECT = `
   *,
   client:clients(id, first_name, last_name, company, is_discarded),
   project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active, commission_rate),
-  foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
+  foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, email, is_active),
   sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active, commission_rate)
 `;
 
@@ -59,7 +61,7 @@ export const projectsAPI = {
         *,
         client:clients(id, first_name, last_name, company, email, phone),
         project_manager:profiles!projects_project_manager_id_fkey(id, first_name, last_name, is_active, commission_rate),
-        foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, is_active),
+        foreman:profiles!projects_foreman_id_fkey(id, first_name, last_name, phone, email, is_active),
         sales_rep:profiles!projects_sales_rep_id_fkey(id, first_name, last_name, is_active, commission_rate)
       `)
       .eq("id", id)

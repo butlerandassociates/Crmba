@@ -140,8 +140,10 @@ export const estimatesAPI = {
     return data;
   },
 
-  /** Delete estimate and all related records (cascade) */
+  /** Delete estimate and all related records (explicit cleanup — no orphans) */
   delete: async (id: string) => {
+    await supabase.from("estimate_line_items").delete().eq("estimate_id", id);
+    await supabase.from("payment_schedules").delete().eq("estimate_id", id);
     const { error } = await supabase.from("estimates").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return { id };

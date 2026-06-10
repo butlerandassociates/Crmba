@@ -254,9 +254,11 @@ export function ClientDetail() {
     if (event === "Send" && envelopeId) {
       // Determine document type from the explicit return-URL marker (deterministic),
       // falling back to envelope-id matching only if the marker is absent.
-      const isCert = params.get("certdocusign") === "sent"
-        || (params.get("docusign") !== "sent" && !!client.cert_docusign_envelope_id && envelopeId === client.cert_docusign_envelope_id);
-      const col = isCert ? "cert_docusign_status" : "docusign_status";
+      const isSub  = params.get("subdocusign") === "sent"
+        || (!!client.sub_docusign_envelope_id && envelopeId === client.sub_docusign_envelope_id);
+      const isCert = !isSub && (params.get("certdocusign") === "sent"
+        || (params.get("docusign") !== "sent" && !!client.cert_docusign_envelope_id && envelopeId === client.cert_docusign_envelope_id));
+      const col = isSub ? "sub_docusign_status" : isCert ? "cert_docusign_status" : "docusign_status";
       supabase.from("clients").update({ [col]: "sent_to_client" }).eq("id", id).then(() => {
         setClient((prev: any) => prev ? { ...prev, [col]: "sent_to_client" } : prev);
       });
@@ -264,7 +266,7 @@ export function ClientDetail() {
       const clean = window.location.pathname;
       window.history.replaceState({}, "", clean);
     }
-  }, [id, client?.docusign_envelope_id, client?.cert_docusign_envelope_id]);
+  }, [id, client?.docusign_envelope_id, client?.cert_docusign_envelope_id, client?.sub_docusign_envelope_id]);
 
   useEffect(() => {
     if (!id) return;
@@ -341,6 +343,13 @@ export function ClientDetail() {
     }
   }, [searchParams, client?.cert_docusign_envelope_id]);
 
+  // Same for the Subcontractor Agreement sender view
+  useEffect(() => {
+    if (searchParams.get("subdocusign") === "sent" && client?.sub_docusign_envelope_id) {
+      refreshSubDocusignStatus();
+    }
+  }, [searchParams, client?.sub_docusign_envelope_id]);
+
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
@@ -368,6 +377,10 @@ export function ClientDetail() {
   const [certDocusignDialogOpen, setCertDocusignDialogOpen] = useState(false);
   const [refreshingCertDocusign, setRefreshingCertDocusign] = useState(false);
   const [openingCertSigning, setOpeningCertSigning] = useState(false);
+  // Subcontractor Agreement DocuSign (signed by foreman + Owner/GM, tracked via sub_docusign_* columns)
+  const [subDocusignDialogOpen, setSubDocusignDialogOpen] = useState(false);
+  const [refreshingSubDocusign, setRefreshingSubDocusign] = useState(false);
+  const [openingSubSigning, setOpeningSubSigning] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
@@ -628,6 +641,83 @@ export function ClientDetail() {
       toast.error(e.message || "Failed to open document");
     } finally {
       setOpeningCertSigning(false);
+    }
+  };
+
+  // ── Subcontractor Agreement DocuSign (mirrors the cert flow, sub_ columns) ──
+  const refreshSubDocusignStatus = async () => {
+    if (!client?.sub_docusign_envelope_id) return;
+    setRefreshingSubDocusign(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/status/${client.sub_docusign_envelope_id}`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const dsStatus = data.status;
+
+      let subStatus = client.sub_docusign_status;
+      let completedDate = client.sub_docusign_completed_date;
+
+      if (dsStatus === "completed") {
+        subStatus = "completed";
+        completedDate = data.completedDateTime || new Date().toISOString();
+      } else if (dsStatus === "sent") {
+        subStatus = "sent_to_client";
+      } else if (dsStatus === "declined") {
+        subStatus = "declined";
+      } else if (dsStatus === "voided") {
+        subStatus = "voided";
+      }
+
+      if (subStatus !== client.sub_docusign_status) {
+        await supabase.from("clients").update({
+          sub_docusign_status: subStatus,
+          sub_docusign_completed_date: completedDate ?? null,
+        }).eq("id", client.id);
+        setClient((prev: any) => ({ ...prev, sub_docusign_status: subStatus, sub_docusign_completed_date: completedDate }));
+        if (subStatus === "completed" && client.sub_docusign_status !== "completed") {
+          notificationsAPI.create({
+            type: "sub_docusign_completed",
+            title: "Subcontractor Agreement Signed",
+            message: `The Subcontractor Agreement has been fully signed.`,
+            link: `/clients/${client.id}`,
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error("Failed to refresh Subcontractor DocuSign status:", e);
+    } finally {
+      setRefreshingSubDocusign(false);
+    }
+  };
+
+  const openSubSenderView = async () => {
+    if (!client?.sub_docusign_envelope_id) return;
+    setOpeningSubSigning(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9d56a30d/docusign/get-sender-view`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({
+            envelopeId: client.sub_docusign_envelope_id,
+            returnUrl: `${window.location.origin}/clients/${client.id}?subdocusign=sent`,
+          }),
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.details || err.error || "Failed to open document");
+      }
+      const data = await response.json();
+      window.open(data.senderViewUrl, "_blank");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to open document");
+    } finally {
+      setOpeningSubSigning(false);
     }
   };
 
@@ -2357,6 +2447,82 @@ export function ClientDetail() {
                 )}
               </div>
             )}
+
+            {/* Subcontractor Agreement — Butler↔foreman doc, available once the job hits Sold (per Jonathan) */}
+            {["sold", "active", "completed"].includes(client.status) && clientProjects.length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2 text-center">Subcontractor Agreement</p>
+                {client.sub_docusign_status === "completed" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <CheckCircle2 className="h-8 w-8 text-green-500" />
+                    <Badge className="bg-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Signed
+                    </Badge>
+                    {client.sub_docusign_completed_date && (
+                      <span className="text-xs text-muted-foreground">{formatDate(client.sub_docusign_completed_date)}</span>
+                    )}
+                  </div>
+                ) : client.sub_docusign_status === "preparing" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <FileSignature className="h-8 w-8 text-blue-400" />
+                    <Badge className="bg-blue-500 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Review Pending
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">Click Send in DocuSign tab to continue</span>
+                    <button
+                      onClick={openSubSenderView}
+                      disabled={openingSubSigning}
+                      className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {openingSubSigning ? (
+                        <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Opening...</>
+                      ) : (
+                        <><FileSignature className="h-3 w-3" /> Back to Review</>
+                      )}
+                    </button>
+                  </div>
+                ) : client.sub_docusign_status === "sent_to_client" ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <Clock className="h-8 w-8 text-orange-400" />
+                    <Badge className="bg-orange-500 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Awaiting Signature
+                    </Badge>
+                    {client.sub_docusign_sent_date && (
+                      <span className="text-xs text-muted-foreground">Sent {formatDate(client.sub_docusign_sent_date)}</span>
+                    )}
+                    <button
+                      onClick={refreshSubDocusignStatus}
+                      disabled={refreshingSubDocusign}
+                      className="mt-1 px-3 py-1.5 border border-slate-200 text-xs font-medium rounded-md hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {refreshingSubDocusign ? (
+                        <><span className="animate-spin inline-block h-3 w-3 border border-current border-t-transparent rounded-full" /> Checking...</>
+                      ) : (
+                        <><svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Refresh Status</>
+                      )}
+                    </button>
+                  </div>
+                ) : clientProjects[0]?.foremanId ? (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <FileSignature className="h-8 w-8 text-muted-foreground/40" />
+                    <p className="text-xs font-medium text-muted-foreground">No agreement sent yet</p>
+                    <span className="text-[11px] text-muted-foreground">Foreman: {clientProjects[0]?.foremanName || "—"}</span>
+                    <button
+                      onClick={() => setSubDocusignDialogOpen(true)}
+                      className="mt-1 px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-black/80 transition-colors"
+                    >
+                      Send Subcontractor Agreement
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-2 gap-2 text-center">
+                    <FileSignature className="h-8 w-8 text-muted-foreground/40" />
+                    <p className="text-xs font-medium text-muted-foreground">Assign a foreman to this project first</p>
+                    <span className="text-[11px] text-muted-foreground">The foreman is the signer on the Subcontractor Agreement.</span>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -3902,6 +4068,27 @@ export function ClientDetail() {
           const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
           const clientLabel = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "client";
           activityLogAPI.create({ client_id: client.id, action_type: "cert_docusign_sent", description: `Certificate of Completion sent to ${clientLabel}||Email: ${client.email || "—"}\nDate: ${sentDateLabel}\nEnvelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
+        }}
+      />
+      <DocuSignDialog
+        open={subDocusignDialogOpen}
+        onOpenChange={setSubDocusignDialogOpen}
+        client={client}
+        project={clientProjects[0]}
+        documentType="subcontractor"
+        signerName={clientProjects[0]?.foremanName || ""}
+        signerEmail={clientProjects[0]?.foremanEmail || ""}
+        onSent={async (envelopeId: string) => {
+          const sentDate = new Date().toISOString();
+          await supabase.from("clients").update({
+            sub_docusign_status: "preparing",
+            sub_docusign_sent_date: sentDate,
+            sub_docusign_envelope_id: envelopeId,
+          }).eq("id", client.id);
+          setClient((prev: any) => ({ ...prev, sub_docusign_status: "preparing", sub_docusign_sent_date: sentDate, sub_docusign_envelope_id: envelopeId }));
+          const sentDateLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          const foremanLabel = clientProjects[0]?.foremanName || "foreman";
+          activityLogAPI.create({ client_id: client.id, action_type: "sub_docusign_sent", description: `Subcontractor Agreement sent to ${foremanLabel}||Email: ${clientProjects[0]?.foremanEmail || "—"}\nDate: ${sentDateLabel}\nEnvelope ID: ${envelopeId}` }).then(loadActivityLog).catch(() => {});
         }}
       />
       <AppointmentDialog

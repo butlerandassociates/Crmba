@@ -1368,7 +1368,6 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [uploadParsed, setUploadParsed] = useState(false); // MileageUpload has parsed-but-unsaved trips
 
   const rate = settings?.rate_per_mile ?? 0.725;
-  const isNarrow = useMediaQuery("(max-width: 1024px)");
 
   // Dirty when: CSV parsed but not saved, OR trips saved to a draft but not yet submitted.
   useEffect(() => {
@@ -1379,8 +1378,9 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   }, [uploadParsed]);
 
   useEffect(() => {
+    // Include admins too — owners (e.g. Jonathan) record their own mileage and need to appear here.
     supabase.from("profiles").select("id, first_name, last_name, role, home_address")
-      .in("role", ["project_manager", "sales_rep"]).eq("is_active", true).order("first_name")
+      .in("role", ["project_manager", "sales_rep", "admin"]).eq("is_active", true).order("first_name")
       .then(({ data }) => setEmployees((data ?? []).map((p: any) => ({ id: p.id, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), role: p.role, home_address: p.home_address ?? "" }))));
     supabase.from("projects").select("id, name, client_id, client:clients(address, first_name, last_name)")
       .in("status", ["active", "sold", "selling"]).order("name")
@@ -1464,8 +1464,8 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "1.4fr 1fr", gap: 20, alignItems: "start", minWidth: 0 }}>
-      {/* Left: employee picker + upload */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+      {/* Upload card — full width so the trip table fits without scrolling inside the box */}
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24, minWidth: 0 }}>
         {/* Employee picker */}
         <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Upload on behalf of</label>
@@ -1479,12 +1479,12 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
             <>
               <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setEmpOpen(false)} />
               <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 31, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, boxShadow: "0 8px 24px -8px rgba(15,23,42,.2)", padding: 4, minWidth: 280, maxHeight: 300, overflowY: "auto" }}>
-                {employees.length === 0 && <p style={{ margin: 0, padding: 10, fontSize: 12.5, color: "#9ca3af" }}>No PMs or Sales Reps found.</p>}
+                {employees.length === 0 && <p style={{ margin: 0, padding: 10, fontSize: 12.5, color: "#9ca3af" }}>No employees found.</p>}
                 {employees.map(e => (
                   <button key={e.id} onClick={() => selectEmployee(e.id)}
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%", border: 0, background: selectedEmp === e.id ? "#f3f4f6" : "transparent", borderRadius: 7, padding: "8px 10px", fontSize: 13, fontWeight: 500, color: "#0a0a0a", cursor: "pointer", textAlign: "left" }}>
                     <span>{e.name}</span>
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: "#6b7280" }}>{e.role === "project_manager" ? "PM" : "Sales Rep"}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: "#6b7280" }}>{e.role === "project_manager" ? "PM" : e.role === "admin" ? "Admin" : "Sales Rep"}</span>
                   </button>
                 ))}
               </div>
@@ -1540,8 +1540,8 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
         ) : null}
       </div>
 
-      {/* How it works — NO outer border, just content (design has no border on right panel) */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingLeft: 4 }}>
+      {/* Helper info below the upload box — stacked full width, same as the iPad layout */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280", margin: "0 0 14px" }}>How It Works</p>
           {[

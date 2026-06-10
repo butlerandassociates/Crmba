@@ -56,7 +56,10 @@ export function AppointmentDialog({
   const [assignedUserId, setAssignedUserId]     = useState("");
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([]);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [showRepPreview, setShowRepPreview] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
+  const [scopeMap, setScopeMap] = useState<Record<string, string>>({});
+  const [repEmailTemplate, setRepEmailTemplate] = useState<{ subject: string | null; body: string | null }>({ subject: null, body: null });
 
   useEffect(() => {
     Promise.all([
@@ -68,12 +71,18 @@ export function AppointmentDialog({
     }).catch(console.error);
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
+    // Scope-of-work id → name map, used to list the client's selected scopes in the rep email
+    supabase.from("scope_of_work").select("id, name")
+      .then(({ data }) => setScopeMap(Object.fromEntries((data ?? []).map((s: any) => [s.id, s.name]))));
     supabase.from("company_settings")
-      .select("google_calendar_refresh_token")
+      .select("google_calendar_refresh_token, rep_email_subject, rep_email_body")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => setCalendarConnected(!!data?.google_calendar_refresh_token));
+      .then(({ data }) => {
+        setCalendarConnected(!!data?.google_calendar_refresh_token);
+        setRepEmailTemplate({ subject: data?.rep_email_subject ?? null, body: data?.rep_email_body ?? null });
+      });
   }, []);
 
   useRealtimeRefetch(() => {
@@ -121,7 +130,7 @@ export function AppointmentDialog({
 <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
     <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
-      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="B&amp;A" width="80" height="56" style="height:56px;width:80px;display:block;margin:0 auto 14px auto;border:0;outline:none;"/>
+      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 12px auto;border:0;outline:none;"/>
       <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
     </td>
   </tr></table>
@@ -141,6 +150,118 @@ export function AppointmentDialog({
 
   const clientName = `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || client?.company || "Client";
   const clientAddress = [client?.address, client?.city, client?.state, client?.zip].filter(Boolean).join(", ");
+
+  // The rep "field info" email only applies to Initial Appointments
+  const selectedTypeName = appointmentTypes.find((t) => t.id === appointmentType)?.name ?? "";
+  const isInitialAppointment = selectedTypeName.toLowerCase().includes("initial");
+
+  // Resolve the client's selected scope-of-work IDs into readable names
+  const scopeNames = (Array.isArray(client?.scope_of_work) ? client.scope_of_work : [])
+    .map((id: string) => scopeMap[id] ?? id)
+    .filter(Boolean);
+
+  // Replace {placeholder} tokens in admin-editable templates
+  const fillVars = (tpl: string, vars: Record<string, string>) =>
+    Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), tpl);
+
+  /**
+   * Branded "field info" email sent to the assigned sales rep (or whoever the
+   * appointment is assigned to). Same B&A branding as the client email, but the
+   * body lists the full client contact info + scope so the rep has everything
+   * on hand when they're out in the field without CRM access.
+   */
+  const buildRepEmailHtml = (repFirstName: string, dateLabel: string, timeLabel: string, typeName: string) => {
+    // Admin-editable message (List Management → Appointment Types → Rep Email Body),
+    // falls back to a sensible default. Branded layout + details table stay fixed.
+    const apptType = appointmentTypes.find((t) => t.id === appointmentType);
+    const vars: Record<string, string> = {
+      rep_name:    repFirstName || "there",
+      client_name: clientName,
+      date:        dateLabel,
+      time:        timeLabel,
+      type:        typeName,
+      address:     clientAddress || "Not provided",
+      phone:       client?.phone || "Not provided",
+      email:       client?.email || "Not provided",
+      scope:       scopeNames.length ? scopeNames.join(", ") : "Not specified yet",
+    };
+    const defaultBody =
+      "Hi {rep_name},\nYou've been assigned a {type}. Here are the client details for your records — keep this handy in case you're in the field without CRM access.";
+    const messageHtml = fillVars((repEmailTemplate.body?.trim() || defaultBody), vars).replace(/\n/g, "<br>");
+
+    const row = (label: string, value: string) =>
+      `<tr><td style="padding:11px 16px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#1A1A1A;border-bottom:1px solid #F5F3EF;white-space:nowrap;vertical-align:top;width:130px;">${label}</td><td style="padding:11px 16px;font-family:Inter,sans-serif;font-size:14px;color:#1A1A1A;border-bottom:1px solid #F5F3EF;">${value}</td></tr>`;
+    const placeholder = (text: string) => `<span style="color:#1A1A1A;">${text}</span>`;
+    const phoneCell = client?.phone
+      ? `<a href="tel:${String(client.phone).replace(/[^0-9+]/g, "")}" style="color:#1A1A1A;text-decoration:none;">${client.phone}</a>` : placeholder("Not provided");
+    const emailCell = client?.email
+      ? `<a href="mailto:${client.email}" style="color:#1A1A1A;text-decoration:none;">${client.email}</a>` : placeholder("Not provided");
+    const addressCell = clientAddress
+      ? `<a href="https://maps.google.com/?q=${encodeURIComponent(clientAddress)}" target="_blank" style="color:#1A1A1A;text-decoration:none;">${clientAddress}</a>` : placeholder("Not provided");
+    const scopeCell = scopeNames.length > 0
+      ? scopeNames.map((s: string) => `<span style="display:inline-block;background:#F5F3EF;border:1px solid #E8E4DC;border-radius:4px;padding:3px 9px;margin:0 4px 4px 0;font-size:12px;color:#1A1A1A;">${s}</span>`).join("")
+      : "<span style=\"color:#1A1A1A;\">Not specified yet</span>";
+    const notesBlock = notes?.trim()
+      ? `<div style="margin:0 0 28px 0;"><p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Notes</p><p style="font-family:Inter,sans-serif;font-size:13px;color:#1A1A1A;line-height:1.6;margin:0;">${notes.replace(/\n/g, "<br>")}</p></div>` : "";
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-radius:6px 6px 0 0;overflow:hidden;"><tr>
+    <td bgcolor="#0A0A0A" style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 12px auto;border:0;outline:none;"/>
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    </td>
+  </tr></table>
+  <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+  <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+    <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">New Appointment Assigned</p>
+    <p style="font-family:Inter,sans-serif;font-size:14px;color:#1A1A1A;line-height:1.7;margin:0 0 24px 0;">${messageHtml}</p>
+
+    <!-- When -->
+    <div style="background:#0A0A0A;border-radius:6px;padding:18px 20px;margin:0 0 20px 0;text-align:center;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 6px 0;">${typeName}</p>
+      <p style="font-family:Inter,sans-serif;font-size:18px;font-weight:700;color:#fff;margin:0 0 2px 0;">${dateLabel}</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#BB984D;margin:0;">${timeLabel}</p>
+    </div>
+
+    <!-- Client details -->
+    <div style="margin:0 0 28px 0;">
+      <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Client Information</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;">
+        ${row("Name", clientName)}
+        ${row("Phone", phoneCell)}
+        ${row("Email", emailCell)}
+        ${row("Address", addressCell)}
+        <tr><td style="padding:11px 16px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#1A1A1A;vertical-align:top;width:130px;">Scope of Work</td><td style="padding:11px 16px;">${scopeCell}</td></tr>
+      </table>
+    </div>
+
+    ${notesBlock}
+
+    <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">Questions? Reply to this email or reach the office at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
+  </div>
+  <div style="text-align:center;padding:20px 0 0 0;">
+    <p style="font-family:Inter,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    <p style="font-family:Inter,sans-serif;font-size:11px;color:#3A3A38;opacity:0.55;margin:4px 0 0 0;">6275 University Drive NW, Suite 37-314 · Huntsville, AL 35806</p>
+  </div>
+</div></body></html>`;
+  };
+
+  // Wrapper that derives date/time/rep labels from the current form state for the preview
+  const buildRepPreviewHtml = () => {
+    const apptType = appointmentTypes.find((t) => t.id === appointmentType);
+    const typeName = apptType?.name ?? "Appointment";
+    const dateLabel = selectedDate ? format(selectedDate, "EEEE, MMMM d, yyyy") : "—";
+    const fmt12 = (t: string) => {
+      if (!t) return "";
+      const [h, m] = t.split(":").map(Number);
+      return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+    };
+    const timeLabel = startTime && endTime ? `${fmt12(startTime)} – ${fmt12(endTime)}` : "—";
+    const rep = teamMembers.find((m) => m.id === assignedUserId);
+    return buildRepEmailHtml(rep?.first_name ?? "", dateLabel, timeLabel, typeName);
+  };
 
   const handleSchedule = async () => {
     setTouched(true);
@@ -272,6 +393,34 @@ export function AppointmentDialog({
           .limit(1);
       }
 
+      // Send branded "field info" email to the assigned rep — ONLY for Initial Appointments
+      // (per Jonathan's request: reps get the client info sheet when an Initial Appointment is booked)
+      if (assignedEmail && typeLabel.toLowerCase().includes("initial")) {
+        const repFirstName = assignedUser?.first_name ?? "";
+        const repHtml = buildRepEmailHtml(repFirstName, dateLabel, timeLabel, typeLabel);
+        // Editable subject (List Management → Sales Rep Email Template), with fallback
+        const subjVars = { rep_name: repFirstName || "there", client_name: clientName, date: dateLabel, time: timeLabel, type: typeLabel };
+        const repSubject = repEmailTemplate.subject?.trim()
+          ? fillVars(repEmailTemplate.subject.trim(), subjVars)
+          : `New ${typeLabel}: ${clientName} — ${dateLabel}`;
+        supabase.functions.invoke("send-email", {
+          body: {
+            to:        assignedEmail,
+            subject:   repSubject,
+            html:      repHtml,
+            from_name: "Butler & Associates Construction",
+          },
+        }).then(({ error: repErr }) => {
+          if (repErr) {
+            activityLogAPI.create({
+              client_id:   client.id,
+              action_type: "email_failed",
+              description: `Rep appointment-details email failed to deliver to ${assignedEmail}: ${repErr.message}`,
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
       // Send SMS confirmation via Twilio
       if (client?.phone) {
         const { data: smsData, error: smsErr } = await supabase.functions.invoke(
@@ -384,7 +533,21 @@ export function AppointmentDialog({
         <DialogBody className="space-y-5">
           {/* Assigned To */}
           <div className="space-y-2">
-            <Label>Assigned To *</Label>
+            <div className="flex items-center justify-between">
+              <Label>Assigned To *</Label>
+              {assignedUserId && appointmentType && selectedDate && startTime && endTime && isInitialAppointment && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  onClick={() => setShowRepPreview(true)}
+                >
+                  <Mail className="h-3 w-3" />
+                  Preview Rep Email
+                </Button>
+              )}
+            </div>
             <Select value={assignedUserId} onValueChange={setAssignedUserId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select team member" />
@@ -505,11 +668,6 @@ export function AppointmentDialog({
               const h12 = h % 12 || 12;
               return { value: `${String(h).padStart(2, "0")}:${m}`, label: `${h12}:${m} ${ampm}` };
             });
-            const fmt12 = (t: string) => {
-              if (!t) return "";
-              const [h, m] = t.split(":").map(Number);
-              return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-            };
             return (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -521,8 +679,9 @@ export function AppointmentDialog({
                     value={startTime}
                     onValueChange={(val) => {
                       setStartTime(val);
+                      // Auto-fill end time to 1 hour after start (user can override below)
                       const [h, m] = val.split(":").map(Number);
-                      const total = h * 60 + m + 90;
+                      const total = h * 60 + m + 60;
                       const eh = Math.floor(total / 60) % 24;
                       const em = total % 60;
                       setEndTime(`${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`);
@@ -542,11 +701,21 @@ export function AppointmentDialog({
                 <div className="space-y-2">
                   <Label>
                     <Clock className="h-3 w-3 inline mr-1" />
-                    End Time <span className="text-xs text-muted-foreground font-normal">(auto)</span>
+                    End Time <span className="text-xs text-muted-foreground font-normal">(editable)</span>
                   </Label>
-                  <div className={`flex h-9 w-full items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground`}>
-                    {endTime ? fmt12(endTime) : <span className="opacity-50">Auto-filled</span>}
-                  </div>
+                  <Select value={endTime} onValueChange={setEndTime} disabled={!startTime}>
+                    <SelectTrigger className={touched && !endTime ? "border-red-500" : ""}>
+                      <SelectValue placeholder={startTime ? "Select end time" : "Pick start time first"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {timeSlots
+                        .filter((slot) => !startTime || slot.value > startTime)
+                        .map((slot) => (
+                          <SelectItem key={slot.value} value={slot.value}>{slot.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {touched && startTime && !endTime && <p className="text-xs text-red-500">End time is required.</p>}
                 </div>
               </div>
             );
@@ -651,6 +820,31 @@ export function AppointmentDialog({
               srcDoc={buildPreviewHtml()}
               className="w-full h-full border-0"
               title="Email Preview"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rep Email Preview Dialog — what the assigned rep receives */}
+      <Dialog open={showRepPreview} onOpenChange={setShowRepPreview}>
+        <DialogContent className="flex flex-col p-0 gap-0" style={{ width: "680px", maxWidth: "95vw", height: "85vh" }}>
+          <DialogHeader className="shrink-0 px-6 py-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              Rep Email Preview
+            </DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const rep = teamMembers.find((m) => m.id === assignedUserId);
+                return `This is what ${rep ? `${rep.first_name} ${rep.last_name}` : "the assigned rep"}${rep?.email ? ` (${rep.email})` : ""} will receive with the client's field info.`;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-b-lg">
+            <iframe
+              srcDoc={buildRepPreviewHtml()}
+              className="w-full h-full border-0"
+              title="Rep Email Preview"
             />
           </div>
         </DialogContent>

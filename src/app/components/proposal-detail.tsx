@@ -61,6 +61,16 @@ import {
 } from "./ui/dropdown-menu";
 import { ProposalExport } from "./proposal-export";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { PageLoader, SkeletonCards } from "./ui/page-loader";
 
 export function ProposalDetail() {
@@ -78,6 +88,8 @@ export function ProposalDetail() {
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
@@ -1488,14 +1500,14 @@ export function ProposalDetail() {
       </div>
       ` : ""}
 
-      ${reviewsHtml}
-
-      <!-- CTA -->
-      <div style="text-align:center;margin:0 0 24px 0;">
+      <!-- CTA — placed right under the scope/total card (before reviews) so clients see it -->
+      <div style="text-align:center;margin:0 0 28px 0;">
         <a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;font-weight:500;letter-spacing:0.08em;">
           View &amp; Accept Proposal
         </a>
       </div>
+
+      ${reviewsHtml}
 
       <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">
         This proposal is valid for 30 days. Questions? Reply to this email or call
@@ -1689,8 +1701,59 @@ export function ProposalDetail() {
               Save
             </Button>
           )}
+
+          {/* Delete — allowed for any non-accepted proposal (accepted = active job, protected) */}
+          {proposal.status !== "accepted" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={() => setShowDeleteDialog(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Delete Proposal Confirmation */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => { if (!deleting) setShowDeleteDialog(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Proposal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{proposal.title}&quot;? This permanently removes the proposal and all its line items. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await estimatesAPI.delete(proposal.id);
+                  activityLogAPI.create({
+                    client_id: proposal.client_id,
+                    action_type: "proposal_deleted",
+                    description: `Proposal deleted: "${proposal.title}"`,
+                  }).catch(() => {});
+                  toast.success("Proposal deleted");
+                  navigate(`/clients/${proposal.client_id}`);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to delete proposal");
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Proposal Info */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -2767,8 +2830,8 @@ export function ProposalDetail() {
     <p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 16px 0;">Your Proposal Is Ready</p>
     <p style="font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${emailMessage.replace(/\n/g, '<br>')}</p>
     ${scopeRowsP.length > 0 ? `<div style="margin:0 0 28px 0;"><p style="font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">Scope of Work</p><table width="100%" cellpadding="0" cellspacing="0" style="border-radius:6px;overflow:hidden;border:1px solid #E8E4DC;"><tr style="background:#0A0A0A;"><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;">Item</td><td style="padding:10px 16px;font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#BB984D;text-align:right;">Amount</td></tr>${scopeHtmlP}<tr style="background:#F5F3EF;border-top:2px solid #E8E4DC;"><td style="padding:14px 16px;font-size:14px;font-weight:700;color:#0A0A0A;">Total Investment</td><td style="padding:14px 16px;font-size:22px;color:#BB984D;text-align:right;">${grandTotalP}</td></tr></table></div>` : ""}
+    <div style="text-align:center;margin:0 0 28px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a></div>
     ${reviewsHtmlP}
-    <div style="text-align:center;margin:0 0 24px 0;"><a href="${proposalLink}" style="display:inline-block;background:#0A0A0A;color:#BB984D;padding:14px 40px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;letter-spacing:0.08em;">View &amp; Accept Proposal</a></div>
     <p style="font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;text-align:center;">This proposal is valid for 30 days. Questions? Reply to this email or call <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a>.</p>
   </div>
   <div style="text-align:center;padding:20px 0 0 0;">

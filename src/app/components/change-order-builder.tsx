@@ -32,6 +32,7 @@ const EMPTY_ITEM = () => ({
   unit: "",
   unit_price: 0,
   total: 0,
+  material_cost: 0, // per-unit material cost (from product) — used for 9%-on-materials tax
   fromProduct: false,
 });
 
@@ -57,6 +58,7 @@ export function ChangeOrderBuilder() {
   const [timelineImpact, setTimelineImpact] = useState("");
   const [items, setItems]                   = useState([EMPTY_ITEM()]);
   const [touched, setTouched]               = useState(false);
+  const [taxRate, setTaxRate]               = useState(0); // client zip sales-tax rate (e.g. 9 for Huntsville)
 
   // Product picker per row
   const [pickerState, setPickerState] = useState<Record<string, { categoryId: string }>>({});
@@ -112,6 +114,13 @@ export function ChangeOrderBuilder() {
         setClient(c);
         setDbProducts(prods);
         setCategories(cats);
+
+        // Look up the client's sales-tax rate by zip (same source as proposals)
+        if (c?.zip) {
+          const { data: zr } = await supabase
+            .from("zip_tax_rates").select("total_rate").eq("zip_code", String(c.zip).trim()).maybeSingle();
+          if (zr?.total_rate) setTaxRate(Number(zr.total_rate));
+        }
         if (settingsRes.data?.global_markup_percent) {
           setGlobalMarkupPct(Number(settingsRes.data.global_markup_percent));
         }
@@ -119,7 +128,7 @@ export function ChangeOrderBuilder() {
         // Load accepted proposal with line items + financial fields needed for live totals
         const { data: prop } = await supabase
           .from("estimates")
-          .select("id, title, total, subtotal, bad_amount, tax_amount, discount_amount, discount_percentage, stripe_fee_enabled, estimate_number, line_items:estimate_line_items(id, product_name, category, labor_cost, quantity, client_price, total_price, sort_order)")
+          .select("id, title, total, subtotal, bad_amount, tax_amount, discount_amount, discount_percentage, stripe_fee_enabled, estimate_number, line_items:estimate_line_items(id, product_name, category, labor_cost, material_cost, quantity, client_price, total_price, sort_order)")
           .eq("client_id", clientId)
           .eq("status", "accepted")
           .order("accepted_at", { ascending: false })
@@ -158,6 +167,7 @@ export function ChangeOrderBuilder() {
                 unit: i.unit || "",
                 unit_price: i.unit_price || 0,
                 total: i.total || 0,
+                material_cost: i.material_cost || 0,
                 fromProduct: false,
               }));
               setItems(loadedItems);
@@ -234,7 +244,7 @@ export function ChangeOrderBuilder() {
     const categoryName = product.category?.name || "Materials";
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice, fromProduct: true };
+      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice, material_cost: materialCost, fromProduct: true };
     }));
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
@@ -327,6 +337,7 @@ export function ChangeOrderBuilder() {
         unit: i.unit || "",
         unit_price: Number(i.unit_price),
         total: Number(i.total),
+        material_cost: Number(i.material_cost || 0),
       }));
       const modsArray = Object.values(modifications);
       if (isEdit && existingCO) {
@@ -424,6 +435,7 @@ export function ChangeOrderBuilder() {
         unit: i.unit || "",
         unit_price: Number(i.unit_price),
         total: Number(i.total),
+        material_cost: Number(i.material_cost || 0),
       }));
       const modsArray = Object.values(modifications);
 
@@ -580,6 +592,7 @@ export function ChangeOrderBuilder() {
         unit: i.unit || "",
         unit_price: Number(i.unit_price),
         total: Number(i.total),
+        material_cost: Number(i.material_cost || 0),
       }));
 
       let co: any;
@@ -796,8 +809,9 @@ export function ChangeOrderBuilder() {
   const originalBad = proposal?.bad_amount ?? 0;
   const originalTax = proposal?.tax_amount ?? 0;
 
-  // Subtotal — stored proposal.subtotal as base + deltas from mods + new CO items
-  // (avoids floating-point gap between stored subtotal and sum of individual line_item.total_price)
+  // Subtotal — re-sum the proposal's line items (the SAME basis mergeApproved uses) plus
+  // deltas from mods + new CO items. Using the re-summed line total instead of the stored
+  // aggregate proposal.subtotal keeps this live preview penny-accurate vs. the merged result.
   const modSubtotalDelta = Object.values(modifications).reduce((s: number, mod: any) => {
     const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
     if (!li) return s;
@@ -806,13 +820,16 @@ export function ChangeOrderBuilder() {
     return s;
   }, 0);
   const newCoSubtotal = items.filter(i => i.description.trim()).reduce((s, i) => s + Number(i.total || 0), 0);
-  const liveSubtotal = (proposal?.subtotal || 0) + modSubtotalDelta + newCoSubtotal;
+  const originalLineSubtotal = (proposal?.line_items || []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
+  const liveSubtotal = originalLineSubtotal + modSubtotalDelta + newCoSubtotal;
 
   // Discount — preserve original; if % discount recompute proportionally with new subtotal
   const discountPct = proposal?.discount_percentage || 0;
   const originalDiscountAmount = proposal?.discount_amount || 0;
+  // No intermediate rounding — mergeApproved computes the % discount unrounded, so matching
+  // it here keeps the live total penny-identical to the merged proposal.
   const liveDiscountAmount = discountPct > 0
-    ? Math.round(liveSubtotal * (discountPct / 100) * 100) / 100
+    ? liveSubtotal * (discountPct / 100)
     : originalDiscountAmount;
   const liveSubtotalAfterDiscount = liveSubtotal - liveDiscountAmount;
 
@@ -832,10 +849,33 @@ export function ChangeOrderBuilder() {
   const coBadDelta = coBadQualifying * 0.015 * 1.5;
   const liveBad = Math.round((originalBad + modBadDelta + coBadDelta) * 100) / 100;
 
-  // Tax — scale proportionally using ratio from original (preserves $0 for unknown zip)
-  const origSubtotalForTax = (proposal?.subtotal || 0) - (proposal?.discount_amount || 0);
-  const taxRatio = origSubtotalForTax > 0 ? (proposal?.tax_amount || 0) / origSubtotalForTax : 0;
-  const liveTax = Math.round(liveSubtotalAfterDiscount * taxRatio * 100) / 100;
+  // Tax — ADDITIVE: keep the original proposal's tax and only ADD the zip rate (e.g.
+  // 9%) on the change order's OWN net new materials (new items + edit/delete deltas),
+  // same as proposals (labor never taxed). This never retroactively changes an active
+  // job's existing tax. If the zip rate is unknown, no tax is added (original kept).
+  const isTaxableItem = (name: string, matCost: number) => {
+    const prod = dbProducts.find((p: any) => String(p.name || "").toLowerCase() === String(name || "").toLowerCase());
+    return prod ? prod.sales_tax_rate != null : matCost > 0;
+  };
+  let liveTax = Number(originalTax) || 0; // preserve original baseline
+  if (taxRate > 0) {
+    // material delta from edits/deletes of original items
+    const modMaterialDelta = Object.values(modifications).reduce((s: number, mod: any) => {
+      const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
+      if (!li) return s;
+      const matCost = Number(li.material_cost || 0);
+      if (!isTaxableItem(li.product_name, matCost)) return s;
+      if (mod.action === "delete") return s - Number(li.quantity || 0) * matCost;
+      if (mod.action === "edit")   return s + (Number(mod.quantity || 0) - Number(li.quantity || 0)) * matCost;
+      return s;
+    }, 0);
+    // 9% on new CO items' material
+    const coMaterial = items.filter(i => i.description.trim()).reduce((s, i) => {
+      const matCost = Number(i.material_cost || 0);
+      return s + (isTaxableItem(i.description, matCost) ? Number(i.quantity || 0) * matCost : 0);
+    }, 0);
+    liveTax = Math.round((Number(originalTax || 0) + (coMaterial + modMaterialDelta) * (taxRate / 100)) * 100) / 100;
+  }
 
   // CC Processing Fee — recompute from live pre-stripe total (2.9% + $0.30 flat)
   const livePreStripeTotal = liveSubtotalAfterDiscount + liveBad + liveTax;

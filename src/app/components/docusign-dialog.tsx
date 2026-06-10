@@ -28,8 +28,11 @@ interface DocuSignDialogProps {
   client: Record<string, any>;
   project?: Record<string, any>;
   onSent?: (envelopeId: string) => void;
-  /** "contract" (default) or "certificate" — changes labels, email subject, and auto-selects the matching template */
-  documentType?: "contract" | "certificate";
+  /** "contract" (default), "certificate", or "subcontractor" — changes labels, email subject, and auto-selects the matching template */
+  documentType?: "contract" | "certificate" | "subcontractor";
+  /** For the subcontractor agreement, the signer is the project's foreman (not the client). */
+  signerName?: string;
+  signerEmail?: string;
 }
 
 interface DocuSignTemplate {
@@ -46,8 +49,11 @@ export function DocuSignDialog({
   project,
   onSent,
   documentType = "contract",
+  signerName,
+  signerEmail,
 }: DocuSignDialogProps) {
   const isCertificate = documentType === "certificate";
+  const isSubcontractor = documentType === "subcontractor";
   const [templates, setTemplates] = useState<DocuSignTemplate[]>([]);
   const [dbTemplates, setDbTemplates] = useState<{ id: string; name: string; template_id: string }[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -60,6 +66,10 @@ export function DocuSignDialog({
   const [docusignConnected, setDocusignConnected] = useState<boolean | null>(null);
 
   const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+
+  // Who signs as the 2nd recipient. Contract/certificate = the client; subcontractor = the foreman.
+  const effectiveSignerName  = isSubcontractor ? (signerName ?? "") : (fullName || client.email || "Client");
+  const effectiveSignerEmail = isSubcontractor ? (signerEmail ?? "") : client.email;
 
   // Load templates and check connection on open
   useEffect(() => {
@@ -118,9 +128,12 @@ export function DocuSignDialog({
         description: t.description,
       }));
       setTemplates(mapped);
-      // Auto-select the Certificate of Completion template when sending a certificate
+      // Auto-select the matching template by document type
       if (isCertificate) {
         const match = mapped.find((t: DocuSignTemplate) => /certificate of completion/i.test(t.name));
+        if (match) setSelectedTemplate(match.templateId);
+      } else if (isSubcontractor) {
+        const match = mapped.find((t: DocuSignTemplate) => /subcontractor/i.test(t.name));
         if (match) setSelectedTemplate(match.templateId);
       }
     } catch (error) {
@@ -137,8 +150,11 @@ export function DocuSignDialog({
     const templateToUse = manualTemplateId || selectedTemplate;
     if (!templateToUse) return;
 
-    if (!client.email) {
-      setErrorMessage("Cannot send — client has no email address. Update the client's Contact Info first.");
+    // Validate the 2nd-signer email (client for contract/cert, foreman for subcontractor)
+    if (!effectiveSignerEmail) {
+      setErrorMessage(isSubcontractor
+        ? "Cannot send — the project's foreman has no email address. Assign a foreman with an email first."
+        : "Cannot send — client has no email address. Update the client's Contact Info first.");
       setStatus("error");
       return;
     }
@@ -152,21 +168,28 @@ export function DocuSignDialog({
         templateId: templateToUse,
         emailSubject: isCertificate
           ? `Certificate of Completion${project ? ` — ${project.name}` : ""} | Butler & Associates Construction, Inc`
-          : project
-            ? `${project.name} Agreement | Butler & Associates Construction, Inc`
-            : `Contract | Butler & Associates Construction, Inc`,
+          : isSubcontractor
+            ? `Subcontractor Agreement | Butler & Associates Construction, Inc`
+            : project
+              ? `${project.name} Agreement | Butler & Associates Construction, Inc`
+              : `Contract | Butler & Associates Construction, Inc`,
         emailBlurb: isCertificate
           ? `Please review and sign the Certificate of Completion${project ? ` for your ${project.name} project` : ""} with Butler & Associates Construction, Inc.`
-          : `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
-        clientEmail: client.email,
-        clientName: fullName || client.email || "Client",
+          : isSubcontractor
+            ? `Please review and sign the Subcontractor Agreement${project ? ` for the ${project.name} project` : ""} with Butler & Associates Construction, Inc.`
+            : `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
+        clientEmail: effectiveSignerEmail,
+        clientName: effectiveSignerName || effectiveSignerEmail || "Signer",
 
         adminEmail: "info@butlerconstruction.co",
         adminName: "Jonathan Butler",
+        // Subcontractor template uses different role names than the client docs
+        adminRoleName:  isSubcontractor ? "Owner/General Manager" : "Admin",
+        signerRoleName: isSubcontractor ? "Subcontractor" : "Client",
         tabs: {},
         // Carry the document type back so the client page routes the status to the
-        // correct columns (contract vs certificate) — avoids fuzzy envelope-id matching.
-        returnUrl: `${window.location.origin}/clients/${client.id}?${isCertificate ? "certdocusign" : "docusign"}=sent`,
+        // correct columns — avoids fuzzy envelope-id matching.
+        returnUrl: `${window.location.origin}/clients/${client.id}?${isCertificate ? "certdocusign" : isSubcontractor ? "subdocusign" : "docusign"}=sent`,
       };
 
       const response = await fetch(
@@ -222,12 +245,14 @@ export function DocuSignDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSignature className="h-5 w-5" />
-            {isCertificate ? "Send Certificate of Completion" : "Send DocuSign Document"}
+            {isCertificate ? "Send Certificate of Completion" : isSubcontractor ? "Send Subcontractor Agreement" : "Send DocuSign Document"}
           </DialogTitle>
           <DialogDescription>
             {isCertificate
               ? `Send the Certificate of Completion for signature to ${fullName || "the client"}`
-              : `Select a template and send for signature to ${fullName || "the client"}`}
+              : isSubcontractor
+                ? `Send the Subcontractor Agreement for signature to ${effectiveSignerName || "the foreman"}`
+                : `Select a template and send for signature to ${fullName || "the client"}`}
           </DialogDescription>
         </DialogHeader>
 
@@ -269,17 +294,21 @@ export function DocuSignDialog({
                 </div>
               </div>
             )}
-            {!client.email && (
+            {!effectiveSignerEmail && (
               <div className="pb-2">
                 <div className="px-6 py-3 bg-red-50 border border-red-300 flex items-start gap-2">
                   <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
                   <div className="text-sm text-red-800">
-                    <strong>Cannot send DocuSign —</strong> this client has no email address on record. Go to <a href={`/clients/${client.id}`} className="underline font-medium">Edit Client</a> and add an email first.
+                    {isSubcontractor ? (
+                      <><strong>Cannot send —</strong> the project's foreman has no email on record. Assign a foreman with an email to this project first.</>
+                    ) : (
+                      <><strong>Cannot send DocuSign —</strong> this client has no email address on record. Go to <a href={`/clients/${client.id}`} className="underline font-medium">Edit Client</a> and add an email first.</>
+                    )}
                   </div>
                 </div>
               </div>
             )}
-            {client.email && !client.address && (
+            {!isSubcontractor && client.email && !client.address && (
               <div className="pb-2">
                 <div className="px-6 py-3 bg-yellow-50 border border-yellow-300 flex items-start gap-2">
                   <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" />
@@ -301,15 +330,15 @@ export function DocuSignDialog({
           <DialogBody className="space-y-6">
             {/* Recipient Info */}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="text-sm font-semibold text-blue-900 mb-2">Recipient</div>
+              <div className="text-sm font-semibold text-blue-900 mb-2">{isSubcontractor ? "Signer (Foreman)" : "Recipient"}</div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700">Name:</span>
-                  <span className="text-sm font-medium text-blue-900">{fullName}</span>
+                  <span className="text-sm font-medium text-blue-900">{(isSubcontractor ? effectiveSignerName : fullName) || <span className="text-red-500">Not set</span>}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-blue-700">Email:</span>
-                  <span className="text-sm font-medium text-blue-900">{client.email || <span className="text-red-500">Not set</span>}</span>
+                  <span className="text-sm font-medium text-blue-900">{effectiveSignerEmail || <span className="text-red-500">Not set</span>}</span>
                 </div>
                 {project && (
                   <div className="flex items-center justify-between">
@@ -445,7 +474,7 @@ export function DocuSignDialog({
             </Button>
             <Button
               onClick={sendEnvelope}
-              disabled={(!selectedTemplate && !manualTemplateId) || loading || !client.email || docusignConnected === false}
+              disabled={(!selectedTemplate && !manualTemplateId) || loading || !effectiveSignerEmail || docusignConnected === false}
             >
               {loading ? (
                 <>
