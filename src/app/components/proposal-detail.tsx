@@ -185,6 +185,7 @@ export function ProposalDetail() {
   const [reverting, setReverting] = useState(false);
   const [showRevertDialog, setShowRevertDialog] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [proposalEmailTemplate, setProposalEmailTemplate] = useState<{ subject: string | null; body: string | null }>({ subject: null, body: null });
   const [warrantySections, setWarrantySections] = useState<WarrantySection[]>([]);
   const [warrantyDisclaimer, setWarrantyDisclaimer] = useState("");
   const [attachProposalPdf, setAttachProposalPdf] = useState(true);
@@ -204,10 +205,15 @@ export function ProposalDetail() {
     wizardVariantsAPI.getAll().then(setWizardVariants).catch(console.error);
     supabase
       .from("proposal_reviews")
-      .select("reviewer_name, rating, review_text")
+      .select("reviewer_name, rating, review_text, show_in_email")
       .eq("is_active", true)
+      .eq("show_in_email", true)
       .order("sort_order")
       .then(({ data }) => setReviews(data ?? []));
+    supabase.from("company_settings")
+      .select("proposal_email_subject, proposal_email_body")
+      .limit(1).maybeSingle()
+      .then(({ data }) => setProposalEmailTemplate({ subject: data?.proposal_email_subject ?? null, body: data?.proposal_email_body ?? null }));
     warrantyAPI.getAll()
       .then(({ sections, disclaimer }) => { setWarrantySections(sections); setWarrantyDisclaimer(disclaimer); })
       .catch(() => {});
@@ -1286,9 +1292,18 @@ export function ProposalDetail() {
 
   const handleEmail = () => {
     const firstName = (client?.first_name ?? "").trim() || "there";
+    const defaultBody = `Hi ${firstName},\n\nPlease review our proposal for your project. By clicking the button below; you can view, accept, or decline the proposal. Once accepted, we will receive a notification and will reach out to discuss next steps!\n\nPlease let us know if you have any questions!`;
+    const templateBody = proposalEmailTemplate.body?.trim()
+      ? proposalEmailTemplate.body.trim().replace(/\{client_first_name\}/g, firstName)
+      : defaultBody;
+    const templateSubject = proposalEmailTemplate.subject?.trim()
+      ? proposalEmailTemplate.subject.trim()
+          .replace(/\{client_name\}/g, `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || firstName)
+          .replace(/\{proposal_title\}/g, proposal.title ?? "")
+      : `Proposal: ${proposal.title}`;
     setEmailTo(client?.email ?? "");
-    setEmailSubject(`Proposal: ${proposal.title}`);
-    setEmailMessage(`Hi ${firstName},\n\nPlease review our proposal for your project. By clicking the button below; you can view, accept, or decline the proposal. Once accepted, we will receive a notification and will reach out to discuss next step!\n\nPlease let us know if you have any questions!`);
+    setEmailSubject(templateSubject);
+    setEmailMessage(templateBody);
     setAttachProposalPdf(true);
     setShowEmailDialog(true);
   };

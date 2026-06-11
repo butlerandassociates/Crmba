@@ -545,13 +545,14 @@ interface ProposalReview {
   review_text: string;
   sort_order: number;
   is_active: boolean;
+  show_in_email: boolean;
 }
 
 const proposalReviewsAPI = {
   getAll: async () => {
     const { data, error } = await supabase
       .from("proposal_reviews")
-      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active, show_in_email")
       .order("sort_order");
     if (error) throw new Error(error.message);
     return (data ?? []) as ProposalReview[];
@@ -560,7 +561,7 @@ const proposalReviewsAPI = {
     const { data, error } = await supabase
       .from("proposal_reviews")
       .insert({ ...fields })
-      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active, show_in_email")
       .single();
     if (error) throw new Error(error.message);
     return data as ProposalReview;
@@ -570,7 +571,7 @@ const proposalReviewsAPI = {
       .from("proposal_reviews")
       .update({ ...fields })
       .eq("id", id)
-      .select("id, reviewer_name, rating, review_text, sort_order, is_active")
+      .select("id, reviewer_name, rating, review_text, sort_order, is_active, show_in_email")
       .single();
     if (error) throw new Error(error.message);
     return data as ProposalReview;
@@ -580,6 +581,112 @@ const proposalReviewsAPI = {
     if (error) throw new Error(error.message);
   },
 };
+
+function ProposalEmailTemplateCard() {
+  const [subject, setSubject] = useState("");
+  const [body, setBody]       = useState("");
+  const [loaded, setLoaded]   = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const DEFAULT_SUBJECT = "Proposal: {proposal_title}";
+  const DEFAULT_BODY = "Hi {client_first_name},\n\nPlease review our proposal for your project. By clicking the button below; you can view, accept, or decline the proposal. Once accepted, we will receive a notification and will reach out to discuss next steps!\n\nPlease let us know if you have any questions!";
+
+  useEffect(() => {
+    supabase.from("company_settings")
+      .select("proposal_email_subject, proposal_email_body")
+      .limit(1).maybeSingle()
+      .then(({ data }) => {
+        setSubject(data?.proposal_email_subject ?? DEFAULT_SUBJECT);
+        setBody(data?.proposal_email_body ?? DEFAULT_BODY);
+        setLoaded(true);
+      });
+  }, []);
+
+  const subjectErr = subject.trim().length === 0 ? "Email Subject is required."
+    : subject.trim().length < 3 ? "Must be at least 3 characters." : "";
+  const bodyErr = body.trim().length === 0 ? "Email Body is required."
+    : body.trim().length < 10 ? "Must be at least 10 characters." : "";
+  const hasErrors = !!subjectErr || !!bodyErr;
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (hasErrors) return;
+    setSaving(true);
+    try {
+      const { data: row } = await supabase.from("company_settings").select("id").limit(1).maybeSingle();
+      if (!row) { toast.error("Company settings not found."); return; }
+      const { error } = await supabase.from("company_settings")
+        .update({ proposal_email_subject: subject.trim(), proposal_email_body: body.trim() })
+        .eq("id", row.id);
+      if (error) throw new Error(error.message);
+      toast.success("Proposal email template saved.");
+    } catch (err: any) { toast.error(err.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Card className="md:col-span-2">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Proposal Email Template</CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Email sent to clients when a proposal is shared. A "View Proposal" button and scope-of-work table are added automatically.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!loaded ? (
+          <SkeletonList rows={2} />
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Subject <span className="text-destructive">*</span>
+              </label>
+              <Input
+                placeholder="e.g. Proposal: {proposal_title}"
+                value={subject}
+                onChange={(e) => { setSubject(e.target.value); if (touched) setTouched(false); }}
+                maxLength={200}
+                className={touched && subjectErr ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {touched && subjectErr
+                ? <p className="text-xs text-destructive">{subjectErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Variables: <code className="bg-muted px-1 rounded">{"{client_name}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{proposal_title}"}</code>
+                  </p>}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" /> Email Body <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                placeholder={`Hi {client_first_name},\n\nPlease review our proposal for your project. By clicking the button below; you can view, accept, or decline the proposal. Once accepted, we will receive a notification and will reach out to discuss next steps!\n\nPlease let us know if you have any questions!`}
+                value={body}
+                onChange={(e) => { setBody(e.target.value); if (touched) setTouched(false); }}
+                rows={7}
+                className={`resize-none ${touched && bodyErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {touched && bodyErr
+                ? <p className="text-xs text-destructive">{bodyErr}</p>
+                : <p className="text-xs text-muted-foreground">
+                    Variable: <code className="bg-muted px-1 rounded">{"{client_first_name}"}</code>
+                  </p>}
+            </div>
+
+            <div className="flex justify-end">
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save Template
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function ProposalReviewsSection({
   items, loading, onAdd, onUpdate, onDelete,
@@ -594,10 +701,11 @@ function ProposalReviewsSection({
   const [name, setName]             = useState("");
   const [rating, setRating]         = useState(5);
   const [text, setText]             = useState("");
-  const [isActive, setIsActive]     = useState(true);
-  const [touched, setTouched]       = useState(false);
-  const [saving, setSaving]         = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isActive, setIsActive]       = useState(true);
+  const [showInEmail, setShowInEmail] = useState(true);
+  const [touched, setTouched]         = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [deletingId, setDeletingId]   = useState<string | null>(null);
 
   const nameErr = name.trim().length === 0 ? "Reviewer name is required." : "";
   const textErr = text.trim().length === 0 ? "Review text is required."
@@ -605,13 +713,13 @@ function ProposalReviewsSection({
   const hasErrors = !!nameErr || !!textErr;
 
   const openNew = () => {
-    setName(""); setRating(5); setText(""); setIsActive(true); setTouched(false);
+    setName(""); setRating(5); setText(""); setIsActive(true); setShowInEmail(true); setTouched(false);
     setSheet("new");
   };
 
   const openEdit = (item: ProposalReview) => {
     setName(item.reviewer_name); setRating(item.rating);
-    setText(item.review_text); setIsActive(item.is_active); setTouched(false);
+    setText(item.review_text); setIsActive(item.is_active); setShowInEmail(item.show_in_email ?? true); setTouched(false);
     setSheet(item);
   };
 
@@ -627,6 +735,7 @@ function ProposalReviewsSection({
         rating,
         review_text: text.trim(),
         is_active: isActive,
+        show_in_email: showInEmail,
         sort_order: sheet === "new" ? items.length : (sheet as ProposalReview).sort_order,
       };
       if (sheet === "new") {
@@ -686,6 +795,9 @@ function ProposalReviewsSection({
                       <span className="text-xs text-amber-500 shrink-0">{"★".repeat(item.rating)}</span>
                       {!item.is_active && (
                         <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">Hidden</span>
+                      )}
+                      {item.is_active && item.show_in_email && (
+                        <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5"><Mail className="h-2.5 w-2.5" />Email</span>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{item.review_text}</p>
@@ -765,6 +877,15 @@ function ProposalReviewsSection({
                 Show on proposals
               </label>
               <p className="text-xs text-muted-foreground">Uncheck to hide without deleting</p>
+            </div>
+
+            {/* Show in email toggle */}
+            <div className="flex items-center gap-3">
+              <Checkbox id="review-email" checked={showInEmail} onCheckedChange={(v) => setShowInEmail(!!v)} />
+              <label htmlFor="review-email" className="text-sm font-medium cursor-pointer">
+                Show in proposal email
+              </label>
+              <p className="text-xs text-muted-foreground">Include this review in the email sent to clients</p>
             </div>
           </div>
 
@@ -984,13 +1105,16 @@ function GlobalRepEmailCard() {
   const [saving, setSaving]   = useState(false);
   const [touched, setTouched] = useState(false);
 
+  const DEFAULT_SUBJECT = "New {type}: {client_name} — {date}";
+  const DEFAULT_BODY = "Hi {rep_name},\nYou've been assigned a {type}. Here are the client details for your records — keep this handy in case you're in the field without CRM access.";
+
   useEffect(() => {
     supabase.from("company_settings")
       .select("rep_email_subject, rep_email_body")
       .limit(1).maybeSingle()
       .then(({ data }) => {
-        setSubject(data?.rep_email_subject ?? "");
-        setBody(data?.rep_email_body ?? "");
+        setSubject(data?.rep_email_subject ?? DEFAULT_SUBJECT);
+        setBody(data?.rep_email_body ?? DEFAULT_BODY);
         setLoaded(true);
       });
   }, []);
@@ -2246,6 +2370,8 @@ export function ListManagement() {
             setScopeOfWork((prev) => prev.filter((s) => s.id !== id));
           }}
         />
+
+        <ProposalEmailTemplateCard />
 
         <ProposalReviewsSection
           items={reviews}
