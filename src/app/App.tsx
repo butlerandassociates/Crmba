@@ -2,6 +2,7 @@ import { RouterProvider } from 'react-router';
 import { router } from './routes';
 import { Toaster } from './components/ui/sonner';
 import { AuthProvider, useAuth } from './contexts/auth-context';
+import { ViewAsProvider } from './contexts/view-as-context';
 import { AuthScreen } from './components/auth-screen';
 import { Loader2 } from 'lucide-react';
 function AppContent() {
@@ -28,7 +29,9 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ViewAsProvider>
+        <AppContent />
+      </ViewAsProvider>
     </AuthProvider>
   );
 }

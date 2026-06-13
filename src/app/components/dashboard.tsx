@@ -429,7 +429,7 @@ export function Dashboard() {
           </Popover>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${role === "sales_rep" ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
@@ -467,6 +467,7 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
+        {role !== "sales_rep" && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
@@ -477,6 +478,7 @@ export function Dashboard() {
             <p className="text-xs text-muted-foreground mt-1">{avgProfitMargin.toFixed(1)}% avg margin</p>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Charts Row — hidden for sales reps and PMs (company-wide data) */}

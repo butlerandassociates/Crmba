@@ -2572,7 +2572,8 @@ export function ClientDetail() {
               const COLORS = totalValue > 0 ? ["#e2e8f0", "#16a34a"] : ["#f1f5f9"];
               return (
                 <div className="flex items-center gap-4">
-                  {/* Donut */}
+                  {/* Donut — hidden from sales reps (reveals GP%) */}
+                  {role !== "sales_rep" && (
                   <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -2603,12 +2604,14 @@ export function ClientDetail() {
                       <span className="text-[9px] text-muted-foreground leading-none mt-0.5">GP</span>
                     </div>
                   </div>
+                  )}
                   {/* Stats */}
                   <div className="flex-1 space-y-2.5 min-w-0">
                     <div>
                       <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Contract Value</div>
                       <div className="text-lg font-bold text-green-600 leading-tight">{formatCurrency(totalValue)}</div>
                     </div>
+                    {role !== "sales_rep" && (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Gross Profit</div>
@@ -2622,7 +2625,8 @@ export function ClientDetail() {
                         <div className="text-sm font-semibold text-slate-600">{formatCurrency(cost > 0 ? cost : 0)}</div>
                       </div>
                     </div>
-                    {commission > 0 && (
+                    )}
+                    {commission > 0 && role !== "sales_rep" && (
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">PM Commission</div>
                         <div className="text-sm font-semibold text-blue-600">{formatCurrency(commission)}</div>
@@ -2639,7 +2643,7 @@ export function ClientDetail() {
                         )}
                       </div>
                     )}
-                    {grossProfit > 0 && (commission > 0 || projectedSalesRepCommission > 0 || salesRepCommission > 0) && (
+                    {role !== "sales_rep" && grossProfit > 0 && (commission > 0 || projectedSalesRepCommission > 0 || salesRepCommission > 0) && (
                       <div className="pt-1 border-t">
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Net Profit</div>
                         <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - (projectedSalesRepCommission > 0 ? projectedSalesRepCommission : salesRepCommission)))}</div>
@@ -2716,9 +2720,9 @@ export function ClientDetail() {
               <div className="space-y-1.5 max-h-[180px] overflow-y-auto thin-scroll pr-1">
               {clientProposals.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-4 text-muted-foreground">
-                  <FileText className="h-6 w-6 mb-1.5 opacity-20" />
-                  <p className="text-xs font-medium">No proposal yet</p>
-                  <p className="text-xs mt-0.5">Create one to auto-populate revenue figures.</p>
+                  <FileText className="h-6 w-6 mb-1.5 text-muted-foreground/30" />
+                  <p className="text-xs font-medium text-muted-foreground">No proposal yet</p>
+                  <p className="text-xs text-muted-foreground/60 mt-0.5">Create one to auto-populate revenue figures.</p>
                 </div>
               ) : (
                 clientProposals
@@ -2810,7 +2814,22 @@ export function ClientDetail() {
             {(() => {
               const visibleCOs = clientCOs
                 .sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-              if (visibleCOs.length === 0) return null;
+              const hasAccepted = clientProposals.some((p) => p.status === "accepted");
+              if (visibleCOs.length === 0) {
+                if (!hasAccepted) return null;
+                return (
+                  <div className="border-t mt-4 pt-3">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2 flex items-center gap-1">
+                      <History className="h-3 w-3" /> Change Orders
+                    </p>
+                    <div className="flex flex-col items-center justify-center py-4 gap-1.5 text-center">
+                      <ClipboardEdit className="h-6 w-6 text-muted-foreground/30" />
+                      <p className="text-xs font-medium text-muted-foreground">No change orders yet</p>
+                      <p className="text-xs text-muted-foreground/60">Change orders will appear here once added</p>
+                    </div>
+                  </div>
+                );
+              }
 
               const mergedCOs = visibleCOs.filter((co: any) => co.status === "merged")
                 .sort((a: any, b: any) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
@@ -2903,6 +2922,12 @@ export function ClientDetail() {
                 </div>
               );
             })()}
+
+            {!["active", "completed"].includes(client.status) && (
+              <p className="text-[10px] text-muted-foreground/50 text-center mt-4 pt-3 border-t">
+                Project Financials will appear when project becomes active.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -2914,9 +2939,11 @@ export function ClientDetail() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <Badge className={getProjectStatusColor(project.status)}>{project.status?.replace("_", " ")}</Badge>
+              {!(role === "sales_rep" && ["sold", "active", "completed"].includes(project.status)) && (
               <button onClick={() => { setEditingProject(project); setEditProjectOpen(true); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
                 <Pencil className="h-3.5 w-3.5" />
               </button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -2925,6 +2952,7 @@ export function ClientDetail() {
                 <p className="text-xs text-muted-foreground">Contract Value</p>
                 <p className="font-semibold text-base">{formatCurrency(project.totalValue ?? 0)}</p>
               </div>
+              {role !== "sales_rep" && (
               <div>
                 <p className="text-xs text-muted-foreground">Gross Profit</p>
                 {role === "project_manager"
@@ -2932,6 +2960,8 @@ export function ClientDetail() {
                   : <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
                 }
               </div>
+              )}
+              {role !== "sales_rep" && (
               <div>
                 <button
                   className="text-left group"
@@ -2956,6 +2986,7 @@ export function ClientDetail() {
                   </p>
                 </button>
               </div>
+              )}
               {(() => {
                 const pmId = project.project_manager_id ?? null;
                 const repId = project.sales_rep_id ?? null;
@@ -2977,7 +3008,7 @@ export function ClientDetail() {
                   <div>
                     <p className="text-xs text-muted-foreground">Project Manager</p>
                     <p className="font-medium">{project.projectManagerName || "—"}</p>
-                    {role !== "project_manager" && (
+                    {role !== "project_manager" && role !== "sales_rep" && (
                       <p className="text-xs font-semibold text-blue-600 mt-0.5">{formatCurrency(pmComm)}</p>
                     )}
                   </div>
@@ -2994,7 +3025,7 @@ export function ClientDetail() {
                       )}
                     </div>
                   )}
-                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && role !== "project_manager" && (
+                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && role !== "project_manager" && role !== "sales_rep" && (
                     <div>
                       <p className="text-xs text-muted-foreground">Net Profit</p>
                       <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - pmComm - repComm))}</p>
@@ -3184,19 +3215,23 @@ export function ClientDetail() {
               <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0"><ClipboardEdit className="h-5 w-5 text-blue-600" /></div>
               <div><p className="font-semibold text-sm">Change Orders</p><p className="text-xs text-muted-foreground">{isReadOnlyCompleted ? "View only" : "Scope changes"}</p></div>
             </button>
+            {role !== "sales_rep" && (
             <button onClick={() => setFioOpen(true)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center shrink-0"><FileText className="h-5 w-5 text-green-600" /></div>
               <div><p className="font-semibold text-sm">FIO</p><p className="text-xs text-muted-foreground">Crew labor schedule</p></div>
             </button>
+            )}
+            {role !== "sales_rep" && (
             <button onClick={() => setCostAttributionsOpen(true)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
               <div><p className="font-semibold text-sm">Cost Attributions</p><p className="text-xs text-muted-foreground">Receipts &amp; actuals</p></div>
             </button>
+            )}
             <button onClick={() => setPaymentTrackingOpen(true)} className={tileClass}>
               <div className="h-9 w-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
               <div><p className="font-semibold text-sm">Payments</p><p className="text-xs text-muted-foreground">Monitor collections</p></div>
             </button>
-            {(can("can_view_admin_portal") || can("can_edit_clients")) && (
+            {role !== "sales_rep" && (can("can_view_admin_portal") || can("can_edit_clients")) && (
               <button onClick={handleOpenPortalDialog} className={tileClass}>
                 <div className="h-9 w-9 rounded-lg bg-sky-50 border border-sky-200 flex items-center justify-center shrink-0"><Globe className="h-5 w-5 text-sky-600" /></div>
                 <div><p className="font-semibold text-sm">Client Portal</p><p className="text-xs text-muted-foreground">Generate client link</p></div>
