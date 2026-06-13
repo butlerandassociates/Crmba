@@ -104,7 +104,7 @@ serve(async (req) => {
         .from("project_payments")
         .select("id, label, amount, is_paid, due_date, paid_date, payment_method, confirmation_code, breakdown, sort_order, percentage, notes, stripe_fee_amount")
         .eq("client_id", clientId)
-        .order("due_date", { ascending: true, nullsFirst: false }),
+        .order("sort_order", { ascending: true, nullsFirst: false }),
 
       supabase
         .from("client_files")

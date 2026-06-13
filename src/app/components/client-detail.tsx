@@ -71,6 +71,8 @@ import {
   Bell,
   BellOff,
   MessageSquareOff,
+  GripVertical,
+  Star,
 } from "lucide-react";
 import { Switch } from "./ui/switch";
 import {
@@ -354,6 +356,8 @@ export function ClientDetail() {
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
   const [paymentTrackingOpen, setPaymentTrackingOpen] = useState(false);
+  const paymentDragIndex = useRef<number | null>(null);
+  const [paymentDragOver, setPaymentDragOver] = useState<number | null>(null);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [markPaidOpen, setMarkPaidOpen] = useState<any>(null);
   const [editPaymentOpen, setEditPaymentOpen] = useState(false);
@@ -2743,11 +2747,40 @@ export function ClientDetail() {
                             : proposal.status === "voided"  ? "bg-gray-100 text-gray-400 border-gray-200"
                             : "bg-gray-50 text-gray-500 border-gray-200"
                           }`}>{proposal.status}</span>
+                          {proposal.is_default && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold border bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-0.5">
+                              <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+                              Default
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground">{formatDate(proposal.created_at)}</span>
                         </div>
                       </div>
                       <div className="text-right shrink-0 flex items-center gap-2">
                         <div className="text-sm font-semibold">{formatCurrency(proposal.total)}</div>
+                        {role === "admin" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost" size="sm"
+                                className={`h-7 px-1.5 transition-opacity ${proposal.is_default ? "text-amber-500" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`}
+                                onClick={async (e) => {
+                                  e.preventDefault();
+                                  if (proposal.is_default) {
+                                    await estimatesAPI.unsetDefault(proposal.id);
+                                    setClientProposals((prev) => prev.map((p) => p.id === proposal.id ? { ...p, is_default: false } : p));
+                                  } else {
+                                    await estimatesAPI.setDefault(proposal.id, proposal.client_id);
+                                    setClientProposals((prev) => prev.map((p) => ({ ...p, is_default: p.id === proposal.id })));
+                                  }
+                                }}
+                              >
+                                <Star className={`h-3.5 w-3.5 ${proposal.is_default ? "fill-amber-500" : ""}`} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{proposal.is_default ? "Remove default" : "Mark as default"}</TooltipContent>
+                          </Tooltip>
+                        )}
                         {can("can_delete_proposals") && (
                           proposal.status === "accepted" ? (
                             <Tooltip>
@@ -3643,10 +3676,36 @@ export function ClientDetail() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {clientPayments.map((payment) => {
+                        {clientPayments.map((payment, idx) => {
                           const pctOfTotal = totalAmount > 0 ? Math.round((payment.amount / totalAmount) * 100) : 0;
+                          const isDragTarget = paymentDragOver === idx && paymentDragIndex.current !== idx;
                           return (
-                            <div key={payment.id} className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}`}>
+                            <div
+                              key={payment.id}
+                              draggable={role === "admin"}
+                              onDragStart={() => { paymentDragIndex.current = idx; }}
+                              onDragOver={(e) => { e.preventDefault(); setPaymentDragOver(idx); }}
+                              onDragLeave={() => setPaymentDragOver(null)}
+                              onDrop={async () => {
+                                const from = paymentDragIndex.current;
+                                setPaymentDragOver(null);
+                                paymentDragIndex.current = null;
+                                if (from === null || from === idx) return;
+                                const next = [...clientPayments];
+                                const [moved] = next.splice(from, 1);
+                                next.splice(idx, 0, moved);
+                                setClientPayments(next);
+                                await projectPaymentsAPI.reorder(next.map((p) => p.id));
+                              }}
+                              onDragEnd={() => { paymentDragIndex.current = null; setPaymentDragOver(null); }}
+                              className={`flex items-center gap-3 border rounded-lg px-4 py-3 transition-colors
+                                ${payment.is_paid ? "bg-green-50/50 border-green-200" : "hover:bg-accent/30"}
+                                ${isDragTarget ? "border-primary border-2 bg-accent/40" : ""}
+                                ${role === "admin" ? "cursor-grab active:cursor-grabbing" : ""}`}
+                            >
+                              {role === "admin" && (
+                                <GripVertical className="h-4 w-4 text-muted-foreground/40 shrink-0 -ml-1" />
+                              )}
                               <Checkbox
                                 checked={payment.is_paid}
                                 disabled={!can("can_record_payments")}

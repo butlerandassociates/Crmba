@@ -433,7 +433,9 @@ export async function createEmbeddedEnvelope(
         roleName: signerRoleFinal,
         recipientId: signerRecipientId,
         routingOrder: "2",
-        tabs,
+        // Only include tabs if there are actual values — passing an empty object
+        // can override the template's own pre-filled tabs and clear required fields.
+        ...(tabs && Object.keys(tabs).length > 0 ? { tabs } : {}),
         emailNotification: {
           emailSubject,
           emailBody: emailBlurb,

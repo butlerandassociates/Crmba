@@ -112,6 +112,35 @@ export const estimatesAPI = {
       .select()
       .single();
     if (error) throw new Error(error.message);
+    // Auto-set as default when accepted
+    if (status === "accepted" && data?.client_id) {
+      await estimatesAPI.setDefault(id, data.client_id);
+    }
+    return data;
+  },
+
+  /** Mark one proposal as default for a client — unsets all others first */
+  setDefault: async (id: string, client_id: string) => {
+    await supabase.from("estimates").update({ is_default: false }).eq("client_id", client_id);
+    const { data, error } = await supabase
+      .from("estimates")
+      .update({ is_default: true })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  /** Unset default for a specific proposal */
+  unsetDefault: async (id: string) => {
+    const { data, error } = await supabase
+      .from("estimates")
+      .update({ is_default: false })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
     return data;
   },
 

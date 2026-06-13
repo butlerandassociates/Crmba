@@ -12,7 +12,7 @@ export const projectPaymentsAPI = {
       .from("project_payments")
       .select("*")
       .eq("project_id", project_id)
-      .order("due_date", { ascending: true, nullsFirst: false });
+      .order("sort_order", { ascending: true, nullsFirst: false });
     if (error) throw new Error(error.message);
     return data;
   },
@@ -23,9 +23,17 @@ export const projectPaymentsAPI = {
       .from("project_payments")
       .select("*, project:projects(id, name)")
       .eq("client_id", client_id)
-      .order("due_date", { ascending: true, nullsFirst: false });
+      .order("sort_order", { ascending: true, nullsFirst: false });
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  /** Batch-update sort_order for all milestones after a drag-to-reorder */
+  reorder: async (orderedIds: string[]) => {
+    const updates = orderedIds.map((id, i) =>
+      supabase.from("project_payments").update({ sort_order: i }).eq("id", id)
+    );
+    await Promise.all(updates);
   },
 
   /** Create a new payment milestone */
