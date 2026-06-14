@@ -44,6 +44,23 @@ export function ForemanDashboard() {
   const [loading, setLoading] = useState(true);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
 
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(url, "_blank");
+    }
+  };
+
   useEffect(() => {
     if (!effectiveId) return;
     loadAll();
@@ -432,7 +449,8 @@ export function ForemanDashboard() {
               <CardContent className="pt-4 px-0">
                 <div className="divide-y">
                   {documents.map((doc) => {
-                    const isImage = /\.(jpg|jpeg|png|gif|heic|webp)$/i.test(doc.file_name ?? "") || doc.mime_type?.startsWith("image/");
+                    const isHeic = /\.heic$/i.test(doc.file_name ?? "");
+                    const isImage = !isHeic && (/\.(jpg|jpeg|png|gif|webp)$/i.test(doc.file_name ?? "") || doc.mime_type?.startsWith("image/"));
                     const isPdf = /\.pdf$/i.test(doc.file_name ?? "") || doc.mime_type === "application/pdf";
                     const canPreview = isImage || isPdf;
                     const typeLabel = doc.file_type === "subcontractor" ? "Subcontractor Agreement" : doc.file_type === "certificate" ? "Certificate" : "Site Photo";
@@ -473,22 +491,21 @@ export function ForemanDashboard() {
                         {canPreview && (
                           <button
                             className="flex items-center gap-1 text-xs text-primary hover:opacity-80 font-medium"
-                            onClick={() => isImage ? setPreviewFile({ url: doc.file_url, name: doc.file_name }) : window.open(doc.file_url, "_blank")}
+                            onClick={() => isImage
+                              ? setPreviewFile({ url: doc.file_url, name: doc.file_name })
+                              : window.open(doc.file_url, "_blank")}
                           >
                             <Eye className="h-3.5 w-3.5" />
                             View
                           </button>
                         )}
-                        <a
-                          href={doc.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:opacity-80 font-medium no-underline"
-                          download
+                        <button
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:opacity-80 font-medium"
+                          onClick={() => handleDownload(doc.file_url, doc.file_name)}
                         >
                           <Download className="h-3.5 w-3.5" />
                           Download
-                        </a>
+                        </button>
                       </div>
                     </div>
                   )})}
@@ -505,7 +522,10 @@ export function ForemanDashboard() {
 
       {/* Image preview modal */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none [&>button]:hidden">
+        <DialogContent
+          className="max-w-3xl p-0 overflow-hidden border-none [&>button]:hidden"
+          style={{ backgroundColor: "black" }}
+        >
           <div className="relative">
             <button
               className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
@@ -518,6 +538,10 @@ export function ForemanDashboard() {
                 src={previewFile.url}
                 alt={previewFile.name}
                 className="w-full max-h-[80vh] object-contain"
+                onError={() => {
+                  window.open(previewFile.url, "_blank");
+                  setPreviewFile(null);
+                }}
               />
             )}
           </div>

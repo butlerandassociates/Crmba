@@ -43,8 +43,41 @@ export function ForemanJobDetail() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // File preview
-  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+  // File preview (use blob URL so same-origin img always loads)
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; blobUrl?: string } | null>(null);
+
+  const handleViewImage = async (fileUrl: string, fileName: string) => {
+    try {
+      const res = await fetch(fileUrl);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setPreviewFile({ url: fileUrl, name: fileName, blobUrl });
+    } catch {
+      window.open(fileUrl, "_blank");
+    }
+  };
+
+  const closePreview = () => {
+    if (previewFile?.blobUrl) URL.revokeObjectURL(previewFile.blobUrl);
+    setPreviewFile(null);
+  };
+
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(url, "_blank");
+    }
+  };
 
   useEffect(() => {
     if (!fioId) return;
@@ -435,7 +468,8 @@ export function ForemanJobDetail() {
             <div className="divide-y border rounded-lg overflow-hidden">
               {clientFiles.map((f: any) => {
                 const cat = FILE_CATEGORIES.find((c) => c.value === f.file_type);
-                const isImage = /\.(jpg|jpeg|png|gif|heic|webp)$/i.test(f.file_name ?? "");
+                const isHeic = /\.heic$/i.test(f.file_name ?? "");
+                const isImage = !isHeic && (/\.(jpg|jpeg|png|gif|webp)$/i.test(f.file_name ?? "") || (f.mime_type?.startsWith("image/") && !isHeic));
                 const isPdf = /\.pdf$/i.test(f.file_name ?? "") || f.mime_type === "application/pdf";
                 const canPreview = isImage || isPdf;
                 return (
@@ -477,22 +511,21 @@ export function ForemanJobDetail() {
                       {canPreview && (
                         <button
                           className="flex items-center gap-1 text-xs text-primary hover:opacity-80 font-medium"
-                          onClick={() => isImage ? setPreviewFile({ url: f.file_url, name: f.file_name }) : window.open(f.file_url, "_blank")}
+                          onClick={() => isImage
+                            ? handleViewImage(f.file_url, f.file_name)
+                            : window.open(f.file_url, "_blank")}
                         >
                           <Eye className="h-3.5 w-3.5" />
                           View
                         </button>
                       )}
-                      <a
-                        href={f.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:opacity-80 font-medium no-underline"
-                        download
+                      <button
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:opacity-80 font-medium"
+                        onClick={() => handleDownload(f.file_url, f.file_name)}
                       >
                         <Download className="h-3.5 w-3.5" />
                         Download
-                      </a>
+                      </button>
                     </div>
                   </div>
                 );
@@ -503,20 +536,27 @@ export function ForemanJobDetail() {
       </div>
 
       {/* Image preview modal */}
-      <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none [&>button]:hidden">
+      <Dialog open={!!previewFile} onOpenChange={(open) => !open && closePreview()}>
+        <DialogContent
+          className="max-w-3xl p-0 overflow-hidden border-none [&>button]:hidden"
+          style={{ backgroundColor: "black" }}
+        >
           <div className="relative">
             <button
               className="absolute top-3 right-3 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5"
-              onClick={() => setPreviewFile(null)}
+              onClick={closePreview}
             >
               <X className="h-4 w-4" />
             </button>
             {previewFile && (
               <img
-                src={previewFile.url}
+                src={previewFile.blobUrl ?? previewFile.url}
                 alt={previewFile.name}
                 className="w-full max-h-[80vh] object-contain"
+                onError={() => {
+                  window.open(previewFile.url, "_blank");
+                  closePreview();
+                }}
               />
             )}
           </div>

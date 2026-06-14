@@ -36,7 +36,7 @@ export function MyPortal() {
   const { user } = useAuth();
   const { role } = usePermissions();
   const navigate = useNavigate();
-  const { viewAsProfileId, viewAsProfileName } = useViewAs();
+  const { viewAsProfileId, viewAsProfileName, viewAsRole } = useViewAs();
   const profileId = viewAsProfileId || user?.profile?.id || null;
   const firstName = viewAsProfileName || user?.profile?.first_name || "";
 
@@ -45,13 +45,14 @@ export function MyPortal() {
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
 
-  const isPM = role === "project_manager";
-  const isSalesRep = role === "sales_rep";
+  const effectiveRole = viewAsRole ?? role;
+  const isPM = effectiveRole === "project_manager";
+  const isSalesRep = effectiveRole === "sales_rep";
 
   useEffect(() => {
     if (!profileId) return;
     fetchJobs();
-  }, [profileId, role]);
+  }, [profileId, effectiveRole]);
 
   const PROJ_SELECT = `
     id, status, total_value, gross_profit, profit_margin,

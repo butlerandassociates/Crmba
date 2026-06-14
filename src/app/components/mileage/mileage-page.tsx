@@ -3,7 +3,8 @@ import { usePermissions } from "../../hooks/usePermissions";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAuth } from "../../contexts/auth-context";
-import { Car, Clock, CheckCircle2, Search, Download, Info, Upload, MapPin } from "lucide-react";
+import { useViewAs } from "../../contexts/view-as-context";
+import { Car, Clock, CheckCircle2, Search, Download, Info, Upload, MapPin, Eye } from "lucide-react";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { supabase } from "@/lib/supabase";
@@ -77,7 +78,9 @@ function historyBucket(eff: string): "pending" | "approved" | "denied" {
 
 function EmployeeMileagePage() {
   const { user } = useAuth();
-  const userId = user?.profile?.id ?? "";
+  const { viewAsProfileId, viewAsProfileName } = useViewAs();
+  const isViewAs = !!viewAsProfileId;
+  const userId = viewAsProfileId || (user?.profile?.id ?? "");
   const homeAddress = (user?.profile as any)?.home_address ?? "";
   // iPad portrait + phones reflow into cards; >=861px (desktop + iPad landscape) is untouched.
   const isNarrow = useMediaQuery("(max-width: 1024px)");
@@ -129,7 +132,10 @@ function EmployeeMileagePage() {
 
       let currentSub: MileageSubmission | null = null;
       if (currentPeriod) {
-        currentSub = await mileageSubmissionsAPI.getOrCreateDraft(currentPeriod.id, userId, settingsData.rate_per_mile);
+        // In View As mode, never create a draft — just find the existing one (read-only)
+        currentSub = isViewAs
+          ? (mySubs.find((s: any) => s.period_id === currentPeriod.id) ?? null)
+          : await mileageSubmissionsAPI.getOrCreateDraft(currentPeriod.id, userId, settingsData.rate_per_mile);
         setSubmission(currentSub);
         const tripData = await mileageTripsAPI.getBySubmission(currentSub.id);
         setTrips(tripData);
@@ -333,6 +339,14 @@ function EmployeeMileagePage() {
 
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: isNarrow ? "0 16px 96px" : "0 32px 96px", fontFamily: "inherit" }}>
+      {/* View As read-only banner */}
+      {isViewAs && (
+        <div style={{ background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 10, padding: "10px 16px", marginTop: 20, marginBottom: 4, display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#92400e" }}>
+          <Eye style={{ width: 15, height: 15, flexShrink: 0 }} />
+          <span>Viewing <strong>{viewAsProfileName ?? "team member"}</strong>'s mileage — read only, no data is changed</span>
+        </div>
+      )}
+
       {/* Sticky header — title + tabs */}
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#fff", paddingTop: 32 }}>
         <div>
@@ -419,8 +433,8 @@ function EmployeeMileagePage() {
                   : <p style={{ margin: "2px 0 0", fontSize: 13, color: "#374151" }}>{fmtMoney(Number(submission.total_payout))} · {fmtMiles(Number(submission.total_miles))} miles{submission.status === "submitted" && !isDeadlinePassed ? " · you can still add or edit trips until the Thursday 2pm cutoff" : ""}</p>}
               </div>
               {submission.status === "denied" && !isDeadlinePassed && (
-                <button onClick={handleReopen}
-                  style={{ marginLeft: "auto", border: 0, background: "#dc2626", color: "#fff", fontSize: 13, fontWeight: 600, padding: "9px 16px", borderRadius: 9, cursor: "pointer", flexShrink: 0 }}>
+                <button onClick={isViewAs ? undefined : handleReopen} disabled={isViewAs}
+                  style={{ marginLeft: "auto", border: 0, background: isViewAs ? "#9ca3af" : "#dc2626", color: "#fff", fontSize: 13, fontWeight: 600, padding: "9px 16px", borderRadius: 9, cursor: isViewAs ? "not-allowed" : "pointer", flexShrink: 0, opacity: isViewAs ? 0.6 : 1 }}>
                   Fix &amp; Resubmit
                 </button>
               )}
@@ -433,8 +447,8 @@ function EmployeeMileagePage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#6b7280" }}>Recent Trips</span>
                 {canEdit && (
-                  <button onClick={() => setTab("upload")}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: 0, background: "#0a0a0a", color: "#fff", cursor: "pointer" }}>
+                  <button onClick={isViewAs ? undefined : () => setTab("upload")} disabled={isViewAs}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: 0, background: "#0a0a0a", color: "#fff", cursor: isViewAs ? "not-allowed" : "pointer", opacity: isViewAs ? 0.5 : 1 }}>
                     <Upload style={{ width: 14, height: 14 }} />Upload mileage CSV
                   </button>
                 )}
@@ -483,12 +497,12 @@ function EmployeeMileagePage() {
                     </div>
                     {canEdit && (
                       <div style={{ display: "flex", gap: 16 }}>
-                        <button onClick={() => toggleTripPersonal(t.id, !t.is_personal)}
-                          style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>
+                        <button onClick={isViewAs ? undefined : () => toggleTripPersonal(t.id, !t.is_personal)} disabled={isViewAs}
+                          style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: isViewAs ? "not-allowed" : "pointer", padding: "4px 0", textDecoration: "underline", opacity: isViewAs ? 0.5 : 1 }}>
                           {t.is_personal ? "Mark business" : "Mark personal"}
                         </button>
-                        <button onClick={() => setRemoveTarget(t)}
-                          style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 0" }}>
+                        <button onClick={isViewAs ? undefined : () => setRemoveTarget(t)} disabled={isViewAs}
+                          style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: isViewAs ? "not-allowed" : "pointer", padding: "4px 0", opacity: isViewAs ? 0.5 : 1 }}>
                           Remove
                         </button>
                       </div>
@@ -512,8 +526,8 @@ function EmployeeMileagePage() {
                       </>);
                     })()}
                     {canEdit && (
-                      <button onClick={() => toggleTripPersonal(t.id, !t.is_personal)}
-                        style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                      <button onClick={isViewAs ? undefined : () => toggleTripPersonal(t.id, !t.is_personal)} disabled={isViewAs}
+                        style={{ border: 0, background: "transparent", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: isViewAs ? "not-allowed" : "pointer", padding: 0, textDecoration: "underline", opacity: isViewAs ? 0.5 : 1 }}>
                         {t.is_personal ? "Mark as business" : "Mark personal"}
                       </button>
                     )}
@@ -525,8 +539,8 @@ function EmployeeMileagePage() {
                       ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", textTransform: "uppercase" }}>Personal</span>
                       : <StatusPill status={effectiveTripStatus(t.status, submission?.status)} />}
                     {canEdit && (
-                      <button onClick={() => setRemoveTarget(t)}
-                        style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                      <button onClick={isViewAs ? undefined : () => setRemoveTarget(t)} disabled={isViewAs}
+                        style={{ border: 0, background: "transparent", color: "#dc2626", fontSize: 11, fontWeight: 600, cursor: isViewAs ? "not-allowed" : "pointer", padding: 0, opacity: isViewAs ? 0.5 : 1 }}>
                         Remove
                       </button>
                     )}
@@ -568,8 +582,8 @@ function EmployeeMileagePage() {
               <div style={{ width: 56, height: 56, borderRadius: 14, background: "#f3f4f6", display: "grid", placeItems: "center", margin: "0 auto 14px" }}><Car style={{ width: 24, height: 24 }} /></div>
               <p style={{ color: "#0a0a0a", fontWeight: 700, fontSize: 16, margin: "0 0 6px" }}>No trips yet this week</p>
               <p style={{ margin: "0 0 16px", fontSize: 13.5 }}>Upload your Everlance CSV to log this week's mileage.</p>
-              <button onClick={() => setTab("upload")}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: 0, background: "#0a0a0a", color: "#fff", cursor: "pointer" }}>
+              <button onClick={isViewAs ? undefined : () => setTab("upload")} disabled={isViewAs}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 9, fontSize: 13, fontWeight: 600, border: 0, background: "#0a0a0a", color: "#fff", cursor: isViewAs ? "not-allowed" : "pointer", opacity: isViewAs ? 0.5 : 1 }}>
                 <Upload style={{ width: 14, height: 14 }} />Upload mileage CSV
               </button>
             </div>
@@ -583,8 +597,8 @@ function EmployeeMileagePage() {
                   Assign a project to {unmatchedBusiness} trip{unmatchedBusiness > 1 ? "s" : ""} (or mark Personal) before submitting.
                 </span>
               )}
-              <button onClick={handleSubmit} disabled={!canSubmit || submitting}
-                style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 9, cursor: (!canSubmit || submitting) ? "not-allowed" : "pointer", opacity: (!canSubmit || submitting) ? 0.5 : 1 }}>
+              <button onClick={isViewAs ? undefined : handleSubmit} disabled={!canSubmit || submitting || isViewAs}
+                style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 9, cursor: (!canSubmit || submitting || isViewAs) ? "not-allowed" : "pointer", opacity: (!canSubmit || submitting || isViewAs) ? 0.5 : 1 }}>
                 {submitting ? "Submitting…" : "Submit for Approval"}
               </button>
             </div>
@@ -622,7 +636,13 @@ function EmployeeMileagePage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
               <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 24, minWidth: 0 }}>
-                {submission && (
+                {submission && (isViewAs ? (
+                  <div style={{ textAlign: "center", padding: "40px 24px", color: "#9ca3af" }}>
+                    <Eye style={{ width: 32, height: 32, margin: "0 auto 12px", opacity: 0.4 }} />
+                    <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "#374151" }}>Preview only</p>
+                    <p style={{ margin: 0, fontSize: 13 }}>CSV upload is disabled in View As mode — no data is changed on behalf of {viewAsProfileName ?? "this team member"}.</p>
+                  </div>
+                ) : (
                   <MileageUpload
                     submissionId={submission.id}
                     periodLabel={period ? periodLabel(period) : ""}
@@ -634,7 +654,7 @@ function EmployeeMileagePage() {
                     onSaved={fetchAll}
                     onDirtyChange={setUploadParsed}
                   />
-                )}
+                ))}
               </div>
               {/* How it works + reimbursement note — stacked below the upload box, same as iPad */}
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -820,9 +840,13 @@ function AdminMileagePage() {
 
 export function MileagePage() {
   const { role } = usePermissions();
+  const { viewAsRole } = useViewAs();
 
-  if (role === "admin") return <AdminMileagePage />;
-  if (role === "project_manager" || role === "sales_rep") return <EmployeeMileagePage />;
+  // When admin is viewing as a Sales Rep or PM, show their employee mileage view
+  const effectiveRole = viewAsRole ?? role;
+
+  if (effectiveRole === "admin") return <AdminMileagePage />;
+  if (effectiveRole === "project_manager" || effectiveRole === "sales_rep") return <EmployeeMileagePage />;
 
   return (
     <div className="p-6 flex items-center justify-center min-h-[40vh]">
