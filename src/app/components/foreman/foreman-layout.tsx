@@ -1,7 +1,8 @@
-import { Outlet, Link, useLocation, Navigate } from "react-router";
-import { useState } from "react";
+import { Outlet, Link, useLocation, Navigate, useNavigate } from "react-router";
+import { useState, useEffect } from "react";
 import { HardHat, Briefcase, LogOut, ChevronDown, UserCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../contexts/auth-context";
+import { useViewAs } from "../../contexts/view-as-context";
 import { supabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -32,7 +33,26 @@ const nav = [
 
 export function ForemanLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, loading, signOut } = useAuth();
+  const { viewAsRole, viewAsProfileId, viewAsProfileName, setViewAsProfile, clearViewAs } = useViewAs();
+
+  // Foreman members list for View As person picker
+  const [foremanMembers, setForemanMembers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (viewAsRole !== "foreman") return;
+    supabase
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .eq("role", "foreman")
+      .order("first_name")
+      .then(({ data }) => {
+        setForemanMembers((data ?? []).map((p: any) => ({
+          id: p.id,
+          name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+        })));
+      });
+  }, [viewAsRole]);
 
   // Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -57,7 +77,7 @@ export function ForemanLayout() {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (user.profile?.role && user.profile.role !== "foreman") {
+  if (user.profile?.role && user.profile.role !== "foreman" && viewAsRole !== "foreman") {
     return <Navigate to="/" replace />;
   }
 
@@ -196,6 +216,38 @@ export function ForemanLayout() {
           </DropdownMenu>
         </div>
       </header>
+
+      {viewAsRole === "foreman" && (
+        <div className="bg-amber-400 px-6 py-2 flex items-center justify-between shrink-0 gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Eye className="h-4 w-4 text-amber-900 shrink-0" />
+            <span className="text-sm font-semibold text-amber-900 shrink-0">Viewing as Foreman</span>
+            <select
+              value={viewAsProfileId ?? ""}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const m = foremanMembers.find((x) => x.id === id);
+                setViewAsProfile(id, m?.name ?? null);
+              }}
+              className="text-xs border border-amber-600 rounded px-2 py-1 bg-amber-100 text-amber-900 font-medium focus:outline-none"
+            >
+              <option value="">— select a foreman —</option>
+              {foremanMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            {viewAsProfileName && (
+              <span className="text-xs text-amber-800 font-medium hidden sm:inline">preview only, no data is changed</span>
+            )}
+          </div>
+          <button
+            onClick={() => { clearViewAs(); navigate("/"); }}
+            className="text-xs font-bold text-amber-900 hover:text-amber-700 transition-colors shrink-0"
+          >
+            Exit View
+          </button>
+        </div>
+      )}
 
       <main className="flex-1 overflow-auto">
         <Outlet />

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "../contexts/auth-context";
 import { usePermissions } from "../hooks/usePermissions";
+import { useViewAs } from "../contexts/view-as-context";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
@@ -35,8 +36,9 @@ export function MyPortal() {
   const { user } = useAuth();
   const { role } = usePermissions();
   const navigate = useNavigate();
-  const profileId = user?.profile?.id ?? null;
-  const firstName = user?.profile?.first_name ?? "";
+  const { viewAsProfileId, viewAsProfileName } = useViewAs();
+  const profileId = viewAsProfileId || user?.profile?.id || null;
+  const firstName = viewAsProfileName || user?.profile?.first_name || "";
 
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,34 +53,69 @@ export function MyPortal() {
     fetchJobs();
   }, [profileId, role]);
 
+  const PROJ_SELECT = `
+    id, status, total_value, gross_profit, profit_margin,
+    commission, commission_rate,
+    sales_rep_commission, sales_rep_commission_rate,
+    start_date, end_date, name
+  `;
+
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      // Fetch clients + their projects filtered by this user's role
-      let projectsQuery = supabase
-        .from("projects")
-        .select(`
-          id, status, total_value, gross_profit, profit_margin,
-          commission, commission_rate,
-          sales_rep_commission, sales_rep_commission_rate,
-          start_date, end_date, name,
-          client:clients(id, first_name, last_name, email, phone, address, is_discarded),
-          estimates(id, title, status, total)
-        `)
-        .eq("client.is_discarded", false);
+      let jobs: any[] = [];
 
       if (isPM) {
-        projectsQuery = projectsQuery.eq("project_manager_id", profileId);
+        const { data, error } = await supabase
+          .from("projects")
+          .select(`${PROJ_SELECT}, client:clients(id, first_name, last_name, email, phone, address, is_discarded)`)
+          .eq("project_manager_id", profileId)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        jobs = (data ?? []).filter((p: any) => p.client && !p.client.is_discarded);
       } else if (isSalesRep) {
-        projectsQuery = projectsQuery.eq("sales_rep_id", profileId);
+        // Sales rep ID can live on clients.sales_rep_id OR projects.sales_rep_id.
+        // Query both and merge to avoid showing empty when only the client has the rep set.
+        const [{ data: clientRows, error: e1 }, { data: projRows, error: e2 }] = await Promise.all([
+          supabase
+            .from("clients")
+            .select(`id, first_name, last_name, email, phone, address, is_discarded, projects(${PROJ_SELECT})`)
+            .eq("sales_rep_id", profileId)
+            .eq("is_discarded", false),
+          supabase
+            .from("projects")
+            .select(`${PROJ_SELECT}, client:clients(id, first_name, last_name, email, phone, address, is_discarded)`)
+            .eq("sales_rep_id", profileId),
+        ]);
+        if (e1) throw e1;
+        if (e2) throw e2;
+
+        const seen = new Set<string>();
+
+        // Projects from clients where the client has this sales rep assigned
+        for (const c of clientRows ?? []) {
+          for (const p of (c as any).projects ?? []) {
+            if (!seen.has(p.id)) {
+              seen.add(p.id);
+              jobs.push({
+                ...p,
+                client: { id: c.id, first_name: c.first_name, last_name: c.last_name, email: c.email, phone: c.phone, address: c.address, is_discarded: c.is_discarded },
+              });
+            }
+          }
+        }
+
+        // Projects directly tagged with this sales rep (dedup)
+        for (const p of projRows ?? []) {
+          if (!seen.has(p.id) && (p as any).client && !(p as any).client.is_discarded) {
+            seen.add(p.id);
+            jobs.push(p);
+          }
+        }
       }
 
-      const { data, error } = await projectsQuery.order("created_at", { ascending: false });
-      if (error) throw error;
-
-      const filtered = (data ?? []).filter((p: any) => p.client && !p.client.is_discarded);
-      setJobs(filtered);
-    } catch (err) {
+      setJobs(jobs);
+    } catch (err: any) {
       console.error("MyPortal fetch error:", err);
     } finally {
       setLoading(false);
@@ -97,7 +134,7 @@ export function MyPortal() {
   const visibleJobs = jobs.filter((j) => {
     const clientName = `${j.client?.first_name ?? ""} ${j.client?.last_name ?? ""}`.toLowerCase();
     const projectName = (j.name ?? "").toLowerCase();
-    const proposalName = (j.estimates?.[0]?.title ?? "").toLowerCase();
+    const proposalName = "";
     const email = (j.client?.email ?? "").toLowerCase();
     const phone = (j.client?.phone ?? "").toLowerCase();
     const address = (j.client?.address ?? "").toLowerCase();
@@ -124,6 +161,7 @@ export function MyPortal() {
           Welcome, {firstName} — {isPM ? "Project Manager" : "Sales Rep"}
         </p>
       </div>
+
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -227,7 +265,7 @@ export function MyPortal() {
             <tbody className="divide-y">
               {visibleJobs.map((job) => {
                 const clientName = `${job.client?.first_name ?? ""} ${job.client?.last_name ?? ""}`.trim();
-                const proposalTitle = job.estimates?.[0]?.title ?? job.name ?? "—";
+                const proposalTitle = job.name ?? "—";
                 const commission = isPM ? (job.commission ?? 0) : (job.sales_rep_commission ?? 0);
                 const gpPct = job.profit_margin != null ? Number(job.profit_margin).toFixed(1) + "%" : "—";
 

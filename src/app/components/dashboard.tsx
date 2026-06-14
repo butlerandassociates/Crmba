@@ -26,11 +26,15 @@ import { clientsAPI, projectsAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../contexts/auth-context";
+import { useViewAs } from "../contexts/view-as-context";
 
 export function Dashboard() {
   const { can, role } = usePermissions();
   const { user } = useAuth();
+  const { viewAsRole, viewAsProfileId, viewAsProfileName } = useViewAs();
   const currentProfileId = user?.profile?.id ?? null;
+  // When viewing as a team member, use their profile ID; if no person selected yet use null (shows empty)
+  const effectiveProfileId = viewAsProfileId || (viewAsRole ? null : currentProfileId);
   const [weather, setWeather] = useState({ temp: 72, condition: 'Sunny' });
   const [firstName, setFirstName] = useState("");
   const [clients, setClients] = useState<any[]>([]);
@@ -190,26 +194,34 @@ export function Dashboard() {
   };
 
   const visibleProjects =
-    role === "sales_rep" && currentProfileId
-      ? projects.filter((p) => p.sales_rep_id === currentProfileId)
-      : role === "project_manager" && currentProfileId
-        ? projects.filter((p) => p.project_manager_id === currentProfileId)
-        : projects;
+    role === "sales_rep" && effectiveProfileId
+      ? projects.filter((p) => p.sales_rep_id === effectiveProfileId)
+      : role === "project_manager" && effectiveProfileId
+        ? projects.filter((p) => p.project_manager_id === effectiveProfileId)
+        : (role === "admin" && !viewAsRole)
+          ? projects
+          : (role === "sales_rep" || role === "project_manager") && !effectiveProfileId
+            ? []  // View As active but no person selected yet
+            : projects;
 
   const visibleProjectIds = new Set(visibleProjects.map((p: any) => p.id));
-  const totalScopedClients = role === "admin"
+  const totalScopedClients = (role === "admin" && !viewAsRole)
     ? clients.length
-    : role === "sales_rep" && currentProfileId
-      ? clients.filter((c: any) => c.salesRepId === currentProfileId).length
+    : role === "sales_rep" && effectiveProfileId
+      ? clients.filter((c: any) => c.salesRepId === effectiveProfileId).length
       : new Set(visibleProjects.map((p: any) => p.client_id).filter(Boolean)).size;
   const visibleCollections =
-    (role === "project_manager" || role === "sales_rep") && currentProfileId
+    (role === "project_manager" || role === "sales_rep") && effectiveProfileId
       ? collections.filter((p: any) => visibleProjectIds.has(p.project?.id))
-      : collections;
+      : (role === "admin" && !viewAsRole)
+        ? collections
+        : [];
 
-  const visiblePaidPayments = (role === "project_manager" || role === "sales_rep") && currentProfileId
+  const visiblePaidPayments = (role === "project_manager" || role === "sales_rep") && effectiveProfileId
     ? paidPayments.filter((p: any) => visibleProjectIds.has(p.project?.id))
-    : paidPayments;
+    : (role === "admin" && !viewAsRole)
+      ? paidPayments
+      : [];
 
   // Active Clients = clients with at least one active project
   const activeClientIds = new Set(visibleProjects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
@@ -374,8 +386,24 @@ export function Dashboard() {
     <div className="p-4 space-y-4 overflow-x-hidden">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 -mt-4 flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
+          {viewAsRole && viewAsProfileName ? (
+            <>
+              <h1 className="text-2xl font-bold">{viewAsProfileName}</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Viewing dashboard as {viewAsRole === "sales_rep" ? "Sales Rep" : viewAsRole === "project_manager" ? "Project Manager" : "Foreman"}
+              </p>
+            </>
+          ) : viewAsRole && !viewAsProfileName ? (
+            <>
+              <h1 className="text-2xl font-bold">Select a team member</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Pick a person from the bar above to view their dashboard</p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold">Welcome back{firstName ? `, ${firstName}` : ""}!</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Here's your business overview for {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2 px-3 py-2 bg-card border rounded-lg">
           {getWeatherIcon()}

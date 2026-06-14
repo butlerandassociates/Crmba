@@ -81,7 +81,8 @@ const ROLE_LABELS: Record<string, string> = {
 export function RootLayout() {
   const location = useLocation();
   const { can, role } = usePermissions();
-  const { viewAsRole, setViewAsRole } = useViewAs();
+  const { viewAsRole, viewAsProfileId, viewAsProfileName, setViewAsRole, setViewAsProfile, clearViewAs } = useViewAs();
+  const [viewAsMembers, setViewAsMembers] = useState<{ id: string; name: string }[]>([]);
   const navigation = ALL_NAVIGATION.filter(item =>
     (!item.permission || can(item.permission)) &&
     (!item.roles || item.roles.includes(role ?? ""))
@@ -475,6 +476,27 @@ export function RootLayout() {
     const id = setInterval(() => { if (!document.hidden) fetchNotifications(); }, 30000);
     return () => clearInterval(id);
   }, []);
+
+  // When View As Foreman activates, navigate to the foreman portal
+  useEffect(() => {
+    if (viewAsRole === "foreman") navigate("/foreman");
+  }, [viewAsRole]);
+
+  // When a View As role is selected, fetch members of that role for the banner picker
+  useEffect(() => {
+    if (!viewAsRole || viewAsRole === "foreman") { setViewAsMembers([]); return; }
+    supabase
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .eq("role", viewAsRole)
+      .order("first_name")
+      .then(({ data }) => {
+        setViewAsMembers((data ?? []).map((p: any) => ({
+          id: p.id,
+          name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+        })));
+      });
+  }, [viewAsRole]);
 
   // My Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
@@ -879,12 +901,12 @@ export function RootLayout() {
                 {user?.profile?.role === "admin" && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-xs text-muted-foreground font-normal px-2 py-1">View As Role</DropdownMenuLabel>
+                    <DropdownMenuLabel><span className="text-xs text-muted-foreground font-normal">View As</span></DropdownMenuLabel>
                     {(["sales_rep", "project_manager", "foreman"] as const).map((r) => (
                       <DropdownMenuItem
                         key={r}
                         className="cursor-pointer"
-                        onClick={() => setViewAsRole(viewAsRole === r ? null : r)}
+                        onClick={() => setViewAsRole(r)}
                       >
                         <Eye className="mr-2 h-4 w-4" />
                         {viewAsRole === r && <span className="mr-1 text-primary font-bold">✓</span>}
@@ -892,10 +914,7 @@ export function RootLayout() {
                       </DropdownMenuItem>
                     ))}
                     {viewAsRole && (
-                      <DropdownMenuItem
-                        className="cursor-pointer text-amber-700 focus:text-amber-700"
-                        onClick={() => setViewAsRole(null)}
-                      >
+                      <DropdownMenuItem className="cursor-pointer text-amber-700 focus:text-amber-700" onClick={() => clearViewAs()}>
                         <EyeOff className="mr-2 h-4 w-4" />
                         Exit View As
                       </DropdownMenuItem>
@@ -917,15 +936,31 @@ export function RootLayout() {
       {viewAsRole && (
         <div className="bg-amber-400 px-6 py-2 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-amber-900" />
+            <Eye className="h-4 w-4 text-amber-900 shrink-0" />
             <span className="text-sm font-semibold text-amber-900">
-              Viewing as {ROLE_LABELS[viewAsRole] ?? viewAsRole} — preview only, no data is changed
+              Viewing as {ROLE_LABELS[viewAsRole] ?? viewAsRole}
             </span>
+            {viewAsMembers.length > 0 && (
+              <select
+                value={viewAsProfileId ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  const m = viewAsMembers.find((x) => x.id === id);
+                  setViewAsProfile(id, m?.name ?? null);
+                }}
+                className="text-xs font-medium bg-amber-300 border border-amber-500 text-amber-900 rounded px-2 py-0.5 focus:outline-none cursor-pointer"
+              >
+                <option value="">Select person...</option>
+                {viewAsMembers.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            )}
+            {viewAsProfileName && (
+              <span className="text-xs text-amber-800">— preview only, no data is changed</span>
+            )}
           </div>
-          <button
-            onClick={() => setViewAsRole(null)}
-            className="text-xs font-bold text-amber-900 hover:text-amber-700 transition-colors"
-          >
+          <button onClick={() => clearViewAs()} className="text-xs font-bold text-amber-900 hover:text-amber-700 transition-colors">
             Exit View
           </button>
         </div>

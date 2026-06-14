@@ -3,6 +3,7 @@ import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Link } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "../../contexts/auth-context";
+import { useViewAs } from "../../contexts/view-as-context";
 import {
   Loader2, Search, ChevronRight, HardHat,
   Briefcase, DollarSign, Clock, CheckCircle2, MapPin, Calendar,
@@ -32,6 +33,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function ForemanDashboard() {
   const { user } = useAuth();
+  const { viewAsProfileId } = useViewAs();
+  const effectiveId = viewAsProfileId || user?.profile?.id || null;
+
   const [activeTab, setActiveTab] = useState<"jobs" | "payments" | "documents">("jobs");
   const [search, setSearch] = useState("");
   const [jobs, setJobs] = useState<any[]>([]);
@@ -41,12 +45,12 @@ export function ForemanDashboard() {
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
 
   useEffect(() => {
-    if (!user?.profile?.id) return;
+    if (!effectiveId) return;
     loadAll();
-  }, [user?.profile?.id]);
+  }, [effectiveId]);
 
   useRealtimeRefetch(
-    () => { if (user?.profile?.id) loadAll(); },
+    () => { if (effectiveId) loadAll(); },
     ["projects", "fio_crew_payments", "field_installation_orders"],
     "foreman-dashboard-realtime"
   );
@@ -65,12 +69,12 @@ export function ForemanDashboard() {
     const { data: projects } = await supabase
       .from("projects")
       .select("id, client_id, name")
-      .eq("foreman_id", user!.profile!.id);
+      .eq("foreman_id", effectiveId);
     if (!projects || projects.length === 0) { setDocuments([]); return; }
     const clientIds = projects.map((p: any) => p.client_id);
     const projectMap: Record<string, string> = {};
     projects.forEach((p: any) => { projectMap[p.client_id] = p.name; });
-    const foremanUserId = user!.profile!.id;
+    const foremanUserId = effectiveId;
     // Subcontractor + certificate: all. Photos: only foreman's own uploads.
     const { data: files } = await supabase
       .from("client_files")
@@ -93,7 +97,7 @@ export function ForemanDashboard() {
         payments:fio_crew_payments(amount_paid),
         project:projects(id, name, status, client:clients(id, first_name, last_name, address, city, state))
       `)
-      .eq("foreman_id", user!.profile!.id)
+      .eq("foreman_id", effectiveId)
       .order("created_at", { ascending: false });
 
     const enriched = (data ?? []).map((fio: any) => {
@@ -112,7 +116,7 @@ export function ForemanDashboard() {
     const { data: fios } = await supabase
       .from("field_installation_orders")
       .select("id, project:projects(id, name, client:clients(first_name, last_name))")
-      .eq("foreman_id", user!.profile!.id);
+      .eq("foreman_id", effectiveId);
 
     if (!fios || fios.length === 0) { setPayments([]); return; }
 

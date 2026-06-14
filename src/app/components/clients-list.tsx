@@ -13,6 +13,7 @@ import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../contexts/auth-context";
+import { useViewAs } from "../contexts/view-as-context";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ const SALES_REP_STAGES = ["scheduled", "selling", "sold", "active", "completed"]
 export function ClientsList() {
   const { role } = usePermissions();
   const { user } = useAuth();
+  const { viewAsProfileId, viewAsRole } = useViewAs();
   const currentProfileId = user?.profile?.id ?? null;
   const navigate = useNavigate();
 
@@ -558,11 +560,15 @@ export function ClientsList() {
   };
 
   // ── Filtering ──────────────────────────────────────────────
+  // In View As mode: if a specific person is picked, filter to their clients.
+  // If only a role is selected (no person yet), show all clients with that role's UI.
+  // Outside View As mode: filter to the logged-in user's own assigned clients.
+  const effectiveProfileId = viewAsProfileId || (!viewAsRole ? currentProfileId : null);
   const visibleClients =
-    role === "sales_rep" && currentProfileId
-      ? clients.filter((c) => c.salesRepId === currentProfileId)
-      : role === "project_manager" && currentProfileId
-        ? clients.filter((c) => c.pmId === currentProfileId)
+    role === "sales_rep" && effectiveProfileId
+      ? clients.filter((c) => c.salesRepId === effectiveProfileId)
+      : role === "project_manager" && effectiveProfileId
+        ? clients.filter((c) => c.pmId === effectiveProfileId)
         : clients;
 
   const stageClients = stageFilter
