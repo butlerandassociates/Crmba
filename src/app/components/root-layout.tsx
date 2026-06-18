@@ -344,7 +344,7 @@ export function RootLayout() {
         const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim();
         const sentDate = new Date(c.docusign_sent_date.includes("T") ? c.docusign_sent_date : `${c.docusign_sent_date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
         alerts.push({
-          id: `docusign-unsigned-${c.id}-${today}`,
+          id: `docusign-unsigned-${c.id}`,
           clientId: c.id,
           clientName: name,
           label: "Contract Not Signed",

@@ -413,6 +413,7 @@ export function ClientDetail() {
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityLoadingMore, setActivityLoadingMore] = useState(false);
   const [activityTotal, setActivityTotal] = useState(0);
+  const [contactAttemptCount, setContactAttemptCount] = useState(0);
   const [activityExpanded, setActivityExpanded] = useState<Set<string>>(new Set());
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -894,11 +895,19 @@ export function ClientDetail() {
   const loadActivityLog = async () => {
     if (!id) return;
     try {
-      const { data, hasMore, total } = await activityLogAPI.getByClient(id, 0);
+      const [{ data, hasMore, total }, { count }] = await Promise.all([
+        activityLogAPI.getByClient(id, 0),
+        supabase
+          .from("activity_log")
+          .select("*", { count: "exact", head: true })
+          .eq("client_id", id)
+          .eq("action_type", "contact_attempt"),
+      ]);
       setActivityLog(data);
       setActivityPage(0);
       setActivityHasMore(hasMore);
       setActivityTotal(total);
+      setContactAttemptCount(count ?? 0);
     } catch (error) {
       console.error("Failed to load activity log:", error);
     }
@@ -1294,6 +1303,24 @@ export function ClientDetail() {
       toast.success("Lead source updated");
     } catch (err: any) {
       toast.error(err.message || "Failed to update lead source");
+    }
+  };
+
+  const handleContactAttempt = async () => {
+    if (!client) return;
+    try {
+      setUpdating(true);
+      await activityLogAPI.create({
+        client_id: client.id,
+        action_type: "contact_attempt",
+        description: "Contact attempt — no response",
+      });
+      await loadActivityLog();
+      toast.success("Contact attempt logged");
+    } catch (err: any) {
+      toast.error("Failed to log contact attempt");
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -1729,6 +1756,12 @@ export function ClientDetail() {
                 Schedule Appointment
               </DropdownMenuItem>
             )}
+            {client.status === "prospect" && (
+              <DropdownMenuItem onClick={handleContactAttempt} disabled={updating}>
+                <PhoneCall className="h-4 w-4 mr-2 text-amber-500" />
+                Contact Attempt
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => setEmailDialogOpen(true)}
             >
@@ -1830,7 +1863,15 @@ export function ClientDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="min-h-[300px] flex flex-col">
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Contact Information</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Contact Information</CardTitle>
+              {client.status === "prospect" && contactAttemptCount > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-xs font-semibold">
+                  <PhoneCall className="h-3 w-3" />
+                  {contactAttemptCount} attempt{contactAttemptCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
             {can("can_edit_clients") && (
               <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
                 setClientForm({
@@ -3477,6 +3518,7 @@ export function ClientDetail() {
                     : type === "proposal_rejected"       ? <FileX2 className="h-3.5 w-3.5 text-red-400" />
                     : type === "proposal_deleted"        ? <Trash2 className="h-3.5 w-3.5 text-red-500" />
                     : type === "email_bounced"           ? <MailX className="h-3.5 w-3.5 text-red-500" />
+                    : type === "contact_attempt"         ? <PhoneCall className="h-3.5 w-3.5 text-amber-500" />
                     : type === "sms_failed"              ? <PhoneMissed className="h-3.5 w-3.5 text-red-500" />
                     : type === "proposal_sent"           ? <Send className="h-3.5 w-3.5 text-blue-600" />
                     : type === "project_value_updated"   ? <TrendingUp className="h-3.5 w-3.5 text-green-600" />
