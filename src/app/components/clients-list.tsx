@@ -7,7 +7,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, TrendingUp, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Plus, Search, Mail, Phone, Loader2, CalendarCheck, Calendar, Users, Trash2, MoveRight, GitMerge, X, Upload, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, TrendingUp, ArrowUp, ArrowDown, ArrowUpDown, PhoneCall } from "lucide-react";
 import { SkeletonList } from "./ui/page-loader";
 import { clientsAPI, leadSourcesAPI, pipelineStagesAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
@@ -51,6 +51,7 @@ export function ClientsList() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [clients, setClients] = useState<any[]>([]);
+  const [contactAttemptCounts, setContactAttemptCounts] = useState<Record<string, number>>({});
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -323,6 +324,22 @@ export function ClientsList() {
       const data = await clientsAPI.getAll(stageRef.current || undefined);
       setClients(data ?? []);
       setError(null);
+      // Batch-fetch contact attempt counts for all prospect clients
+      const prospectIds = (data ?? []).filter((c: any) => c.status === "prospect").map((c: any) => c.id);
+      if (prospectIds.length > 0) {
+        const { data: counts } = await supabase
+          .from("activity_log")
+          .select("client_id")
+          .eq("action_type", "contact_attempt")
+          .in("client_id", prospectIds);
+        const countMap: Record<string, number> = {};
+        for (const row of counts ?? []) {
+          countMap[row.client_id] = (countMap[row.client_id] ?? 0) + 1;
+        }
+        setContactAttemptCounts(countMap);
+      } else {
+        setContactAttemptCounts({});
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load clients");
     } finally {
@@ -796,6 +813,14 @@ export function ClientsList() {
                         <Link to={`/clients/${client.id}`} className="font-semibold text-sm hover:text-primary no-underline">
                           {client.first_name} {client.last_name}
                         </Link>
+                      )}
+                      {client.status === "prospect" && (contactAttemptCounts[client.id] ?? 0) > 0 && (
+                        <div className="mt-1">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-xs font-semibold">
+                            <PhoneCall className="h-3 w-3" />
+                            {contactAttemptCounts[client.id]} attempt{contactAttemptCounts[client.id] !== 1 ? "s" : ""}
+                          </span>
+                        </div>
                       )}
                     </td>
 
