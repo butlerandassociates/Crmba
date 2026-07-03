@@ -45,6 +45,7 @@ interface LineItem {
   pricePerUnit: number;
   totalPrice: number;
   salesTaxApplicable?: boolean;
+  client_note?: string;
 }
 
 
@@ -104,6 +105,8 @@ export function ProposalBuilder() {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  // Client-facing notes per category (keyed by category name), shown on the proposal + PDF
+  const [categoryNotes, setCategoryNotes] = useState<Record<string, string>>({});
 
   // Warn before leaving with unsaved line items
   useEffect(() => {
@@ -442,6 +445,7 @@ export function ProposalBuilder() {
         discount_label: discountLabel || null,
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeVal,
+        category_notes: categoryNotes,
         wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
@@ -450,6 +454,7 @@ export function ProposalBuilder() {
         name: item.productName,
         product_name: item.productName,
         description: item.description || null,
+        client_note: item.client_note?.trim() || null,
         quantity: item.quantity,
         fio_qty: item.fioQty ?? null,
         unit: item.unit,
@@ -935,6 +940,17 @@ export function ProposalBuilder() {
                             </div>
                           </td>
                         </tr>
+                        {/* Category client note — shown under the section header on the proposal + PDF */}
+                        <tr className="border-b border-slate-100">
+                          <td colSpan={8} className="px-6 pb-2 pt-0 bg-slate-100/40">
+                            <Input
+                              placeholder={`Client note for "${category}" (optional) — shows on the proposal`}
+                              value={categoryNotes[category] ?? ""}
+                              onChange={(e) => setCategoryNotes((prev) => ({ ...prev, [category]: e.target.value }))}
+                              className="h-7 text-xs"
+                            />
+                          </td>
+                        </tr>
                         {items.length === 0 && (
                           <tr className="border-b border-slate-100">
                             <td colSpan={8} className="px-6 py-3">
@@ -966,6 +982,13 @@ export function ProposalBuilder() {
                                   {item.description && (
                                     <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</div>
                                   )}
+                                  {/* Client note — shown to the client on the proposal + PDF */}
+                                  <Input
+                                    placeholder="Client note (optional)…"
+                                    value={item.client_note ?? ""}
+                                    onChange={(e) => updateLineItem(item.id, "client_note" as any, e.target.value)}
+                                    className="h-7 text-xs mt-1.5 max-w-md"
+                                  />
                                 </td>
                                 <td className="px-4 py-4 text-center">
                                   <Input

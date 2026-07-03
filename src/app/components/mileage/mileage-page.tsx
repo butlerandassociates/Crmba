@@ -9,7 +9,7 @@ import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { supabase } from "@/lib/supabase";
 import { MileageUpload } from "./mileage-upload";
-import { MileageAdmin } from "./mileage-admin";
+import { MileageAdmin, loadClientOptions } from "./mileage-admin";
 import {
   mileageSettingsAPI,
   mileagePeriodsAPI,
@@ -114,16 +114,12 @@ function EmployeeMileagePage() {
     if (!userId) return;
     if (!quiet) setLoading(true);
     try {
-      const [settingsData, projectsRes] = await Promise.all([
+      const [settingsData, clientOptions] = await Promise.all([
         mileageSettingsAPI.get(),
-        supabase
-          .from("projects")
-          .select("id, name, client_id, client:clients(address, first_name, last_name)")
-          .in("status", ["active", "sold", "selling"])
-          .order("name"),
+        loadClientOptions(),
       ]);
       setSettings(settingsData);
-      setProjects(projectsRes.data ?? []);
+      setProjects(clientOptions);
 
       const currentPeriod = await mileagePeriodsAPI.getCurrent();
       setPeriod(currentPeriod);

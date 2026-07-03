@@ -100,6 +100,8 @@ export function ProposalDetail() {
   const [editDescription, setEditDescription] = useState("");
   const [saveTouched, setSaveTouched] = useState(false);
   const [editLineItems, setEditLineItems] = useState<any[]>([]);
+  // Client-facing notes per category (keyed by category name), shown on the proposal + PDF
+  const [categoryNotes, setCategoryNotes] = useState<Record<string, string>>({});
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
   const [badOverride, setBadOverride] = useState<number | null>(null);
@@ -226,6 +228,7 @@ export function ProposalDetail() {
       setEditTitle(est.title ?? "");
       setEditDescription(est.description ?? "");
       setEditLineItems(est.line_items ?? []);
+      setCategoryNotes((est.category_notes ?? {}) as Record<string, string>);
       setCustomSections((est.wizard_inputs?._customSections ?? []) as string[]);
       const initCats = [...new Set([...(est.line_items ?? []).map((li: any) => li.category).filter(Boolean), ...(est.wizard_inputs?._customSections ?? [])])];
       setSectionOrder(initCats as string[]);
@@ -264,16 +267,18 @@ export function ProposalDetail() {
         if (!orig) return true;
         return (
           Number(item.quantity) !== Number(orig.quantity) ||
-          Number(item.client_price ?? item.price_per_unit) !== Number(orig.client_price ?? orig.price_per_unit)
+          Number(item.client_price ?? item.price_per_unit) !== Number(orig.client_price ?? orig.price_per_unit) ||
+          (item.client_note ?? "") !== (orig.client_note ?? "")
         );
       });
+    const notesChanged = JSON.stringify(categoryNotes ?? {}) !== JSON.stringify(proposal.category_notes ?? {});
     const feesChanged =
       discountValue !== (proposal.discount_type === "fixed" ? (proposal.discount_amount ?? 0) : (proposal.discount_percentage ?? 0)) ||
       discountType !== ((proposal.discount_type as "percent" | "fixed") ?? "percent") ||
       discountLabel !== (proposal.discount_label ?? "") ||
       stripeFeeEnabled !== (proposal.stripe_fee_enabled ?? false);
-    setIsDirty(titleChanged || descChanged || itemsChanged || feesChanged);
-  }, [editTitle, editDescription, editLineItems, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal]);
+    setIsDirty(titleChanged || descChanged || itemsChanged || notesChanged || feesChanged);
+  }, [editTitle, editDescription, editLineItems, categoryNotes, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal]);
 
   // Block in-app navigation (browser back, nav links) — shows custom Save/Leave dialog
   const blocker = useBlocker(isDirty);
@@ -625,6 +630,7 @@ export function ProposalDetail() {
         discount_label: discountLabel || null,
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeAmt,
+        category_notes: categoryNotes,
       });
       // Delete items that were removed from editLineItems
       const originalItemIds = (proposal.line_items ?? [])
@@ -658,6 +664,7 @@ export function ProposalDetail() {
             labor_cost: item.labor_cost ?? 0,
             cost_per_unit: item.cost_per_unit ?? 0,
             markup_percent: item.markup_percent ?? 0,
+            client_note: item.client_note?.trim() || null,
             sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
           }))
         );
@@ -681,6 +688,7 @@ export function ProposalDetail() {
               cost_per_unit: item.cost_per_unit ?? 0,
               markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
               fio_qty: item.fio_qty ?? null,
+              client_note: item.client_note?.trim() || null,
               sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
             }).eq("id", item.id)
           )
@@ -689,6 +697,7 @@ export function ProposalDetail() {
       const fresh = await estimatesAPI.getById(proposal.id);
       setProposal(fresh);
       setEditLineItems(fresh.line_items ?? []);
+      setCategoryNotes((fresh.category_notes ?? {}) as Record<string, string>);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
       // Regen PDF when a sent proposal is edited so portal clients see the updated version
       if (proposal.status === "sent" || proposal.status === "opened") {
@@ -2109,6 +2118,23 @@ export function ProposalDetail() {
                               )}
                             </td>
                           </tr>
+                          {/* Category client note — shown under the section header on the proposal + PDF */}
+                          {(!isLocked || categoryNotes[cat]?.trim()) && (
+                            <tr>
+                              <td colSpan={8} className="px-4 pb-2 pt-0 bg-muted/30">
+                                {isLocked ? (
+                                  <p className="text-xs text-blue-700 whitespace-pre-wrap">{categoryNotes[cat]}</p>
+                                ) : (
+                                  <Input
+                                    placeholder={`Client note for "${cat}" (optional) — shows on the proposal`}
+                                    value={categoryNotes[cat] ?? ""}
+                                    onChange={(e) => setCategoryNotes((prev) => ({ ...prev, [cat]: e.target.value }))}
+                                    className="h-7 text-xs"
+                                  />
+                                )}
+                              </td>
+                            </tr>
+                          )}
                           {groupItems.map((item: any) => {
                             const idx = item._idx;
                             const rowKey = item.id ?? String(idx);
@@ -2124,6 +2150,17 @@ export function ProposalDetail() {
                                     {item.description && (
                                       <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
                                     )}
+                                    {/* Client note — shown to the client on the proposal + PDF */}
+                                    {!isLocked ? (
+                                      <Input
+                                        placeholder="Client note (optional)…"
+                                        value={item.client_note ?? ""}
+                                        onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, client_note: e.target.value } : li))}
+                                        className="h-7 text-xs mt-1.5 max-w-md"
+                                      />
+                                    ) : item.client_note ? (
+                                      <div className="text-xs text-blue-700 mt-1 whitespace-pre-wrap">{item.client_note}</div>
+                                    ) : null}
                                   </td>
                                   <td className="p-3">
                                     {isLocked

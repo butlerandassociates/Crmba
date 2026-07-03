@@ -40,8 +40,10 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
 
   type LineGroup = {
     category: string | null;
-    items: { name: string; description?: string; qty: number; unit: string; lineTotal: number }[];
+    items: { name: string; description?: string; client_note?: string; qty: number; unit: string; lineTotal: number }[];
   };
+
+  const categoryNotes: Record<string, string> = proposal?.category_notes ?? {};
 
   const groupedItems = (() => {
     const map: Record<string, LineGroup> = {};
@@ -50,14 +52,15 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
       const cat         = item.category ?? null;
       const name        = item.product_name ?? item.name ?? "Item";
       const description = item.description ?? undefined;
+      const client_note = item.client_note ?? undefined;
       const qty         = Number(item.quantity || 1);
       const unit        = item.unit ?? "";
       const lineTotal   = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
       if (cat) {
         if (!map[cat]) map[cat] = { category: cat, items: [] };
-        map[cat].items.push({ name, description, qty, unit, lineTotal });
+        map[cat].items.push({ name, description, client_note, qty, unit, lineTotal });
       } else {
-        flat.items.push({ name, description, qty, unit, lineTotal });
+        flat.items.push({ name, description, client_note, qty, unit, lineTotal });
       }
     }
     const result: LineGroup[] = Object.values(map);
@@ -194,11 +197,17 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
+                  {group.category && categoryNotes[group.category]?.trim() && (
+                    <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#FAF8F3", borderLeft: "2px solid #BB984D", borderRadius: "0 4px 4px 0" }}>
+                      <p style={{ fontFamily: B.inter, fontSize: 10.5, color: B.text, margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" as const }}>{categoryNotes[group.category]}</p>
+                    </div>
+                  )}
                   {group.items.map((item, iIdx) => (
                     <div key={iIdx} data-group="true" style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}</p>
                         {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.45, lineHeight: 1.4 }}>{item.description}</p>}
+                        {item.client_note?.trim() && <p style={{ fontFamily: B.inter, fontSize: 10, color: "#8A6D2F", margin: "3px 0 0 0", lineHeight: 1.4, whiteSpace: "pre-wrap" as const }}>{item.client_note}</p>}
                       </div>
                       <div style={{ width: 90 }} />
                     </div>
@@ -213,6 +222,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <div style={{ flex: 1 }}>
                       <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}</p>
                       {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.5, lineHeight: 1.4 }}>{item.description}</p>}
+                      {item.client_note?.trim() && <p style={{ fontFamily: B.inter, fontSize: 10, color: "#8A6D2F", margin: "3px 0 0 0", lineHeight: 1.4, whiteSpace: "pre-wrap" as const }}>{item.client_note}</p>}
                     </div>
                     <div style={{ width: 90 }} />
                   </div>

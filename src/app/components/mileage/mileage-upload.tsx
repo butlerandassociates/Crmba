@@ -19,7 +19,7 @@ interface Props {
   ratePerMile: number;
   userId: string;
   existingTrips: { trip_date: string; end_address: string }[];
-  projects: { id: string; name: string; client_id: string; client?: { address?: string; first_name: string; last_name: string } }[];
+  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; is_office?: boolean; clientName?: string; clientAddress?: string; client?: { address?: string; first_name: string; last_name: string } }[];
   homeAddress?: string;
   onSaved: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -110,14 +110,16 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
 
   const autoPersonalCount = trips.filter((t) => t.auto_personal).length;
 
-  const assignProject = (tripId: string, projectId: string) => {
+  // optionId = the picked client option id (client id, or "office")
+  const assignProject = (tripId: string, optionId: string) => {
     setTrips((prev) => prev.map((t) => {
       if (t._id !== tripId) return t;
-      const proj = projects.find((p) => p.id === projectId);
+      const opt = projects.find((p) => p.id === optionId);
       return {
         ...t,
-        project_id: projectId,
-        client_id: proj?.client_id ?? null,
+        project_id: opt?.project_id ?? null,
+        client_id: opt?.client_id ?? null,
+        is_office: !!opt?.is_office,
         match_confidence: "manual" as const,
       };
     }));
@@ -147,6 +149,7 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
           payout:           t.payout,
           map_image_url:    t.map_image_url,
           is_personal:      t.is_personal,
+          is_office:        t.is_personal ? false : (t.is_office ?? false),
           is_active:        true,
           discarded_at:     null,
           discarded_by:     null,
@@ -333,8 +336,8 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                             <div className="flex flex-col gap-1">
                               {trip.match_confidence === "auto" ? (
                                 (() => {
-                                  const pr = projects.find(p => p.id === trip.project_id);
-                                  const cn = pr?.client ? `${pr.client.first_name ?? ""} ${pr.client.last_name ?? ""}`.trim() : "";
+                                  const pr = projects.find(p => p.client_id === trip.client_id);
+                                  const cn = pr?.clientName || (pr?.client ? `${pr.client.first_name ?? ""} ${pr.client.last_name ?? ""}`.trim() : "");
                                   return (
                                     <div className="flex items-center gap-1.5">
                                       <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-50">Auto</Badge>
@@ -344,7 +347,7 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                                 })()
                               ) : (
                                 <Select
-                                  value={trip.project_id ?? ""}
+                                  value={trip.is_office ? "office" : (trip.client_id ?? "")}
                                   onValueChange={(v) => assignProject(trip._id, v)}
                                 >
                                   <SelectTrigger className={`h-8 text-xs ${trip.match_confidence === "unmatched" ? "border-amber-400 bg-amber-50/50" : ""}`}>
@@ -353,7 +356,7 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
                                   <SelectContent>
                                     {projects.map((p) => (
                                       <SelectItem key={p.id} value={p.id} className="text-xs">
-                                        {p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "Client"}{p.client?.address ? ` — ${p.client.address}` : ""}
+                                        {p.clientName || "Client"}{p.clientAddress ? ` — ${p.clientAddress}` : ""}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>

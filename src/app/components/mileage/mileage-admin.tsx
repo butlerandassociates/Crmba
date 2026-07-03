@@ -72,6 +72,48 @@ function avatarBg(name: string) {
 
 type AdminTab = "pending" | "all" | "upload" | "history";
 
+// A selectable entry in the mileage client picker. Sourced from ALL non-discarded
+// pipeline clients (client_id = the key), plus a synthetic "Office/Admin" entry.
+// project_id is the client's project if one exists (for cost attribution), else null.
+export type ClientOption = {
+  id: string;                 // selection key: client id, or "office"
+  name: string;               // project name or client name (used by CSV auto-match)
+  client_id: string | null;   // null for Office/Admin
+  project_id: string | null;  // the client's project id if any, else null
+  clientName: string;         // display name (or "Office/Admin")
+  clientAddress: string;      // display + CSV match
+  is_office?: boolean;
+  client?: { address?: string; first_name?: string; last_name?: string };
+};
+
+/** Load all non-discarded pipeline clients (+ their project if any) as picker options,
+ *  with a synthetic "Office/Admin" entry first. Single source of truth = the clients table. */
+export async function loadClientOptions(): Promise<ClientOption[]> {
+  const { data } = await supabase
+    .from("clients")
+    .select("id, first_name, last_name, address, projects(id, name)")
+    .eq("is_discarded", false)
+    .order("first_name");
+  const clients: ClientOption[] = (data ?? []).map((c: any) => {
+    const proj = (c.projects ?? [])[0];
+    const clientName = `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || "Client";
+    return {
+      id: c.id,
+      name: proj?.name ?? clientName,
+      client_id: c.id,
+      project_id: proj?.id ?? null,
+      clientName,
+      clientAddress: c.address ?? "",
+      client: { address: c.address ?? "", first_name: c.first_name, last_name: c.last_name },
+    };
+  });
+  const office: ClientOption = {
+    id: "office", name: "Office/Admin", client_id: null, project_id: null,
+    clientName: "Office/Admin", clientAddress: "", is_office: true, client: { address: "" },
+  };
+  return [office, ...clients];
+}
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ name, size = 36 }: { name: string; size?: number }) {
@@ -171,9 +213,9 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
   employeeName?: string;
   employeeRole?: string;
   status?: string;
-  projects: { id: string; name: string; client_id: string; clientName?: string; clientAddress?: string }[];
+  projects: ClientOption[];
   onClose: () => void;
-  onReassign?: (tripId: string, projectId: string) => void;
+  onReassign?: (tripId: string, opt: ClientOption) => void;
   onApprove?: (tripId: string) => void;
   onDeny?: (tripId: string) => void;
   onTogglePersonal?: (tripId: string, next: boolean) => void;
@@ -181,9 +223,9 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
   const tripStatus = trip?.status && trip.status !== "pending" ? trip.status : (status ?? "pending");
   const matchLabel = trip?.match_confidence === "auto" ? "Auto-matched" : trip?.match_confidence === "manual" ? "Manually assigned" : "Unmatched";
   const [reassignOpen, setReassignOpen] = useState(false);
-  const selectedProj = projects.find((p) => p.id === trip?.project?.id);
+  const selectedProj = projects.find((p) => trip?.is_office ? p.is_office : (trip?.client_id ? p.client_id === trip.client_id : false));
   const selectedClientLabel = selectedProj ? `${selectedProj.clientName || "Client"}${selectedProj.clientAddress ? ` — ${selectedProj.clientAddress}` : ""}` : undefined;
-  const tripClientName = trip?.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "";
+  const tripClientName = trip?.is_office ? "Office/Admin" : (trip?.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "");
   return (
     <>
       {/* Scrim */}
@@ -300,8 +342,8 @@ function TripDrawer({ trip, employeeName, employeeRole, status, projects, onClos
                         <div className="absolute z-[71] left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg p-1 overflow-y-auto" style={{ maxHeight: 240 }}>
                           {projects.map((p) => (
                             <button key={p.id}
-                              onClick={() => { onReassign(trip.id, p.id); setReassignOpen(false); }}
-                              className={`w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-100 ${trip.project?.id === p.id ? "bg-gray-100" : ""}`}>
+                              onClick={() => { onReassign(trip.id, p); setReassignOpen(false); }}
+                              className={`w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-100 ${(trip.is_office ? p.is_office : trip.client_id === p.client_id) ? "bg-gray-100" : ""}`}>
                               <div className="font-medium truncate">{p.clientName || "Client"}</div>
                               {p.clientAddress && <div className="text-xs text-gray-500 truncate">{p.clientAddress}</div>}
                             </button>
@@ -370,7 +412,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   const [paying, setPaying] = useState(false);
   const [bulkPayOpen, setBulkPayOpen] = useState(false);
   const [bulkPaying, setBulkPaying] = useState(false);
-  const [projects, setProjects] = useState<{ id: string; name: string; client_id: string; clientName?: string; clientAddress?: string }[]>([]);
+  const [projects, setProjects] = useState<ClientOption[]>([]);
 
   const load = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -396,13 +438,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   }, []);
 
   useEffect(() => {
-    supabase.from("projects").select("id, name, client_id, client:clients(first_name, last_name, address)")
-      .in("status", ["active", "sold", "selling"]).order("name")
-      .then(({ data }) => setProjects((data ?? []).map((p: any) => ({
-        id: p.id, name: p.name, client_id: p.client_id,
-        clientName: p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "",
-        clientAddress: p.client?.address ?? "",
-      }))));
+    loadClientOptions().then(setProjects).catch(console.error);
   }, []);
 
   // Prune the selection bar: drop any selected trip whose submission is no longer
@@ -420,11 +456,9 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
   }, [subs, tripMap, selected]);
 
   // Reassign a trip's project from the detail drawer
-  const reassignTrip = async (tripId: string, projectId: string) => {
-    const proj = projects.find((p) => p.id === projectId);
-    if (!proj) return;
+  const reassignTrip = async (tripId: string, opt: ClientOption) => {
     try {
-      await mileageTripsAPI.assignProject(tripId, projectId, proj.client_id, adminId);
+      await mileageTripsAPI.assignProject(tripId, opt.client_id, opt.project_id, !!opt.is_office, adminId);
       // refresh the owning submission's trips + the open drawer
       const subId = drawerTrip?._subId;
       if (subId) {
@@ -433,7 +467,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
         const updated = fresh.find((t) => t.id === tripId);
         if (updated) setDrawerTrip({ ...updated, _subId: subId });
       }
-      toast.success(`Trip reassigned to ${proj.name}.`);
+      toast.success(`Trip reassigned to ${opt.clientName}.`);
     } catch (e: any) { toast.error(e.message ?? "Failed to reassign."); }
   };
 
@@ -859,7 +893,7 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
                       const isDenied = trip.status === "denied";
                       return (
                         <div key={trip.id}
-                          style={{ display: "grid", minWidth: isNarrow ? 540 : undefined, gridTemplateColumns: "26px 100px 1fr 80px 80px 84px", gap: 14, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #e5e7eb", cursor: "pointer", alignItems: "center", opacity: isDenied ? 0.6 : 1 }}
+                          style={{ display: "grid", minWidth: isNarrow ? 540 : undefined, gridTemplateColumns: "26px 100px minmax(0,1fr) 80px 80px 84px", gap: 14, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #e5e7eb", cursor: "pointer", alignItems: "center", opacity: isDenied ? 0.6 : 1 }}
                           onClick={() => setDrawerTrip({ ...trip, _subId: sub.id, _subUser: sub.user, _subStatus: sub.status } as any)}>
                           {/* Checkbox */}
                           <div style={{ width: 18, height: 18, borderRadius: 5, border: "1.5px solid #d1d5db", background: sel ? "#0a0a0a" : "#fff", display: "inline-grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}
@@ -884,7 +918,9 @@ function PendingReviewTab({ period, adminId, settings, onRefresh, onDirtyChange 
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                                 {trip.is_personal
                                   ? <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>
-                                  : <ProjectChip name={(trip.client?.address || (trip.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "")) || undefined} unmatched={trip.match_confidence === "unmatched"} />}
+                                  : trip.is_office
+                                    ? <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#eff6ff", color: "#2563eb", border: "1px solid #dbeafe" }}>Office/Admin</span>
+                                    : <ProjectChip name={(trip.client?.address || (trip.client ? `${trip.client.first_name ?? ""} ${trip.client.last_name ?? ""}`.trim() : "")) || undefined} unmatched={trip.match_confidence === "unmatched"} />}
                                 {isApproved && <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#f0fdf4", color: "#059669", border: "1px solid #bbf7d0" }}>Approved</span>}
                                 {isDenied && <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>Denied</span>}
                               </div>
@@ -1265,12 +1301,12 @@ function AllTripsTab() {
       {loading ? (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
           {/* Header (real) */}
-          <div style={{ display: "grid", gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "130px minmax(0,1.2fr) minmax(0,1fr) 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Date</div><div>Employee &amp; Route</div><div>Project</div><div>Miles</div><div>Amount</div><div>Source</div><div>Status</div>
           </div>
           {/* Shimmer rows matching the real table layout */}
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="animate-pulse" style={{ display: "grid", gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "16px 22px", borderBottom: "1px solid #f1f3f5", alignItems: "center" }}>
+            <div key={i} className="animate-pulse" style={{ display: "grid", gridTemplateColumns: "130px minmax(0,1.2fr) minmax(0,1fr) 90px 90px 100px 110px", gap: 18, padding: "16px 22px", borderBottom: "1px solid #f1f3f5", alignItems: "center" }}>
               <div style={{ height: 12, width: "70%", borderRadius: 4, background: "#e5e7eb" }} />
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ width: 26, height: 26, borderRadius: 999, background: "#e5e7eb", flexShrink: 0 }} />
@@ -1287,7 +1323,7 @@ function AllTripsTab() {
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", overflowX: isNarrow ? "auto" : undefined }}>
           {/* Header */}
-          <div style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px minmax(0,1.2fr) minmax(0,1fr) 90px 90px 100px 110px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Date</div><div>Employee &amp; Route</div><div>Project</div><div>Miles</div><div>Amount</div><div>Source</div><div>Status</div>
           </div>
           {filtered.length === 0 && (
@@ -1303,7 +1339,7 @@ function AllTripsTab() {
             const userName = t._sub?.user ? `${t._sub.user.first_name} ${t._sub.user.last_name}` : "—";
             const status = effectiveTripStatus(t.status, t._sub?.status);
             return (
-              <div key={t.id} style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px 1.2fr 1fr 90px 90px 100px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
+              <div key={t.id} style={{ display: "grid", minWidth: isNarrow ? 960 : undefined, gridTemplateColumns: "130px minmax(0,1.2fr) minmax(0,1fr) 90px 90px 100px 110px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{fmt(t.trip_date)}</div>
                   <div style={{ color: "#6b7280", fontSize: 11.5 }}>{fmtD(t.trip_date)}</div>
@@ -1318,6 +1354,7 @@ function AllTripsTab() {
                 </div>
                 <div style={{ minWidth: 0 }}>{(() => {
                   if (t.is_personal) return <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>Personal</span>;
+                  if (t.is_office) return <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#eff6ff", color: "#2563eb", border: "1px solid #dbeafe" }}>Office/Admin</span>;
                   const cn = t.client ? `${t.client.first_name ?? ""} ${t.client.last_name ?? ""}`.trim() : "";
                   const addr = t.client?.address || "";
                   const matched = t.match_confidence !== "unmatched";
@@ -1359,7 +1396,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [employees, setEmployees] = useState<{ id: string; name: string; role: string; home_address: string }[]>([]);
   const [selectedEmp, setSelectedEmp] = useState<string>("");
   const [empOpen, setEmpOpen] = useState(false);
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<ClientOption[]>([]);
   const [draft, setDraft] = useState<MileageSubmission | null>(null);
   const [existingTrips, setExistingTrips] = useState<{ trip_date: string; end_address: string }[]>([]);
   const [preparing, setPreparing] = useState(false);
@@ -1382,9 +1419,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
     supabase.from("profiles").select("id, first_name, last_name, role, home_address")
       .in("role", ["project_manager", "sales_rep", "admin"]).eq("is_active", true).order("first_name")
       .then(({ data }) => setEmployees((data ?? []).map((p: any) => ({ id: p.id, name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(), role: p.role, home_address: p.home_address ?? "" }))));
-    supabase.from("projects").select("id, name, client_id, client:clients(address, first_name, last_name)")
-      .in("status", ["active", "sold", "selling"]).order("name")
-      .then(({ data }) => setProjects(data ?? []));
+    loadClientOptions().then(setProjects).catch(console.error);
   }, []);
 
   const selectEmployee = async (empId: string) => {
@@ -1853,12 +1888,12 @@ function PaymentHistoryTab() {
       {loading ? (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
           {/* Header (real) */}
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr) minmax(0,1fr) 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Period</div><div>Paid On</div><div style={{ textAlign: "right" }}>Trips</div><div style={{ textAlign: "right" }}>Miles</div><div style={{ textAlign: "right" }}>Total Paid</div><div></div>
           </div>
           {/* Shimmer rows matching the paid-periods table */}
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="animate-pulse" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "16px 22px", borderBottom: "1px solid #f1f3f5", alignItems: "center" }}>
+            <div key={i} className="animate-pulse" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr) minmax(0,1fr) 150px", gap: 18, padding: "16px 22px", borderBottom: "1px solid #f1f3f5", alignItems: "center" }}>
               <div>
                 <div style={{ height: 12, width: "70%", borderRadius: 4, background: "#e5e7eb", marginBottom: 6 }} />
                 <div style={{ height: 10, width: "40%", borderRadius: 4, background: "#eef0f2" }} />
@@ -1877,7 +1912,7 @@ function PaymentHistoryTab() {
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", overflowX: isNarrow ? "auto" : undefined }}>
           {/* Header */}
-          <div style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
+          <div style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr) minmax(0,1fr) 150px", gap: 18, padding: "11px 22px", background: "#f9fafb", color: "#6b7280", fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" }}>
             <div>Period</div><div>Paid On</div><div style={{ textAlign: "right" }}>Trips</div><div style={{ textAlign: "right" }}>Miles</div><div style={{ textAlign: "right" }}>Total Paid</div><div></div>
           </div>
           {visiblePeriods.length === 0 && (
@@ -1892,7 +1927,7 @@ function PaymentHistoryTab() {
           {visiblePeriods.map(p => {
             const s = stats[p.id] ?? { miles: 0, payout: 0, employees: 0, trips: 0 };
             return (
-              <div key={p.id} style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "1.6fr 1fr 0.7fr 0.8fr 1fr 150px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
+              <div key={p.id} style={{ display: "grid", minWidth: isNarrow ? 820 : undefined, gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr) minmax(0,1fr) 150px", gap: 18, padding: "14px 22px", borderBottom: "1px solid #f1f3f5", fontSize: 13, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{periodLabelFull(p)}</div>
                   <div style={{ color: "#6b7280", fontSize: 11.5, marginTop: 2 }}>{s.employees} employee{s.employees !== 1 ? "s" : ""}</div>

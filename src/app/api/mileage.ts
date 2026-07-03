@@ -67,6 +67,7 @@ export interface MileageTrip {
   denial_reason: string | null;
   map_image_url: string | null;
   is_personal: boolean;
+  is_office: boolean;
   is_active: boolean;
   discarded_at: string | null;
   created_at: string;
@@ -90,6 +91,7 @@ export interface ParsedTrip {
   map_image_url: string | null;
   is_personal: boolean;          // suggested business/personal (admin/employee confirms before save)
   auto_personal: boolean;        // true = system suggested personal (so UI can show "auto" hint)
+  is_office: boolean;            // true = internal Office/Admin trip (no client)
   // UI only
   _id: string; // temp client-side key
 }
@@ -434,13 +436,20 @@ export const mileageTripsAPI = {
     return data ?? [];
   },
 
-  /** Update project match (manual assignment) */
-  assignProject: async (tripId: string, projectId: string, clientId: string, userId: string): Promise<void> => {
+  /** Manually assign a trip to a client (+ its project if any), or mark it Office/Admin */
+  assignProject: async (
+    tripId: string,
+    clientId: string | null,
+    projectId: string | null,
+    isOffice: boolean,
+    userId: string,
+  ): Promise<void> => {
     const { error } = await supabase
       .from("mileage_trips")
       .update({
         project_id: projectId,
         client_id: clientId,
+        is_office: isOffice,
         match_confidence: "manual",
         updated_by: userId,
       })
@@ -574,7 +583,7 @@ export function parseEverlanceCSV(
   csvText: string,
   ratePerMile: number,
   existingTrips: { trip_date: string; end_address: string }[] = [],
-  projects: { id: string; name: string; client_id: string; client?: { address?: string; first_name: string; last_name: string } }[] = [],
+  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; client?: { address?: string; first_name: string; last_name: string } }[] = [],
   homeAddress: string = ""
 ): CSVParseResult {
   const allRows = parseCSV(csvText);
@@ -667,7 +676,9 @@ export function parseEverlanceCSV(
       const clientAddr = proj.client?.address ?? "";
       const street = clientAddr.toLowerCase().split(",")[0].trim();
       if (street && endLower.includes(street)) {
-        project_id = proj.id;
+        // Entries are client-based: project_id is the client's project (may be null),
+        // client_id is always the client. Office/Admin has no address so never auto-matches.
+        project_id = proj.project_id ?? null;
         client_id  = proj.client_id;
         match_confidence = "auto";
         break;
@@ -704,6 +715,7 @@ export function parseEverlanceCSV(
       map_image_url,
       is_personal,
       auto_personal,
+      is_office: false,
     });
   }
 

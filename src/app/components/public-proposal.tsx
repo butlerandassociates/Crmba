@@ -270,12 +270,20 @@ export function PublicProposal() {
                       <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 600, color: "#0A0A0A", margin: 0 }}>{group.category}</p>
                       <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 700, color: "#0A0A0A", margin: 0 }}>{formatCurrency(catTotal)}</p>
                     </div>
+                    {group.category && (proposal?.category_notes ?? {})[group.category]?.trim() && (
+                      <div style={{ padding: "10px 24px", background: "#FAF8F3", borderTop: "1px solid #F5F3EF", borderLeft: "3px solid #BB984D" }}>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#3A3A38", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{(proposal.category_notes)[group.category]}</p>
+                      </div>
+                    )}
                     {/* Sub-items */}
                     {group.items.map((item: any, iIdx: number) => (
                       <div key={iIdx} style={{ padding: "8px 24px 8px 36px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
                         <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: 0, opacity: 0.6 }}>· {item.product_name ?? item.name}</p>
                         {item.description && (
                           <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", margin: "2px 0 0 10px", opacity: 0.45, lineHeight: 1.5 }}>{item.description}</p>
+                        )}
+                        {item.client_note?.trim() && (
+                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#8A6D2F", margin: "3px 0 0 10px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.client_note}</p>
                         )}
                       </div>
                     ))}
@@ -293,6 +301,9 @@ export function PublicProposal() {
                           <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}</p>
                           {item.description && (
                             <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p>
+                          )}
+                          {item.client_note?.trim() && (
+                            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#8A6D2F", margin: "3px 0 0 0", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.client_note}</p>
                           )}
                         </div>
                         <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, fontWeight: 500, color: "#0A0A0A", margin: 0, flexShrink: 0, paddingLeft: 16 }}>{formatCurrency(lineTotal)}</p>
