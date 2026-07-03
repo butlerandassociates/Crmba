@@ -19,7 +19,7 @@ interface Props {
   ratePerMile: number;
   userId: string;
   existingTrips: { trip_date: string; end_address: string }[];
-  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; is_office?: boolean; clientName?: string; clientAddress?: string; client?: { address?: string; first_name: string; last_name: string } }[];
+  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; is_office?: boolean; clientName?: string; clientAddress?: string; client?: { address?: string; first_name?: string; last_name?: string } }[];
   homeAddress?: string;
   onSaved: () => void;
   onDirtyChange?: (dirty: boolean) => void;

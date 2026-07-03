@@ -583,7 +583,7 @@ export function parseEverlanceCSV(
   csvText: string,
   ratePerMile: number,
   existingTrips: { trip_date: string; end_address: string }[] = [],
-  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; client?: { address?: string; first_name: string; last_name: string } }[] = [],
+  projects: { id: string; name: string; client_id: string | null; project_id?: string | null; client?: { address?: string; first_name?: string; last_name?: string } }[] = [],
   homeAddress: string = ""
 ): CSVParseResult {
   const allRows = parseCSV(csvText);
