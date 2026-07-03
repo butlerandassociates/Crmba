@@ -4,7 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "dev": "vite",
     "test:qa": "playwright test tests/qa-full-audit.spec.ts",
     "test:qa:headless": "playwright test tests/qa-full-audit.spec.ts --headed=false",
@@ -81,6 +82,7 @@
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
+    "typescript": "^6.0.3",
     "vite": "6.3.5"
   },
   "peerDependencies": {
