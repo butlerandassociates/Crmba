@@ -423,10 +423,9 @@ export function AppointmentDialog({
 
       // Send SMS confirmation via Twilio
       if (client?.phone) {
-        const INTAKE_FORM_BASE = "https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform";
         const isInitialAppt = typeLabel.toLowerCase().includes("initial");
         const smsIntakeUrl = (isInitialAppt && !client.intake_form_completed)
-          ? `${INTAKE_FORM_BASE}?entry.1284149011=${encodeURIComponent(client.id)}`
+          ? `https://client.butlerconstruction.co/intake/${encodeURIComponent(client.id)}`
           : null;
         const { data: smsData, error: smsErr } = await supabase.functions.invoke(
           "send-appointment-sms",

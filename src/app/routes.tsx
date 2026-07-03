@@ -30,6 +30,7 @@ import { LoginPage } from "./components/login-page";
 import { SetPasswordPage } from "./components/set-password-page";
 import { DocuSignLoadingPreview } from "./components/docusign-loading-preview";
 import { GoogleCalendarCallback } from "./components/google-calendar-callback";
+import { IntakeRedirect } from "./components/intake-redirect";
 import { Payroll } from "./components/payroll";
 import { PayrollPMDetail } from "./components/payroll-pm-detail";
 import { PayrollCrewDetail } from "./components/payroll-crew-detail";
@@ -106,6 +107,7 @@ export const router = createBrowserRouter([
       { index: true, Component: ClientDashboard },
     ],
   },
+  { path: "/intake/:clientId",          Component: IntakeRedirect },
   { path: "/portal/:token",            Component: ClientPortalPage },
   { path: "/p/:id",                    Component: PublicProposal },
   { path: "/docusign-callback",        Component: DocuSignCallback },

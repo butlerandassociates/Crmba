@@ -16,7 +16,7 @@ function AppContent() {
     );
   }
 
-  const isPublicRoute = window.location.pathname.startsWith('/p/') || window.location.pathname.startsWith('/portal/');
+  const isPublicRoute = window.location.pathname.startsWith('/p/') || window.location.pathname.startsWith('/portal/') || window.location.pathname.startsWith('/intake/');
 
   return (
     <>

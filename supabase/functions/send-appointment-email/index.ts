@@ -264,7 +264,7 @@ serve(async (req) => {
     }
     const includeIntakeForm = isInitialType && !intakeFormCompleted;
 
-    const intakeFormUrl = `${INTAKE_FORM_BASE}?entry.1284149011=${encodeURIComponent(client_id ?? "")}`;
+    const intakeFormUrl = `https://client.butlerconstruction.co/intake/${encodeURIComponent(client_id ?? "")}`;
 
     const vars: Record<string, string> = {
       client_name:     client_name ?? "Valued Client",
