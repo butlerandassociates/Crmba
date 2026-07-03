@@ -17,7 +17,32 @@ function replaceVars(template: string, vars: Record<string, string>): string {
   );
 }
 
-function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boolean): string {
+function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boolean, timeVal?: string): string {
+  // Split the body at the time line so the intake form button sits right below date/time
+  let bodyTop = body;
+  let bodyBottom: string | null = null;
+  if (includeIntakeForm && timeVal) {
+    const timeLinePattern = `Time: ${timeVal}`;
+    const splitIdx = body.indexOf(timeLinePattern);
+    if (splitIdx !== -1) {
+      const afterTimeLine = splitIdx + timeLinePattern.length;
+      const nextPara = body.indexOf("\n\n", afterTimeLine);
+      if (nextPara !== -1) {
+        bodyTop = body.slice(0, nextPara);
+        bodyBottom = body.slice(nextPara).trimStart();
+      }
+    }
+  }
+
+  const intakeBlock = includeIntakeForm ? `
+      <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:24px 0;background:#FAFAF8;">
+        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Before Your Appointment</p>
+        <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;line-height:1.6;margin:0 0 16px 0;">Please take a moment to complete our intake form — it helps us prepare and make the most of your time with us.</p>
+        <div style="text-align:center;">
+          <a href="${intakeFormUrl}" target="_blank" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 24px;border-radius:4px;">Complete Intake Form →</a>
+        </div>
+      </div>` : "";
+
   return `<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -49,16 +74,11 @@ function buildHtml(body: string, intakeFormUrl: string, includeIntakeForm: boole
       <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 10px 0;">
         Message from Butler &amp; Associates
       </p>
-      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${body.replace(/\n/g, '<br>')}</p>
+      <p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 ${bodyBottom ? "0" : "28px"} 0;">${bodyTop.replace(/\n/g, '<br>')}</p>
 
-      ${includeIntakeForm ? `
-      <div style="border:1px solid #E8E4DC;border-radius:6px;padding:20px 24px;margin:0 0 28px 0;background:#FAFAF8;">
-        <p style="font-family:Inter,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0 0 8px 0;">Before Your Appointment</p>
-        <p style="font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;line-height:1.6;margin:0 0 16px 0;">Please take a moment to complete our intake form — it helps us prepare and make the most of your time with us.</p>
-        <div style="text-align:center;">
-          <a href="${intakeFormUrl}" target="_blank" style="display:inline-block;background:#0A0A0A;color:#BB984D;font-family:Inter,sans-serif;font-size:12px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:12px 24px;border-radius:4px;">Complete Intake Form →</a>
-        </div>
-      </div>` : ""}
+      ${intakeBlock}
+
+      ${bodyBottom ? `<p style="font-family:Inter,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">${bodyBottom.replace(/\n/g, '<br>')}</p>` : ""}
 
       <p style="font-family:Inter,sans-serif;font-size:12px;color:#3A3A38;opacity:0.65;margin:0;line-height:1.6;">
         Questions? Reply to this email or reach us at
@@ -265,7 +285,7 @@ serve(async (req) => {
       apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates",
       vars
     );
-    const html = buildHtml(bodyText, intakeFormUrl, includeIntakeForm);
+    const html = buildHtml(bodyText, intakeFormUrl, includeIntakeForm, time ?? "");
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",

@@ -30,6 +30,7 @@ serve(async (req) => {
       client_first_name,
       date,
       time,
+      intake_form_url,
     } = await req.json();
 
     if (!client_phone) {
@@ -73,7 +74,10 @@ serve(async (req) => {
     // If Lookup itself fails (network, quota, etc.) we fall through and attempt the send anyway
 
     const firstName = (client_first_name ?? "").trim() || "there";
-    const body = `Hi ${firstName}, we're looking forward to meeting with you on ${date} at ${time}. To reschedule or cancel, please call us at (256) 617-4691. — Butler & Associates Construction, Inc.`;
+    const intakePart = intake_form_url
+      ? ` Please complete your intake form before your visit: ${intake_form_url}`
+      : "";
+    const body = `Hi ${firstName}, we're looking forward to meeting with you on ${date} at ${time}.${intakePart} To reschedule or cancel, please call us at (256) 617-4691. — Butler & Associates Construction, Inc.`;
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
 
