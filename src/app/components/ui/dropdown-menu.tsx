@@ -51,14 +51,37 @@ export function DropdownMenuContent({
   children,
   align = "start",
   className = "",
+  portal = true,
 }: {
   children: React.ReactNode;
   align?: "start" | "center" | "end";
   className?: string;
+  portal?: boolean;
 }) {
   const { open, setOpen, triggerRect } = React.useContext(DropdownMenuContext);
 
-  if (!open || !triggerRect) return null;
+  if (!open) return null;
+
+  const menuClass = `min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md ${className}`;
+
+  // Inline mode — renders inside the Sheet DOM tree, no portal needed
+  if (!portal) {
+    const inlineStyle: React.CSSProperties = {
+      position: "absolute",
+      top: "100%",
+      marginTop: 4,
+      zIndex: 50,
+      ...(align === "end" ? { right: 0 } : align === "center" ? { left: "50%", transform: "translateX(-50%)" } : { left: 0 }),
+    };
+    return (
+      <>
+        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+        <div style={inlineStyle} className={menuClass}>{children}</div>
+      </>
+    );
+  }
+
+  if (!triggerRect) return null;
 
   const style: React.CSSProperties = {
     position: "fixed",
@@ -78,12 +101,7 @@ export function DropdownMenuContent({
   return ReactDOM.createPortal(
     <>
       <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-      <div
-        style={style}
-        className={`min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md ${className}`}
-      >
-        {children}
-      </div>
+      <div style={style} className={menuClass}>{children}</div>
     </>,
     document.body
   );
@@ -95,6 +113,7 @@ export interface DropdownMenuItemProps {
   className?: string;
   asChild?: boolean;
   disabled?: boolean;
+  title?: string;
 }
 
 export function DropdownMenuItem({
@@ -103,6 +122,7 @@ export function DropdownMenuItem({
   className = "",
   asChild,
   disabled,
+  title,
 }: DropdownMenuItemProps) {
   const { setOpen } = React.useContext(DropdownMenuContext);
   const base =
@@ -118,14 +138,14 @@ export function DropdownMenuItem({
 
   if (asChild && React.isValidElement(children)) {
     return (
-      <div className={`${base} ${disabledClass} ${className}`} onClick={handleClick}>
+      <div className={`${base} ${disabledClass} ${className}`} onClick={handleClick} title={title}>
         {children}
       </div>
     );
   }
 
   return (
-    <div className={`${base} ${disabledClass} ${className}`} onClick={handleClick}>
+    <div className={`${base} ${disabledClass} ${className}`} onClick={handleClick} title={title}>
       {children}
     </div>
   );

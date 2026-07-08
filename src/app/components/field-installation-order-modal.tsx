@@ -21,7 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Plus, Trash2, FileDown, Loader2, Edit, Check, X, DollarSign, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { fioAPI, notificationsAPI, activityLogAPI, productsAPI } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "@/lib/supabase";
@@ -61,6 +68,8 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
   const [removingCrew, setRemovingCrew] = useState(false);
   const [removeCrewTarget, setRemoveCrewTarget] = useState<any>(null);
   const [removeItemTarget, setRemoveItemTarget] = useState<number | null>(null);
+  const [showDeleteFioConfirm, setShowDeleteFioConfirm] = useState(false);
+  const [deletingFio, setDeletingFio] = useState(false);
 
   // Pay Crew state
   const [completionPct, setCompletionPct] = useState<Record<string, number>>({});
@@ -495,44 +504,58 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
             {/* Action buttons */}
             {view === "view" && fio && (
-              <div className="flex gap-2">
-                {can("can_approve_fio_payments") && (
-                  <Button variant="outline" size="sm" onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); setReassignForemanId(fio.foreman_id || ""); }}>
-                    <Edit className="h-4 w-4 mr-1.5" /> Edit
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={exportPDF} disabled={exporting}>
-                  {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
-                  Export PDF
-                </Button>
-                {can("can_approve_fio_payments") && fio.status !== "paid" && (
-                  <span title={!canMarkPaid ? "All items 100% complete & balance $0" : undefined} className="inline-flex">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={markingComplete || !canMarkPaid}
-                    onClick={async () => {
-                      setMarkingComplete(true);
-                      try {
-                        const { data: { user: fioUser } } = await supabase.auth.getUser();
-                        const fioNow = new Date().toISOString();
-                        await fioAPI.update(fio.id, { status: "paid", paid_date: fioNow.split("T")[0], completed_by: fioUser?.id ?? null, completed_at: fioNow });
-                        setFio({ ...fio, status: "paid" });
-                        activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO marked as paid — project: ${project.name ?? ""}` }).catch(() => {});
-                        onFioSaved?.();
-                        toast.success("FIO marked as paid");
-                      } catch (err: any) {
-                        toast.error(err.message || "Failed to update status");
-                      } finally {
-                        setMarkingComplete(false);
-                      }
-                    }}
-                  >
-                    {markingComplete ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
-                    Mark as Paid
-                  </Button>
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      Actions <ChevronDown className="h-3.5 w-3.5 ml-1.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" portal={false}>
+                    {can("can_approve_fio_payments") && (
+                      <DropdownMenuItem onClick={() => { setView("edit"); setEditItems(fio.items || []); setEditWorkDate(fio.work_date || ""); setReassignForemanId(fio.foreman_id || ""); }}>
+                        <Edit className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={exportPDF} disabled={exporting}>
+                      {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileDown className="h-4 w-4 mr-2" />}
+                      Export PDF
+                    </DropdownMenuItem>
+                    {can("can_approve_fio_payments") && fio.status !== "paid" && (
+                      <DropdownMenuItem
+                        disabled={markingComplete || !canMarkPaid}
+                        title={!canMarkPaid ? "All items 100% complete & balance $0" : undefined}
+                        onClick={async () => {
+                          setMarkingComplete(true);
+                          try {
+                            const { data: { user: fioUser } } = await supabase.auth.getUser();
+                            const fioNow = new Date().toISOString();
+                            await fioAPI.update(fio.id, { status: "paid", paid_date: fioNow.split("T")[0], completed_by: fioUser?.id ?? null, completed_at: fioNow });
+                            setFio({ ...fio, status: "paid" });
+                            activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO marked as paid — project: ${project.name ?? ""}` }).catch(() => {});
+                            onFioSaved?.();
+                            toast.success("FIO marked as paid");
+                          } catch (err: any) {
+                            toast.error(err.message || "Failed to update status");
+                          } finally {
+                            setMarkingComplete(false);
+                          }
+                        }}
+                      >
+                        {markingComplete ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                        Mark as Paid
+                      </DropdownMenuItem>
+                    )}
+                    {can("can_approve_fio_payments") && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={() => setShowDeleteFioConfirm(true)}>
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete FIO
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {role !== "sales_rep" && (
                   <Button size="sm" onClick={() => { setView("pay_crew"); loadCrewPayments(fio.id); }}>
                     <DollarSign className="h-4 w-4 mr-1.5" /> Pay Crew
@@ -1224,6 +1247,45 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
             >
               {removingCrew ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Remove Crew
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteFioConfirm} onOpenChange={(o) => { if (!o) setShowDeleteFioConfirm(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Field Installation Order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(fio?.status === "paid" || fio?.status === "partial_paid" || totalPaid > 0)
+                ? <>This FIO has <strong>${totalPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong> in crew payments already recorded. Deleting it will permanently remove the FIO and all payment history. This cannot be undone.</>
+                : <>This will permanently delete the FIO and all its line items. This cannot be undone.</>
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!fio) return;
+                setDeletingFio(true);
+                try {
+                  await fioAPI.delete(fio.id);
+                  activityLogAPI.create({ client_id: project.client?.id, action_type: "fio_updated", description: `FIO deleted — project: ${project.name ?? ""}` }).catch(() => {});
+                  toast.success("FIO deleted");
+                  onFioSaved?.();
+                  onOpenChange(false);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to delete FIO");
+                } finally {
+                  setDeletingFio(false);
+                  setShowDeleteFioConfirm(false);
+                }
+              }}
+            >
+              {deletingFio ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete FIO
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
