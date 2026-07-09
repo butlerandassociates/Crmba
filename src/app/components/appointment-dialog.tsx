@@ -423,10 +423,6 @@ export function AppointmentDialog({
 
       // Send SMS confirmation via Twilio
       if (client?.phone) {
-        const isInitialAppt = typeLabel.toLowerCase().includes("initial");
-        const smsIntakeUrl = (isInitialAppt && !client.intake_form_completed)
-          ? `https://client.butlerconstruction.co/intake/${encodeURIComponent(client.id)}`
-          : null;
         const { data: smsData, error: smsErr } = await supabase.functions.invoke(
           "send-appointment-sms",
           {
@@ -435,7 +431,6 @@ export function AppointmentDialog({
               client_first_name: client.first_name ?? "",
               date:              dateLabel,
               time:              timeLabel,
-              intake_form_url:   smsIntakeUrl,
             },
           }
         );
