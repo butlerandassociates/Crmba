@@ -32,6 +32,8 @@ interface AppointmentDialogProps {
   onOpenChange: (open: boolean) => void;
   client: any;
   onAppointmentScheduled?: () => void;
+  mode?: "schedule" | "reschedule";
+  existingAppointment?: any;
 }
 
 
@@ -40,6 +42,8 @@ export function AppointmentDialog({
   onOpenChange,
   client,
   onAppointmentScheduled,
+  mode = "schedule",
+  existingAppointment,
 }: AppointmentDialogProps) {
 
   const [appointmentType, setAppointmentType] = useState("");
@@ -92,6 +96,20 @@ export function AppointmentDialog({
     supabase.from("appointment_types").select("*").eq("is_active", true).order("sort_order")
       .then(({ data }) => setAppointmentTypes(data ?? []));
   }, ["profiles", "appointment_types"], "appt-dialog");
+
+  // Pre-fill form when opening in reschedule mode
+  useEffect(() => {
+    if (!open || mode !== "reschedule" || !existingAppointment) return;
+    setAppointmentType(existingAppointment.appointment_type ?? "");
+    setStartTime(existingAppointment.appointment_time ?? "");
+    setEndTime(existingAppointment.end_time ?? "");
+    setNotes(existingAppointment.notes ?? "");
+    setAssignedUserId(existingAppointment.assigned_to ?? "");
+    if (existingAppointment.appointment_date) {
+      const [y, m, d] = existingAppointment.appointment_date.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const INTAKE_FORM_URL = `https://docs.google.com/forms/d/e/1FAIpQLSed6YY4dNn7yn_U7IakCfyTdQpNowwi48e1p3S9vgU7iKR7Rg/viewform?entry.1284149011=${encodeURIComponent(client?.id ?? "")}`;
 
@@ -291,81 +309,117 @@ export function AppointmentDialog({
         ...ccEmails.split(",").map((e) => e.trim()).filter(Boolean),
       ];
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-      // Save to appointments table first (calendar/meet link filled in after email send)
-      await appointmentsAPI.create({
-        client_id:                client.id,
-        title:                    `${typeLabel} – ${clientName}`,
-        appointment_type:         appointmentType,
-        appointment_date:         startDT.toISOString().split("T")[0],
-        appointment_time:         startTime,
-        end_time:                 endTime,
-        notes:                    notes || null,
-        assigned_to:              assignedUserId || null,
-        google_calendar_event_id: null,
-        google_meet_link:         null,
-        google_event_html_link:   null,
-        email_notification_sent:  false,
-      });
-
-      // Save as official sales rep if assigned user is a sales rep
-      if (assignedUserId && salesRepIds.has(assignedUserId) && !client.sales_rep_id) {
-        clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
-      }
-
-      // Log appointment scheduled — awaited so it's written before the heavy
-      // email/SMS calls and the dialog closing (a fire-and-forget insert here was
-      // getting dropped before it completed). .catch keeps it non-blocking.
-      await activityLogAPI.create({
-        client_id: client.id,
-        action_type: "appointment_scheduled",
-        description: `${typeLabel} scheduled for ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}${assignedUser ? ` — assigned to ${assignedUser.first_name} ${assignedUser.last_name}` : ""}`,
-      }).catch(() => {});
-
-      // Update client record — advance Prospect → Scheduled automatically
-      const clientUpdate: Record<string, any> = {
-        appointment_scheduled: true,
-        appointment_date:      startDT.toISOString(),
-        appointment_end_date:  endDT.toISOString(),
-      };
-      if (client.status === "prospect") {
-        const { data: scheduledStage } = await supabase
-          .from("pipeline_stages").select("id").ilike("name", "scheduled").limit(1).maybeSingle();
-        clientUpdate.status = "scheduled";
-        if (scheduledStage?.id) clientUpdate.pipeline_stage_id = scheduledStage.id;
-        activityLogAPI.create({
-          client_id:   client.id,
-          action_type: "status_changed",
-          description: `Pipeline stage advanced: Prospect → Scheduled (appointment booked)`,
-        }).catch(() => {});
-      }
-      await clientsAPI.update(client.id, clientUpdate);
-
-      // Send branded confirmation email via SendGrid
+      const isReschedule = mode === "reschedule";
       const timeLabel = `${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`;
       const dateLabel = format(startDT, "EEEE, MMMM d, yyyy");
+
+      let newAppt: any = null;
+      if (isReschedule && existingAppointment) {
+        // UPDATE existing appointment row (no new insert)
+        await appointmentsAPI.update(existingAppointment.id, {
+          title:            `${typeLabel} – ${clientName}`,
+          appointment_type: appointmentType,
+          appointment_date: startDT.toISOString().split("T")[0],
+          appointment_time: startTime,
+          end_time:         endTime,
+          notes:            notes || null,
+          assigned_to:      assignedUserId || null,
+        });
+
+        await activityLogAPI.create({
+          client_id:   client.id,
+          action_type: "appointment_scheduled",
+          description: `${typeLabel} rescheduled to ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}`,
+        }).catch(() => {});
+
+        await clientsAPI.update(client.id, {
+          appointment_date:     startDT.toISOString(),
+          appointment_end_date: endDT.toISOString(),
+        });
+      } else {
+        // CREATE new appointment row
+        newAppt = await appointmentsAPI.create({
+          client_id:                client.id,
+          title:                    `${typeLabel} – ${clientName}`,
+          appointment_type:         appointmentType,
+          appointment_date:         startDT.toISOString().split("T")[0],
+          appointment_time:         startTime,
+          end_time:                 endTime,
+          notes:                    notes || null,
+          assigned_to:              assignedUserId || null,
+          google_calendar_event_id: null,
+          google_meet_link:         null,
+          google_event_html_link:   null,
+          email_notification_sent:  false,
+        });
+
+        if (assignedUserId && salesRepIds.has(assignedUserId) && !client.sales_rep_id) {
+          clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
+        }
+
+        await activityLogAPI.create({
+          client_id:   client.id,
+          action_type: "appointment_scheduled",
+          description: `${typeLabel} scheduled for ${format(startDT, "MMM d, yyyy")} at ${format(startDT, "h:mm a")} – ${format(endDT, "h:mm a")}${assignedUser ? ` — assigned to ${assignedUser.first_name} ${assignedUser.last_name}` : ""}`,
+        }).catch(() => {});
+
+        const clientUpdate: Record<string, any> = {
+          appointment_scheduled: true,
+          appointment_date:      startDT.toISOString(),
+          appointment_end_date:  endDT.toISOString(),
+        };
+        if (client.status === "prospect") {
+          const { data: scheduledStage } = await supabase
+            .from("pipeline_stages").select("id").ilike("name", "scheduled").limit(1).maybeSingle();
+          clientUpdate.status = "scheduled";
+          if (scheduledStage?.id) clientUpdate.pipeline_stage_id = scheduledStage.id;
+          activityLogAPI.create({
+            client_id:   client.id,
+            action_type: "status_changed",
+            description: `Pipeline stage advanced: Prospect → Scheduled (appointment booked)`,
+          }).catch(() => {});
+        }
+        await clientsAPI.update(client.id, clientUpdate);
+      }
+
+      // Send confirmation email (creates or PATCHes Google Calendar event)
       let emailSent        = false;
       let smsSent          = false;
       let calendarEventId: string | null = null;
       let googleMeetLink:  string | null = null;
       let calendarHtmlLink: string | null = null;
 
+      // For reschedule: the in-memory appointment may not have the calendar event ID yet
+      // (race condition — void update from original schedule may not have committed before
+      // the page refreshed). Fetch fresh from DB to be sure.
+      let existingGoogleEventId: string | null = existingAppointment?.google_calendar_event_id ?? null;
+      if (isReschedule && !existingGoogleEventId && existingAppointment?.id) {
+        const { data: freshAppt } = await supabase
+          .from("appointments")
+          .select("google_calendar_event_id")
+          .eq("id", existingAppointment.id)
+          .maybeSingle();
+        existingGoogleEventId = freshAppt?.google_calendar_event_id ?? null;
+      }
+
       const { data: emailData, error: emailErr } = await supabase.functions.invoke(
         "send-appointment-email",
         {
           body: {
-            appointment_type_id: appointmentType,
-            client_id:      client.id,
-            client_name:    clientName,
-            client_email:   client.email,
-            client_address: clientAddress || null,
-            date:           dateLabel,
-            time:           timeLabel,
-            title:          `${typeLabel} – ${clientName}`,
-            start_datetime: startDT.toISOString(),
-            end_datetime:   endDT.toISOString(),
-            time_zone:      timeZone,
-            cc_emails:      ccList,
+            appointment_type_id:      appointmentType,
+            client_id:                client.id,
+            client_name:              clientName,
+            client_email:             client.email,
+            client_address:           clientAddress || null,
+            date:                     dateLabel,
+            time:                     timeLabel,
+            title:                    `${typeLabel} – ${clientName}`,
+            start_datetime:           startDT.toISOString(),
+            end_datetime:             endDT.toISOString(),
+            time_zone:                timeZone,
+            cc_emails:                ccList,
+            existing_google_event_id: isReschedule ? existingGoogleEventId : null,
+            is_reschedule:            isReschedule,
           },
         }
       );
@@ -374,31 +428,38 @@ export function AppointmentDialog({
         activityLogAPI.create({
           client_id:    client.id,
           action_type:  "email_failed",
-          description:  `Appointment confirmation email failed to deliver to ${client.email}: ${reason}`,
+          description:  `Appointment ${isReschedule ? "reschedule" : "confirmation"} email failed to deliver to ${client.email}: ${reason}`,
         }).catch(() => {});
       } else {
-        emailSent = true;
+        emailSent        = true;
         calendarEventId  = emailData?.calendar_event_id ?? null;
         googleMeetLink   = emailData?.google_meet_link ?? null;
         calendarHtmlLink = emailData?.calendar_html_link ?? null;
-        void supabase.from("appointments")
-          .update({
-            email_notification_sent:  true,
-            google_calendar_event_id: calendarEventId,
-            google_meet_link:         googleMeetLink,
-            google_event_html_link:   calendarHtmlLink,
-          })
-          .eq("client_id", client.id)
-          .order("created_at", { ascending: false })
-          .limit(1);
+        if (isReschedule && existingAppointment?.id) {
+          void supabase.from("appointments")
+            .update({
+              email_notification_sent:  true,
+              google_calendar_event_id: calendarEventId ?? existingAppointment.google_calendar_event_id,
+              google_meet_link:         googleMeetLink,
+              google_event_html_link:   calendarHtmlLink,
+            })
+            .eq("id", existingAppointment.id);
+        } else if (newAppt?.id) {
+          void supabase.from("appointments")
+            .update({
+              email_notification_sent:  true,
+              google_calendar_event_id: calendarEventId,
+              google_meet_link:         googleMeetLink,
+              google_event_html_link:   calendarHtmlLink,
+            })
+            .eq("id", newAppt.id);
+        }
       }
 
-      // Send branded "field info" email to the assigned rep — ONLY for Initial Appointments
-      // (per Jonathan's request: reps get the client info sheet when an Initial Appointment is booked)
-      if (assignedEmail && typeLabel.toLowerCase().includes("initial")) {
+      // Send rep "field info" email — only for new Initial Appointments (skip on reschedule)
+      if (!isReschedule && assignedEmail && typeLabel.toLowerCase().includes("initial")) {
         const repFirstName = assignedUser?.first_name ?? "";
         const repHtml = buildRepEmailHtml(repFirstName, dateLabel, timeLabel, typeLabel);
-        // Editable subject (List Management → Sales Rep Email Template), with fallback
         const subjVars = { rep_name: repFirstName || "there", client_name: clientName, date: dateLabel, time: timeLabel, type: typeLabel };
         const repSubject = repEmailTemplate.subject?.trim()
           ? fillVars(repEmailTemplate.subject.trim(), subjVars)
@@ -421,7 +482,7 @@ export function AppointmentDialog({
         }).catch(() => {});
       }
 
-      // Send SMS confirmation via Twilio
+      // Send SMS confirmation
       if (client?.phone) {
         const { data: smsData, error: smsErr } = await supabase.functions.invoke(
           "send-appointment-sms",
@@ -446,15 +507,13 @@ export function AppointmentDialog({
         }
       }
 
-      // const meetLink = googleMeetLink; // hidden: in-person appointments only
-
-      // Primary success toast
       toast.success(
-        `Appointment scheduled!${emailSent ? ` Invite sent to ${client.email}.` : ""}`,
+        isReschedule
+          ? `Appointment rescheduled!${emailSent ? ` Updated confirmation sent to ${client.email}.` : ""}`
+          : `Appointment scheduled!${emailSent ? ` Invite sent to ${client.email}.` : ""}`,
         { duration: 6000 }
       );
 
-      // Failure toasts (shown after success so they appear on top)
       if (!emailSent) {
         toast.error(
           `Confirmation email could not be sent to ${client.email}. Check the address is correct.`,
@@ -467,13 +526,6 @@ export function AppointmentDialog({
           { duration: 8000 }
         );
       }
-
-      // if (meetLink) {
-      //   toast.info(
-      //     <span>Meet link: <a href={meetLink} target="_blank" rel="noopener noreferrer" className="underline font-medium">{meetLink}</a></span>,
-      //     { duration: 10000 }
-      //   );
-      // }
 
       onOpenChange(false);
       onAppointmentScheduled?.();
@@ -501,9 +553,11 @@ export function AppointmentDialog({
     <Dialog open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Schedule Appointment</DialogTitle>
+          <DialogTitle>{mode === "reschedule" ? "Reschedule Appointment" : "Schedule Appointment"}</DialogTitle>
           <DialogDescription>
-            Schedule an in-person appointment with {clientName} — creates a Google Calendar event, sends confirmation email and SMS automatically.
+            {mode === "reschedule"
+              ? `Update the date and time for ${clientName}'s appointment — patches the Google Calendar event and sends a new confirmation email and SMS.`
+              : `Schedule an in-person appointment with ${clientName} — creates a Google Calendar event, sends confirmation email and SMS automatically.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -794,9 +848,9 @@ export function AppointmentDialog({
           >
             <span className="flex items-center justify-center gap-2 whitespace-nowrap">
               {scheduling ? (
-                <><Loader2 className="h-4 w-4 animate-spin" />Scheduling...</>
+                <><Loader2 className="h-4 w-4 animate-spin" />{mode === "reschedule" ? "Rescheduling..." : "Scheduling..."}</>
               ) : (
-                <><CalendarIcon className="h-4 w-4" />Schedule &amp; Send Invite</>
+                <><CalendarIcon className="h-4 w-4" />{mode === "reschedule" ? "Reschedule & Update Calendar" : "Schedule & Send Invite"}</>
               )}
             </span>
           </Button>

@@ -386,6 +386,7 @@ export function ClientDetail() {
   const [refreshingSubDocusign, setRefreshingSubDocusign] = useState(false);
   const [openingSubSigning, setOpeningSubSigning] = useState(false);
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
+  const [rescheduleTarget, setRescheduleTarget] = useState<any>(null);
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [purchaseOrdersOpen, setPurchaseOrdersOpen] = useState(false);
   const [fioOpen, setFioOpen] = useState(false);
@@ -2075,6 +2076,15 @@ export function ClientDetail() {
                         >
                           <CheckCircle2 className="h-3 w-3" />
                           Mark as Met
+                        </button>
+                      )}
+                      {!latest.is_met && can("can_schedule_appointments") && (
+                        <button
+                          onClick={() => setRescheduleTarget(latest)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          <Calendar className="h-3 w-3" />
+                          Reschedule
                         </button>
                       )}
                     </div>
@@ -4231,6 +4241,14 @@ export function ClientDetail() {
         open={appointmentDialogOpen}
         onOpenChange={setAppointmentDialogOpen}
         client={client}
+        onAppointmentScheduled={handleAppointmentScheduled}
+      />
+      <AppointmentDialog
+        open={!!rescheduleTarget}
+        onOpenChange={(o) => { if (!o) setRescheduleTarget(null); }}
+        client={client}
+        mode="reschedule"
+        existingAppointment={rescheduleTarget}
         onAppointmentScheduled={handleAppointmentScheduled}
       />
 

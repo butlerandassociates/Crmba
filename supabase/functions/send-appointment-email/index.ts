@@ -117,20 +117,46 @@ async function getAccessToken(refreshToken: string): Promise<string> {
   return data.access_token;
 }
 
+type CalendarParams = {
+  title: string;
+  startDateTime: string;
+  endDateTime: string;
+  timeZone: string;
+  location?: string;
+  description?: string;
+  attendeeEmail?: string;
+  attendeeName?: string;
+  ccEmails?: string[];
+};
+
+type CalendarResult = { id?: string; htmlLink?: string; hangoutLink?: string } | null;
+
+function buildCalendarEventBody(params: CalendarParams) {
+  const attendees: { email: string; displayName?: string }[] = [];
+  if (params.attendeeEmail) attendees.push({ email: params.attendeeEmail, displayName: params.attendeeName });
+  (params.ccEmails ?? []).forEach((email) => attendees.push({ email }));
+  return {
+    summary:  params.title,
+    location: params.location,
+    description: params.description,
+    start: { dateTime: params.startDateTime, timeZone: params.timeZone },
+    end:   { dateTime: params.endDateTime,   timeZone: params.timeZone },
+    attendees,
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: "email", minutes: 24 * 60 },
+        { method: "popup", minutes: 60 },
+      ],
+    },
+    guestsCanSeeOtherGuests: true,
+  };
+}
+
 async function createCalendarEvent(
   supabaseClient: ReturnType<typeof createClient>,
-  params: {
-    title: string;
-    startDateTime: string;
-    endDateTime: string;
-    timeZone: string;
-    location?: string;
-    description?: string;
-    attendeeEmail?: string;
-    attendeeName?: string;
-    ccEmails?: string[];
-  }
-): Promise<{ id?: string; htmlLink?: string; hangoutLink?: string } | null> {
+  params: CalendarParams
+): Promise<CalendarResult> {
   try {
     const { data: settings } = await supabaseClient
       .from("company_settings")
@@ -143,42 +169,66 @@ async function createCalendarEvent(
 
     const accessToken = await getAccessToken(settings.google_calendar_refresh_token);
 
-    const attendees: { email: string; displayName?: string }[] = [];
-    if (params.attendeeEmail) attendees.push({ email: params.attendeeEmail, displayName: params.attendeeName });
-    (params.ccEmails ?? []).forEach((email) => attendees.push({ email }));
-
-    const eventBody = {
-      summary:  params.title,
-      location: params.location,
-      description: params.description,
-      start: { dateTime: params.startDateTime, timeZone: params.timeZone },
-      end:   { dateTime: params.endDateTime,   timeZone: params.timeZone },
-      attendees,
-      // conferenceData: {
-      //   createRequest: {
-      //     requestId: `crm-${Date.now()}`,
-      //     conferenceSolutionKey: { type: "hangoutsMeet" },
-      //   },
-      // },
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: "email", minutes: 24 * 60 },
-          { method: "popup", minutes: 60 },
-        ],
-      },
-      guestsCanSeeOtherGuests: true,
-    };
-
     const res = await fetch(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", // conferenceDataVersion=1 removed (in-person only)
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all",
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(eventBody),
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildCalendarEventBody(params)),
+      }
+    );
+
+    if (!res.ok) return null;
+    const event = await res.json();
+    return { id: event.id, htmlLink: event.htmlLink, hangoutLink: event.hangoutLink };
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCalendarEvent(
+  supabaseClient: ReturnType<typeof createClient>,
+  eventId: string
+): Promise<void> {
+  try {
+    const { data: settings } = await supabaseClient
+      .from("company_settings")
+      .select("google_calendar_refresh_token")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!settings?.google_calendar_refresh_token) return;
+    const accessToken = await getAccessToken(settings.google_calendar_refresh_token);
+    await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+  } catch { /* ignore — old event may already be gone */ }
+}
+
+async function patchCalendarEvent(
+  supabaseClient: ReturnType<typeof createClient>,
+  eventId: string,
+  params: CalendarParams
+): Promise<CalendarResult> {
+  try {
+    const { data: settings } = await supabaseClient
+      .from("company_settings")
+      .select("google_calendar_refresh_token")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!settings?.google_calendar_refresh_token) return null;
+
+    const accessToken = await getAccessToken(settings.google_calendar_refresh_token);
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildCalendarEventBody(params)),
       }
     );
 
@@ -209,12 +259,14 @@ serve(async (req) => {
       client_address,
       date,
       time,
-      // Calendar params (optional — if provided, calendar event is created server-side)
+      // Calendar params (optional — if provided, calendar event is created/updated server-side)
       title,
       start_datetime,
       end_datetime,
       time_zone,
       cc_emails,
+      existing_google_event_id,
+      is_reschedule,
     } = await req.json();
 
     if (!client_email) {
@@ -224,10 +276,10 @@ serve(async (req) => {
       });
     }
 
-    // Create Google Calendar event if datetime params were provided
-    let calendarEvent: { id?: string; htmlLink?: string; hangoutLink?: string } | null = null;
+    // Create or update Google Calendar event
+    let calendarEvent: CalendarResult = null;
     if (start_datetime && end_datetime && time_zone) {
-      calendarEvent = await createCalendarEvent(supabaseClient, {
+      const calendarParams: CalendarParams = {
         title:         title ?? `Appointment – ${client_name ?? "Client"}`,
         startDateTime: start_datetime,
         endDateTime:   end_datetime,
@@ -237,7 +289,18 @@ serve(async (req) => {
         attendeeEmail: client_email,
         attendeeName:  client_name ?? undefined,
         ccEmails:      cc_emails ?? [],
-      });
+      };
+      if (existing_google_event_id) {
+        // Try to patch (move) the existing event — sends "Updated" to all attendees
+        calendarEvent = await patchCalendarEvent(supabaseClient, existing_google_event_id, calendarParams);
+        if (!calendarEvent) {
+          // PATCH failed (event deleted, token issue, etc.) — delete old + create fresh
+          await deleteCalendarEvent(supabaseClient, existing_google_event_id);
+          calendarEvent = await createCalendarEvent(supabaseClient, calendarParams);
+        }
+      } else {
+        calendarEvent = await createCalendarEvent(supabaseClient, calendarParams);
+      }
     }
 
     const meetLink = calendarEvent?.hangoutLink ?? "";
@@ -281,11 +344,10 @@ serve(async (req) => {
       `Your {type} has been confirmed.\n\nDate: {date}\nTime: {time}\nLocation: {address}\n\nWe look forward to meeting with you!`;
 
     const bodyText = replaceVars(rawBody, vars);
-    const subject  = replaceVars(
-      apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates",
-      vars
-    );
-    const html = buildHtml(bodyText, intakeFormUrl, includeIntakeForm, time ?? "");
+    const html = buildHtml(bodyText, intakeFormUrl, includeIntakeForm && !is_reschedule, time ?? "");
+    const resolvedSubject = is_reschedule
+      ? replaceVars("Your {type} has been rescheduled — Butler & Associates", vars)
+      : replaceVars(apptType?.email_subject?.trim() || "Your {type} is Confirmed — Butler & Associates", vars);
 
     const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
@@ -299,7 +361,7 @@ serve(async (req) => {
           email: "noreply@butlerconstruction.co",
           name: "Butler & Associates Construction",
         },
-        subject,
+        subject: resolvedSubject,
         content: [{ type: "text/html", value: html }],
         // Disable SendGrid click tracking — keeps links raw (the broken branded-link
         // domain url####.butlerconstruction.co was breaking the intake form link).
