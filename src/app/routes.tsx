@@ -41,6 +41,8 @@ import { ForemanDashboard } from "./components/foreman/foreman-dashboard";
 import { ForemanJobDetail } from "./components/foreman/foreman-job-detail";
 import { PermissionGuard } from "./components/permission-guard";
 import { MileagePage } from "./components/mileage/mileage-page";
+import { OnboardingManager } from "./components/admin/onboarding-manager";
+import { OnboardingPortal } from "./components/onboarding/onboarding-portal";
 
 function NotFound() {
   return (
@@ -82,12 +84,14 @@ export const router = createBrowserRouter([
       { path: "admin/list-management",                Component: G("can_view_admin_portal", ListManagement) },
       { path: "admin/warranty",                       Component: G("can_view_admin_portal", WarrantyManager) },
       { path: "admin/suppliers",                      Component: G("can_view_admin_portal", SuppliersManager) },
+      { path: "admin/onboarding",                     Component: G("can_view_admin_portal", OnboardingManager) },
       { path: "pipeline",                             Component: G("can_view_pipeline", PipelineForecast) },
       { path: "cost-attributions",                    Component: G("can_view_cost_attributions", CostAttributionsAll) },
       { path: "payroll",                              Component: G("can_view_payroll", Payroll) },
       { path: "payroll/pm/:id",                       Component: G("can_view_payroll", PayrollPMDetail) },
       { path: "payroll/crew/:id",                     Component: G("can_view_payroll", PayrollCrewDetail) },
       { path: "mileage",                               Component: MileagePage },
+      { path: "onboarding",                            Component: OnboardingPortal },
       { path: "my-portal",                            Component: MyPortal },
       { path: "*",                                    Component: NotFound },
     ],

@@ -10,7 +10,7 @@ import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Link } from "react-router";
-import { FileText, List, Archive, Loader2, RotateCcw, FileBarChart2, Search, ChevronLeft, ChevronRight, ShieldCheck, Building2 } from "lucide-react";
+import { FileText, List, Archive, Loader2, RotateCcw, FileBarChart2, Search, ChevronLeft, ChevronRight, ShieldCheck, Building2, GraduationCap } from "lucide-react";
 import { Input } from "../ui/input";
 import { supabase } from "@/lib/supabase";
 import { activityLogAPI } from "../../utils/api";
@@ -207,6 +207,12 @@ export function AdminPortal() {
                 <Link to="/admin/suppliers" className="flex items-center gap-1.5 no-underline">
                   <Building2 className="h-4 w-4" />
                   Suppliers
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/admin/onboarding" className="flex items-center gap-1.5 no-underline">
+                  <GraduationCap className="h-4 w-4" />
+                  Onboarding
                 </Link>
               </Button>
             </div>

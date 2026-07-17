@@ -30,6 +30,7 @@ import {
   Briefcase,
   Car,
   Menu,
+  GraduationCap,
 } from "lucide-react";
 import { useAuth } from "../contexts/auth-context";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -69,6 +70,8 @@ const ALL_NAVIGATION = [
   { name: "Active",    href: "/clients?stage=active",     icon: UserRoundPlus,   permission: null, roles: null },
   { name: "Completed", href: "/clients?stage=completed",  icon: UserCheck,       permission: null, roles: null },
   { name: "Mileage",   href: "/mileage",                  icon: Car,             permission: null, roles: ["admin", "project_manager", "sales_rep"] },
+  { name: "Training",  href: "/onboarding",               icon: GraduationCap,   permission: null, roles: ["sales_rep", "project_manager"] },
+  { name: "Onboarding", href: "/admin/onboarding",        icon: GraduationCap,   permission: "can_view_admin_portal", roles: ["admin"] },
 ];
 
 const ROLE_LABELS: Record<string, string> = {

@@ -65,3 +65,8 @@ vite.config.ts.timestamp-*
 # Temp
 tmp/
 _tmp_*
+
+# One-off test scripts
+ob-*.mjs
+*-test.mjs
+playwright-*.mjs
