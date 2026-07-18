@@ -363,7 +363,7 @@ export function ProposalDetail() {
   const finAvgMarkup         = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
   const finPmRate            = 3; // PM commission rate — confirmed by Jonathan
   const finSalesRepRate      = Number(client?.sales_rep?.commission_rate ?? 7);
-  const finPmCommission      = computedGrossProfit * (finPmRate / 100);
+  const finPmCommission      = computedSubtotal * (finPmRate / 100);
   const finSalesRepCommission = computedGrossProfit * (finSalesRepRate / 100);
   const finTotalCommission   = finPmCommission + finSalesRepCommission;
 
@@ -1731,7 +1731,7 @@ export function ProposalDetail() {
             </Button>
           )}
 
-          {(role === "admin" || role === "sales_rep" || role === "project_manager") && (
+          {(role === "admin" || role === "sales_rep") && (
             <Button variant="outline" size="sm" onClick={() => setShowFinancials(true)}>
               <BarChart2 className="h-4 w-4 mr-2" />
               Financials
@@ -3155,7 +3155,7 @@ export function ProposalDetail() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of GP)</span>
+                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of Subtotal)</span>
                       <span>{formatCurrency(finPmCommission)}</span>
                     </div>
                     <div className="flex justify-between">
