@@ -681,7 +681,7 @@ function DocumentsTab({ programId, onDirty }: { programId: string; onDirty?: (d:
             </Button>
           </div>
         </div>
-        <div className="pt-4">
+        <div className="pt-4 pb-24">
           <BlockEditor blocks={contentBlocks} onChange={setContentBlocks} />
         </div>
       </div>
@@ -1459,18 +1459,29 @@ export function OnboardingManager() {
           if (adminDirty) { setPendingTab(val); setAdminWarnOpen(true); return; }
           setActiveManagerTab(val);
         }} className="w-full">
-          <div className="sticky top-[88px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pb-0 border-b">
-            <TabsList className="grid grid-cols-4 max-w-lg">
-              <TabsTrigger value="modules"><BookOpen className="h-3.5 w-3.5 mr-1.5" />Modules</TabsTrigger>
-              <TabsTrigger value="documents"><FileText className="h-3.5 w-3.5 mr-1.5" />Documents</TabsTrigger>
-              <TabsTrigger value="quiz"><HelpCircle className="h-3.5 w-3.5 mr-1.5" />Quiz</TabsTrigger>
-              <TabsTrigger value="tracking"><BarChart3 className="h-3.5 w-3.5 mr-1.5" />Tracking</TabsTrigger>
-            </TabsList>
+          <div className="sticky top-[88px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 border-b">
+            <div className="flex gap-6">
+              {([
+                { val: "modules",   Icon: BookOpen,  label: "Modules"   },
+                { val: "documents", Icon: FileText,  label: "Documents" },
+                { val: "quiz",      Icon: HelpCircle, label: "Quiz"     },
+                { val: "tracking",  Icon: BarChart3, label: "Tracking"  },
+              ] as const).map(({ val, Icon, label }) => (
+                <button key={val}
+                  onClick={() => {
+                    if (adminDirty) { setPendingTab(val); setAdminWarnOpen(true); return; }
+                    setActiveManagerTab(val);
+                  }}
+                  className={`flex items-center gap-1.5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeManagerTab === val ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                  <Icon className="h-3.5 w-3.5" />{label}
+                </button>
+              ))}
+            </div>
           </div>
-          <TabsContent value="modules" className="mt-0"><ModulesTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
-          <TabsContent value="documents" className="mt-0"><DocumentsTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
-          <TabsContent value="quiz" className="mt-0"><QuizTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
-          <TabsContent value="tracking" className="mt-0 px-4 pb-8"><TrackingTab programId={selectedProgram.id} /></TabsContent>
+          <TabsContent value="modules" className="mt-0 pb-16"><ModulesTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
+          <TabsContent value="documents" className="mt-0 pb-16"><DocumentsTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
+          <TabsContent value="quiz" className="mt-0 pb-16"><QuizTab programId={selectedProgram.id} onDirty={setAdminDirty} /></TabsContent>
+          <TabsContent value="tracking" className="mt-0 px-4 pb-16"><TrackingTab programId={selectedProgram.id} /></TabsContent>
         </Tabs>
       ) : null}
 

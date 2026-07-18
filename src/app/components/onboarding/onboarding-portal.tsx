@@ -337,12 +337,11 @@ function useScrollGate(key: unknown, skip: boolean) {
     const el = ref.current;
     if (!el) return;
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    const root = document.querySelector("main");
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setReady(true); }, { root, threshold: 0.1 });
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setReady(true); }, { root: null, threshold: 0.1 });
     obs.observe(el);
     requestAnimationFrame(() => {
-      const r = el.getBoundingClientRect(), mr = root?.getBoundingClientRect();
-      if (mr && r.bottom <= mr.bottom) setReady(true);
+      const r = el.getBoundingClientRect();
+      if (r.bottom <= window.innerHeight) setReady(true);
     });
     return () => obs.disconnect();
   }, [key, skip]);
@@ -468,8 +467,8 @@ function SectionReader({ module, sections, initialSectionIdx, isCompleted, onPro
             </div>
             <h3 className="text-lg font-bold mb-5">{section?.heading}</h3>
             <BlockRenderer blocks={section?.content ?? []} />
-            <div ref={sentinelRef} className="h-4 mt-8" />
-            <div className="flex items-center justify-between pt-5 border-t mt-4">
+            <div ref={sentinelRef} className="h-4 mt-8 mb-4" />
+            <div className="flex items-center justify-between pt-5 border-t mt-4 pb-16">
               <Button variant="ghost" size="sm" onClick={() => setIdx(i => i - 1)} disabled={idx === 0}>
                 <ChevronLeft className="h-4 w-4 mr-1" />Previous
               </Button>
@@ -998,7 +997,7 @@ export function OnboardingPortal() {
       </div>
 
       {/* Page content */}
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 pb-24">
 
         {/* Module reader */}
         {inModuleReader && (() => {
