@@ -36,6 +36,7 @@ import {
   BadgePercent,
   Check,
   Clock,
+  BarChart2,
 } from "lucide-react";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
@@ -199,6 +200,7 @@ export function ProposalDetail() {
   const [discountLabel, setDiscountLabel] = useState("");
   const [stripeFeeEnabled, setStripeFeeEnabled] = useState(false);
   const [showSavingsDialog, setShowSavingsDialog] = useState(false);
+  const [showFinancials, setShowFinancials] = useState(false);
 
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
@@ -354,6 +356,13 @@ export function ProposalDetail() {
   );
   const computedGrossProfit = computedTotal - computedTotalCost;
   const computedProfitMargin = computedTotal > 0 ? (computedGrossProfit / computedTotal) * 100 : 0;
+
+  // Financials breakdown
+  const finMaterialCost = editLineItems.reduce((s, i) => s + Number(i.material_cost ?? 0) * Number(i.quantity ?? 0), 0);
+  const finLaborCost    = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.quantity ?? 0), 0);
+  const finFioCost      = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.fio_qty ?? 0), 0);
+  const finAvgMarkup    = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
+  const finCommission   = computedTotal * 0.25;
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
@@ -1719,6 +1728,13 @@ export function ProposalDetail() {
             </Button>
           )}
 
+          {role === "admin" && (
+            <Button variant="outline" size="sm" onClick={() => setShowFinancials(true)}>
+              <BarChart2 className="h-4 w-4 mr-2" />
+              Financials
+            </Button>
+          )}
+
           {!isLocked && (
             <Button variant="outline" onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
@@ -3047,6 +3063,79 @@ export function ProposalDetail() {
           </div>
           <div className="px-6 py-4 border-t flex justify-end">
             <Button onClick={() => setShowSavingsDialog(false)}>Done</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Financials Dialog */}
+      <Dialog open={showFinancials} onOpenChange={setShowFinancials}>
+        <DialogContent className="max-w-lg p-0 gap-0">
+          <DialogHeader className="px-6 py-5 border-b">
+            <DialogTitle>Projected Financials</DialogTitle>
+            <DialogDescription>Based on current saved line items</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-5 space-y-5">
+
+            {/* Revenue */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Revenue</p>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(computedSubtotal)}</span></div>
+                {activeBad > 0 && <div className="flex justify-between"><span className="text-muted-foreground">BAD</span><span>{formatCurrency(activeBad)}</span></div>}
+                {activeTax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(activeTax)}</span></div>}
+                {discountAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-green-600">− {formatCurrency(discountAmt)}</span></div>}
+                {stripeFeeAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Stripe Fee</span><span>{formatCurrency(stripeFeeAmt)}</span></div>}
+                <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Revenue</span><span>{formatCurrency(computedTotal)}</span></div>
+              </div>
+            </div>
+
+            {/* Costs */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Costs</p>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Material Cost</span><span>{formatCurrency(finMaterialCost)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Labor Cost</span><span>{formatCurrency(finLaborCost)}</span></div>
+                <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Cost</span><span>{formatCurrency(computedTotalCost)}</span></div>
+              </div>
+            </div>
+
+            {/* Profitability */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Profitability</p>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gross Profit</span>
+                  <span className={computedGrossProfit >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{formatCurrency(computedGrossProfit)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">GP %</span>
+                  <span className={computedProfitMargin >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{computedProfitMargin.toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg Markup</span>
+                  <span className="font-semibold">{finAvgMarkup.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* FIO & Commission */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Field & Commission</p>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Expected FIO Labor $</span>
+                  <span className="font-semibold">{formatCurrency(finFioCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Est. Commission Pool (25%)</span>
+                  <span className="font-semibold">{formatCurrency(finCommission)}</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end">
+            <Button onClick={() => setShowFinancials(false)}>Close</Button>
           </div>
         </DialogContent>
       </Dialog>

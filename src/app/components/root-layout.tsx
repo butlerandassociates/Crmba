@@ -152,7 +152,7 @@ export function RootLayout() {
     if (!targetUserId || targetUserId === user?.profile?.id) setDismissedAlerts(new Set());
   };
 
-  const visibleAlerts = navAlerts.filter(a => !dismissedAlerts.has(a.id));
+  const visibleAlerts = navAlerts.filter(a => a.id.startsWith("overdue-") || !dismissedAlerts.has(a.id));
 
   const fetchAlerts = async () => {
     try {
@@ -446,28 +446,8 @@ export function RootLayout() {
 
       setNavAlerts(finalAlerts);
 
-      // Prune dismissed rows whose underlying issue is now resolved
-      // If an alert_id no longer exists in current active alerts, the dismiss record is stale — delete it
-      // This ensures if the same condition returns later, it shows up again as a fresh alert
-      if (user?.profile?.id && finalAlerts.length >= 0) {
-        const activeAlertIds = finalAlerts.map((a) => a.id);
-        supabase
-          .from("user_dismissed_alerts")
-          .select("alert_id")
-          .eq("user_id", user.profile.id)
-          .then(({ data }) => {
-            const stale = (data ?? []).map((r: any) => r.alert_id).filter((id: string) => !activeAlertIds.includes(id));
-            if (stale.length > 0) {
-              supabase.from("user_dismissed_alerts").delete().eq("user_id", user.profile.id).in("alert_id", stale).then(() => {
-                setDismissedAlerts((prev) => {
-                  const updated = new Set(prev);
-                  stale.forEach((id: string) => updated.delete(id));
-                  return updated;
-                });
-              });
-            }
-          });
-      }
+      // Dismissed alerts stay dismissed permanently — no pruning.
+      // Overdue payment alerts (overdue-*) are always visible regardless of dismissed state.
     } catch { /* silent */ }
   };
 
@@ -712,8 +692,8 @@ export function RootLayout() {
                       onClick={async () => {
                         await notificationsAPI.markAllRead();
                         setCrewNotifications([]);
-                        const allIds = navAlerts.map((a: any) => a.id ?? a.key ?? "").filter(Boolean);
-                        setDismissedAlerts(new Set(allIds));
+                        const allIds = navAlerts.map((a: any) => a.id ?? a.key ?? "").filter((id: string) => id && !id.startsWith("overdue-"));
+                        setDismissedAlerts(prev => new Set([...prev, ...allIds]));
                         if (user?.profile?.id && allIds.length > 0) {
                           supabase.from("user_dismissed_alerts").insert(
                             allIds.map((alert_id: string) => ({ user_id: user.profile.id, alert_id }))
@@ -807,14 +787,16 @@ export function RootLayout() {
                               <span className="text-xs font-medium truncate">{alert.clientName}</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.description}</p>
-                            <div className="flex items-center justify-end mt-0.5">
-                              <button
-                                onClick={(e) => markAsRead(alert.id, e)}
-                                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                              >
-                                Dismiss
-                              </button>
-                            </div>
+                            {!alert.id.startsWith("overdue-") && (
+                              <div className="flex items-center justify-end mt-0.5">
+                                <button
+                                  onClick={(e) => markAsRead(alert.id, e)}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </Link>
                       ))}

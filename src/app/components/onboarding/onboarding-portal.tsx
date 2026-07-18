@@ -14,7 +14,7 @@ import {
 import {
   BookOpen, FileText, CheckCircle2, Lock, ChevronRight, ChevronLeft,
   Clock, Trophy, Loader2, Info, Lightbulb, AlertTriangle, Star,
-  ArrowLeft, Play, XCircle, FileCheck2, GraduationCap, Download, Eye, Bell,
+  ArrowLeft, Play, XCircle, FileCheck2, GraduationCap, Download, Eye, Bell, HelpCircle,
 } from "lucide-react";
 import { SkeletonList } from "../ui/page-loader";
 import jsPDF from "jspdf";
