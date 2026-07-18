@@ -360,7 +360,7 @@ function SectionReader({ module, sections, initialSectionIdx, isCompleted, onPro
   const [idx, setIdx] = useState(isCompleted ? 0 : initialSectionIdx);
   const [showTakeaways, setShowTakeaways] = useState(false);
   const [saving, setSaving] = useState(false);
-  const { ref: sentinelRef, ready: canProceed } = useScrollGate([idx, showTakeaways], isCompleted);
+  const { ref: sentinelRef, ready: canProceed } = useScrollGate([idx, showTakeaways], true);
   const section = sections[idx];
   const isLast = idx === sections.length - 1;
   const cat = getCat(module.category);
@@ -472,7 +472,7 @@ function SectionReader({ module, sections, initialSectionIdx, isCompleted, onPro
               <Button variant="ghost" size="sm" onClick={() => setIdx(i => i - 1)} disabled={idx === 0}>
                 <ChevronLeft className="h-4 w-4 mr-1" />Previous
               </Button>
-              {!canProceed && !isCompleted && <p className="text-xs text-muted-foreground">Scroll down to continue</p>}
+              <span />
               <Button size="sm" onClick={handleNext} disabled={!canProceed || saving}>
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
                 {isLast ? "Finish" : "Next Section"}<ChevronRight className="h-4 w-4 ml-1" />

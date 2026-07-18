@@ -1731,7 +1731,7 @@ export function ProposalDetail() {
             </Button>
           )}
 
-          {role === "admin" && (
+          {(role === "admin" || role === "sales_rep" || role === "project_manager") && (
             <Button variant="outline" size="sm" onClick={() => setShowFinancials(true)}>
               <BarChart2 className="h-4 w-4 mr-2" />
               Financials
@@ -3079,66 +3079,97 @@ export function ProposalDetail() {
           </DialogHeader>
           <div className="px-6 py-5 space-y-5">
 
-            {/* Revenue */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Revenue</p>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(computedSubtotal)}</span></div>
-                {activeBad > 0 && <div className="flex justify-between"><span className="text-muted-foreground">BAD</span><span>{formatCurrency(activeBad)}</span></div>}
-                {activeTax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(activeTax)}</span></div>}
-                {discountAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-green-600">− {formatCurrency(discountAmt)}</span></div>}
-                {stripeFeeAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Stripe Fee</span><span>{formatCurrency(stripeFeeAmt)}</span></div>}
-                <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Revenue</span><span>{formatCurrency(computedTotal)}</span></div>
-              </div>
-            </div>
-
-            {/* Costs */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Costs</p>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Material Cost</span><span>{formatCurrency(finMaterialCost)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Labor Cost</span><span>{formatCurrency(finLaborCost)}</span></div>
-                <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Cost</span><span>{formatCurrency(computedTotalCost)}</span></div>
-              </div>
-            </div>
-
-            {/* Profitability */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Profitability</p>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Gross Profit</span>
-                  <span className={computedGrossProfit >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{formatCurrency(computedGrossProfit)}</span>
+            {role === "sales_rep" ? (
+              <>
+                {/* Sales Rep view — Revenue total, GP %, own commission only */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Revenue</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(computedSubtotal)}</span></div>
+                    {activeBad > 0 && <div className="flex justify-between"><span className="text-muted-foreground">BAD</span><span>{formatCurrency(activeBad)}</span></div>}
+                    {activeTax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(activeTax)}</span></div>}
+                    {discountAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-green-600">− {formatCurrency(discountAmt)}</span></div>}
+                    {stripeFeeAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Stripe Fee</span><span>{formatCurrency(stripeFeeAmt)}</span></div>}
+                    <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total</span><span>{formatCurrency(computedTotal)}</span></div>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">GP %</span>
-                  <span className={computedProfitMargin >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{computedProfitMargin.toFixed(1)}%</span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Profitability</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Projected GP %</span>
+                      <span className={computedProfitMargin >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{computedProfitMargin.toFixed(1)}%</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Avg Markup</span>
-                  <span className="font-semibold">{finAvgMarkup.toFixed(1)}%</span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between font-semibold">
+                      <span>Your Commission ({finSalesRepRate}% of GP)</span>
+                      <span>{formatCurrency(finSalesRepCommission)}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Commission */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">PM Commission ({finPmRate}% of GP)</span>
-                  <span>{formatCurrency(finPmCommission)}</span>
+              </>
+            ) : (
+              <>
+                {/* Admin / PM view — full breakdown */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Revenue</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(computedSubtotal)}</span></div>
+                    {activeBad > 0 && <div className="flex justify-between"><span className="text-muted-foreground">BAD</span><span>{formatCurrency(activeBad)}</span></div>}
+                    {activeTax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(activeTax)}</span></div>}
+                    {discountAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-green-600">− {formatCurrency(discountAmt)}</span></div>}
+                    {stripeFeeAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Stripe Fee</span><span>{formatCurrency(stripeFeeAmt)}</span></div>}
+                    <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Revenue</span><span>{formatCurrency(computedTotal)}</span></div>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of GP)</span>
-                  <span>{formatCurrency(finSalesRepCommission)}</span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Costs</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Material Cost</span><span>{formatCurrency(finMaterialCost)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Labor Cost</span><span>{formatCurrency(finLaborCost)}</span></div>
+                    <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Cost</span><span>{formatCurrency(computedTotalCost)}</span></div>
+                  </div>
                 </div>
-                <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5">
-                  <span>Total Commission Pool</span>
-                  <span>{formatCurrency(finTotalCommission)}</span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Profitability</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Gross Profit</span>
+                      <span className={computedGrossProfit >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{formatCurrency(computedGrossProfit)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">GP %</span>
+                      <span className={computedProfitMargin >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{computedProfitMargin.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Avg Markup</span>
+                      <span className="font-semibold">{finAvgMarkup.toFixed(1)}%</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of GP)</span>
+                      <span>{formatCurrency(finPmCommission)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of GP)</span>
+                      <span>{formatCurrency(finSalesRepCommission)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5">
+                      <span>Total Commission Pool</span>
+                      <span>{formatCurrency(finTotalCommission)}</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
           </div>
           <div className="px-6 py-4 border-t flex justify-end">
