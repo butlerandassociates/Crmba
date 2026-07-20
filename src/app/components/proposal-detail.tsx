@@ -41,6 +41,7 @@ import {
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
+import { useViewAs } from "../contexts/view-as-context";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard";
 import { supabase } from "@/lib/supabase";
@@ -78,6 +79,7 @@ export function ProposalDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { can, role } = usePermissions();
+  const { viewAsRole } = useViewAs();
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -1731,7 +1733,7 @@ export function ProposalDetail() {
             </Button>
           )}
 
-          {(role === "admin" || role === "sales_rep") && (
+          {(role === "admin" || role === "sales_rep") && viewAsRole !== "project_manager" && (
             <Button variant="outline" size="sm" onClick={() => setShowFinancials(true)}>
               <BarChart2 className="h-4 w-4 mr-2" />
               Financials
