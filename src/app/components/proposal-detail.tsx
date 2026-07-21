@@ -363,9 +363,9 @@ export function ProposalDetail() {
   const finMaterialCost      = editLineItems.reduce((s, i) => s + Number(i.material_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finLaborCost         = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finAvgMarkup         = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
-  const finPmRate            = 3; // PM: 3% of subtotal — confirmed Jonathan
-  const finSalesRepRate      = 3; // Sales Rep: 3% of subtotal — confirmed Jonathan Jul 18
-  const finPmCommission      = computedSubtotal * (finPmRate / 100);
+  const finPmRate            = 3; // PM: 3% of GP — confirmed Jonathan Jul 21
+  const finSalesRepRate      = 7; // Sales Rep: 7% of Subtotal — confirmed Jonathan Jul 21
+  const finPmCommission      = computedGrossProfit * (finPmRate / 100);
   const finSalesRepCommission = computedSubtotal * (finSalesRepRate / 100);
   const finTotalCommission   = finPmCommission + finSalesRepCommission;
 
@@ -3157,7 +3157,7 @@ export function ProposalDetail() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of Subtotal)</span>
+                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of GP)</span>
                       <span>{formatCurrency(finPmCommission)}</span>
                     </div>
                     <div className="flex justify-between">
