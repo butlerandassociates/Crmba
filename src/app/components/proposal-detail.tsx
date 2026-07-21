@@ -356,17 +356,19 @@ export function ProposalDetail() {
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
   );
-  const computedGrossProfit = computedTotal - computedTotalCost;
-  const computedProfitMargin = computedTotal > 0 ? (computedGrossProfit / computedTotal) * 100 : 0;
+  // BAD adds to profit; Tax does not — confirmed Jonathan Jul 21
+  const computedRevenueForGP = computedTotal - activeTax;
+  const computedGrossProfit = computedRevenueForGP - computedTotalCost;
+  const computedProfitMargin = computedRevenueForGP > 0 ? (computedGrossProfit / computedRevenueForGP) * 100 : 0;
 
   // Financials breakdown
   const finMaterialCost      = editLineItems.reduce((s, i) => s + Number(i.material_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finLaborCost         = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finAvgMarkup         = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
   const finPmRate            = 3; // PM: 3% of GP — confirmed Jonathan Jul 21
-  const finSalesRepRate      = 7; // Sales Rep: 7% of Subtotal — confirmed Jonathan Jul 21
+  const finSalesRepRate      = 7; // Sales Rep: 7% of GP — confirmed Jonathan Jul 21
   const finPmCommission      = computedGrossProfit * (finPmRate / 100);
-  const finSalesRepCommission = computedSubtotal * (finSalesRepRate / 100);
+  const finSalesRepCommission = computedGrossProfit * (finSalesRepRate / 100);
   const finTotalCommission   = finPmCommission + finSalesRepCommission;
 
   const updateQty = (idx: number, qty: number) => {
@@ -3108,7 +3110,7 @@ export function ProposalDetail() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between font-semibold">
-                      <span>Your Commission ({finSalesRepRate}% of Subtotal)</span>
+                      <span>Your Commission ({finSalesRepRate}% of GP)</span>
                       <span>{formatCurrency(finSalesRepCommission)}</span>
                     </div>
                   </div>
@@ -3161,7 +3163,7 @@ export function ProposalDetail() {
                       <span>{formatCurrency(finPmCommission)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of Subtotal)</span>
+                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of GP)</span>
                       <span>{formatCurrency(finSalesRepCommission)}</span>
                     </div>
                     <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5">
