@@ -931,15 +931,16 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                   <div className="col-span-2 text-center">This Week %</div>
                   <div className="col-span-2 text-right">This Week $</div>
                 </div>
-                {(fio?.items || []).map((item: any, idx: number) => {
+                {[...new Map((fio?.items || []).map((i: any) => [i.id, i])).values()].map((item: any, idx: number) => {
                   const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0);
                   const paidPct = crewPayments
                     .filter((p) => p.fio_item_id === item.id)
                     .reduce((s, p) => s + (p.completion_pct || 0), 0);
                   const paidAmt = crewPayments
                     .filter((p) => p.fio_item_id === item.id)
-                    .reduce((s, p) => s + (p.amount_paid || 0), 0);
-                  const remainingPct = Math.max(0, 100 - paidPct);
+                    .reduce((s, p) => s + (parseFloat(p.amount_paid) || 0), 0);
+                  const remainingAmt = Math.max(0, total - paidAmt);
+                  const remainingPct = total > 0 ? (remainingAmt / total) * 100 : 0;
                   const pct = completionPct[item.id] || 0;
                   const weekAmt = total * (pct / 100);
                   return (
@@ -953,7 +954,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
                           </span>
                         </div>
                         <div className="col-span-2 text-center">
-                          {paidPct >= 100 ? (
+                          {paidAmt >= total - 0.01 ? (
                             <span className="text-xs text-green-600 font-medium">Fully paid</span>
                           ) : (
                             <div className="relative">
@@ -993,9 +994,10 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
               {/* Crew Balance Summary */}
               {(() => {
-                const totalCommitted = (fio?.items || []).reduce((s: number, item: any) =>
+                const dedupedItems = [...new Map((fio?.items || []).map((i: any) => [i.id, i])).values()];
+                const totalCommitted = dedupedItems.reduce((s: number, item: any) =>
                   s + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0), 0);
-                const totalPaid = crewPayments.reduce((s: number, p: any) => s + (p.amount_paid || 0), 0);
+                const totalPaid = crewPayments.reduce((s: number, p: any) => s + (parseFloat(p.amount_paid) || 0), 0);
                 const remaining = Math.max(0, totalCommitted - totalPaid);
                 return totalCommitted > 0 ? (
                   <div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/30 text-center">

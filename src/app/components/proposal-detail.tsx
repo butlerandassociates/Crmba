@@ -715,6 +715,14 @@ export function ProposalDetail() {
       setEditLineItems(fresh.line_items ?? []);
       setCategoryNotes((fresh.category_notes ?? {}) as Record<string, string>);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_created", description: `Proposal updated: "${editTitle}" — total: $${computedTotal?.toLocaleString()}` }).catch(() => {});
+      // Keep project card in sync when a sold proposal's line items change
+      if (proposal.status === "sold" || proposal.status === "accepted") {
+        supabase.from("projects").update({
+          gross_profit: computedGrossProfit,
+          total_value: computedTotal,
+          total_cost: computedTotalCost,
+        }).eq("client_id", proposal.client_id).neq("status", "completed").then(() => {});
+      }
       // Regen PDF when a sent proposal is edited so portal clients see the updated version
       if (proposal.status === "sent" || proposal.status === "opened") {
         saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
