@@ -277,6 +277,9 @@ export function ClientDetail() {
       setClientProjects(filtered);
       if (filtered[0]?.id) {
         commissionPaymentsAPI.getAll({ project_id: filtered[0].id }).then(setProjectCommPayments).catch(console.error);
+        if (["sold", "active", "completed"].includes(filtered[0]?.status ?? "")) {
+          loadGpHealth(filtered[0].id);
+        }
       }
       // Stale data guard — zero out commission if assigned person was removed
       filtered.forEach((p: any) => {
@@ -3006,10 +3009,14 @@ export function ClientDetail() {
               {role !== "sales_rep" && (
               <div>
                 <p className="text-xs text-muted-foreground">Gross Profit</p>
-                {role === "project_manager"
-                  ? <p className="font-semibold text-base text-green-600">{(project.profitMargin ?? 0).toFixed(1)}% GP</p>
-                  : <p className="font-semibold text-base text-green-600">{formatCurrency(project.grossProfit ?? 0)}</p>
-                }
+                {(() => {
+                  const d = gpHealthData[project.id];
+                  const cv = project.totalValue ?? 0;
+                  const liveGP = d ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : (project.grossProfit ?? 0);
+                  return role === "project_manager"
+                    ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (liveGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
+                    : <p className="font-semibold text-base text-green-600">{formatCurrency(liveGP)}</p>;
+                })()}
               </div>
               )}
               {role !== "sales_rep" && (
@@ -3027,13 +3034,21 @@ export function ClientDetail() {
                           <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground" onClick={(e) => e.stopPropagation()} />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-xs">
-                          Budgeted margin from the accepted proposal. Click to see the live Financial Health breakdown.
+                          Live GP margin based on FIO committed labor and actual costs. Click to see the full Financial Health breakdown.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </p>
                   <p className="font-semibold text-base group-hover:text-primary transition-colors">
-                    {(project.profitMargin ?? 0).toFixed(1)}%
+                    {(() => {
+                      const d = gpHealthData[project.id];
+                      const cv = project.totalValue ?? 0;
+                      if (d && cv > 0) {
+                        const liveGP = cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0));
+                        return (liveGP / cv * 100).toFixed(1);
+                      }
+                      return (project.profitMargin ?? 0).toFixed(1);
+                    })()}%
                   </p>
                 </button>
               </div>
@@ -3041,11 +3056,14 @@ export function ClientDetail() {
               {(() => {
                 const pmId = project.project_manager_id ?? null;
                 const repId = project.sales_rep_id ?? null;
+                const d = gpHealthData[project.id];
+                const cv = project.totalValue ?? 0;
+                const liveGP = d ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : (project.grossProfit ?? 0);
                 const pmComm  = pmId  && (project.pmCommissionRate        || 0) > 0
-                  ? Math.round((project.grossProfit || 0) * ((project.pmCommissionRate) / 100) * 100) / 100
+                  ? Math.round(liveGP * ((project.pmCommissionRate) / 100) * 100) / 100
                   : 0;
                 const repComm = repId && (project.salesRepCommissionRate || 0) > 0
-                  ? (project.grossProfit || 0) * ((project.salesRepCommissionRate) / 100)
+                  ? liveGP * ((project.salesRepCommissionRate) / 100)
                   : 0;
                 return (<>
                   <div>
@@ -3076,10 +3094,10 @@ export function ClientDetail() {
                       )}
                     </div>
                   )}
-                  {(pmComm > 0 || repComm > 0) && (project.grossProfit ?? 0) > 0 && role !== "project_manager" && role !== "sales_rep" && (
+                  {(pmComm > 0 || repComm > 0) && liveGP > 0 && role !== "project_manager" && role !== "sales_rep" && (
                     <div>
                       <p className="text-xs text-muted-foreground">Net Profit</p>
-                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, (project.grossProfit ?? 0) - pmComm - repComm))}</p>
+                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, liveGP - pmComm - repComm))}</p>
                     </div>
                   )}
                 </>);
