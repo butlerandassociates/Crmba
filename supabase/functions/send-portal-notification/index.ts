@@ -167,6 +167,8 @@ serve(async (req) => {
   try {
     const { client_id, type, title, amount, entity_id } = await req.json();
 
+    console.log(`[send-portal-notification] client_id=${client_id} type=${type} title=${title ?? ""} entity_id=${entity_id ?? ""}`);
+
     if (!client_id || !type) {
       return new Response(JSON.stringify({ success: false, error: "client_id and type required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -206,6 +208,7 @@ serve(async (req) => {
       if (client.phone && !client.sms_opt_out) {
         await sendSms(client.phone, `Hi ${firstName}, your contract from Butler & Associates Construction is ready for your signature. Please check your email for the DocuSign signing link. Questions? Call us at (256) 617-4691.`);
       }
+      console.log(`[send-portal-notification] SUCCESS: contract_ready notification sent to client ${client_id} (${client.email})`);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -281,6 +284,7 @@ serve(async (req) => {
     const html = buildHtml(type, client.first_name, portalUrl, { title, amount });
     await sendEmail(client.email, subject, html, ccEmails);
 
+    console.log(`[send-portal-notification] SUCCESS: ${type} notification sent to client ${client_id} (${client.email})`);
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -14,6 +14,8 @@ serve(async (req) => {
   try {
     const { token, ip, ua } = await req.json();
 
+    console.log(`[validate-portal-token] token=...${token?.slice(-8)} ip=${ip ?? "unknown"}`);
+
     if (!token) {
       return new Response(JSON.stringify({ valid: false, error: "Token required" }), {
         status: 400,
@@ -289,12 +291,13 @@ serve(async (req) => {
       line_items: (p.line_items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
     }));
 
+    console.log(`[validate-portal-token] SUCCESS: token valid for client ${clientId} — returned ${payments.length} payments ${phases.length} phases ${updates.length} updates`);
     return new Response(
       JSON.stringify({ valid: true, client, project, phases, payments, updates, files, change_orders, proposals }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
-    console.error("[portal-token] Unhandled exception:", err.message);
+    console.error(`[validate-portal-token] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ valid: false, error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

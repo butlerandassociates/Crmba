@@ -14,6 +14,8 @@ serve(async (req) => {
   try {
     const { token, action, entity_id, comment } = await req.json();
 
+    console.log(`[portal-action] action=${action} entity_id=${entity_id} token=...${token?.slice(-8)}`);
+
     if (!token || !action || !entity_id) {
       return new Response(JSON.stringify({ success: false, error: "Missing required fields" }), {
         status: 400,
@@ -80,6 +82,7 @@ serve(async (req) => {
         description: `Client opened proposal${proposal.title ? `: "${proposal.title}"` : ""}`,
       }).then(() => {});
 
+      console.log(`[portal-action] SUCCESS: proposal_opened entity_id=${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -123,6 +126,7 @@ serve(async (req) => {
         description: `Client opened change order${co.title ? `: "${co.title}"` : ""}`,
       }).then(() => {});
 
+      console.log(`[portal-action] SUCCESS: co_opened entity_id=${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -240,6 +244,7 @@ serve(async (req) => {
         }
       }
 
+      console.log(`[portal-action] SUCCESS: ${action} co ${entity_id} client_id=${clientId} new_status=${newStatus}`);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -317,6 +322,7 @@ serve(async (req) => {
         }),
       }).catch(() => {});
 
+      console.log(`[portal-action] SUCCESS: ${action} proposal ${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

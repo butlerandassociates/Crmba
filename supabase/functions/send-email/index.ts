@@ -15,6 +15,8 @@ serve(async (req) => {
   try {
     const { to, subject, html, from_name, cc, attachments } = await req.json();
 
+    console.log(`[send-email] to=${to} subject="${subject}" has_cc=${Array.isArray(cc) && cc.length > 0} has_attachments=${Array.isArray(attachments) && attachments.length > 0}`);
+
     if (!to || !subject || !html) {
       return new Response(JSON.stringify({ error: "to, subject, and html are required" }), {
         status: 400,
@@ -56,17 +58,20 @@ serve(async (req) => {
 
     if (!response.ok) {
       const error = await response.text();
+      console.error(`[send-email] FAILED: SendGrid error sending to ${to} — ${error}`);
       return new Response(JSON.stringify({ error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    console.log(`[send-email] SUCCESS: email sent to ${to} subject="${subject}"`);
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(`[send-email] FAILED: ${message}`);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

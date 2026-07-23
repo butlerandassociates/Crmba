@@ -19,6 +19,8 @@ Deno.serve(async (req) => {
 
     const { email, first_name, last_name, role, permissions, redirect_to } = await req.json();
 
+    console.log(`[invite-user] email=${email} role=${role} name=${[first_name, last_name].filter(Boolean).join(" ")}`);
+
     if (!email || !role) {
       return new Response(JSON.stringify({ error: "email and role are required." }), {
         status: 400,
@@ -79,12 +81,14 @@ Deno.serve(async (req) => {
       throw new Error(`Email delivery failed: ${sgErr}`);
     }
 
+    console.log(`[invite-user] SUCCESS: invite sent to ${email} as ${role}`);
     return new Response(JSON.stringify({ success: true, user: data.user }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
+    console.error(`[invite-user] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

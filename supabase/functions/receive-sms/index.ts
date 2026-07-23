@@ -10,12 +10,15 @@ serve(async (req) => {
     });
   }
 
+  console.log(`[receive-sms] inbound SMS received — sending auto-reply`);
+
   // Respond with TwiML — Twilio reads this and sends the message back to the client
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Message>Thank you for reaching out to Butler &amp; Associates Construction, Inc.! To speak with our team, please call us at (256) 617-4691. Reply STOP to unsubscribe.</Message>
 </Response>`;
 
+  console.log(`[receive-sms] SUCCESS: TwiML auto-reply sent`);
   return new Response(twiml, {
     headers: { "Content-Type": "text/xml" },
   });

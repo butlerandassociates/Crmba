@@ -95,6 +95,8 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    console.log(`[send-payment-reminders] starting cron run`);
+
     // Today in UTC — compare against due_date (date type, no time)
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -193,6 +195,8 @@ Deno.serve(async (req) => {
         await sendSms(client.phone, smsBody);
       }
 
+      console.log(`[send-payment-reminders] reminder sent to client ${client.id} (${client.email}) payment=${payment.id} due_in=${daysUntil}d amount=${fmt(amount)}`);
+
       // Activity log stamp
       await supabase.from("activity_log").insert({
         client_id: client.id,
@@ -204,6 +208,7 @@ Deno.serve(async (req) => {
       sent++;
     }
 
+    console.log(`[send-payment-reminders] SUCCESS: sent=${sent} skipped=${skipped} total=${(payments ?? []).length}`);
     return new Response(
       JSON.stringify({ success: true, sent, skipped, total: (payments ?? []).length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

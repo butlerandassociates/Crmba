@@ -18,6 +18,8 @@ Deno.serve(async (req) => {
 
     const { user_id, new_email } = await req.json();
 
+    console.log(`[update-user-email] user_id=${user_id} new_email=${new_email}`);
+
     if (!user_id || !new_email) {
       return new Response(JSON.stringify({ error: "user_id and new_email are required." }), {
         status: 400,
@@ -38,11 +40,13 @@ Deno.serve(async (req) => {
       .eq("id", user_id);
     if (profileError) throw profileError;
 
+    console.log(`[update-user-email] SUCCESS: email updated for user ${user_id} to ${new_email}`);
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error(`[update-user-email] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

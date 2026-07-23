@@ -530,8 +530,13 @@ export function AppointmentDialog({
       onOpenChange(false);
       onAppointmentScheduled?.();
     } catch (error: any) {
-      console.error("Failed to schedule appointment:", error);
+      console.error("Failed to schedule appointment:", error, { client_id: client?.id, client_name: clientName, mode });
       toast.error(error.message || "Failed to schedule appointment");
+      activityLogAPI.create({
+        client_id: client?.id,
+        action_type: "email_failed",
+        description: `Appointment ${mode === "reschedule" ? "reschedule" : "schedule"} failed for ${clientName}: ${error.message}`,
+      }).catch(() => {});
     } finally {
       setScheduling(false);
     }

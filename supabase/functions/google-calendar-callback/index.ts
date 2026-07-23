@@ -13,6 +13,9 @@ serve(async (req) => {
 
   try {
     const { code } = await req.json();
+
+    console.log(`[google-calendar-callback] OAuth code received (length=${code?.length ?? 0})`);
+
     if (!code) {
       return new Response(JSON.stringify({ error: "code is required" }), {
         status: 400,
@@ -69,10 +72,12 @@ serve(async (req) => {
 
     if (error) throw error;
 
+    console.log(`[google-calendar-callback] SUCCESS: Google Calendar connected — refresh token stored`);
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error(`[google-calendar-callback] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

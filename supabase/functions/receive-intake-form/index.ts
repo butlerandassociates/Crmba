@@ -29,6 +29,8 @@ serve(async (req) => {
       decision_factors,
     } = body;
 
+    console.log(`[receive-intake-form] client_id=${client_id} email=${email} name=${name}`);
+
     if (!client_id) {
       return new Response(JSON.stringify({ error: "client_id is required" }), {
         status: 400,
@@ -79,6 +81,7 @@ serve(async (req) => {
       .eq("id", client_id);
 
     if (updateError) {
+      console.error(`[receive-intake-form] FAILED: update error — ${updateError.message}`);
       return new Response(JSON.stringify({ error: updateError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -94,11 +97,13 @@ serve(async (req) => {
       metadata: { client_id },
     });
 
+    console.log(`[receive-intake-form] SUCCESS: intake form saved for client ${client_id}`);
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error(`[receive-intake-form] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

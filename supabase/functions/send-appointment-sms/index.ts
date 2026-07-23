@@ -32,6 +32,8 @@ serve(async (req) => {
       time,
     } = await req.json();
 
+    console.log(`[send-appointment-sms] phone=${client_phone} name=${client_first_name} date=${date} time=${time}`);
+
     if (!client_phone) {
       return new Response(JSON.stringify({ skipped: true, reason: "no_phone" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -98,16 +100,19 @@ serve(async (req) => {
     const result = await response.json();
 
     if (!response.ok) {
+      console.error(`[send-appointment-sms] FAILED: Twilio error code=${result.code} message=${result.message}`);
       return new Response(JSON.stringify({ error: result.message ?? "Twilio error", code: result.code }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    console.log(`[send-appointment-sms] SUCCESS: SMS sent to ${toNumber} sid=${result.sid}`);
     return new Response(JSON.stringify({ success: true, sid: result.sid }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error(`[send-appointment-sms] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

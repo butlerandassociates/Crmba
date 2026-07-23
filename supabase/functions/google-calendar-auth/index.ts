@@ -10,6 +10,8 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  console.log(`[google-calendar-auth] generating OAuth URL`);
+
   const clientId   = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID")!;
   const redirectUri = Deno.env.get("GOOGLE_CALENDAR_REDIRECT_URI")!;
 
@@ -24,6 +26,7 @@ serve(async (req) => {
 
   const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
+  console.log(`[google-calendar-auth] SUCCESS: OAuth URL generated`);
   return new Response(JSON.stringify({ url }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });

@@ -39,6 +39,8 @@ serve(async (req) => {
 
     const leadId: string = body.leadId ?? body.lead_id ?? body.id ?? "";
 
+    console.log(`[receive-angi-lead] phone=${phone} email=${email} name=${firstName} ${lastName} lead_id=${leadId} service=${serviceRequested}`);
+
     if (!firstName && !phone && !email) {
       return new Response(
         JSON.stringify({ error: "No identifiable lead data in payload" }),
@@ -119,6 +121,7 @@ serve(async (req) => {
       .single();
 
     if (insertError) {
+      console.error(`[receive-angi-lead] FAILED: insert error — ${insertError.message}`);
       return new Response(
         JSON.stringify({ error: insertError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -154,11 +157,13 @@ serve(async (req) => {
       metadata: { source: "angi", client_id: clientId, lead_id: leadId },
     });
 
+    console.log(`[receive-angi-lead] SUCCESS: client ${clientId} created from Angi lead ${leadId}`);
     return new Response(
       JSON.stringify({ ok: true, client_id: clientId }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
+    console.error(`[receive-angi-lead] FAILED: ${err.message}`);
     return new Response(
       JSON.stringify({ error: err.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

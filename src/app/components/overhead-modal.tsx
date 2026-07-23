@@ -100,6 +100,10 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   const [leadSourceData, setLeadSourceData] = useState<Record<string, { revenue: number; count: number }>>({});
   const [roiLoading, setRoiLoading] = useState(false);
 
+  // Filtered revenue + GP (re-computed per selected date range from sold_at)
+  const [filteredRevenue, setFilteredRevenue] = useState<number>(totalRevenue);
+  const [filteredGP, setFilteredGP] = useState<number>(grossProfit);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -127,10 +131,14 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
     try {
       const { data } = await supabase
         .from("projects")
-        .select("total_value, clients(lead_sources!lead_source_id(name))")
+        .select("total_value, gross_profit, clients(lead_sources!lead_source_id(name))")
         .in("status", ["sold", "active", "completed"])
         .gte("sold_at", fromDate)
         .lte("sold_at", toDate);
+      // Update Revenue + GP based on selected date range
+      setFilteredRevenue((data ?? []).reduce((s: number, p: any) => s + (Number(p.total_value) || 0), 0));
+      setFilteredGP((data ?? []).reduce((s: number, p: any) => s + (Number(p.gross_profit) || 0), 0));
+      // ROI grouped by lead source
       const grouped: Record<string, { revenue: number; count: number }> = {};
       (data ?? []).forEach((p: any) => {
         const ls = (p.clients?.lead_sources?.name as string | null) || "Unknown";
@@ -140,14 +148,14 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
       });
       setLeadSourceData(grouped);
     } catch {
-      toast.error("Failed to load ROI data");
+      toast.error("Failed to load financial data");
     } finally {
       setRoiLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!open || !showROI) return;
+    if (!open) return;
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth() + 1;
@@ -204,9 +212,9 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
 
   const isLeaf = (id: string) => !items.some((j) => j.parent_id === id);
   const totalOverhead = visible.filter((i) => isLeaf(i.id)).reduce((s, i) => s + getDisplayAmount(i), 0);
-  const trueGrossProfit = grossProfit - totalOverhead;
-  const overheadPct = totalRevenue > 0 ? ((totalOverhead / totalRevenue) * 100).toFixed(1) : "0.0";
-  const trueGrossPct = totalRevenue > 0 ? ((trueGrossProfit / totalRevenue) * 100).toFixed(1) : "0.0";
+  const trueGrossProfit = filteredGP - totalOverhead;
+  const overheadPct = filteredRevenue > 0 ? ((totalOverhead / filteredRevenue) * 100).toFixed(1) : "0.0";
+  const trueGrossPct = filteredRevenue > 0 ? ((trueGrossProfit / filteredRevenue) * 100).toFixed(1) : "0.0";
 
   const chartData = roots
     .map((r) => {
@@ -542,11 +550,11 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                 <div className="grid grid-cols-4 gap-4 mb-8">
                   <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                     <p className="text-sm text-blue-700 font-medium mb-1">Total Revenue</p>
-                    <p className="text-xl font-bold text-blue-900">{formatCurrency(totalRevenue)}</p>
+                    <p className="text-xl font-bold text-blue-900">{formatCurrency(filteredRevenue)}</p>
                   </div>
                   <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                     <p className="text-sm text-green-700 font-medium mb-1">Gross Profit</p>
-                    <p className="text-xl font-bold text-green-900">{formatCurrency(grossProfit)}</p>
+                    <p className="text-xl font-bold text-green-900">{formatCurrency(filteredGP)}</p>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
                     <p className="text-sm text-orange-700 font-medium mb-1">Total Overhead</p>
@@ -702,11 +710,11 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                       <div className="space-y-2">
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-gray-600">Revenue</span>
-                          <span className="font-semibold text-gray-900">{formatCurrency(totalRevenue)}</span>
+                          <span className="font-semibold text-gray-900">{formatCurrency(filteredRevenue)}</span>
                         </div>
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-gray-600">Gross Profit (before overhead)</span>
-                          <span className="font-semibold text-green-600">{formatCurrency(grossProfit)}</span>
+                          <span className="font-semibold text-green-600">{formatCurrency(filteredGP)}</span>
                         </div>
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-gray-600">Total Overhead</span>

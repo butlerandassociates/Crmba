@@ -269,6 +269,8 @@ serve(async (req) => {
       is_reschedule,
     } = await req.json();
 
+    console.log(`[send-appointment-email] client_id=${client_id} client=${client_name} email=${client_email} reschedule=${is_reschedule} existing_event=${existing_google_event_id ?? "none"}`);
+
     if (!client_email) {
       return new Response(JSON.stringify({ error: "client_email is required" }), {
         status: 400,
@@ -294,12 +296,15 @@ serve(async (req) => {
         // Try to patch (move) the existing event — sends "Updated" to all attendees
         calendarEvent = await patchCalendarEvent(supabaseClient, existing_google_event_id, calendarParams);
         if (!calendarEvent) {
-          // PATCH failed (event deleted, token issue, etc.) — delete old + create fresh
+          console.log(`[send-appointment-email] PATCH failed for event=${existing_google_event_id} — falling back to delete+create`);
           await deleteCalendarEvent(supabaseClient, existing_google_event_id);
           calendarEvent = await createCalendarEvent(supabaseClient, calendarParams);
+        } else {
+          console.log(`[send-appointment-email] Calendar PATCHED event=${calendarEvent?.id}`);
         }
       } else {
         calendarEvent = await createCalendarEvent(supabaseClient, calendarParams);
+        console.log(`[send-appointment-email] Calendar CREATED event=${calendarEvent?.id}`);
       }
     }
 
@@ -372,12 +377,14 @@ serve(async (req) => {
 
     if (!response.ok) {
       const error = await response.text();
+      console.log(`[send-appointment-email] Email FAILED client_id=${client_id}: ${error}`);
       return new Response(JSON.stringify({ error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    console.log(`[send-appointment-email] Email SENT to=${client_email} client_id=${client_id} calendar_event=${calendarEvent?.id ?? "none"}`);
     return new Response(
       JSON.stringify({
         success: true,
@@ -388,6 +395,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
+    console.log(`[send-appointment-email] EXCEPTION: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

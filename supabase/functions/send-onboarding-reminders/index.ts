@@ -79,6 +79,8 @@ Deno.serve(async (req) => {
       nudgeUserId = body?.user_id ?? null;
     } catch { /* no body or not JSON — normal cron run */ }
 
+    console.log(`[send-onboarding-reminders] starting — mode=${nudgeUserId ? `nudge user_id=${nudgeUserId}` : "cron"}`);
+
     // ── 1. Get all active programs ──────────────────────────────────────────
     const { data: programs } = await supabase
       .from("onboarding_programs")
@@ -215,6 +217,7 @@ Deno.serve(async (req) => {
               user_id: profile.id, program_id: program.id, email_to: profile.email, overall_pct: overallPct,
             });
           } catch { /* non-critical — don't block on log failure */ }
+          console.log(`[send-onboarding-reminders] reminder sent to user ${profile.id} (${profile.email}) pct=${overallPct}%`);
           totalSent++;
         } else {
           totalSkipped++;
@@ -222,6 +225,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    console.log(`[send-onboarding-reminders] SUCCESS: sent=${totalSent} skipped=${totalSkipped}`);
     return new Response(
       JSON.stringify({ success: true, sent: totalSent, skipped: totalSkipped }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

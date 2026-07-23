@@ -27,6 +27,8 @@ serve(async (req) => {
     return new Response(`Webhook error: ${err.message}`, { status: 400 });
   }
 
+  console.log(`[stripe-webhook] event=${event.type} id=${event.id}`);
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!

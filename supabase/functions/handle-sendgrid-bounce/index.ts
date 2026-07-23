@@ -54,6 +54,8 @@ serve(async (req) => {
       });
     }
 
+    console.log(`[handle-sendgrid-bounce] received ${events.length} event(s) — ${events.filter((e) => FAILURE_EVENTS.has(e.event)).length} failure(s)`);
+
     const failures = events.filter((e) => FAILURE_EVENTS.has(e.event));
     if (failures.length === 0) {
       return new Response(JSON.stringify({ skipped: true, reason: "no_failure_events" }), {
@@ -89,6 +91,7 @@ serve(async (req) => {
       const description = `${label[eventType] ?? "Email delivery failed"} for address ${email}: ${reason}`;
 
       for (const client of clients) {
+        console.log(`[handle-sendgrid-bounce] ${evt.event} for email=${email} client_id=${client.id}`);
         await supabase.from("activity_log").insert({
           client_id:   client.id,
           action_type: "email_bounced",
@@ -107,11 +110,12 @@ serve(async (req) => {
       }
     }
 
+    console.log(`[handle-sendgrid-bounce] SUCCESS: processed ${results.filter((r) => r.logged).length} of ${results.length} failure event(s)`);
     return new Response(JSON.stringify({ ok: true, processed: results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
-    console.error("handle-sendgrid-bounce error:", err);
+    console.error(`[handle-sendgrid-bounce] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
