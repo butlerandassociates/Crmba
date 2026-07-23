@@ -994,7 +994,7 @@ export function FieldInstallationOrderModal({ open, onOpenChange, project, onCre
 
               {/* Crew Balance Summary */}
               {(() => {
-                const dedupedItems = [...new Map((fio?.items || []).map((i: any) => [i.id, i])).values()];
+                const dedupedItems: any[] = [...new Map((fio?.items || []).map((i: any) => [i.id, i])).values()];
                 const totalCommitted = dedupedItems.reduce((s: number, item: any) =>
                   s + (parseFloat(item.quantity) || 0) * (parseFloat(item.labor_cost_per_unit) || 0), 0);
                 const totalPaid = crewPayments.reduce((s: number, p: any) => s + (parseFloat(p.amount_paid) || 0), 0);
