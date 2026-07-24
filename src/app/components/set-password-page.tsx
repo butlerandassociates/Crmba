@@ -18,11 +18,11 @@ export function SetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [error, setError] = useState("");
 
-  const isRecovery = window.location.hash.includes("type=recovery");
+  const isRecovery = window.location.hash.includes("type=recovery") || new URLSearchParams(window.location.search).has("code");
 
   useEffect(() => {
     const hash = window.location.hash;
-    const hasToken = hash.includes("access_token");
+    const hasToken = hash.includes("access_token") || new URLSearchParams(window.location.search).has("code");
 
     if (!hasToken) {
       // No token in URL — block direct access

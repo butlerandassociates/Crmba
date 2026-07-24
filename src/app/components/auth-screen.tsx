@@ -73,9 +73,9 @@ export function AuthScreen() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
-            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-blacktext-logo-cropped.png"
+            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo-gold.jpg"
             alt="Butler & Associates Construction"
-            className="h-9 w-auto mx-auto mb-4 object-contain mix-blend-multiply"
+            className="h-20 w-auto mx-auto mb-4 object-contain mix-blend-multiply"
           />
           <h1 className="text-3xl font-bold">Butler & Associates Construction</h1>
           <p className="text-muted-foreground mt-2">Premier Design + Build Experts</p>

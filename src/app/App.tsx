@@ -16,7 +16,7 @@ function AppContent() {
     );
   }
 
-  const isPublicRoute = window.location.pathname.startsWith('/p/') || window.location.pathname.startsWith('/portal/') || window.location.pathname.startsWith('/intake/');
+  const isPublicRoute = window.location.pathname.startsWith('/p/') || window.location.pathname.startsWith('/portal/') || window.location.pathname.startsWith('/intake/') || window.location.pathname.startsWith('/set-password') || window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/docusign-callback') || window.location.pathname.startsWith('/google-calendar-callback');
 
   return (
     <>
