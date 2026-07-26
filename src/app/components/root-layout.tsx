@@ -12,7 +12,6 @@ import {
   DollarSign,
   Settings as SettingsIcon,
   ShieldCheck,
-  Workflow,
   Plug,
   LogOut,
   ChevronDown,
@@ -62,7 +61,6 @@ import {
 
 const ALL_NAVIGATION = [
   { name: "Dashboard", href: "/",                         icon: LayoutDashboard, permission: null, roles: null },
-  { name: "Stats",     href: "/pipeline",                 icon: Workflow,        permission: "can_view_pipeline", roles: null },
   { name: "Prospect",  href: "/clients?stage=prospect",   icon: UserRoundSearch, permission: null, roles: ["admin"] },
   { name: "Scheduled", href: "/clients?stage=scheduled",  icon: CalendarClock,   permission: null, roles: ["admin", "sales_rep"] },
   { name: "Selling",   href: "/clients?stage=selling",    icon: UserRoundCog,    permission: null, roles: ["admin", "sales_rep"] },

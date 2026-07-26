@@ -2315,12 +2315,14 @@ export function ProposalDetail() {
                   ) : (
                     <>
                       <span className="font-semibold">{formatCurrency(activeBad)}</span>
-                      <button type="button" className="text-muted-foreground hover:text-foreground transition-colors"
-                        title="Override BAD amount"
-                        onClick={() => { setBadInputValue(activeBad.toFixed(2)); setEditingBad(true); }}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      {badOverride !== null && (
+                      {!isLocked && (
+                        <button type="button" className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Override BAD amount"
+                          onClick={() => { setBadInputValue(activeBad.toFixed(2)); setEditingBad(true); }}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {!isLocked && badOverride !== null && (
                         <button type="button" className="text-xs text-muted-foreground hover:text-destructive"
                           title="Reset to original" onClick={() => setBadOverride(null)}>↩</button>
                       )}
