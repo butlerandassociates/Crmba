@@ -26,15 +26,8 @@ import {
   Building2,
   Award,
   Bell,
-  Settings2,
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI, estimatesAPI } from "../utils/api";
-import { supabase } from "@/lib/supabase";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Button } from "./ui/button";
-import { toast } from "sonner";
 import { PageLoader, SkeletonCards, SkeletonTable } from "./ui/page-loader";
 
 const clientDisplayName = (c: any) =>
@@ -48,26 +41,8 @@ export function PipelineForecast() {
   const [loading, setLoading] = useState(true);
   const [selectedStage, setSelectedStage] = useState<{ label: string; color: string; list: any[] } | null>(null);
 
-  // Adjustable forecast probabilities
-  const [probProspect, setProbProspect] = useState(35);
-  const [probScheduled, setProbScheduled] = useState(50);
-  const [probSelling, setProbSelling] = useState(60);
-  const [probEdit, setProbEdit] = useState({ prospect: 35, scheduled: 50, selling: 60 });
-  const [savingProb, setSavingProb] = useState(false);
-
   useEffect(() => {
     fetchData();
-    supabase.from("company_settings")
-      .select("forecast_prob_prospect, forecast_prob_scheduled, forecast_prob_selling")
-      .limit(1).maybeSingle()
-      .then(({ data }) => {
-        if (!data) return;
-        const p = data.forecast_prob_prospect ?? 35;
-        const s = data.forecast_prob_scheduled ?? 50;
-        const se = data.forecast_prob_selling ?? 60;
-        setProbProspect(p); setProbScheduled(s); setProbSelling(se);
-        setProbEdit({ prospect: p, scheduled: s, selling: se });
-      });
   }, []);
 
   const fetchData = async () => {
@@ -117,15 +92,14 @@ export function PipelineForecast() {
   const activeValue     = activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
   const completedValue  = completedClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
 
-  // Weighted forecast — probabilities adjustable by admin (saved to company_settings)
-  const weightedForecast = [
-    ...prospectClients.map((c) => ({ total: c.proposal_forecast ?? 0, prob: probProspect / 100 })),
-    ...scheduledClients.map((c) => ({ total: c.proposal_forecast ?? 0, prob: probScheduled / 100 })),
-    ...sellingClients.map((c) => ({
-      total: c.proposal_forecast ?? 0,
-      prob: c.closing_probability > 0 ? c.closing_probability / 100 : probSelling / 100,
-    })),
-  ].reduce((sum, { total, prob }) => sum + total * prob, 0);
+  // Weighted forecast — spec: Prospect=0%, Scheduled=0%, Selling=individual close% (default 40), Sold=100%, Active=100%
+  const weightedForecast =
+    sellingClients.reduce((sum, c) => {
+      const prob = c.closing_probability > 0 ? c.closing_probability : 40;
+      return sum + (c.proposal_forecast ?? 0) * (prob / 100);
+    }, 0) +
+    soldClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0) +
+    activeClients.reduce((sum, c) => sum + (c.project_total ?? 0), 0);
 
   // Company Stats — active + completed projects
   const completedProjects = projects.filter((p) => p.status === "completed");
@@ -172,67 +146,15 @@ export function PipelineForecast() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium">Weighted Forecast</CardTitle>
-              </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="p-1 rounded hover:bg-accent transition-colors" title="Adjust probabilities">
-                    <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-4" align="end">
-                  <p className="text-sm font-semibold mb-3">Forecast Probabilities</p>
-                  <div className="space-y-3">
-                    {[
-                      { label: "Prospect %", key: "prospect" as const, value: probEdit.prospect },
-                      { label: "Scheduled %", key: "scheduled" as const, value: probEdit.scheduled },
-                      { label: "Selling %", key: "selling" as const, value: probEdit.selling },
-                    ].map(({ label, key, value }) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <Label className="w-24 text-xs shrink-0">{label}</Label>
-                        <Input
-                          type="number" min={0} max={100}
-                          value={value}
-                          onChange={(e) => setProbEdit((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
-                          className="h-7 text-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    size="sm" className="w-full mt-4" disabled={savingProb}
-                    onClick={async () => {
-                      setSavingProb(true);
-                      try {
-                        await supabase.from("company_settings").update({
-                          forecast_prob_prospect: probEdit.prospect,
-                          forecast_prob_scheduled: probEdit.scheduled,
-                          forecast_prob_selling: probEdit.selling,
-                        }).not("id", "is", null);
-                        setProbProspect(probEdit.prospect);
-                        setProbScheduled(probEdit.scheduled);
-                        setProbSelling(probEdit.selling);
-                        toast.success("Probabilities updated.");
-                      } catch {
-                        toast.error("Failed to save.");
-                      } finally {
-                        setSavingProb(false);
-                      }
-                    }}
-                  >
-                    {savingProb ? "Saving…" : "Save"}
-                  </Button>
-                </PopoverContent>
-              </Popover>
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Weighted Forecast</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="text-2xl font-bold">{formatCurrency(weightedForecast)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Prospect {probProspect}% · Scheduled {probScheduled}% · Selling {probSelling}%
+              Prospect 0% · Scheduled 0% · Selling ind.% · Sold 100% · Active 100%
             </p>
           </CardContent>
         </Card>

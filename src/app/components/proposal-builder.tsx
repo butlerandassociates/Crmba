@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check, Percent } from "lucide-react";
+import { Switch } from "./ui/switch";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, estimatesAPI, activityLogAPI } from "../utils/api";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
@@ -147,6 +148,9 @@ export function ProposalBuilder() {
   const [taxSource, setTaxSource] = useState<"auto" | "unknown" | "manual">("manual");
   const [taxCounty, setTaxCounty] = useState<string>("");
   const [badOverride, setBadOverride] = useState<number | null>(null);
+  const [taxEnabled, setTaxEnabled] = useState(true);
+  const [globalMarkupPct, setGlobalMarkupPct] = useState<number | null>(null);
+  const [globalMarkupInput, setGlobalMarkupInput] = useState("");
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -416,7 +420,7 @@ export function ProposalBuilder() {
       const taxableVal = lineItems
         .filter((item) => item.salesTaxApplicable)
         .reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
-      const taxAmountVal = taxableVal * (taxRate / 100);
+      const taxAmountVal = taxEnabled ? taxableVal * (taxRate / 100) : 0;
 
       // Use badPrice from component scope — respects manual override if set
       const discountAmtVal = discountType === "percent"
@@ -433,7 +437,7 @@ export function ProposalBuilder() {
         status: "draft",
         subtotal: subtotalVal,
         tax_amount: taxAmountVal,
-        tax_label: taxRate > 0 ? `Sales Tax (${taxRate}% on materials)${taxCounty ? ` — ${taxCounty}` : ""}` : "Sales Tax",
+        tax_label: taxEnabled && taxRate > 0 ? `Sales Tax (${taxRate}% on materials)${taxCounty ? ` — ${taxCounty}` : ""}` : null,
         total: totalVal,
         total_cost: totalCostVal,
         gross_profit: grossProfitVal,
@@ -506,14 +510,15 @@ export function ProposalBuilder() {
   const taxableMaterials = lineItems
     .filter((item) => item.salesTaxApplicable)
     .reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
-  const tax = taxableMaterials * (taxRate / 100);
+  const tax = taxEnabled ? taxableMaterials * (taxRate / 100) : 0;
 
-  // Base, Aggregate & Disposal — 1.5% of qualifying scope subtotals, 50% markup
+  // Base, Aggregate & Disposal — 1.5% of qualifying scope subtotals, markup follows globalMarkupPct or defaults to 50%
   const badQualifyingSubtotal = lineItems
     .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
     .reduce((sum, item) => sum + item.totalPrice, 0);
   const badCost = badQualifyingSubtotal * 0.015;
-  const badPriceAuto = badCost * 1.5; // 50% markup
+  const badMarkupFactor = globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5;
+  const badPriceAuto = badCost * badMarkupFactor;
   const badPrice = badOverride !== null ? badOverride : badPriceAuto;
   const hasBad = badPriceAuto > 0;
 
@@ -1092,6 +1097,50 @@ export function ProposalBuilder() {
                   <span className="font-semibold">{formatCurrency(subtotal)}</span>
                 </div>
 
+                {/* Global Markup Override */}
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <Percent className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-muted-foreground">Global Markup %</span>
+                    {globalMarkupPct !== null && (
+                      <Badge variant="outline" className="text-xs px-1.5 py-0 text-amber-600 border-amber-400">override</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      placeholder="e.g. 50"
+                      value={globalMarkupInput}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setGlobalMarkupInput(raw);
+                        const val = parseFloat(raw);
+                        if (!isNaN(val) && val >= 0) {
+                          setGlobalMarkupPct(val);
+                          setLineItems(prev => prev.map(item => {
+                            const pricePerUnit = Math.round(item.costPerUnit * (1 + val / 100) * 100) / 100;
+                            return { ...item, markupPercent: val, pricePerUnit, totalPrice: Math.round(pricePerUnit * item.quantity * 100) / 100 };
+                          }));
+                        } else if (raw === "") {
+                          setGlobalMarkupPct(null);
+                        }
+                      }}
+                      className="h-7 w-24 text-sm text-right"
+                    />
+                    <span className="text-xs text-muted-foreground">%</span>
+                    {globalMarkupPct !== null && (
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-destructive"
+                        title="Clear override"
+                        onClick={() => { setGlobalMarkupPct(null); setGlobalMarkupInput(""); }}
+                      >✕</button>
+                    )}
+                  </div>
+                </div>
+
                 {/* Base, Aggregate & Disposal */}
                 {hasBad && (
                   <div className="flex justify-between text-sm items-center">
@@ -1180,7 +1229,12 @@ export function ProposalBuilder() {
                 <div className="text-sm">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-muted-foreground">Sales Tax (materials)</span>
+                      <Switch
+                        checked={taxEnabled}
+                        onCheckedChange={setTaxEnabled}
+                        className="scale-75"
+                      />
+                      <span className={taxEnabled ? "text-muted-foreground" : "text-muted-foreground line-through"}>Sales Tax (materials)</span>
                       {taxSource === "auto" && taxCounty && (
                         <Badge variant="secondary" className="text-xs px-1.5 py-0 flex items-center gap-1">
                           <MapPin className="h-2.5 w-2.5" />
@@ -1196,19 +1250,21 @@ export function ProposalBuilder() {
                     </div>
                     <span className="font-semibold">{formatCurrency(tax)}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-xs text-muted-foreground">Rate:</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.01}
-                      value={taxRate}
-                      onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
-                      className="h-7 w-24 text-sm text-right"
-                    />
-                    <span className="text-xs text-muted-foreground">%</span>
-                  </div>
+                  {taxEnabled && (
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <span className="text-xs text-muted-foreground">Rate:</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={taxRate}
+                        onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
+                        className="h-7 w-24 text-sm text-right"
+                      />
+                      <span className="text-xs text-muted-foreground">%</span>
+                    </div>
+                  )}
                 </div>
 
                 {discountAmt > 0 && (

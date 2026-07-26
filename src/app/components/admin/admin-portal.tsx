@@ -6,6 +6,7 @@ import { ForecastDashboard } from "./forecast-dashboard";
 import { ProductManager } from "./product-manager";
 import { PLReport } from "./pl-report";
 import { PhaseTemplateEditor } from "./phase-template-editor";
+import { DiscardReasonsSettings } from "./discard-reasons-settings";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -218,7 +219,7 @@ export function AdminPortal() {
             </div>
           </div>
           <div className="overflow-x-auto -mx-4 px-4">
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl min-w-[680px]">
+          <TabsList className="grid w-full grid-cols-7 max-w-5xl min-w-[780px]">
             <TabsTrigger value="products">Products & Pricing</TabsTrigger>
             <TabsTrigger value="forecast">Forecasting</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
@@ -226,6 +227,10 @@ export function AdminPortal() {
             <TabsTrigger value="reports">
               <FileBarChart2 className="h-3.5 w-3.5 mr-1.5" />
               Reports
+            </TabsTrigger>
+            <TabsTrigger value="discard-reasons">
+              <List className="h-3.5 w-3.5 mr-1.5" />
+              Discard Reasons
             </TabsTrigger>
             <TabsTrigger value="discarded">
               <Archive className="h-3.5 w-3.5 mr-1.5" />
@@ -261,6 +266,14 @@ export function AdminPortal() {
             <p className="text-sm text-muted-foreground mt-0.5">View profit & loss breakdowns and project-level financial summaries.</p>
           </div>
           <PLReport />
+        </TabsContent>
+
+        <TabsContent value="discard-reasons" className="mt-0">
+          <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 border-b mb-4">
+            <h2 className="font-semibold text-base">Discard Reasons</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage the reasons available when discarding a client. Changes take effect immediately.</p>
+          </div>
+          <DiscardReasonsSettings />
         </TabsContent>
 
         <TabsContent value="discarded" className="mt-0">

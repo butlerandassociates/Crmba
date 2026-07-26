@@ -429,6 +429,9 @@ export function ClientDetail() {
   const [discardReason, setDiscardReason] = useState("");
   const [discardNote, setDiscardNote] = useState("");
   const [discarding, setDiscarding] = useState(false);
+  const [discardReasons, setDiscardReasons] = useState<{ id: string; label: string; requires_note: boolean }[]>([]);
+  const [selectedDiscardReasonId, setSelectedDiscardReasonId] = useState("");
+  const [competitorName, setCompetitorName] = useState("");
   const [sellingModalOpen, setSellingModalOpen] = useState(false);
   const [sellingProbability, setSellingProbability] = useState("");
   const [sellingCloseDate, setSellingCloseDate] = useState("");
@@ -468,6 +471,7 @@ export function ClientDetail() {
       ]).then(() => {
         setClient((prev: any) => ({ ...prev, status: "active" }));
         setClientProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: "active" } : p));
+        logStageHistory(id, "sold", "active", null);
         activityLogAPI.create({ client_id: id, action_type: "status_changed", description: "Automatically moved to Active — start date reached" }).then(loadActivityLog).catch(() => {});
       }).catch(() => {});
     }
@@ -485,6 +489,12 @@ export function ClientDetail() {
       setSelectedScopes(Array.isArray(client.scope_of_work) ? client.scope_of_work : []);
     }
   }, [client?.id]);
+
+  // Pre-load discard reasons so the dropdown is ready before the dialog opens
+  useEffect(() => {
+    supabase.from("discard_reasons").select("id, label, requires_note").eq("is_active", true).order("sort_order")
+      .then(({ data }) => { if (data) setDiscardReasons(data); });
+  }, []);
 
   const loadNotes = async () => {
     if (!id) return;
@@ -1060,6 +1070,16 @@ export function ClientDetail() {
     }
   };
 
+  const logStageHistory = (clientId: string, fromStage: string | null, toStage: string, userId: string | null) => {
+    supabase.from("stage_history").insert({
+      client_id: clientId,
+      from_stage: fromStage,
+      to_stage: toStage,
+      changed_at: new Date().toISOString(),
+      changed_by: userId,
+    }).then(null, () => {});
+  };
+
   const handleStatusChange = async (newStatus: string, silent = false) => {
     if (!client) return;
     try {
@@ -1067,16 +1087,17 @@ export function ClientDetail() {
       const matchingStage = pipelineStages.find(
         (s) => s.name.toLowerCase() === newStatus.toLowerCase()
       );
+      const { data: { user } } = await supabase.auth.getUser();
       await clientsAPI.update(client.id, {
         status: newStatus,
         pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id,
       });
+      logStageHistory(client.id, client.status, newStatus, user?.id ?? null);
       // Keep project status in sync with client status
       const activeProject = clientProjects[0];
       if (activeProject?.id) {
         const projectUpdate: Record<string, any> = { status: newStatus };
         if (newStatus === "scheduled") {
-          const { data: { user } } = await supabase.auth.getUser();
           projectUpdate.scheduled_at = new Date().toISOString();
           projectUpdate.scheduled_by = user?.id ?? null;
         }
@@ -1101,18 +1122,27 @@ export function ClientDetail() {
     setDiscarding(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const selectedReason = discardReasons.find((r) => r.id === selectedDiscardReasonId);
+      const reasonLabel = selectedReason?.label ?? discardReason;
       await clientsAPI.update(client.id, {
         is_discarded: true,
         discarded_at: new Date().toISOString(),
-        discarded_reason: `${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}`,
+        discarded_reason: `${reasonLabel}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}`,
         discarded_by: user?.id ?? null,
+        discard_reason_id: selectedDiscardReasonId || null,
+        discard_note: discardNote.trim() || null,
+        competitor_name: competitorName.trim() || null,
+        discarded_from_stage: client.status ?? null,
       });
+      logStageHistory(client.id, client.status, "discarded", user?.id ?? null);
       const discardedOnLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded on ${discardedOnLabel}: ${discardReason}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
+      activityLogAPI.create({ client_id: client.id, action_type: "status_changed", description: `Client discarded on ${discardedOnLabel}: ${reasonLabel}${discardNote.trim() ? ` — ${discardNote.trim()}` : ""}` }).catch(() => {});
       toast.success("Client discarded. You can revive them anytime.");
       setDiscardOpen(false);
       setDiscardReason("");
       setDiscardNote("");
+      setSelectedDiscardReasonId("");
+      setCompetitorName("");
     } catch (err: any) {
       toast.error(err.message || "Failed to discard client");
     } finally {
@@ -1285,6 +1315,7 @@ export function ClientDetail() {
         expected_close_date: sellingCloseDate,
         ...(!alreadySelling ? { selling_at: new Date().toISOString(), selling_by: user?.id ?? null } : {}),
       });
+      if (!alreadySelling) logStageHistory(client.id, client.status, "selling", user?.id ?? null);
       setClient({ ...client, status: "selling", closing_probability: parseFloat(sellingProbability), expected_close_date: sellingCloseDate, pipeline_stage_id: matchingStage?.id ?? client.pipeline_stage_id });
       projectsAPI.getAll().then((all: any[]) => setClientProjects(all.filter((p: any) => p.client_id === id))).catch(console.error);
       activityLogAPI.create({ client_id: client.id, action_type: alreadySelling ? "forecast_updated" : "status_changed", description: alreadySelling ? `Forecast updated — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` : `Moved to Selling — ${sellingProbability}% probability, est. close ${formatDate(sellingCloseDate)}` }).then(loadActivityLog).catch(() => {});
@@ -1781,7 +1812,7 @@ export function ClientDetail() {
             {["prospect", "selling"].includes(client.status) && can("can_update_forecast") && (
               <DropdownMenuItem
                 onClick={() => {
-                  setSellingProbability(client.closing_probability?.toString() ?? "");
+                  setSellingProbability(client.closing_probability != null ? client.closing_probability.toString() : "40");
                   setSellingCloseDate(client.expected_close_date ?? "");
                   setSellingModalOpen(true);
                 }}
@@ -5239,8 +5270,16 @@ export function ClientDetail() {
       </Dialog>
 
       {/* Discard Client Dialog */}
-      <Dialog open={discardOpen} onOpenChange={(v) => { setDiscardOpen(v); if (!v) { setDiscardReason(""); setDiscardNote(""); } }}>
-        <DialogContent className="sm:max-w-[420px]">
+      <Dialog open={discardOpen} onOpenChange={(v) => {
+        setDiscardOpen(v);
+        if (!v) {
+          setDiscardReason("");
+          setDiscardNote("");
+          setSelectedDiscardReasonId("");
+          setCompetitorName("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Archive className="h-5 w-5 text-destructive" />
@@ -5251,45 +5290,81 @@ export function ClientDetail() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-6 py-4">
+            {/* Reason dropdown */}
             <div className="space-y-1.5">
-              <Label htmlFor="discard-reason">Reason <span className="text-destructive">*</span></Label>
-              <select
-                id="discard-reason"
-                className={`w-full h-9 rounded-md border bg-background px-3 text-sm ${!discardReason ? "text-muted-foreground" : ""} ${!discardReason ? "border-input" : "border-input"}`}
-                value={discardReason}
-                onChange={(e) => setDiscardReason(e.target.value)}
+              <Label>Reason <span className="text-destructive">*</span></Label>
+              <Select
+                value={selectedDiscardReasonId}
+                onValueChange={(v) => { setSelectedDiscardReasonId(v); setDiscardNote(""); }}
               >
-                <option value="">Select a reason...</option>
-                <option>Out of price range</option>
-                <option>Out of scope</option>
-                <option>Unresponsive</option>
-                <option>Hired another contractor</option>
-                <option>Project on pause</option>
-                <option>Change mind</option>
-                <option>Other</option>
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a reason…" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {discardReasons.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="discard-note">Notes <span className="text-destructive">*</span></Label>
-              <Textarea
-                id="discard-note"
-                placeholder="Add details (min. 5 characters)..."
-                rows={3}
-                className="resize-none"
-                value={discardNote}
-                onChange={(e) => setDiscardNote(e.target.value)}
-              />
-              {discardNote.length > 0 && discardNote.trim().length < 5 && (
-                <p className="text-xs text-destructive">Notes must be at least 5 characters</p>
-              )}
-            </div>
+
+            {/* Notes — required only when reason.requires_note */}
+            {(() => {
+              const selectedReason = discardReasons.find((r) => r.id === selectedDiscardReasonId);
+              const noteRequired = selectedReason?.requires_note ?? false;
+              if (!selectedDiscardReasonId) return null;
+              return (
+                <div className="space-y-1.5">
+                  <Label htmlFor="discard-note">
+                    Notes {noteRequired && <span className="text-destructive">*</span>}
+                  </Label>
+                  <Textarea
+                    id="discard-note"
+                    placeholder={noteRequired ? "Required — explain the situation…" : "Optional — add context…"}
+                    rows={3}
+                    className="resize-none"
+                    value={discardNote}
+                    onChange={(e) => setDiscardNote(e.target.value)}
+                  />
+                  {noteRequired && discardNote.length > 0 && discardNote.trim().length < 5 && (
+                    <p className="text-xs text-destructive">Notes must be at least 5 characters</p>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Competitor name — always shown, optional */}
+            {selectedDiscardReasonId && (
+              <div className="space-y-1.5">
+                <Label htmlFor="competitor-name">Competitor <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <input
+                  id="competitor-name"
+                  type="text"
+                  className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+                  placeholder="Which contractor did they choose?"
+                  value={competitorName}
+                  onChange={(e) => setCompetitorName(e.target.value)}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => { setDiscardOpen(false); setDiscardReason(""); setDiscardNote(""); }}>Cancel</Button>
+            <Button variant="ghost" onClick={() => {
+              setDiscardOpen(false);
+              setDiscardReason("");
+              setDiscardNote("");
+              setSelectedDiscardReasonId("");
+              setCompetitorName("");
+            }}>
+              Cancel
+            </Button>
             <Button
               variant="destructive"
               onClick={handleDiscard}
-              disabled={discarding || !discardReason || discardNote.trim().length < 5}
+              disabled={discarding || !selectedDiscardReasonId || (() => {
+                const r = discardReasons.find((x) => x.id === selectedDiscardReasonId);
+                return r?.requires_note ? discardNote.trim().length < 5 : false;
+              })()}
             >
               {discarding ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
               Discard Client
