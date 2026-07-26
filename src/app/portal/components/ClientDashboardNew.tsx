@@ -223,11 +223,10 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
     if (p.due_date) {
       const due = new Date(p.due_date + "T00:00:00");
       const today = new Date();
-      if (due < today) return "OVERDUE";
-      const daysUntil = (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysUntil <= 7) return "DUE";
+      today.setHours(0, 0, 0, 0);
+      if (due <= today) return "DUE";
     }
-    return "SCHEDULED";
+    return "UPCOMING";
   };
 
   const nextDuePayment = payments.find(p => !p.is_paid);
@@ -236,7 +235,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   const pendingProposals = proposals.filter(p => p.status === "sent" || p.status === "opened").length;
   const duePayments = payments.filter(p => {
     const s = getPaymentStatus(p);
-    return s === "DUE" || s === "OVERDUE";
+    return s === "DUE";
   }).length;
 
   // ─── Render helpers ───────────────────────────────────────────────────────
@@ -829,8 +828,8 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
       {/* Summary bars */}
       {payments.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6 mb-8">
-          {["PAID", "DUE", "SCHEDULED"].map(status => {
-            const matching = payments.filter(p => getPaymentStatus(p) === status || (status === "DUE" && getPaymentStatus(p) === "OVERDUE"));
+          {["PAID", "DUE", "UPCOMING"].map(status => {
+            const matching = payments.filter(p => getPaymentStatus(p) === status);
             const total = matching.reduce((s, p) => s + p.amount, 0);
             const color = status === "PAID" ? "bg-green-600" : status === "DUE" ? "bg-orange-600" : "bg-gray-300";
             const pct = totalValue > 0 ? (total / totalValue) * 100 : 0;
@@ -852,7 +851,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
       <div className="space-y-4">
         {payments.map(payment => {
           const status = getPaymentStatus(payment);
-          const badgeClass = status === "PAID" ? "bg-green-600" : status === "DUE" || status === "OVERDUE" ? "bg-orange-600" : "bg-gray-400";
+          const badgeClass = status === "PAID" ? "bg-green-600" : status === "DUE" ? "bg-orange-600" : "bg-gray-400";
           return (
             <Card key={payment.id}>
               <CardContent className="p-6">
