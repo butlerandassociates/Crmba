@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { formatCurrency } from "@/app/utils/format";
 import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2, Car, X, Pencil, Target, BarChart3, Activity } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   XAxis,
   YAxis,
@@ -33,6 +33,7 @@ import { useViewAs } from "../contexts/view-as-context";
 export function Dashboard() {
   const { can, role } = usePermissions();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { viewAsRole, viewAsProfileId, viewAsProfileName } = useViewAs();
   const currentProfileId = user?.profile?.id ?? null;
   // When viewing as a team member, use their profile ID; if no person selected yet use null (shows empty)
@@ -47,7 +48,7 @@ export function Dashboard() {
   const [collectionsTab, setCollectionsTab] = useState<'today' | 'upcoming' | 'overdue'>('overdue');
   const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
-  const [dateRangeType, setDateRangeType] = useState<'month' | 'last_month' | 'last_3_months' | 'year' | 'custom'>('month');
+  const [dateRangeType, setDateRangeType] = useState<'month' | 'mtd' | 'ytd' | 'last_month' | 'last_3_months' | 'year' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
@@ -61,6 +62,7 @@ export function Dashboard() {
   const [editSalesGoal, setEditSalesGoal] = useState("");
   const [savingGoals, setSavingGoals] = useState(false);
   const [soldTransitions, setSoldTransitions] = useState<{ client_id: string; changed_at: string }[]>([]);
+  const [acceptedProposals, setAcceptedProposals] = useState<{ client_id: string; updated_at: string }[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -169,9 +171,19 @@ export function Dashboard() {
       if (settings?.monthly_revenue_goal) setRevenueGoal(Number(settings.monthly_revenue_goal));
       if (settings?.monthly_sales_goal) setSalesGoal(Number(settings.monthly_sales_goal));
 
-      // Fetch sold transitions for Sales Goal tracker
-      const { data: soldData } = await supabase.from("stage_history").select("client_id, changed_at").eq("to_stage", "sold");
-      setSoldTransitions(soldData || []);
+      // Fetch sold transitions for Sales Goal tracker — try both 'sold' and 'Sold' casing
+      const [{ data: soldLower }, { data: soldTitle }] = await Promise.all([
+        supabase.from("stage_history").select("client_id, changed_at").eq("to_stage", "sold"),
+        supabase.from("stage_history").select("client_id, changed_at").eq("to_stage", "Sold"),
+      ]);
+      setSoldTransitions([...(soldLower || []), ...(soldTitle || [])]);
+
+      // Fetch accepted proposals — used as primary source for sales goal (just need client_id + date)
+      const { data: proposalsData } = await supabase
+        .from("estimates")
+        .select("client_id, updated_at")
+        .eq("status", "accepted");
+      setAcceptedProposals(proposalsData || []);
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
     } finally {
@@ -179,7 +191,7 @@ export function Dashboard() {
     }
   };
 
-  useRealtimeRefetch(fetchData, ["clients", "project_payments", "projects", "company_settings", "project_receipts", "fio_crew_payments", "commission_payments", "stage_history"], "dashboard");
+  useRealtimeRefetch(fetchData, ["clients", "project_payments", "projects", "company_settings", "project_receipts", "fio_crew_payments", "commission_payments", "stage_history", "estimates"], "dashboard");
 
   if (loading) {
     return (
@@ -237,10 +249,12 @@ export function Dashboard() {
       ? paidPayments
       : [];
 
-  // Active Clients = clients with at least one active project
-  const activeClientIds = new Set(visibleProjects.filter((p) => p.status === "active").map((p) => p.client_id).filter(Boolean));
-  const activeClients = activeClientIds.size;
-  const activeProjects = visibleProjects.filter((p) => p.status === "active").length;
+  // Active Clients/Projects = clients in "active" pipeline stage (matches what the nav "Active" button shows)
+  const activeStageClients = clients.filter((c: any) => !c.is_discarded && c.status === 'active');
+  const activeClients = activeStageClients.length;
+  const activeProjects = visibleProjects.filter(
+    (p: any) => activeStageClients.some((c: any) => c.id === p.client_id)
+  ).length;
 
   // totalRevenue/totalProfit/avgProfitMargin derived from periodProjects below (after date range is computed)
 
@@ -304,6 +318,14 @@ export function Dashboard() {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
         break;
+      case 'mtd':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+        break;
+      case 'ytd':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+        break;
       case 'last_month':
         startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
@@ -358,15 +380,37 @@ export function Dashboard() {
     .reduce((sum: number, c: any) => sum + clientProjectTotal(c.id), 0);
   const closedRevenueDash = pipeCompleted.reduce((sum: number, c: any) => sum + clientProjectTotal(c.id), 0);
 
-  // Sales Goal: new contracts signed (sold transitions) in selected period
+  // Sales Goal: new contracts signed in selected period
+  // Primary: accepted proposals — use client_id to look up project value (estimates may not store total)
+  const periodAcceptedSales = acceptedProposals
+    .filter((p) => {
+      const d = p.updated_at ? new Date(p.updated_at) : null;
+      return d && d >= startDate && d <= endDate;
+    })
+    .reduce((sum: number, p) => {
+      const proj = projects.find((pr: any) => pr.client_id === p.client_id);
+      return sum + parseFloat(proj?.totalValue || proj?.total_value || '0');
+    }, 0);
+  // Fallback: stage_history sold transitions
   const periodSoldIds = new Set(
     soldTransitions
       .filter(t => { const d = new Date(t.changed_at); return d >= startDate && d <= endDate; })
       .map(t => t.client_id)
   );
-  const periodSalesAmount = projects
+  const periodStageHistorySales = projects
     .filter((p: any) => p.client_id && periodSoldIds.has(p.client_id))
     .reduce((sum: number, p: any) => sum + (parseFloat(p.totalValue || p.total_value || 0)), 0);
+  // Third fallback: clients that moved to sold/active/completed (updated_at in period)
+  const periodClientSales = clients
+    .filter((c: any) => !c.is_discarded && ['sold', 'active'].includes(c.status) && c.updated_at)
+    .filter((c: any) => { const d = new Date(c.updated_at); return d >= startDate && d <= endDate; })
+    .reduce((sum: number, c: any) => {
+      const proj = projects.find((p: any) => p.client_id === c.id);
+      return sum + parseFloat(proj?.totalValue || proj?.total_value || '0');
+    }, 0);
+  const periodSalesAmount = periodAcceptedSales > 0 ? periodAcceptedSales
+    : periodStageHistorySales > 0 ? periodStageHistorySales
+    : periodClientSales;
   const salesGoalProgress = salesGoal > 0 ? (periodSalesAmount / salesGoal) * 100 : 0;
 
   // Leads metrics
@@ -401,6 +445,26 @@ export function Dashboard() {
     return sum + (parseFloat(p.amount) || 0) * liveGPRate;
   }, 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  // All-time GP: sum ALL paid payments (not just selected period) — Jonathan requested this
+  const allTimeProfit = visiblePaidPayments.reduce((sum, p) => {
+    const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
+    if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
+    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+    const liveGPRate = Math.max(0, (proj.totalValue - (costs.materials + costs.labor + costs.commissions)) / proj.totalValue);
+    return sum + (parseFloat(p.amount) || 0) * liveGPRate;
+  }, 0);
+  const allTimeRevenue = visiblePaidPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const allTimeMargin = allTimeRevenue > 0 ? (allTimeProfit / allTimeRevenue) * 100 : 0;
+
+  // Projected GP: expected GP from all active/sold projects when fully paid
+  const projectedGP = [...pipeSold, ...pipeActive].reduce((sum: number, c: any) => {
+    const proj = visibleProjects.find((vp: any) => vp.client_id === c.id);
+    if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
+    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+    return sum + Math.max(0, proj.totalValue - (costs.materials + costs.labor + costs.commissions));
+  }, 0);
+
   const periodProjectIds = new Set(periodPayments.map((p: any) => p.project?.id).filter(Boolean));
   const periodProjects = visibleProjects.filter((p: any) => periodProjectIds.has(p.id));
 
@@ -423,6 +487,10 @@ export function Dashboard() {
     switch (dateRangeType) {
       case 'month':
         return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      case 'mtd':
+        return `MTD · ${startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+      case 'ytd':
+        return `YTD · ${startDate.getFullYear()}`;
       case 'last_month':
         return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       case 'last_3_months':
@@ -494,6 +562,8 @@ export function Dashboard() {
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Select Period</Label>
                   <div className="grid grid-cols-2 gap-2">
+                    <Button variant={dateRangeType === 'mtd' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('mtd'); setShowCustomPickers(false); setDateRangeOpen(false); }}>MTD</Button>
+                    <Button variant={dateRangeType === 'ytd' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('ytd'); setShowCustomPickers(false); setDateRangeOpen(false); }}>YTD</Button>
                     <Button variant={dateRangeType === 'month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>This Month</Button>
                     <Button variant={dateRangeType === 'last_month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last Month</Button>
                     <Button variant={dateRangeType === 'last_3_months' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_3_months'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last 3 Months</Button>
@@ -522,31 +592,35 @@ export function Dashboard() {
         </div>
       )}
       <div className={`grid grid-cols-1 gap-4 ${role === "sales_rep" ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{activeClients}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {totalScopedClients} total clients
-            </p>
-          </CardContent>
-        </Card>
+        <Link to="/clients?stage=active" className="no-underline">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{activeClients}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {totalScopedClients} total clients
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
-            <FolderKanban className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{activeProjects}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {visibleProjects.length} total projects
-            </p>
-          </CardContent>
-        </Card>
+        <Link to="/clients?stage=active" className="no-underline">
+          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
+              <FolderKanban className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{activeProjects}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {visibleProjects.length} total projects
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
         <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -560,14 +634,17 @@ export function Dashboard() {
         </Card>
 
         {role !== "sales_rep" && (
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(totalProfit)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{avgProfitMargin.toFixed(1)}% avg margin</p>
+            <div className="text-2xl font-bold">{formatCurrency(allTimeProfit)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{allTimeMargin.toFixed(1)}% avg margin · all-time</p>
+            {projectedGP > 0 && (
+              <p className="text-xs text-blue-600 mt-0.5">Projected: {formatCurrency(projectedGP)}</p>
+            )}
           </CardContent>
         </Card>
         )}
@@ -578,46 +655,54 @@ export function Dashboard() {
       <div className="space-y-3">
         {/* 4 pipeline tiles */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Weighted Forecast</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-xl font-bold">{formatCurrency(weightedForecastDash)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Prospect 0% · Selling ind.% · Sold/Active 100%</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pipeline Value</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-xl font-bold">{formatCurrency(pipelineValue)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Prospect + Scheduled + Selling</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Contracted Revenue</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-xl font-bold">{formatCurrency(contractedRevenue)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Sold + Active + Completed</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Closed Revenue</CardTitle>
-              <Award className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-xl font-bold">{formatCurrency(closedRevenueDash)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Completed projects</p>
-            </CardContent>
-          </Card>
+          <Link to="/clients" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Weighted Forecast</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-xl font-bold">{formatCurrency(weightedForecastDash)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Prospect 0% · Selling ind.% · Sold/Active 100%</p>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link to="/clients" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Pipeline Value</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-xl font-bold">{formatCurrency(pipelineValue)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Prospect + Scheduled + Selling</p>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link to="/clients?stage=sold" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Contracted Revenue</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-xl font-bold">{formatCurrency(contractedRevenue)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Sold + Active + Completed</p>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link to="/clients?stage=completed" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Closed Revenue</CardTitle>
+                <Award className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-xl font-bold">{formatCurrency(closedRevenueDash)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Completed projects</p>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Pipeline stage columns */}

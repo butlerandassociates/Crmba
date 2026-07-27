@@ -37,7 +37,9 @@ import {
   Check,
   Clock,
   BarChart2,
+  Percent,
 } from "lucide-react";
+import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
@@ -108,6 +110,9 @@ export function ProposalDetail() {
   const [editingBad, setEditingBad] = useState(false);
   const [badInputValue, setBadInputValue] = useState("");
   const [badOverride, setBadOverride] = useState<number | null>(null);
+  const [taxEnabled, setTaxEnabled] = useState(true);
+  const [globalMarkupPct, setGlobalMarkupPct] = useState<number | null>(null);
+  const [globalMarkupInput, setGlobalMarkupInput] = useState("");
 
   // Expanded line item rows (internal cost details)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -241,6 +246,11 @@ export function ProposalDetail() {
       setDiscountValue(dtype === "fixed" ? (est.discount_amount ?? 0) : (est.discount_percentage ?? 0));
       setDiscountLabel(est.discount_label ?? "");
       setStripeFeeEnabled(est.stripe_fee_enabled ?? false);
+      const savedTaxEnabled = est.wizard_inputs?._taxEnabled;
+      setTaxEnabled(savedTaxEnabled !== undefined ? savedTaxEnabled : (est.tax_label !== null || (est.tax_amount ?? 0) > 0));
+      const savedMarkup = est.wizard_inputs?._markupPct ?? null;
+      setGlobalMarkupPct(savedMarkup);
+      setGlobalMarkupInput(savedMarkup !== null ? String(savedMarkup) : "");
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
         Promise.resolve(supabase.from("client_portal_tokens").select("token").eq("client_id", est.client_id).eq("is_active", true).maybeSingle())
@@ -281,8 +291,12 @@ export function ProposalDetail() {
       discountType !== ((proposal.discount_type as "percent" | "fixed") ?? "percent") ||
       discountLabel !== (proposal.discount_label ?? "") ||
       stripeFeeEnabled !== (proposal.stripe_fee_enabled ?? false);
-    setIsDirty(titleChanged || descChanged || itemsChanged || notesChanged || feesChanged);
-  }, [editTitle, editDescription, editLineItems, categoryNotes, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal]);
+    const markupChanged = globalMarkupPct !== (proposal?.wizard_inputs?._markupPct ?? null);
+    const savedTax = proposal?.wizard_inputs?._taxEnabled;
+    const taxBaseline = savedTax !== undefined ? savedTax : (proposal?.tax_label !== null || (proposal?.tax_amount ?? 0) > 0);
+    const taxToggleChanged = taxEnabled !== taxBaseline;
+    setIsDirty(titleChanged || descChanged || itemsChanged || notesChanged || feesChanged || markupChanged || taxToggleChanged);
+  }, [editTitle, editDescription, editLineItems, categoryNotes, discountValue, discountType, discountLabel, stripeFeeEnabled, proposal, globalMarkupPct, taxEnabled]);
 
   // Block in-app navigation (browser back, nav links) — shows custom Save/Leave dialog
   const blocker = useBlocker(isDirty);
@@ -340,12 +354,14 @@ export function ProposalDetail() {
   const badQualifyingSubtotal = editLineItems
     .filter((item) => BAD_CATEGORIES.includes(item.category) || Number(item.labor_cost ?? 0) > 0)
     .reduce((sum, item) => sum + Number(item.quantity) * Number(item.client_price), 0);
-  const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * 1.5 * 100) / 100;
+  const badMarkupFactor = globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5;
+  const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * badMarkupFactor * 100) / 100;
   const activeBad = badOverride !== null ? badOverride : (isDirty ? badPriceAuto : (proposal?.bad_amount ?? 0));
   // Scale tax proportionally with subtotal changes (preserves $0 tax for unknown zip)
   const origSubtotal = proposal?.subtotal || 0;
-  const taxRatio = origSubtotal > 0 ? (proposal?.tax_amount ?? 0) / origSubtotal : 0;
-  const activeTax = isDirty ? Math.round(computedSubtotal * taxRatio * 100) / 100 : (proposal?.tax_amount ?? 0);
+  const taxRatio = origSubtotal > 0 ? ((proposal?.tax_amount ?? 0) > 0 ? (proposal.tax_amount ?? 0) : 0) / origSubtotal : 0;
+  const activeTaxRaw = isDirty ? Math.round(computedSubtotal * taxRatio * 100) / 100 : (proposal?.tax_amount ?? 0);
+  const activeTax = taxEnabled ? activeTaxRaw : 0;
   const discountAmt = discountType === "percent"
     ? Math.round(computedSubtotal * discountValue / 100 * 100) / 100
     : Math.min(discountValue, computedSubtotal);
@@ -630,6 +646,12 @@ export function ProposalDetail() {
       if (!sortOrderMap.has(String(it.id ?? ''))) sortOrderMap.set(String(it.id ?? ''), sIdx++);
     }
     try {
+      const updatedWizardInputs = {
+        ...(proposal?.wizard_inputs ?? {}),
+        _markupPct: globalMarkupPct,
+        _customSections: customSections,
+        _taxEnabled: taxEnabled,
+      };
       await estimatesAPI.update(proposal.id, {
         title: editTitle,
         description: editDescription,
@@ -640,6 +662,7 @@ export function ProposalDetail() {
         profit_margin: computedProfitMargin,
         bad_amount: activeBad,
         tax_amount: activeTax,
+        tax_label: taxEnabled ? (proposal.tax_label ?? null) : null,
         discount_type: discountType,
         discount_percentage: discountType === "percent" ? discountValue : 0,
         discount_amount: discountAmt,
@@ -647,7 +670,9 @@ export function ProposalDetail() {
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeAmt,
         category_notes: categoryNotes,
+        wizard_inputs: updatedWizardInputs,
       });
+      setProposal((p: any) => ({ ...p, wizard_inputs: updatedWizardInputs }));
       // Delete items that were removed from editLineItems
       const originalItemIds = (proposal.line_items ?? [])
         .map((item: any) => item.id)
@@ -1644,112 +1669,6 @@ export function ProposalDetail() {
             </Button>
           )}
 
-          {proposal.status !== "voided" && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button>
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Export to Share
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Share Proposal</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {can("can_send_proposals") && (
-                  proposal.status === "declined" && clientHasAcceptedProposal ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span>
-                          <DropdownMenuItem disabled>
-                            <Mail className="h-4 w-4 mr-2 opacity-40" />
-                            <span className="opacity-40">Email to Client</span>
-                          </DropdownMenuItem>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>Another proposal is already accepted</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <DropdownMenuItem onClick={handleEmail}>
-                      <Mail className="h-4 w-4 mr-2" />
-                      Email to Client
-                    </DropdownMenuItem>
-                  )
-                )}
-                <DropdownMenuItem onClick={handleDownload}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {!isLocked && (
-            proposal.status === "declined" ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button variant="outline" disabled className="border-green-200 text-green-400 cursor-not-allowed">
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      Mark as Accepted
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {clientHasAcceptedProposal
-                    ? "Another proposal is already accepted"
-                    : "Reset to Sent first, then accept"}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={handleMarkAccepted}
-                disabled={markingAccepted}
-                className="border-green-300 text-green-700 hover:bg-green-50"
-              >
-                {markingAccepted
-                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                Mark as Accepted
-              </Button>
-            )
-          )}
-
-          {(proposal.status === "accepted" || proposal.status === "voided") && role === "admin" && (
-            proposal.status === "voided" && clientHasAcceptedProposal ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button variant="outline" disabled className="border-orange-300 text-orange-300 cursor-not-allowed">
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Revert to Draft
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Another proposal is already accepted</TooltipContent>
-              </Tooltip>
-            ) : (
-              <Button variant="outline" onClick={() => setShowRevertDialog(true)} className="border-orange-300 text-orange-700 hover:bg-orange-50">
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Revert to Draft
-              </Button>
-            )
-          )}
-
-          {!isLocked && (
-            <Button variant="outline" size="sm" onClick={() => setShowSavingsDialog(true)}>
-              <BadgePercent className="h-4 w-4 mr-2" />
-              Savings & Fees
-            </Button>
-          )}
-
-          {(role === "admin" || role === "sales_rep") && viewAsRole !== "project_manager" && (
-            <Button variant="outline" size="sm" onClick={() => setShowFinancials(true)}>
-              <BarChart2 className="h-4 w-4 mr-2" />
-              Financials
-            </Button>
-          )}
-
           {!isLocked && (
             <Button variant="outline" onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
@@ -1757,18 +1676,128 @@ export function ProposalDetail() {
             </Button>
           )}
 
-          {/* Delete — allowed for any non-accepted proposal (accepted = active job, protected) */}
-          {proposal.status !== "accepted" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/5"
-              onClick={() => setShowDeleteDialog(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </Button>
-          )}
+          {/* Actions dropdown — all secondary actions consolidated */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                Actions
+                <ChevronDown className="h-4 w-4 ml-2" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {/* Share */}
+              {proposal.status !== "voided" && (
+                <>
+                  <DropdownMenuLabel>Share</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {can("can_send_proposals") && (
+                    proposal.status === "declined" && clientHasAcceptedProposal ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <DropdownMenuItem disabled>
+                              <Mail className="h-4 w-4 mr-2 opacity-40" />
+                              <span className="opacity-40">Email to Client</span>
+                            </DropdownMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">Another proposal is already accepted</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <DropdownMenuItem onClick={handleEmail}>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Email to Client
+                      </DropdownMenuItem>
+                    )
+                  )}
+                  <DropdownMenuItem onClick={handleDownload}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+
+              {/* Proposal actions */}
+              {!isLocked && (
+                proposal.status === "declined" ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem disabled>
+                          <CheckCircle2 className="h-4 w-4 mr-2 opacity-40" />
+                          <span className="opacity-40">Mark as Accepted</span>
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      {clientHasAcceptedProposal ? "Another proposal is already accepted" : "Reset to Sent first, then accept"}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={handleMarkAccepted}
+                    disabled={markingAccepted}
+                    className="text-green-700 focus:text-green-700"
+                  >
+                    {markingAccepted
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Mark as Accepted
+                  </DropdownMenuItem>
+                )
+              )}
+
+              {(proposal.status === "accepted" || proposal.status === "voided") && role === "admin" && (
+                proposal.status === "voided" && clientHasAcceptedProposal ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <DropdownMenuItem disabled>
+                          <RotateCcw className="h-4 w-4 mr-2 opacity-40" />
+                          <span className="opacity-40">Revert to Draft</span>
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Another proposal is already accepted</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <DropdownMenuItem onClick={() => setShowRevertDialog(true)} className="text-orange-700 focus:text-orange-700">
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Revert to Draft
+                  </DropdownMenuItem>
+                )
+              )}
+
+              {!isLocked && (
+                <DropdownMenuItem onClick={() => setShowSavingsDialog(true)}>
+                  <BadgePercent className="h-4 w-4 mr-2" />
+                  Savings & Fees
+                </DropdownMenuItem>
+              )}
+
+              {(role === "admin" || role === "sales_rep") && viewAsRole !== "project_manager" && (
+                <DropdownMenuItem onClick={() => setShowFinancials(true)}>
+                  <BarChart2 className="h-4 w-4 mr-2" />
+                  Financials
+                </DropdownMenuItem>
+              )}
+
+              {/* Delete */}
+              {proposal.status !== "accepted" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -2280,6 +2309,49 @@ export function ProposalDetail() {
               <span className="text-muted-foreground">Subtotal</span>
               <span className="font-semibold">{formatCurrency(computedSubtotal)}</span>
             </div>
+
+            {/* Global Markup % — editable when not locked */}
+            {(!isLocked || globalMarkupPct !== null) && (
+              <div className="flex justify-between text-sm items-center">
+                <div className="flex items-center gap-1.5">
+                  <Percent className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-muted-foreground">Global Markup %</span>
+                  {globalMarkupPct !== null && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-600">override</span>
+                  )}
+                </div>
+                {isLocked ? (
+                  <span className="font-semibold text-sm">{globalMarkupPct !== null ? `${globalMarkupPct}%` : "50% (default)"}</span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      step={1}
+                      placeholder="e.g. 50"
+                      value={globalMarkupInput}
+                      onChange={(e) => {
+                        setGlobalMarkupInput(e.target.value);
+                        const v = parseFloat(e.target.value);
+                        setGlobalMarkupPct(!isNaN(v) && e.target.value.trim() !== "" ? v : null);
+                      }}
+                      className="w-16 border rounded px-1.5 py-0.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <span className="text-xs text-muted-foreground">%</span>
+                    {globalMarkupPct !== null && (
+                      <button
+                        type="button"
+                        onClick={() => { setGlobalMarkupPct(null); setGlobalMarkupInput(""); }}
+                        className="text-xs text-muted-foreground hover:text-destructive"
+                        title="Reset to default"
+                      >↩</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeBad > 0 && (
               <div className="flex justify-between text-sm items-center">
                 <div className="flex items-center gap-1.5">
@@ -2331,9 +2403,20 @@ export function ProposalDetail() {
                 </div>
               </div>
             )}
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{proposal.tax_label ?? "Tax"}</span>
-              <span className="font-semibold">{formatCurrency(proposal.tax_amount ?? 0)}</span>
+            <div className="flex justify-between text-sm items-center">
+              <div className="flex items-center gap-1.5">
+                {!isLocked && (
+                  <Switch
+                    checked={taxEnabled}
+                    onCheckedChange={setTaxEnabled}
+                    className="scale-75"
+                  />
+                )}
+                <span className={!taxEnabled ? "text-muted-foreground line-through" : "text-muted-foreground"}>
+                  {proposal.tax_label ?? "Sales Tax (materials)"}
+                </span>
+              </div>
+              <span className="font-semibold">{formatCurrency(activeTax)}</span>
             </div>
             {discountAmt > 0 && (
               <div className="flex justify-between text-sm items-center">

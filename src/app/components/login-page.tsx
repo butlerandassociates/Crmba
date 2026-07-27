@@ -1,13 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { supabase } from "@/lib/supabase";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Loader2, Eye, EyeOff, Mail, ArrowLeft } from "lucide-react";
+import { Loader2, Mail, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
-
 type Mode = "login" | "set-password" | "forgot";
 
 export function LoginPage() {
@@ -91,173 +86,203 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-primary">Butler & Associates</h1>
-          <p className="text-sm text-muted-foreground mt-1">Construction, Inc. — CRM Portal</p>
+    <div className="min-h-screen flex items-center justify-center p-8" style={{ backgroundColor: "#FAF7F2" }}>
+      <div className="w-full max-w-md">
+
+        {/* Logo */}
+        <div className="mb-10">
+          <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo-gold.jpg" alt="Butler & Associates" className="h-24 w-auto object-contain mix-blend-multiply" />
         </div>
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>
-              {mode === "set-password" ? "Set Your Password"
-                : mode === "forgot" ? "Reset Password"
-                : "Sign In"}
-            </CardTitle>
-            <CardDescription>
-              {mode === "set-password"
-                ? "Welcome! Create a password to secure your account."
-                : mode === "forgot"
-                ? "Enter your email and we'll send you a reset link."
-                : "Enter your credentials to access the portal."}
-            </CardDescription>
-          </CardHeader>
+        {/* Heading */}
+        <h1 className="text-4xl font-bold text-gray-900 mb-3">
+          {mode === "set-password" ? "Set Your Password"
+            : mode === "forgot" ? "Reset Password"
+            : "Sign in"}
+        </h1>
+        <p className="text-gray-500 mb-10 leading-relaxed">
+          {mode === "set-password"
+            ? "Welcome! Create a password to secure your account."
+            : mode === "forgot"
+            ? "Enter your email and we'll send you a reset link."
+            : "Welcome back to our internal workspace. Sign in below to access your clients, estimates, and jobs."}
+        </p>
 
-          <CardContent>
-            {/* ── Forgot password — success state ── */}
-            {mode === "forgot" && forgotSent ? (
-              <div className="space-y-4 text-center">
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                    <Mail className="h-6 w-6 text-green-600" />
-                  </div>
-                  <p className="text-sm font-medium">Reset link sent!</p>
-                  <p className="text-xs text-muted-foreground">
-                    Check your inbox at <span className="font-medium">{email}</span> and click the link to reset your password.
-                  </p>
-                </div>
-                <Button variant="outline" className="w-full" onClick={goBackToLogin}>
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Sign In
-                </Button>
+        {/* ── Forgot password — success state ── */}
+        {mode === "forgot" && forgotSent ? (
+          <div className="space-y-6">
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                <Mail className="h-6 w-6 text-green-600" />
               </div>
-            ) : mode === "forgot" ? (
-              /* ── Forgot password — form ── */
-              <form onSubmit={handleForgotPassword} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="text"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={handleEmailChange}
-                    autoComplete="email"
-                    autoFocus
-                  />
-                  {emailError && <p className="text-xs text-red-500">{emailError}</p>}
-                </div>
+              <p className="text-sm font-medium text-gray-900">Reset link sent!</p>
+              <p className="text-sm text-gray-500 text-center">
+                Check your inbox at <span className="font-medium text-gray-900">{email}</span> and click the link to reset your password.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={goBackToLogin}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Sign In
+            </button>
+          </div>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={loading || !email.trim() || !!emailError}
-                >
-                  {loading
-                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
-                    : "Send Reset Link"}
-                </Button>
+        ) : mode === "forgot" ? (
+          /* ── Forgot password — form ── */
+          <form onSubmit={handleForgotPassword} className="space-y-6">
+            <div className="space-y-2">
+              <label htmlFor="email" className="block text-xs font-semibold tracking-widest text-gray-700 uppercase">
+                Email
+              </label>
+              <input
+                id="email"
+                type="text"
+                placeholder="you@butlerconstruction.co"
+                value={email}
+                onChange={handleEmailChange}
+                autoComplete="email"
+                autoFocus
+                className="w-full bg-transparent border border-gray-300 rounded-lg px-4 py-4 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-600 transition-colors text-sm"
+              />
+              {emailError && <p className="text-xs text-red-500">{emailError}</p>}
+            </div>
 
+            <button
+              type="submit"
+              disabled={loading || !email.trim() || !!emailError}
+              className="w-full text-white font-semibold tracking-widest uppercase text-sm py-4 rounded-lg transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: "#1a1a1a", borderBottom: "3px solid #B8960C" }}
+            >
+              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Sending...</span> : "Send Reset Link"}
+            </button>
+
+            <button
+              type="button"
+              onClick={goBackToLogin}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Sign In
+            </button>
+          </form>
+
+        ) : (
+          /* ── Login / Set-password ── */
+          <form onSubmit={mode === "set-password" ? handleSetPassword : handleLogin} className="space-y-6">
+            {mode === "login" && (
+              <div className="space-y-2">
+                <label htmlFor="email" className="block text-xs font-semibold tracking-widest text-gray-700 uppercase">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="text"
+                  placeholder="you@butlerconstruction.co"
+                  value={email}
+                  onChange={handleEmailChange}
+                  autoComplete="email"
+                  className="w-full bg-transparent border border-gray-300 rounded-lg px-4 py-4 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-600 transition-colors text-sm"
+                />
+                {emailError && <p className="text-xs text-red-500">{emailError}</p>}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="block text-xs font-semibold tracking-widest text-gray-700 uppercase">
+                  {mode === "set-password" ? "New Password" : "Password"}
+                </label>
                 <button
                   type="button"
-                  onClick={goBackToLogin}
-                  className="w-full text-sm text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5 mt-1"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="text-xs font-semibold tracking-widest uppercase transition-colors"
+                  style={{ color: "#B8960C" }}
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  Back to Sign In
+                  {showPassword ? "Hide" : "Show"}
                 </button>
-              </form>
-            ) : (
-              /* ── Login / Set-password ── */
-              <form onSubmit={mode === "set-password" ? handleSetPassword : handleLogin} className="space-y-4">
-                {mode === "login" && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="text"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={handleEmailChange}
-                      autoComplete="email"
-                    />
-                    {emailError && <p className="text-xs text-red-500">{emailError}</p>}
-                  </div>
-                )}
+              </div>
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "set-password" ? "new-password" : "current-password"}
+                className="w-full bg-transparent border border-gray-300 rounded-lg px-4 py-4 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-600 transition-colors text-sm"
+              />
+              {mode === "set-password" && (
+                <p className="text-xs text-gray-400">Minimum 8 characters</p>
+              )}
+            </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">
-                    {mode === "set-password" ? "New Password" : "Password"}
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete={mode === "set-password" ? "new-password" : "current-password"}
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowPassword((v) => !v)}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  {mode === "set-password" && (
-                    <p className="text-xs text-muted-foreground">Minimum 8 characters</p>
-                  )}
-                </div>
-
-                {mode === "set-password" && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="confirm-password">Confirm Password</Label>
-                    <Input
-                      id="confirm-password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      autoComplete="new-password"
-                    />
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={
-                    loading ||
-                    (mode === "login"
-                      ? !email.trim() || !!emailError || !password
-                      : !password || !confirmPassword)
-                  }
-                >
-                  {loading ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {mode === "set-password" ? "Setting password..." : "Signing in..."}
-                    </>
-                  ) : (
-                    mode === "set-password" ? "Set Password & Continue" : "Sign In"
-                  )}
-                </Button>
-
-                {mode === "login" && (
-                  <button
-                    type="button"
-                    onClick={() => { setMode("forgot"); setForgotSent(false); }}
-                    className="w-full text-sm text-primary hover:underline text-center mt-1"
-                  >
-                    Forgot your password?
-                  </button>
-                )}
-              </form>
+            {mode === "set-password" && (
+              <div className="space-y-2">
+                <label htmlFor="confirm-password" className="block text-xs font-semibold tracking-widest text-gray-700 uppercase">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirm-password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  className="w-full bg-transparent border border-gray-300 rounded-lg px-4 py-4 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-600 transition-colors text-sm"
+                />
+              </div>
             )}
-          </CardContent>
-        </Card>
+
+            <button
+              type="submit"
+              disabled={
+                loading ||
+                (mode === "login"
+                  ? !email.trim() || !!emailError || !password
+                  : !password || !confirmPassword)
+              }
+              className="w-full text-white font-semibold tracking-widest uppercase text-sm py-4 rounded-lg transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: "#1a1a1a", borderBottom: "3px solid #B8960C" }}
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {mode === "set-password" ? "Setting password..." : "Signing in..."}
+                </span>
+              ) : (
+                mode === "set-password" ? "Set Password & Continue" : "Sign In"
+              )}
+            </button>
+
+            {mode === "login" && (
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => { setMode("forgot"); setForgotSent(false); }}
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                >
+                  Forgot your password?
+                </button>
+                <button
+                  type="button"
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                >
+                  Get help
+                </button>
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* Footer */}
+        <div className="mt-16">
+          <div className="border-t border-gray-300 pt-6">
+            <p className="text-center text-xs tracking-widest text-gray-400 uppercase">The Butler Standard</p>
+          </div>
+        </div>
+
       </div>
     </div>
   );

@@ -391,6 +391,7 @@ export async function createEmbeddedEnvelope(
   const norm = (s: string) => (s || "").trim().toLowerCase();
   let adminRoleFinal  = adminRoleName,  adminRecipientId  = "1";
   let signerRoleFinal = signerRoleName, signerRecipientId = "2";
+  const autoFillTabs: any[] = [];
   try {
     const tmpl = await getTemplateRecipientsWithTabs(config, templateId);
     const signers: any[] = tmpl?.signers || [];
@@ -403,6 +404,16 @@ export async function createEmbeddedEnvelope(
     if (signerMatch) {
       signerRoleFinal   = signerMatch.roleName ?? signerRoleName;
       signerRecipientId = signerMatch.recipientId ?? "2";
+      // Build auto-fill entries for name/email text fields in the signer's role
+      for (const tab of (signerMatch.tabs?.textTabs || []) as any[]) {
+        const label = (tab.tabLabel || "").toLowerCase();
+        if ((label.includes("owner") || label.includes("name")) && clientName) {
+          autoFillTabs.push({ tabLabel: tab.tabLabel, value: clientName });
+        } else if (label.includes("email") && clientEmail) {
+          autoFillTabs.push({ tabLabel: tab.tabLabel, value: clientEmail });
+        }
+      }
+      console.log("Auto-fill tabs built:", JSON.stringify(autoFillTabs.map((t) => t.tabLabel)));
     }
     console.log("Template role mapping:", JSON.stringify({
       templateRoles: signers.map((r) => ({ role: r.roleName, recipientId: r.recipientId })),
@@ -411,6 +422,13 @@ export async function createEmbeddedEnvelope(
   } catch (e: any) {
     console.log("Template recipient lookup failed, using defaults 1/2:", e.message);
   }
+
+  // Merge caller-supplied tabs with auto-filled name/email text tabs
+  const mergedSignerTabs = (() => {
+    const mergedText = [...(tabs?.textTabs || []), ...autoFillTabs];
+    if (mergedText.length === 0 && (!tabs || Object.keys(tabs).length === 0)) return null;
+    return { ...(tabs || {}), ...(mergedText.length > 0 ? { textTabs: mergedText } : {}) };
+  })();
 
   // Create as draft — sender fills fields in DocuSign UI before routing to signers.
   const envelopeDefinition = {
@@ -433,9 +451,9 @@ export async function createEmbeddedEnvelope(
         roleName: signerRoleFinal,
         recipientId: signerRecipientId,
         routingOrder: "2",
-        // Only include tabs if there are actual values — passing an empty object
+        // Only include tabs when there is something to pass — an empty object
         // can override the template's own pre-filled tabs and clear required fields.
-        ...(tabs && Object.keys(tabs).length > 0 ? { tabs } : {}),
+        ...(mergedSignerTabs ? { tabs: mergedSignerTabs } : {}),
         emailNotification: {
           emailSubject,
           emailBody: emailBlurb,

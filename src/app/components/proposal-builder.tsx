@@ -450,7 +450,7 @@ export function ProposalBuilder() {
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeVal,
         category_notes: categoryNotes,
-        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
+        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}), ...(globalMarkupPct !== null ? { _markupPct: globalMarkupPct } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
       const items = lineItems.map((item) => ({
