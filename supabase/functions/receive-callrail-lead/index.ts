@@ -5,6 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+const CALLRAIL_WEBHOOK_SECRET = Deno.env.get("CALLRAIL_WEBHOOK_SECRET") ?? "";
 
 // Tracking number (digits only) → CRM lead source name
 const TRACKING_NUMBER_MAP: Record<string, string> = {
@@ -26,6 +27,11 @@ const digitsOnly = (s: string): string => {
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  const incomingSecret = req.headers.get("x-callrail-signature") ?? req.headers.get("x-webhook-secret") ?? "";
+  if (CALLRAIL_WEBHOOK_SECRET && incomingSecret !== CALLRAIL_WEBHOOK_SECRET) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
   }
 
   let body: any;

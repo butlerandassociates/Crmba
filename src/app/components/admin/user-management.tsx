@@ -351,13 +351,14 @@ export function UserManagement() {
         permissions[p.key] = selectedPermissions.includes(p.key);
       });
 
+      const { data: { session: inviteSession } } = await supabase.auth.getSession();
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/invite-user`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${inviteSession?.access_token ?? publicAnonKey}`,
           },
           body: JSON.stringify({
             email:       formData.email,
@@ -406,13 +407,14 @@ export function UserManagement() {
   const handleResendInvite = async (user: any) => {
     setResending(user.id);
     try {
+      const { data: { session: resendSession } } = await supabase.auth.getSession();
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/invite-user`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${resendSession?.access_token ?? publicAnonKey}`,
           },
           body: JSON.stringify({
             email:       user.email,
@@ -441,11 +443,12 @@ export function UserManagement() {
 
       // If email changed, update auth.users via edge function
       if (emailChanged) {
+        const { data: { session: updateSession } } = await supabase.auth.getSession();
         const res = await fetch(
           `https://${projectId}.supabase.co/functions/v1/update-user-email`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${updateSession?.access_token ?? publicAnonKey}` },
             body: JSON.stringify({ user_id: user.id, new_email: changes.email.trim() }),
           }
         );
@@ -464,11 +467,12 @@ export function UserManagement() {
 
       // If email changed, resend invite to new address
       if (emailChanged) {
+        const { data: { session: reinviteSession } } = await supabase.auth.getSession();
         await fetch(
           `https://${projectId}.supabase.co/functions/v1/invite-user`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${reinviteSession?.access_token ?? publicAnonKey}` },
             body: JSON.stringify({
               email:       changes.email.trim(),
               first_name:  changes.first_name.trim(),

@@ -5,6 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET") ?? "";
 
 const SERVICE_MAP: Record<string, string> = {
   "pavers":             "Pavers",
@@ -44,6 +45,11 @@ const REFERRAL_LABEL_MAP: Record<string, string> = {
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  const incomingSecret = req.headers.get("x-webhook-secret") ?? new URL(req.url).searchParams.get("secret") ?? "";
+  if (WEBHOOK_SECRET && incomingSecret !== WEBHOOK_SECRET) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
   }
 
   let body: any;

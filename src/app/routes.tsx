@@ -11,8 +11,6 @@ import { Financials } from "./components/financials";
 import { Integrations } from "./components/integrations";
 import { AdminPortal } from "./components/admin/admin-portal";
 import { PipelineForecast } from "./components/pipeline-forecast";
-import { ClientPortalLayout } from "./components/client-portal/client-portal-layout";
-import { ClientDashboard } from "./components/client-portal/client-dashboard";
 import { ProposalDetail } from "./components/proposal-detail";
 import { EstimateTemplateSelector } from "./components/estimate-template-selector";
 import { EstimateBuilder } from "./components/estimate-builder";
@@ -102,13 +100,6 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: ForemanDashboard },
       { path: "jobs/:fioId", Component: ForemanJobDetail },
-    ],
-  },
-  {
-    path: "/client-portal",
-    Component: ClientPortalLayout,
-    children: [
-      { index: true, Component: ClientDashboard },
     ],
   },
   { path: "/intake/:clientId",          Component: IntakeRedirect },

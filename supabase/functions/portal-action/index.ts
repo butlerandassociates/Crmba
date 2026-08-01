@@ -1,14 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173"];
+const cors = (req: Request) => {
+  const o = req.headers.get("origin") ?? "";
+  return { "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0], "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Vary": "Origin" };
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: cors(req) });
   }
 
   try {
@@ -19,7 +20,7 @@ serve(async (req) => {
     if (!token || !action || !entity_id) {
       return new Response(JSON.stringify({ success: false, error: "Missing required fields" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -38,7 +39,7 @@ serve(async (req) => {
     if (!tokenRow || !tokenRow.is_active) {
       return new Response(JSON.stringify({ success: false, error: "Invalid or revoked token" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -56,7 +57,7 @@ serve(async (req) => {
       if (!proposal || proposal.status !== "sent") {
         // Silently succeed — already opened/accepted/declined or not found
         return new Response(JSON.stringify({ success: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
@@ -84,7 +85,7 @@ serve(async (req) => {
 
       console.log(`[portal-action] SUCCESS: proposal_opened entity_id=${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -100,7 +101,7 @@ serve(async (req) => {
       if (!co || co.status !== "pending_client") {
         // Silently succeed — either not found or already past pending (e.g. already opened/approved/rejected)
         return new Response(JSON.stringify({ success: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
@@ -128,7 +129,7 @@ serve(async (req) => {
 
       console.log(`[portal-action] SUCCESS: co_opened entity_id=${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -144,14 +145,14 @@ serve(async (req) => {
       if (!co) {
         return new Response(JSON.stringify({ success: false, error: "Change order not found" }), {
           status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
       if (co.status !== "pending_client" && co.status !== "opened") {
         return new Response(JSON.stringify({ success: false, error: "Change order is not pending client action" }), {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
@@ -246,7 +247,7 @@ serve(async (req) => {
 
       console.log(`[portal-action] SUCCESS: ${action} co ${entity_id} client_id=${clientId} new_status=${newStatus}`);
       return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -262,14 +263,14 @@ serve(async (req) => {
       if (!proposal) {
         return new Response(JSON.stringify({ success: false, error: "Proposal not found" }), {
           status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
       if (proposal.status !== "sent" && proposal.status !== "opened") {
         return new Response(JSON.stringify({ success: false, error: "Proposal is not in sent status" }), {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...cors(req), "Content-Type": "application/json" },
         });
       }
 
@@ -324,19 +325,19 @@ serve(async (req) => {
 
       console.log(`[portal-action] SUCCESS: ${action} proposal ${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
     return new Response(JSON.stringify({ success: false, error: "Unknown action" }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error("[portal-action] Error:", err.message);
     return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   }
 });

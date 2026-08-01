@@ -1,14 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-portal-token",
+const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173"];
+const cors = (req: Request) => {
+  const o = req.headers.get("origin") ?? "";
+  return { "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0], "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-portal-token", "Vary": "Origin" };
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: cors(req) });
   }
 
   try {
@@ -19,7 +20,7 @@ serve(async (req) => {
     if (!token) {
       return new Response(JSON.stringify({ valid: false, error: "Token required" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -39,14 +40,14 @@ serve(async (req) => {
       console.error("[portal-token] DB error:", tokenErr.message);
       return new Response(JSON.stringify({ valid: false, error: "DB error" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
     if (!tokenRow || !tokenRow.is_active) {
       return new Response(JSON.stringify({ valid: false, error: "Invalid or revoked token" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -294,13 +295,13 @@ serve(async (req) => {
     console.log(`[validate-portal-token] SUCCESS: token valid for client ${clientId} — returned ${payments.length} payments ${phases.length} phases ${updates.length} updates`);
     return new Response(
       JSON.stringify({ valid: true, client, project, phases, payments, updates, files, change_orders, proposals }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...cors(req), "Content-Type": "application/json" } }
     );
   } catch (err: any) {
     console.error(`[validate-portal-token] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ valid: false, error: err.message }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   }
 });

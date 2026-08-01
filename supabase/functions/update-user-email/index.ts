@@ -1,13 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173"];
+const cors = (req: Request) => {
+  const o = req.headers.get("origin") ?? "";
+  return { "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0], "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Vary": "Origin" };
 };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: cors(req) });
   }
 
   try {
@@ -23,7 +24,7 @@ Deno.serve(async (req) => {
     if (!user_id || !new_email) {
       return new Response(JSON.stringify({ error: "user_id and new_email are required." }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -43,13 +44,13 @@ Deno.serve(async (req) => {
     console.log(`[update-user-email] SUCCESS: email updated for user ${user_id} to ${new_email}`);
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error(`[update-user-email] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   }
 });

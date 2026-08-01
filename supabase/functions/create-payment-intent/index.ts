@@ -2,14 +2,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14?target=deno";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173"];
+const cors = (req: Request) => {
+  const o = req.headers.get("origin") ?? "";
+  return { "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0], "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Vary": "Origin" };
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: cors(req) });
   }
 
   try {
@@ -20,7 +21,7 @@ serve(async (req) => {
     if (!token || !payment_id || !client_id || !amount) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -40,7 +41,7 @@ serve(async (req) => {
     if (!tokenRow || tokenRow.client_id !== client_id) {
       return new Response(JSON.stringify({ error: "Invalid or expired portal token" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -55,14 +56,14 @@ serve(async (req) => {
     if (!paymentRow) {
       return new Response(JSON.stringify({ error: "Payment not found" }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
     if (paymentRow.is_paid) {
       return new Response(JSON.stringify({ error: "Payment already completed" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -90,13 +91,13 @@ serve(async (req) => {
     console.log(`[create-payment-intent] SUCCESS: intent ${paymentIntent.id} created for client ${client_id} amount=$${amount}`);
     return new Response(
       JSON.stringify({ client_secret: paymentIntent.client_secret }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...cors(req), "Content-Type": "application/json" } }
     );
   } catch (err: any) {
     console.error(`[create-payment-intent] FAILED: ${err.message}`);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors(req), "Content-Type": "application/json" },
     });
   }
 });
