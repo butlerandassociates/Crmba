@@ -113,6 +113,7 @@ export function ProposalDetail() {
   const [taxEnabled, setTaxEnabled] = useState(true);
   const [globalMarkupPct, setGlobalMarkupPct] = useState<number | null>(null);
   const [globalMarkupInput, setGlobalMarkupInput] = useState("");
+  const [globalMarkupApplied, setGlobalMarkupApplied] = useState(false);
 
   // Expanded line item rows (internal cost details)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -251,6 +252,7 @@ export function ProposalDetail() {
       const savedMarkup = est.wizard_inputs?._markupPct ?? null;
       setGlobalMarkupPct(savedMarkup);
       setGlobalMarkupInput(savedMarkup !== null ? String(savedMarkup) : "");
+      setGlobalMarkupApplied(est.wizard_inputs?._markupApplied ?? false);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
         Promise.resolve(supabase.from("client_portal_tokens").select("token").eq("client_id", est.client_id).eq("is_active", true).maybeSingle())
@@ -348,13 +350,41 @@ export function ProposalDetail() {
   }, ["estimates", "estimate_line_items"], "proposal-detail");
 
   const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
+
+  // Recalculate a single item's client_price and total_price from its markup %
+  const updateItemMarkup = (idx: number, newMarkupPct: number) => {
+    setEditLineItems((prev) => prev.map((item, i) => {
+      if (i !== idx) return item;
+      const costPerUnit = Number(item.cost_per_unit ?? 0) || (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0));
+      if (costPerUnit === 0) return { ...item, markup_percent: newMarkupPct };
+      const newClientPrice = Math.round(costPerUnit * (1 + newMarkupPct / 100) * 100) / 100;
+      const newTotal = Math.round(Number(item.quantity) * newClientPrice * 100) / 100;
+      return { ...item, markup_percent: newMarkupPct, client_price: newClientPrice, price_per_unit: newClientPrice, total_price: newTotal };
+    }));
+  };
+
+  // Apply global markup % to every line item at once
+  const applyGlobalMarkupToAll = () => {
+    if (globalMarkupPct === null) return;
+    setEditLineItems((prev) => prev.map((item) => {
+      const costPerUnit = Number(item.cost_per_unit ?? 0) || (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0));
+      if (costPerUnit === 0) return item;
+      const newClientPrice = Math.round(costPerUnit * (1 + globalMarkupPct / 100) * 100) / 100;
+      const newTotal = Math.round(Number(item.quantity) * newClientPrice * 100) / 100;
+      return { ...item, markup_percent: globalMarkupPct, client_price: newClientPrice, price_per_unit: newClientPrice, total_price: newTotal };
+    }));
+    setGlobalMarkupApplied(true);
+  };
+
   const computedSubtotal = isDirty
     ? editLineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.client_price)), 0)
     : (proposal?.subtotal ?? 0);
   const badQualifyingSubtotal = editLineItems
     .filter((item) => BAD_CATEGORIES.includes(item.category) || Number(item.labor_cost ?? 0) > 0)
     .reduce((sum, item) => sum + Number(item.quantity) * Number(item.client_price), 0);
-  const badMarkupFactor = globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5;
+  // When global markup has been applied to item prices, markup is already in the qualifying subtotal.
+  // Only apply the extra factor when items haven't been updated (legacy / no global apply).
+  const badMarkupFactor = globalMarkupApplied ? 1.0 : (globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5);
   const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * badMarkupFactor * 100) / 100;
   const activeBad = badOverride !== null ? badOverride : (isDirty ? badPriceAuto : (proposal?.bad_amount ?? 0));
   // Scale tax proportionally with subtotal changes (preserves $0 tax for unknown zip)
@@ -649,6 +679,7 @@ export function ProposalDetail() {
       const updatedWizardInputs = {
         ...(proposal?.wizard_inputs ?? {}),
         _markupPct: globalMarkupPct,
+        _markupApplied: globalMarkupApplied,
         _customSections: customSections,
         _taxEnabled: taxEnabled,
       };
@@ -2283,8 +2314,31 @@ export function ProposalDetail() {
                                         </div>
                                         <div className="h-3 w-px bg-border" />
                                         <div className="flex items-center gap-1.5">
+                                          <span className="text-muted-foreground font-medium uppercase tracking-wide">Client Price/Unit</span>
+                                          <span className="font-semibold text-primary">{formatCurrency(Number(item.client_price ?? 0))}</span>
+                                        </div>
+                                        <div className="h-3 w-px bg-border" />
+                                        <div className="flex items-center gap-1.5">
                                           <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
-                                          <span className="font-semibold text-amber-600">{parseFloat(markupPct.toFixed(2))}%</span>
+                                          {isLocked ? (
+                                            <span className="font-semibold text-amber-600">{parseFloat(markupPct.toFixed(2))}%</span>
+                                          ) : (
+                                            <div className="flex items-center gap-0.5">
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                max={500}
+                                                step={1}
+                                                value={parseFloat(markupPct.toFixed(2))}
+                                                onChange={(e) => {
+                                                  const v = parseFloat(e.target.value);
+                                                  if (!isNaN(v) && v >= 0) updateItemMarkup(idx, v);
+                                                }}
+                                                className="w-14 border rounded px-1 py-0.5 text-right text-xs font-semibold text-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                              />
+                                              <span className="text-xs text-muted-foreground">%</span>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     </td>
@@ -2315,8 +2369,11 @@ export function ProposalDetail() {
               <div className="flex justify-between text-sm items-center">
                 <div className="flex items-center gap-1.5">
                   <Percent className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Global Markup %</span>
-                  {globalMarkupPct !== null && (
+                  <span className="text-muted-foreground">Global Markup</span>
+                  {globalMarkupApplied && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-600">applied to all</span>
+                  )}
+                  {globalMarkupPct !== null && !globalMarkupApplied && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-600">override</span>
                   )}
                 </div>
@@ -2342,13 +2399,29 @@ export function ProposalDetail() {
                     {globalMarkupPct !== null && (
                       <button
                         type="button"
-                        onClick={() => { setGlobalMarkupPct(null); setGlobalMarkupInput(""); }}
+                        onClick={applyGlobalMarkupToAll}
+                        className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300 transition-colors"
+                        title="Apply this markup % to all line item prices"
+                      >Apply to All</button>
+                    )}
+                    {globalMarkupPct !== null && (
+                      <button
+                        type="button"
+                        onClick={() => { setGlobalMarkupPct(null); setGlobalMarkupInput(""); setGlobalMarkupApplied(false); }}
                         className="text-xs text-muted-foreground hover:text-destructive"
                         title="Reset to default"
                       >↩</button>
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Live avg markup — visible to internal users whenever line items exist */}
+            {!isLocked && editLineItems.length > 0 && computedTotalCost > 0 && (
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">Avg Markup</span>
+                <span className="font-semibold text-amber-600">{finAvgMarkup.toFixed(1)}%</span>
               </div>
             )}
 
