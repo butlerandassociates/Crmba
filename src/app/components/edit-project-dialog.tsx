@@ -197,34 +197,54 @@ export function EditProjectDialog({
         activityLogAPI.create({ client_id: form.client_id, action_type: "project_updated", description: `Project details updated: "${form.name.trim()}"` }).catch(() => {});
       }
 
-      // If start date was set to a future date and client is currently Active → move back to Sold
-      if (form.start_date) {
+      // Sync client status based on start date change
+      if (form.start_date && form.client_id) {
         const today = new Date().toISOString().split("T")[0];
-        if (form.start_date > today) {
-          const { data: clientData } = await supabase
-            .from("clients")
-            .select("status")
-            .eq("id", form.client_id)
-            .single();
-          if (clientData?.status === "active") {
-            const { data: soldStage } = await supabase
-              .from("pipeline_stages")
-              .select("id")
-              .ilike("name", "sold")
-              .maybeSingle();
-            if (soldStage) {
-              await supabase
-                .from("clients")
-                .update({ status: "sold", pipeline_stage_id: soldStage.id })
-                .eq("id", form.client_id);
-              await projectsAPI.update(project.id, { status: "sold" });
-              activityLogAPI.create({
-                client_id: form.client_id,
-                action_type: "status_changed",
-                description: `Moved back to Sold — start date updated to ${form.start_date} (future date)`,
-              }).catch(() => {});
-              toast.success("Start date is in the future — client moved back to Sold.");
-            }
+        const { data: clientData } = await supabase
+          .from("clients")
+          .select("status, pipeline_stage_id")
+          .eq("id", form.client_id)
+          .single();
+
+        if (form.start_date > today && clientData?.status === "active") {
+          // Future start date + currently Active → revert to Sold
+          const { data: soldStage } = await supabase
+            .from("pipeline_stages")
+            .select("id")
+            .ilike("name", "sold")
+            .maybeSingle();
+          if (soldStage) {
+            await supabase
+              .from("clients")
+              .update({ status: "sold", pipeline_stage_id: soldStage.id })
+              .eq("id", form.client_id);
+            await projectsAPI.update(project.id, { status: "sold" });
+            activityLogAPI.create({
+              client_id: form.client_id,
+              action_type: "status_changed",
+              description: `Moved back to Sold — start date updated to ${form.start_date} (future date)`,
+            }).catch(() => {});
+            toast.success("Start date is in the future — client moved back to Sold.");
+          }
+        } else if (form.start_date <= today && clientData?.status === "sold") {
+          // Past start date + currently Sold → move to Active
+          const { data: activeStage } = await supabase
+            .from("pipeline_stages")
+            .select("id")
+            .ilike("name", "active")
+            .maybeSingle();
+          if (activeStage) {
+            await supabase
+              .from("clients")
+              .update({ status: "active", pipeline_stage_id: activeStage.id })
+              .eq("id", form.client_id);
+            await projectsAPI.update(project.id, { status: "active", active_at: new Date().toISOString() });
+            activityLogAPI.create({
+              client_id: form.client_id,
+              action_type: "status_changed",
+              description: `Moved to Active — start date set to ${form.start_date} (past date)`,
+            }).catch(() => {});
+            toast.success("Start date has passed — client moved to Active.");
           }
         }
       }
