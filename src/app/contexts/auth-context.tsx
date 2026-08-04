@@ -76,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser({ id, email, profile: profile ?? null });
 
+
       // Load permissions — per-user JSONB overrides role defaults
       if (profile?.role === "admin") {
         // Admin gets everything
@@ -113,7 +114,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+    if (error) {
+      supabase.functions.invoke("log-failed-login", { body: { email } }).catch(() => {});
+      throw new Error(error.message);
+    }
+    supabase.functions.invoke("log-login").catch(() => {});
   };
 
   const signOut = async () => {

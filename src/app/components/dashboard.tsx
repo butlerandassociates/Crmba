@@ -62,7 +62,7 @@ export function Dashboard() {
   const [editSalesGoal, setEditSalesGoal] = useState("");
   const [savingGoals, setSavingGoals] = useState(false);
   const [soldTransitions, setSoldTransitions] = useState<{ client_id: string; changed_at: string }[]>([]);
-  const [acceptedProposals, setAcceptedProposals] = useState<{ client_id: string; updated_at: string }[]>([]);
+  const [acceptedProposals, setAcceptedProposals] = useState<{ client_id: string; accepted_at: string }[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -181,7 +181,7 @@ export function Dashboard() {
       // Fetch accepted proposals — used as primary source for sales goal (just need client_id + date)
       const { data: proposalsData } = await supabase
         .from("estimates")
-        .select("client_id, updated_at")
+        .select("client_id, accepted_at")
         .eq("status", "accepted");
       setAcceptedProposals(proposalsData || []);
     } catch (error) {
@@ -384,7 +384,7 @@ export function Dashboard() {
   // Primary: accepted proposals — use client_id to look up project value (estimates may not store total)
   const periodAcceptedSales = acceptedProposals
     .filter((p) => {
-      const d = p.updated_at ? new Date(p.updated_at) : null;
+      const d = p.accepted_at ? new Date(p.accepted_at) : null;
       return d && d >= startDate && d <= endDate;
     })
     .reduce((sum: number, p) => {
