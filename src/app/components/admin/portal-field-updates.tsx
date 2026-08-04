@@ -181,19 +181,23 @@ export function PortalFieldUpdates({ projectId }: Props) {
 
   const uploadPhotos = async (updateId: string, files: File[]) => {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) {
+      toast.error("Session expired — please refresh and try again");
+      return [];
+    }
     const results: UpdatePhoto[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const ext = file.name.split(".").pop();
       const path = `portal-updates/${updateId}/${Date.now()}-${i}.${ext}`;
       const { error: uploadErr } = await supabase.storage.from("client-files").upload(path, file);
-      if (uploadErr) { toast.error(`Photo ${i + 1} failed: ${uploadErr.message}`); continue; }
+      if (uploadErr) { toast.error(`Photo ${i + 1} upload failed: ${uploadErr.message}`); continue; }
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
-      const { data: photo } = await supabase
+      const { data: photo, error: insertErr } = await supabase
         .from("portal_update_photos")
         .insert({
           update_id: updateId,
-          uploaded_by: user?.id,
+          uploaded_by: user.id,
           storage_path: path,
           public_url: publicUrl,
           order_index: i,
@@ -201,6 +205,7 @@ export function PortalFieldUpdates({ projectId }: Props) {
         })
         .select("id, public_url, label, order_index")
         .single();
+      if (insertErr) { toast.error(`Photo ${i + 1} saved to storage but failed to link: ${insertErr.message}`); continue; }
       if (photo) results.push(photo);
     }
     return results;
