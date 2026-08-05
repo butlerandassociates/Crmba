@@ -15,7 +15,7 @@ import {
   CheckCircle2, Circle, Clock, Loader2, ChevronDown as CollapseIcon, ChevronRight as ExpandIcon,
   Camera, FileText, CheckSquare, Square, X, Download,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabase, guessContentType } from "@/lib/supabase";
 import { toast } from "sonner";
 
 interface Task {
@@ -339,7 +339,7 @@ export function PortalPhases({ projectId }: Props) {
     const path = `${projectId}/${taskId}.${ext}`;
     const { error: uploadErr } = await supabase.storage
       .from("phase-task-photos")
-      .upload(path, file, { upsert: true });
+      .upload(path, file, { upsert: true, contentType: guessContentType(file) });
 
     if (uploadErr) { toast.error("Photo upload failed: " + uploadErr.message); setUploadingTask(null); return; }
 

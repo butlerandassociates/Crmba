@@ -3,7 +3,7 @@
  * Upload, list, and delete client files from Supabase Storage.
  */
 
-import { supabase } from "@/lib/supabase";
+import { supabase, guessContentType } from "@/lib/supabase";
 
 export const filesAPI = {
   /** All files attached to a client */
@@ -25,7 +25,7 @@ export const filesAPI = {
 
     const { error: uploadError } = await supabase.storage
       .from("client-files")
-      .upload(path, file);
+      .upload(path, file, { contentType: guessContentType(file) });
     if (uploadError) throw new Error(uploadError.message);
 
     const { data: { publicUrl } } = supabase.storage

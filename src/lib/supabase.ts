@@ -15,6 +15,19 @@ export const supabase = createClient(
 
 // ── Types ────────────────────────────────────────────────────
 
+/** Guess a file's MIME type from its name when file.type is empty (e.g. HEIC on some browsers). */
+export const guessContentType = (file: File): string => {
+  if (file.type) return file.type;
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  const map: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+    webp: "image/webp", gif: "image/gif",
+    heic: "image/heic", heif: "image/heif",
+    pdf: "application/pdf",
+  };
+  return map[ext] ?? "application/octet-stream";
+};
+
 export type UserRole = "admin" | "project_manager" | "sales_rep" | "foreman" | "team_member";
 
 export interface Profile {

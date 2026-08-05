@@ -3,7 +3,7 @@
  * Upload receipt files and track actual project costs.
  */
 
-import { supabase } from "@/lib/supabase";
+import { supabase, guessContentType } from "@/lib/supabase";
 
 export const receiptsAPI = {
   /** All receipts across all projects — for the Cost Attributions overview page */
@@ -108,7 +108,7 @@ export const receiptsAPI = {
 
       const { error: uploadError } = await supabase.storage
         .from("project-receipts")
-        .upload(path, file);
+        .upload(path, file, { contentType: guessContentType(file) });
       if (uploadError) throw new Error(uploadError.message);
 
       const { data: { publicUrl } } = supabase.storage

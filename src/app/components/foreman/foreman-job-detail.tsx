@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router";
-import { supabase } from "@/lib/supabase";
+import { supabase, guessContentType } from "@/lib/supabase";
 import { useAuth } from "../../contexts/auth-context";
 import { fioAPI } from "../../api/field-installation-orders";
 import { activityLogAPI } from "../../utils/api";
@@ -179,7 +179,7 @@ export function ForemanJobDetail() {
     try {
       const { error: uploadError } = await supabase.storage
         .from("client-files")
-        .upload(path, file, { upsert: true });
+        .upload(path, file, { upsert: true, contentType: guessContentType(file) });
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
