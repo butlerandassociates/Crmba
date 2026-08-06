@@ -337,9 +337,10 @@ export function PortalPhases({ projectId }: Props) {
     setUploadingTask(taskId);
     const ext = file.name.split(".").pop() ?? "jpg";
     const path = `${projectId}/${taskId}.${ext}`;
+    const bytes = await file.arrayBuffer();
     const { error: uploadErr } = await supabase.storage
       .from("phase-task-photos")
-      .upload(path, file, { upsert: true, contentType: guessContentType(file) });
+      .upload(path, bytes, { upsert: true, contentType: guessContentType(file) });
 
     if (uploadErr) { toast.error("Photo upload failed: " + uploadErr.message); setUploadingTask(null); return; }
 

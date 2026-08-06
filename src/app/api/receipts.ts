@@ -106,9 +106,10 @@ export const receiptsAPI = {
       const ext = file.name.split(".").pop();
       const path = `${receipt.project_id}/${Date.now()}.${ext}`;
 
+      const bytes = await file.arrayBuffer();
       const { error: uploadError } = await supabase.storage
         .from("project-receipts")
-        .upload(path, file, { contentType: guessContentType(file) });
+        .upload(path, bytes, { contentType: guessContentType(file) });
       if (uploadError) throw new Error(uploadError.message);
 
       const { data: { publicUrl } } = supabase.storage

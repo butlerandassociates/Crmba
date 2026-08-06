@@ -177,9 +177,10 @@ export function ForemanJobDetail() {
 
     setUploading(true);
     try {
+      const bytes = await file.arrayBuffer();
       const { error: uploadError } = await supabase.storage
         .from("client-files")
-        .upload(path, file, { upsert: true, contentType: guessContentType(file) });
+        .upload(path, bytes, { upsert: true, contentType: guessContentType(file) });
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);

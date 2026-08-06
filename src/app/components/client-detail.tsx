@@ -355,6 +355,22 @@ export function ClientDetail() {
     }
   }, [searchParams, client?.sub_docusign_envelope_id]);
 
+  // Sync sales rep from client → project when project has none (runs after both are loaded)
+  useEffect(() => {
+    const project = clientProjects[0];
+    if (!client?.sales_rep_id || !project?.id || project.sales_rep_id) return;
+    const repRate = (client as any).sales_rep?.commission_rate ?? 0;
+    const repName = `${(client as any).sales_rep?.first_name ?? ""} ${(client as any).sales_rep?.last_name ?? ""}`.trim();
+    const dbUpdates: Record<string, any> = { sales_rep_id: client.sales_rep_id };
+    if (repRate > 0) dbUpdates.sales_rep_commission_rate = repRate;
+    supabase.from("projects").update(dbUpdates).eq("id", project.id).then(() => {
+      setClientProjects((prev) => prev.map((p) => p.id === project.id
+        ? { ...p, sales_rep_id: client.sales_rep_id, salesRepName: repName, salesRepCommissionRate: repRate }
+        : p
+      ));
+    });
+  }, [client?.sales_rep_id, clientProjects[0]?.id]);
+
   const [leadSources, setLeadSources] = useState<any[]>([]);
   const [pipelineStages, setPipelineStages] = useState<any[]>([]);
   const [clientPayments, setClientPayments] = useState<any[]>([]);
@@ -1247,6 +1263,15 @@ export function ClientDetail() {
       let mileageActual = 0;
       for (const t of mileageTrips as any[]) mileageActual += Number((t as any).payout || 0);
 
+      // Commission payments for this project (PM + Sales Rep combined)
+      const commPayments = await commissionPaymentsAPI.getAll({ project_id: projectId }).catch(() => [] as any[]);
+      const commPaid = commPayments
+        .filter((c: any) => c.status === "processed")
+        .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+      const commDue = commPayments
+        .filter((c: any) => c.status === "pending")
+        .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+
       setGpHealthData((prev) => ({
         ...prev,
         [projectId]: {
@@ -1255,6 +1280,8 @@ export function ClientDetail() {
           materialActual,
           laborActual,
           mileageActual,
+          commPaid,
+          commDue,
           fioAssigned,
           crewPaid: laborFromCrewPayments,
           receipts,
@@ -2642,12 +2669,31 @@ export function ClientDetail() {
               const commission = grossProfit > 0 && pmLiveRate > 0
                 ? Math.round(grossProfit * (pmLiveRate / 100) * 100) / 100
                 : 0;
-              const salesRepRate = clientProjects[0]?.salesRepCommissionRate ?? 0;
+              // Fall back to client's sales rep when project doesn't have one assigned yet
+              const clientSalesRep = (client as any).sales_rep;
+              const salesRepRate = clientProjects[0]?.salesRepCommissionRate > 0
+                ? clientProjects[0]?.salesRepCommissionRate
+                : (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
+                    ? (clientSalesRep?.commission_rate ?? 0)
+                    : 0);
               const salesRepCommission = grossProfit > 0 && salesRepRate > 0
                 ? Math.round(grossProfit * (salesRepRate / 100) * 100) / 100
                 : 0;
-              const salesRepName = clientProjects[0]?.salesRepName ?? "";
+              const salesRepName = clientProjects[0]?.salesRepName
+                || (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
+                    ? `${clientSalesRep?.first_name ?? ""} ${clientSalesRep?.last_name ?? ""}`.trim()
+                    : "");
               const projectedSalesRepCommission = salesRepCommission;
+
+              // Sales rep commission from actual payment records — shown when rate isn't configured
+              const salesRepId = (clientProjects[0] as any)?.sales_rep_id ?? client.sales_rep_id ?? null;
+              const salesRepCommFromPayments = projectCommPayments
+                .filter((c: any) => salesRepId && c.profile_id === salesRepId)
+                .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+              const salesRepCommPaidFromPayments = projectCommPayments
+                .filter((c: any) => salesRepId && c.profile_id === salesRepId && c.status === "processed")
+                .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+              const effectiveSalesRepComm = salesRepCommission > 0 ? salesRepCommission : salesRepCommFromPayments;
               const donutData = totalValue > 0
                 ? [
                     { name: "Cost", value: cost < 0 ? 0 : cost },
@@ -2717,21 +2763,21 @@ export function ClientDetail() {
                         <div className="text-sm font-semibold text-blue-600">{formatCurrency(commission)}</div>
                       </div>
                     )}
-                    {salesRepName && role !== "project_manager" && (
+                    {(salesRepName || effectiveSalesRepComm > 0) && role !== "project_manager" && (
                       <div>
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Sales Rep Commission</div>
                         <div className="text-sm font-semibold text-purple-600">
-                          {formatCurrency(projectedSalesRepCommission > 0 ? projectedSalesRepCommission : salesRepCommission)}
+                          {formatCurrency(effectiveSalesRepComm)}
                         </div>
-                        {projectedSalesRepCommission > 0 && salesRepCommission > 0 && salesRepCommission < projectedSalesRepCommission && (
-                          <div className="text-[10px] text-muted-foreground">{formatCurrency(salesRepCommission)} paid so far</div>
+                        {salesRepCommPaidFromPayments > 0 && salesRepCommPaidFromPayments < effectiveSalesRepComm && (
+                          <div className="text-[10px] text-muted-foreground">{formatCurrency(salesRepCommPaidFromPayments)} paid so far</div>
                         )}
                       </div>
                     )}
-                    {role !== "sales_rep" && grossProfit > 0 && (commission > 0 || projectedSalesRepCommission > 0 || salesRepCommission > 0) && (
+                    {role !== "sales_rep" && grossProfit > 0 && (commission > 0 || effectiveSalesRepComm > 0) && (
                       <div className="pt-1 border-t">
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Net Profit</div>
-                        <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - (projectedSalesRepCommission > 0 ? projectedSalesRepCommission : salesRepCommission)))}</div>
+                        <div className="text-sm font-semibold text-orange-600">{formatCurrency(Math.max(0, grossProfit - commission - effectiveSalesRepComm))}</div>
                       </div>
                     )}
                   </div>
@@ -3270,6 +3316,32 @@ export function ClientDetail() {
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>Reimbursed to employees</span>
                         <span className="font-semibold text-blue-700">{formatCurrency(d.mileageActual)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Commissions — PM + Sales Rep paid and pending */}
+                  {((d.commPaid ?? 0) > 0 || (d.commDue ?? 0) > 0) && (
+                    <div className="border rounded-lg p-3 space-y-1.5 bg-purple-50 border-purple-200">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold">Commissions</p>
+                        <span className="text-[11px] text-muted-foreground">PM &amp; Sales Rep</span>
+                      </div>
+                      {(d.commPaid ?? 0) > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Paid out</span>
+                          <span className="font-semibold text-purple-700">{formatCurrency(d.commPaid)}</span>
+                        </div>
+                      )}
+                      {(d.commDue ?? 0) > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Pending payment</span>
+                          <span className="font-semibold text-amber-600">{formatCurrency(d.commDue)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs font-medium border-t pt-1.5 mt-0.5">
+                        <span>Total</span>
+                        <span className="text-purple-800">{formatCurrency((d.commPaid ?? 0) + (d.commDue ?? 0))}</span>
                       </div>
                     </div>
                   )}
@@ -4620,6 +4692,7 @@ export function ClientDetail() {
           }).catch(() => {});
         }}
         onSendCertificate={() => setCertDocusignDialogOpen(true)}
+        userRole={role}
       />
 
       {/* Backward Stage Move — Confirmation */}

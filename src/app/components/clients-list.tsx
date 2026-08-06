@@ -50,6 +50,9 @@ export function ClientsList() {
   stageRef.current = stageFilter;
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterPM, setFilterPM] = useState("");
+  const [filterSalesRep, setFilterSalesRep] = useState("");
+  const [filterCrew, setFilterCrew] = useState("");
   const [clients, setClients] = useState<any[]>([]);
   const [contactAttemptCounts, setContactAttemptCounts] = useState<Record<string, number>>({});
   const [leadSources, setLeadSources] = useState<any[]>([]);
@@ -302,6 +305,10 @@ export function ClientsList() {
   useEffect(() => {
     clearSelection();
     fetchClients();
+    setFilterPM("");
+    setFilterSalesRep("");
+    setFilterCrew("");
+    setSearchTerm("");
   }, [stageFilter]);
 
   // Redirect PM/Sales Rep away from stages they cannot see
@@ -596,7 +603,11 @@ export function ClientsList() {
     list.filter((c) => {
       const name = `${c.first_name} ${c.last_name}`.toLowerCase();
       const term = searchTerm.toLowerCase();
-      return name.includes(term) || (c.email ?? "").toLowerCase().includes(term);
+      const matchesSearch = !term || name.includes(term) || (c.email ?? "").toLowerCase().includes(term);
+      const matchesPM = !filterPM || c.pmName === filterPM;
+      const matchesSalesRep = !filterSalesRep || c.salesRepName === filterSalesRep;
+      const matchesCrew = !filterCrew || c.foremanName === filterCrew;
+      return matchesSearch && matchesPM && matchesSalesRep && matchesCrew;
     });
 
   const getStatusColor = (status: string) => {
@@ -1114,6 +1125,58 @@ export function ClientsList() {
               className="pl-9"
             />
           </div>
+          {/* Project-stage filters: PM, Sales Rep, Crew */}
+          {["sold", "active", "completed"].includes(stageFilter) && (() => {
+            const uniquePMs = [...new Set(stageClients.map((c: any) => c.pmName).filter(Boolean))].sort() as string[];
+            const uniqueReps = [...new Set(stageClients.map((c: any) => c.salesRepName).filter(Boolean))].sort() as string[];
+            const uniqueCrew = [...new Set(stageClients.map((c: any) => c.foremanName).filter(Boolean))].sort() as string[];
+            const hasFilter = filterPM || filterSalesRep || filterCrew;
+            return (
+              <>
+                {uniquePMs.length > 0 && (
+                  <Select value={filterPM || "__all__"} onValueChange={(v) => setFilterPM(v === "__all__" ? "" : v)}>
+                    <SelectTrigger className="h-9 text-xs w-44">
+                      <SelectValue placeholder="Project Manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All PMs</SelectItem>
+                      {uniquePMs.map((pm) => <SelectItem key={pm} value={pm}>{pm}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+                {uniqueReps.length > 0 && (
+                  <Select value={filterSalesRep || "__all__"} onValueChange={(v) => setFilterSalesRep(v === "__all__" ? "" : v)}>
+                    <SelectTrigger className="h-9 text-xs w-40">
+                      <SelectValue placeholder="Sales Rep" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All Sales Reps</SelectItem>
+                      {uniqueReps.map((rep) => <SelectItem key={rep} value={rep}>{rep}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+                {uniqueCrew.length > 0 && (
+                  <Select value={filterCrew || "__all__"} onValueChange={(v) => setFilterCrew(v === "__all__" ? "" : v)}>
+                    <SelectTrigger className="h-9 text-xs w-36">
+                      <SelectValue placeholder="Crew" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All Crew</SelectItem>
+                      {uniqueCrew.map((crew) => <SelectItem key={crew} value={crew}>{crew}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+                {hasFilter && (
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 whitespace-nowrap"
+                    onClick={() => { setFilterPM(""); setFilterSalesRep(""); setFilterCrew(""); }}
+                  >
+                    <X className="h-3 w-3" /> Clear
+                  </button>
+                )}
+              </>
+            );
+          })()}
           {selectedIds.size > 0 && role === "admin" && (
             <div className="flex items-center gap-1 ml-2">
               <span className="text-sm font-medium text-primary mr-1">{selectedIds.size} selected</span>

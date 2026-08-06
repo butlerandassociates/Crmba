@@ -33,9 +33,18 @@ export function LoginPage() {
     if (!email.trim() || emailError || !password) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) throw error;
-      const { data: profile } = await supabase.from("profiles").select("first_name").eq("id", data.user.id).single();
+      const res = await fetch(
+        "https://yohhdvwifjgarnaxrbev.supabase.co/functions/v1/authenticate",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim(), password }),
+        }
+      );
+      const body = await res.json();
+      if (body.error) throw new Error(body.error);
+      await supabase.auth.setSession(body.session);
+      const { data: profile } = await supabase.from("profiles").select("first_name").eq("id", body.user.id).single();
       toast.success(`Welcome back${profile?.first_name ? `, ${profile.first_name}` : ""}!`);
       navigate("/", { replace: true, state: {} });
     } catch (err: any) {

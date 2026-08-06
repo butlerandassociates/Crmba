@@ -380,37 +380,31 @@ export function Dashboard() {
     .reduce((sum: number, c: any) => sum + clientProjectTotal(c.id), 0);
   const closedRevenueDash = pipeCompleted.reduce((sum: number, c: any) => sum + clientProjectTotal(c.id), 0);
 
-  // Sales Goal: new contracts signed in selected period
-  // Primary: accepted proposals — use client_id to look up project value (estimates may not store total)
+  // Sales Goal: new contracts signed in selected period only
+  // Primary: accepted proposals with accepted_at in the period
   const periodAcceptedSales = acceptedProposals
     .filter((p) => {
-      const d = p.accepted_at ? new Date(p.accepted_at) : null;
-      return d && d >= startDate && d <= endDate;
+      if (!p.accepted_at) return false;
+      const d = p.accepted_at.includes("T") ? new Date(p.accepted_at) : new Date(p.accepted_at + "T00:00:00");
+      return d >= startDate && d <= endDate;
     })
     .reduce((sum: number, p) => {
       const proj = projects.find((pr: any) => pr.client_id === p.client_id);
       return sum + parseFloat(proj?.totalValue || proj?.total_value || '0');
     }, 0);
-  // Fallback: stage_history sold transitions
+  // Fallback: stage_history "sold" transitions within the period
   const periodSoldIds = new Set(
     soldTransitions
-      .filter(t => { const d = new Date(t.changed_at); return d >= startDate && d <= endDate; })
+      .filter(t => {
+        const d = t.changed_at.includes("T") ? new Date(t.changed_at) : new Date(t.changed_at + "T00:00:00");
+        return d >= startDate && d <= endDate;
+      })
       .map(t => t.client_id)
   );
   const periodStageHistorySales = projects
     .filter((p: any) => p.client_id && periodSoldIds.has(p.client_id))
     .reduce((sum: number, p: any) => sum + (parseFloat(p.totalValue || p.total_value || 0)), 0);
-  // Third fallback: clients that moved to sold/active/completed (updated_at in period)
-  const periodClientSales = clients
-    .filter((c: any) => !c.is_discarded && ['sold', 'active'].includes(c.status) && c.updated_at)
-    .filter((c: any) => { const d = new Date(c.updated_at); return d >= startDate && d <= endDate; })
-    .reduce((sum: number, c: any) => {
-      const proj = projects.find((p: any) => p.client_id === c.id);
-      return sum + parseFloat(proj?.totalValue || proj?.total_value || '0');
-    }, 0);
-  const periodSalesAmount = periodAcceptedSales > 0 ? periodAcceptedSales
-    : periodStageHistorySales > 0 ? periodStageHistorySales
-    : periodClientSales;
+  const periodSalesAmount = periodAcceptedSales > 0 ? periodAcceptedSales : periodStageHistorySales;
   const salesGoalProgress = salesGoal > 0 ? (periodSalesAmount / salesGoal) * 100 : 0;
 
   // Leads metrics
@@ -459,10 +453,15 @@ export function Dashboard() {
 
   // Projected GP: expected GP from all active/sold projects when fully paid
   const projectedGP = [...pipeSold, ...pipeActive].reduce((sum: number, c: any) => {
-    const proj = visibleProjects.find((vp: any) => vp.client_id === c.id);
-    if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
+    const proj = projects.find((p: any) => p.client_id === c.id);
+    const totalVal = parseFloat(proj?.totalValue || proj?.total_value || 0);
+    if (!proj || !totalVal) return sum;
     const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-    return sum + Math.max(0, proj.totalValue - (costs.materials + costs.labor + costs.commissions));
+    const totalCosts = costs.materials + costs.labor + costs.commissions;
+    if (totalCosts > 0) return sum + Math.max(0, totalVal - totalCosts);
+    // No tracked costs yet — use stored profit margin %
+    const marginRate = Number(proj?.profitMargin || proj?.profit_margin || 0) / 100;
+    return sum + totalVal * marginRate;
   }, 0);
 
   const periodProjectIds = new Set(periodPayments.map((p: any) => p.project?.id).filter(Boolean));

@@ -23,9 +23,10 @@ export const filesAPI = {
     const ext = file.name.split(".").pop();
     const path = `${client_id}/${Date.now()}.${ext}`;
 
+    const bytes = await file.arrayBuffer();
     const { error: uploadError } = await supabase.storage
       .from("client-files")
-      .upload(path, file, { contentType: guessContentType(file) });
+      .upload(path, bytes, { contentType: guessContentType(file) });
     if (uploadError) throw new Error(uploadError.message);
 
     const { data: { publicUrl } } = supabase.storage

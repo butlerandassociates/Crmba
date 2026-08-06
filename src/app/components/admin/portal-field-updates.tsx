@@ -190,7 +190,8 @@ export function PortalFieldUpdates({ projectId }: Props) {
       const file = files[i];
       const ext = file.name.split(".").pop();
       const path = `portal-updates/${updateId}/${Date.now()}-${i}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from("client-files").upload(path, file, { contentType: guessContentType(file) });
+      const bytes = await file.arrayBuffer();
+      const { error: uploadErr } = await supabase.storage.from("client-files").upload(path, bytes, { contentType: guessContentType(file) });
       if (uploadErr) { toast.error(`Photo ${i + 1} upload failed: ${uploadErr.message}`); continue; }
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
       const { data: photo, error: insertErr } = await supabase

@@ -288,7 +288,8 @@ export function ChangeOrderBuilder() {
     try {
       const ext  = file.name.split(".").pop();
       const path = `co-approvals/${clientId}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("client-files").upload(path, file, { upsert: true, contentType: guessContentType(file) });
+      const bytes = await file.arrayBuffer();
+      const { error } = await supabase.storage.from("client-files").upload(path, bytes, { upsert: true, contentType: guessContentType(file) });
       if (error) throw error;
       const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
       setApprovalFileUrl(publicUrl);

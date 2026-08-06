@@ -8,7 +8,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "./ui/dialog";
-import { Loader2, CheckCircle2, XCircle, DollarSign, HardHat, Camera, FileText, ClipboardCheck, Upload, AlertTriangle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, DollarSign, HardHat, Camera, FileText, ClipboardCheck, Upload, AlertTriangle, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { filesAPI, activityLogAPI } from "../utils/api";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ interface MoveToCompletedModalProps {
   client: any;
   project: any;
   onSuccess: () => void;
+  userRole?: string;
   /** Opens the Certificate of Completion DocuSign dialog (only available once the contract is signed) */
   onSendCertificate?: () => void;
 }
@@ -33,7 +34,8 @@ interface GateStatus {
 
 const SITE_PHOTO_MIN = 5;
 
-export function MoveToCompletedModal({ open, onOpenChange, client, project, onSuccess, onSendCertificate }: MoveToCompletedModalProps) {
+export function MoveToCompletedModal({ open, onOpenChange, client, project, onSuccess, userRole, onSendCertificate }: MoveToCompletedModalProps) {
+  const isAdmin = userRole === "admin";
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
   const [gates, setGates]             = useState<GateStatus>({
@@ -45,6 +47,7 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
   });
   const [sitePhotoCount, setSitePhotoCount] = useState(0);
   const [uploading, setUploading]     = useState<Record<string, boolean>>({});
+  const [overrides, setOverrides]     = useState<Partial<Record<keyof GateStatus, boolean>>>({});
   const [amberWarnings, setAmberWarnings] = useState<Array<{ id: string; label: string; detail: string }>>([]);
 
   const photoInputRef   = useRef<HTMLInputElement>(null);
@@ -157,7 +160,9 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
     }
   };
 
-  const allPassed = Object.values(gates).every((v) => v === true);
+  const allPassed = (Object.keys(gates) as Array<keyof GateStatus>).every(
+    (k) => gates[k] === true || !!overrides[k]
+  );
 
   const handleComplete = async () => {
     if (!allPassed) return;
@@ -178,10 +183,13 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
           completed_by: completedUser?.id ?? null,
         }).eq("id", project.id);
       }
+      const overriddenGates = Object.entries(overrides).filter(([, v]) => v).map(([k]) => k);
       await activityLogAPI.create({
         client_id: client.id,
         action_type: "status_changed",
-        description: "Job marked as Completed — all completion gates satisfied",
+        description: overriddenGates.length
+          ? `Job marked as Completed (admin override on: ${overriddenGates.join(", ")})`
+          : "Job marked as Completed — all completion gates satisfied",
       });
       toast.success("Job marked as Completed!");
       onSuccess();
@@ -264,48 +272,69 @@ export function MoveToCompletedModal({ open, onOpenChange, client, project, onSu
           ) : (
             GATE_ITEMS.map(({ key, icon, label, hint, uploadable, fileType, accept, multiple, inputRef, buttonLabel }) => {
               const passed = gates[key];
+              const overridden = !!overrides[key];
+              const effectivePassed = passed || overridden;
               return (
                 <div
                   key={key}
                   className={`flex items-start gap-3 p-3 rounded-lg border ${
-                    passed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+                    effectivePassed ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
                   }`}
                 >
-                  <div className={`mt-0.5 shrink-0 ${passed ? "text-green-600" : "text-red-500"}`}>
-                    {passed ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                  <div className={`mt-0.5 shrink-0 ${effectivePassed ? "text-green-600" : "text-red-500"}`}>
+                    {effectivePassed ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={passed ? "text-green-700" : "text-red-600"}>{icon}</span>
-                      <p className={`text-sm font-medium ${passed ? "text-green-800" : "text-red-800"}`}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={effectivePassed ? "text-green-700" : "text-red-600"}>{icon}</span>
+                      <p className={`text-sm font-medium ${effectivePassed ? "text-green-800" : "text-red-800"}`}>
                         {label}
                       </p>
+                      {overridden && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Admin Override</span>
+                      )}
                     </div>
-                    <p className={`text-xs mt-0.5 ${passed ? "text-green-700" : "text-red-600"}`}>{hint}</p>
+                    <p className={`text-xs mt-0.5 ${effectivePassed ? "text-green-700" : "text-red-600"}`}>{hint}</p>
 
-                    {/* Upload button — only on failed uploadable gates */}
-                    {!passed && uploadable && fileType && inputRef && (
-                      <div className="mt-2">
-                        <input
-                          ref={inputRef}
-                          type="file"
-                          accept={accept}
-                          multiple={multiple}
-                          className="hidden"
-                          onChange={(e) => handleUpload(fileType, e.target.files)}
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-100"
-                          disabled={!!uploading[fileType]}
-                          onClick={() => inputRef.current?.click()}
-                        >
-                          {uploading[fileType]
-                            ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading…</>
-                            : <><Upload className="h-3 w-3 mr-1" /> {buttonLabel}</>
-                          }
-                        </Button>
+                    {!passed && (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        {/* Upload button */}
+                        {uploadable && fileType && inputRef && !overridden && (
+                          <>
+                            <input
+                              ref={inputRef}
+                              type="file"
+                              accept={accept}
+                              multiple={multiple}
+                              className="hidden"
+                              onChange={(e) => handleUpload(fileType, e.target.files)}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-100"
+                              disabled={!!uploading[fileType]}
+                              onClick={() => inputRef.current?.click()}
+                            >
+                              {uploading[fileType]
+                                ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Uploading…</>
+                                : <><Upload className="h-3 w-3 mr-1" /> {buttonLabel}</>
+                              }
+                            </Button>
+                          </>
+                        )}
+                        {/* Admin override toggle */}
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant={overridden ? "default" : "outline"}
+                            className={`h-7 text-xs ${overridden ? "bg-amber-500 hover:bg-amber-600 border-amber-500 text-white" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+                            onClick={() => setOverrides(prev => ({ ...prev, [key]: !overridden }))}
+                          >
+                            <ShieldCheck className="h-3 w-3 mr-1" />
+                            {overridden ? "Override On" : "Override"}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>

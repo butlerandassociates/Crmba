@@ -64,6 +64,9 @@ export const clientsAPI = {
       const pmName = firstProject?.project_manager
         ? `${firstProject.project_manager.first_name ?? ""} ${firstProject.project_manager.last_name ?? ""}`.trim()
         : null;
+      const foremanName = firstProject?.foreman
+        ? `${firstProject.foreman.first_name ?? ""} ${firstProject.foreman.last_name ?? ""}`.trim()
+        : null;
       const project_staff_label = `${salesRepName || "—"} / ${pmName || "—"}`;
 
       const payments = c.project_payments ?? [];
@@ -84,6 +87,8 @@ export const clientsAPI = {
         salesRepName,
         salesRepId,
         pmId,
+        pmName,
+        foremanName,
         payment_progress_pct,
         proposal_forecast: latestProposal?.total ?? 0,
       };

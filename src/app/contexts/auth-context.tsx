@@ -113,12 +113,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      supabase.functions.invoke("log-failed-login", { body: { email } }).catch(() => {});
-      throw new Error(error.message);
-    }
-    supabase.functions.invoke("log-login").catch(() => {});
+    const res = await fetch(
+      "https://yohhdvwifjgarnaxrbev.supabase.co/functions/v1/authenticate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      }
+    );
+    const body = await res.json();
+    if (body.error) throw new Error(body.error);
+    await supabase.auth.setSession(body.session);
   };
 
   const signOut = async () => {
