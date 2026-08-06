@@ -63,6 +63,11 @@ export function Dashboard() {
   const [savingGoals, setSavingGoals] = useState(false);
   const [soldTransitions, setSoldTransitions] = useState<{ client_id: string; changed_at: string }[]>([]);
   const [acceptedProposals, setAcceptedProposals] = useState<{ client_id: string; accepted_at: string }[]>([]);
+  const [scenarioOpen, setScenarioOpen] = useState(false);
+  const [scenarios, setScenarios] = useState([
+    { name: "Scenario A", materials: "", labor: "", markup: "" },
+    { name: "Scenario B", materials: "", labor: "", markup: "" },
+  ]);
 
   useEffect(() => {
     fetchData();
@@ -873,6 +878,12 @@ export function Dashboard() {
             <CardTitle className="text-base">Goal Trackers</CardTitle>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">{getDateRangeLabel()}</span>
+              {role === "admin" && (
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setScenarioOpen(true)}>
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  Scenario Calculator
+                </Button>
+              )}
               <button
                 onClick={() => { setEditRevGoal(MONTHLY_REVENUE_GOAL.toString()); setEditSalesGoal(salesGoal.toString()); setGoalEditOpen(true); }}
                 className="p-1.5 rounded hover:bg-accent text-muted-foreground"
@@ -1036,6 +1047,109 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Scenario Calculator Modal */}
+      {scenarioOpen && (() => {
+        const calc = (s: typeof scenarios[0]) => {
+          const mat = parseFloat(s.materials) || 0;
+          const lab = parseFloat(s.labor) || 0;
+          const pct = parseFloat(s.markup) || 0;
+          const totalCost = mat + lab;
+          const markupAmt = totalCost * (pct / 100);
+          const salePrice = totalCost + markupAmt;
+          const gpDollars = salePrice - totalCost;
+          const gpPct = salePrice > 0 ? (gpDollars / salePrice) * 100 : 0;
+          return { totalCost, markupAmt, salePrice, gpDollars, gpPct };
+        };
+        return (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/50" onClick={() => setScenarioOpen(false)} />
+            <div className="relative bg-background rounded-lg border shadow-lg w-full max-w-2xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-base">Scenario Calculator</h3>
+                </div>
+                <button onClick={() => setScenarioOpen(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 gap-6">
+                  {scenarios.map((s, i) => {
+                    const r = calc(s);
+                    const update = (field: string, val: string) =>
+                      setScenarios(prev => prev.map((sc, idx) => idx === i ? { ...sc, [field]: val } : sc));
+                    return (
+                      <div key={i} className="space-y-4">
+                        <Input
+                          value={s.name}
+                          onChange={e => update("name", e.target.value)}
+                          className="font-semibold text-sm h-8"
+                        />
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground font-medium">Materials ($)</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                              <Input value={s.materials} onChange={e => update("materials", e.target.value.replace(/[^0-9.]/g, ""))} className="pl-7" placeholder="0" />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground font-medium">Labor ($)</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                              <Input value={s.labor} onChange={e => update("labor", e.target.value.replace(/[^0-9.]/g, ""))} className="pl-7" placeholder="0" />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground font-medium">Markup (%)</label>
+                            <div className="relative">
+                              <Input value={s.markup} onChange={e => update("markup", e.target.value.replace(/[^0-9.]/g, ""))} className="pr-7" placeholder="0" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-md border bg-muted/40 p-3 space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total Cost</span>
+                            <span className="font-medium">{formatCurrency(r.totalCost)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Markup Amount</span>
+                            <span className="font-medium text-blue-600">+{formatCurrency(r.markupAmt)}</span>
+                          </div>
+                          <div className="flex justify-between border-t pt-2">
+                            <span className="font-semibold">Sale Price</span>
+                            <span className="font-bold">{formatCurrency(r.salePrice)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Gross Profit</span>
+                            <span className={`font-medium ${r.gpDollars >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(r.gpDollars)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">GP %</span>
+                            <span className={`font-bold ${r.gpPct >= 20 ? "text-green-600" : r.gpPct >= 10 ? "text-amber-600" : "text-red-600"}`}>{r.gpPct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between items-center mt-5 pt-4 border-t">
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setScenarios([{ name: "Scenario A", materials: "", labor: "", markup: "" }, { name: "Scenario B", materials: "", labor: "", markup: "" }])}
+                  >
+                    Reset
+                  </button>
+                  <Button onClick={() => setScenarioOpen(false)}>Done</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Collections button — hidden for sales reps */}
       {role !== "sales_rep" && (() => {
