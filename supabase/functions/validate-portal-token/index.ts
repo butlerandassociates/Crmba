@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173"];
+const ALLOWED_ORIGINS = ["https://crm.butlerconstruction.co","https://client.butlerconstruction.co","http://localhost:5173","https://controller.butlerconstruction.co"];
+
 const cors = (req: Request) => {
   const o = req.headers.get("origin") ?? "";
   return { "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0], "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-portal-token", "Vary": "Origin" };

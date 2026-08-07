@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
   "https://crm.butlerconstruction.co",
+  "https://controller.butlerconstruction.co",
   "https://client.butlerconstruction.co",
   "http://localhost:5173",
 ];
@@ -56,7 +57,7 @@ Deno.serve(async (req) => {
   // Admin client — bypasses RLS, can sign in as any user
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
     .eq("id", data.user.id)
     .single();
 
-  await admin.from("login_logs").insert({
+  const { error: logErr } = await admin.from("login_logs").insert({
     ...logBase,
     user_id: data.user.id,
     email: data.user.email,
@@ -123,6 +124,9 @@ Deno.serve(async (req) => {
     role: profile?.role ?? null,
     event_type: "success",
   });
+  if (logErr) {
+    console.error("[authenticate] login_logs insert FAILED:", JSON.stringify(logErr));
+  }
 
   console.log(`[authenticate] ✅ user=${data.user.id} ip=${ip} ${city ? `${city}, ${country}` : "no-geo"}`);
 

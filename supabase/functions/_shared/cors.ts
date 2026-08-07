@@ -1,5 +1,6 @@
 const ALLOWED_ORIGINS = [
   "https://crm.butlerconstruction.co",
+  "https://controller.butlerconstruction.co",
   "https://client.butlerconstruction.co",
   "http://localhost:5173",
 ];
