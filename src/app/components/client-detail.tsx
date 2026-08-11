@@ -2658,10 +2658,13 @@ export function ClientDetail() {
             {["active", "completed"].includes(client.status) ? (() => {
               const acceptedProposal = clientProposals.find((p) => p.status === "accepted");
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
-              // DB triggers keep these columns current — read directly, no secondary fetch needed
-              const cost = clientProjects[0]?.totalCosts ?? 0;
-              const grossProfit = clientProjects[0]?.grossProfit ?? 0;
-              const margin = clientProjects[0]?.profitMargin ?? 0;
+              // Use same live source as project info card (gpHealthData auto-loads on page for active/sold/completed)
+              const _d = gpHealthData[clientProjects[0]?.id];
+              const grossProfit = _d
+                ? Math.max(0, totalValue - (_d.materialActual + _d.laborActual + (_d.mileageActual ?? 0)))
+                : (clientProjects[0]?.grossProfit ?? 0);
+              const cost = grossProfit < totalValue ? totalValue - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
+              const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
               const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
               // Always use live commission_rate from profile (not stale projects.commission_rate)
@@ -4294,7 +4297,7 @@ export function ClientDetail() {
       <EmailTemplatesDialog
         open={emailDialogOpen}
         onOpenChange={setEmailDialogOpen}
-        client={client}
+        client={{ ...client, project_start_date: clientProjects[0]?.start_date ?? null, project_end_date: clientProjects[0]?.end_date ?? null }}
         proposals={clientProposals}
         onSent={loadActivityLog}
       />

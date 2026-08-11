@@ -874,7 +874,7 @@ export function ProjectDetail() {
         <EmailTemplatesDialog
           open={emailDialogOpen}
           onOpenChange={setEmailDialogOpen}
-          client={client}
+          client={{ ...client, project_start_date: project?.start_date ?? null, project_end_date: project?.end_date ?? null }}
         />
       )}
 

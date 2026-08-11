@@ -51,6 +51,13 @@ export function EmailTemplatesDialog({
 }: EmailTemplatesDialogProps) {
   const firstName = client.first_name ?? client.name?.split(" ")[0] ?? "there";
   const clientAddress = [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ");
+  const fmtDate = (d: string | null | undefined) => {
+    if (!d) return "[Date]";
+    const parsed = d.includes("T") ? new Date(d) : new Date(d + "T00:00:00");
+    return parsed.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+  const startDate = fmtDate(client.project_start_date ?? client.projects?.[0]?.start_date);
+  const endDate = fmtDate(client.project_end_date ?? client.projects?.[0]?.end_date);
 
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
@@ -77,7 +84,9 @@ export function EmailTemplatesDialog({
           subject: (t.subject ?? "").replace(/\{client_name\}/g, firstName),
           body: (t.body_html ?? "")
             .replace(/\{client_name\}/g, firstName)
-            .replace(/\{address\}/g, clientAddress || "[Address]"),
+            .replace(/\{address\}/g, clientAddress || "[Address]")
+            .replace(/\{start_date\}/g, startDate)
+            .replace(/\{end_date\}/g, endDate),
         }));
         setTemplates(mapped);
         setLoadingTemplates(false);

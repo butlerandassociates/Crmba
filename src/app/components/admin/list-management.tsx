@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock, FileSignature } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Loader2, ArrowLeft, Mail, Search, ShieldCheck, Star, List, MessageSquare, MapPin, ShieldAlert, Lock, FileSignature, Bold, Italic } from "lucide-react";
 import { productsAPI, leadSourcesAPI, rolesAPI, permissionsAPI } from "../../utils/api";
 import { SkeletonList } from "../ui/page-loader";
 import { supabase } from "@/lib/supabase";
@@ -919,19 +919,44 @@ function EmailTemplatesSection({
   const [saving, setSaving]   = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch]   = useState("");
+  const bodyEditorRef = useRef<HTMLDivElement>(null);
+
+  const TEMPLATE_VARS = [
+    { label: "{client_name}", hint: "Client's full name" },
+    { label: "{address}", hint: "Client's address" },
+    { label: "{start_date}", hint: "Project start date" },
+    { label: "{end_date}", hint: "Project end date" },
+  ];
+
+  const execBodyCmd = (cmd: string) => {
+    bodyEditorRef.current?.focus();
+    document.execCommand(cmd, false);
+    if (bodyEditorRef.current) setBodyHtml(bodyEditorRef.current.innerHTML);
+  };
+
+  const insertVarCmd = (variable: string) => {
+    bodyEditorRef.current?.focus();
+    document.execCommand("insertText", false, variable);
+    if (bodyEditorRef.current) setBodyHtml(bodyEditorRef.current.innerHTML);
+  };
 
   const nameErr    = name.trim().length === 0 ? "Template name is required."
     : name.trim().length < 2 ? "Min 2 characters." : "";
   const subjectErr = subject.trim().length === 0 ? "Email subject is required."
     : subject.trim().length < 3 ? "Min 3 characters." : "";
-  const bodyErr    = bodyHtml.trim().length === 0 ? "Email body is required."
-    : bodyHtml.trim().length < 10 ? "Min 10 characters." : "";
+  const bodyText   = bodyEditorRef.current?.innerText ?? bodyHtml;
+  const bodyErr    = bodyText.trim().length === 0 ? "Email body is required."
+    : bodyText.trim().length < 10 ? "Min 10 characters." : "";
   const hasErrors  = !!nameErr || !!subjectErr || !!bodyErr;
 
-  const openNew = () => { setName(""); setSubject(""); setBodyHtml(""); setTouched(false); setSheet("new"); };
+  const openNew = () => {
+    setName(""); setSubject(""); setBodyHtml(""); setTouched(false); setSheet("new");
+    requestAnimationFrame(() => { if (bodyEditorRef.current) bodyEditorRef.current.innerHTML = ""; });
+  };
   const openEdit = (item: EmailTemplate) => {
     setName(item.name); setSubject(item.subject); setBodyHtml(item.body_html);
     setTouched(false); setSheet(item);
+    requestAnimationFrame(() => { if (bodyEditorRef.current) bodyEditorRef.current.innerHTML = item.body_html ?? ""; });
   };
   const closeSheet = () => { setSheet(null); setTouched(false); };
 
@@ -940,7 +965,8 @@ function EmailTemplatesSection({
     if (hasErrors) return;
     setSaving(true);
     try {
-      const fields = { name: name.trim(), subject: subject.trim(), body_html: bodyHtml.trim() };
+      const currentBody = bodyEditorRef.current ? bodyEditorRef.current.innerHTML : bodyHtml;
+      const fields = { name: name.trim(), subject: subject.trim(), body_html: currentBody.trim() };
       if (sheet === "new") {
         await onAdd(fields);
         toast.success(`"${name.trim()}" added.`);
@@ -1070,18 +1096,40 @@ function EmailTemplatesSection({
               <label className="text-sm font-medium flex items-center gap-1.5">
                 <Mail className="h-3.5 w-3.5" /> Email Body <span className="text-destructive">*</span>
               </label>
-              <Textarea
-                placeholder="Hi {client_name}, ..."
-                value={bodyHtml}
-                onChange={(e) => { setBodyHtml(e.target.value); if (touched) setTouched(false); }}
-                rows={10}
-                className={`resize-none font-mono text-xs ${touched && bodyErr ? "border-destructive focus-visible:ring-destructive" : ""}`}
-              />
-              {touched && bodyErr
-                ? <p className="text-xs text-destructive">{bodyErr}</p>
-                : <p className="text-xs text-muted-foreground">
-                    Variable: <code className="bg-muted px-1 rounded">{"{client_name}"}</code>
-                  </p>}
+              <div className={`rounded-md border ${touched && bodyErr ? "border-destructive" : "border-input"}`}>
+                {/* Toolbar */}
+                <div className="flex items-center gap-1 px-2 py-1.5 border-b bg-muted/30 overflow-x-auto scrollbar-thin">
+                  <button type="button" title="Bold" className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground font-bold text-sm w-6 h-6 flex items-center justify-center" onClick={() => execBodyCmd("bold")}>
+                    <Bold className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" title="Italic" className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground italic text-sm w-6 h-6 flex items-center justify-center" onClick={() => execBodyCmd("italic")}>
+                    <Italic className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <span className="text-xs text-muted-foreground">Insert:</span>
+                  {TEMPLATE_VARS.map((v) => (
+                    <button
+                      key={v.label}
+                      type="button"
+                      title={v.hint}
+                      className="text-xs px-1.5 py-0.5 rounded bg-muted hover:bg-accent font-mono text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => insertVarCmd(v.label)}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Contenteditable body */}
+                <div
+                  ref={bodyEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={(e) => { setBodyHtml((e.target as HTMLDivElement).innerHTML); if (touched) setTouched(false); }}
+                  className="min-h-[220px] px-3 py-2 text-sm outline-none focus:ring-0 rounded-b-md"
+                  style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                />
+              </div>
+              {touched && bodyErr && <p className="text-xs text-destructive">{bodyErr}</p>}
             </div>
           </div>
 
