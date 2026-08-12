@@ -21,24 +21,34 @@ export function SetPasswordPage() {
   const isRecovery = window.location.hash.includes("type=recovery") || new URLSearchParams(window.location.search).has("code");
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
     const hash = window.location.hash;
-    const hasToken = hash.includes("access_token") || new URLSearchParams(window.location.search).has("code");
+    const hasToken = hash.includes("access_token") || !!code;
 
     if (!hasToken) {
-      // No token in URL — block direct access
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
-          // Logged-in user trying to navigate here directly → send home
           navigate("/", { replace: true });
         } else {
-          // No session, no token → show invalid link
           setCheckingSession(false);
         }
       });
       return;
     }
 
-    // Token present — wait for Supabase to exchange it
+    // PKCE flow: exchange code explicitly — more reliable than waiting for onAuthStateChange on mobile
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data: { session }, error }) => {
+        if (session && !error) {
+          setSessionReady(true);
+        }
+        setCheckingSession(false);
+      });
+      return;
+    }
+
+    // Implicit flow (hash with access_token) — wait for event
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if ((event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "USER_UPDATED") && session) {
         setSessionReady(true);
@@ -46,12 +56,9 @@ export function SetPasswordPage() {
       }
     });
 
-    // Fallback timeout in case event fires before listener attaches
     setTimeout(() => {
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setSessionReady(true);
-        }
+        if (session) setSessionReady(true);
         setCheckingSession(false);
       });
     }, 3000);

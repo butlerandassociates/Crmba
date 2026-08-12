@@ -2679,8 +2679,10 @@ export function ClientDetail() {
                 : (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
                     ? (clientSalesRep?.commission_rate ?? 0)
                     : 0);
-              const salesRepCommission = grossProfit > 0 && salesRepRate > 0
-                ? Math.round(grossProfit * (salesRepRate / 100) * 100) / 100
+              // Sales rep commission on proposal subtotal (pre-BAD/tax), not GP — per Jonathan Aug 12
+              const proposalSubtotalDonut = acceptedProposal?.subtotal ?? totalValue;
+              const salesRepCommission = proposalSubtotalDonut > 0 && salesRepRate > 0
+                ? Math.round(proposalSubtotalDonut * (salesRepRate / 100) * 100) / 100
                 : 0;
               const salesRepName = clientProjects[0]?.salesRepName
                 || (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
@@ -3142,8 +3144,9 @@ export function ClientDetail() {
                 const pmComm  = pmId  && (project.pmCommissionRate        || 0) > 0
                   ? Math.round(liveGP * ((project.pmCommissionRate) / 100) * 100) / 100
                   : 0;
+                const proposalSubtotalCard = clientProposals.find((p: any) => p.status === "accepted")?.subtotal ?? cv;
                 const repComm = repId && (project.salesRepCommissionRate || 0) > 0
-                  ? liveGP * ((project.salesRepCommissionRate) / 100)
+                  ? Math.round(proposalSubtotalCard * ((project.salesRepCommissionRate) / 100) * 100) / 100
                   : 0;
                 return (<>
                   <div>
