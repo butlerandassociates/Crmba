@@ -164,18 +164,27 @@ export function DocuSignDialog({
     setErrorMessage("");
 
     try {
+      // Email wording follows the SELECTED TEMPLATE, not just how the dialog was
+      // opened. This way, sending the Certificate of Completion always produces
+      // certificate wording — even when the template is picked manually inside the
+      // general contract dialog (which was labelling those emails "Contract").
+      const chosenTemplate = templates.find((t) => t.templateId === templateToUse);
+      const chosenName = chosenTemplate?.name ?? "";
+      const isCert = isCertificate || /certificate of completion/i.test(chosenName);
+      const isSub = isSubcontractor || /subcontractor/i.test(chosenName);
+
       const requestBody = {
         templateId: templateToUse,
-        emailSubject: isCertificate
+        emailSubject: isCert
           ? `Certificate of Completion${project ? ` — ${project.name}` : ""} | Butler & Associates Construction, Inc`
-          : isSubcontractor
+          : isSub
             ? `Subcontractor Agreement | Butler & Associates Construction, Inc`
             : project
               ? `${project.name} Agreement | Butler & Associates Construction, Inc`
               : `Contract | Butler & Associates Construction, Inc`,
-        emailBlurb: isCertificate
+        emailBlurb: isCert
           ? `Please review and sign the Certificate of Completion${project ? ` for your ${project.name} project` : ""} with Butler & Associates Construction, Inc.`
-          : isSubcontractor
+          : isSub
             ? `Please review and sign the Subcontractor Agreement${project ? ` for the ${project.name} project` : ""} with Butler & Associates Construction, Inc.`
             : `Thank you for choosing to partner with Butler & Associates Construction, Inc${project ? ` on your ${project.name} project` : ""}!`,
         clientEmail: effectiveSignerEmail,
