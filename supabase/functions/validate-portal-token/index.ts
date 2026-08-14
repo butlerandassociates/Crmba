@@ -165,14 +165,14 @@ serve(async (req) => {
       }).then(() => {});
     }
 
-    // If project has no PM, fall back to first admin (Jonathan)
+    // If project has no PM, always default to Jonathan (owner).
+    // Matched by email, not "oldest admin" — the oldest admin is a dev/test
+    // account, which is why the portal was showing the wrong PM.
     if (project && !project.project_manager) {
       const { data: defaultPm } = await supabase
         .from("profiles")
         .select("first_name, last_name, phone")
-        .eq("role", "admin")
-        .order("created_at", { ascending: true })
-        .limit(1)
+        .eq("email", "jonathan@butlerconstruction.co")
         .maybeSingle();
       if (defaultPm) {
         (project as any).project_manager = defaultPm;
