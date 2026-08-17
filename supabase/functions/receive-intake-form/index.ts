@@ -57,18 +57,14 @@ serve(async (req) => {
       });
     }
 
+    // Preserve EVERY field the intake form sends — not just the known ones — so a
+    // new question added to the form is never silently dropped. Known array fields
+    // are normalized; client_id is stripped (it's the row key, not form data).
+    const { client_id: _omitClientId, ...restFields } = body;
     const intakeData = {
-      email:             email ?? "",
-      name:              name ?? "",
-      phone:             phone ?? "",
-      address:           address ?? "",
-      project_scope:     project_scope ?? "",
-      project_goals:     Array.isArray(project_goals) ? project_goals : (project_goals ?? "").split(", ").filter(Boolean),
-      timeline:          timeline ?? "",
-      budget:            budget ?? "",
-      referral_source:   referral_source ?? "",
-      existing_features: existing_features ?? "",
-      decision_factors:  Array.isArray(decision_factors) ? decision_factors : (decision_factors ?? "").split(", ").filter(Boolean),
+      ...restFields,
+      project_goals:    Array.isArray(project_goals) ? project_goals : (project_goals ?? "").split(", ").filter(Boolean),
+      decision_factors: Array.isArray(decision_factors) ? decision_factors : (decision_factors ?? "").split(", ").filter(Boolean),
     };
 
     const { error: updateError } = await supabase

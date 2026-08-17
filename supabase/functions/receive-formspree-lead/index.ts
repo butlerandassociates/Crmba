@@ -40,6 +40,29 @@ const REFERRAL_LABEL_MAP: Record<string, string> = {
   "other":               "Other",
 };
 
+// Every raw field key the curated logic below already consumes — used so we can
+// capture "everything else" generically without duplicating these in the note.
+const HANDLED_KEYS = new Set([
+  "name","full_name","clientname","first_name","firstname","last_name","lastname",
+  "phone","phone_number","email","zip","zip_code","city","address",
+  "full name","submitted by","referral name","referral phone",
+  "services","services[]","interest","service","service_interest","service_type",
+  "project_interest","primary_service","other_service","calc_type","project_type","calc_project_type",
+  "budget","budget_range","estimated_budget","estimate_range","estimated_range_primary",
+  "details","message","notes","notes (public)","project_details","description",
+  "timeline","ideal_start_date","desired_start_date",
+  "referral","referral_source","referrer","source","referralname","referralphone",
+  "square_footage","estimated_sqft","calc_sqft","primary_use","turf_tier","selected_tier",
+  "selected_rate","estimate_total","calc_estimate","calc_est_range","calc_finish",
+  "calc_thickness_in","selections","verdict","options_summary",
+  "sms_consent","smsconsent","sms consent","source_form","form_name","page_title","page",
+]);
+
+// snake_case / kebab-case field key → "Title Case" for readable note labels
+const prettyLabel = (key: string): string =>
+  key.replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim()
+     .replace(/\b\w/g, (c) => c.toUpperCase());
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -218,6 +241,23 @@ serve(async (req) => {
 
     // Build structured form data object for lead_form_data column
     const smsConsent: string = f.sms_consent ?? f.smsConsent ?? f["SMS Consent"] ?? "";
+
+    // ── Capture EVERYTHING else ────────────────────────────────────────────
+    // Any field the curated logic above didn't explicitly handle (e.g. a new
+    // form's "vision" / "style" / "investment") is captured generically, so no
+    // form data is ever silently dropped again — whatever fields a form sends.
+    const extraParts: string[] = [];
+    const extraFields: Record<string, any> = {};
+    for (const [key, val] of Object.entries(f)) {
+      if (key.startsWith("_")) continue;                     // Formspree meta / spam honeypot
+      if (HANDLED_KEYS.has(key.toLowerCase())) continue;     // already captured above
+      if (val === null || val === undefined) continue;
+      const display = Array.isArray(val) ? val.filter(Boolean).join(", ") : String(val).trim();
+      if (!display) continue;
+      extraParts.push(`${prettyLabel(key)}: ${display}`);
+      extraFields[key] = val;
+    }
+
     const leadFormData: Record<string, any> = {};
     if (sourceForm)     leadFormData.source_form  = sourceForm;
     if (services.length) leadFormData.services     = services;
@@ -226,6 +266,7 @@ serve(async (req) => {
     if (referralLabel)  leadFormData.referral      = referralLabel;
     if (projectDetails) leadFormData.details       = projectDetails;
     if (smsConsent)     leadFormData.sms_consent   = smsConsent;
+    Object.assign(leadFormData, extraFields);   // preserve any unmapped fields in the JSON backstop too
 
     // Insert client
     const insertPayload: Record<string, any> = {
@@ -286,6 +327,9 @@ serve(async (req) => {
       if (referrerPhone) noteParts.push(`Referrer phone: ${referrerPhone}`);
       if (submittedBy)   noteParts.push(`Form submitted by: ${submittedBy}`);
     }
+
+    // Everything else the form sent (captured generically — never silently dropped)
+    if (extraParts.length) noteParts.push(...extraParts);
 
     if (noteParts.length) {
       console.log("[formspree] Inserting note with parts:", noteParts.length);
