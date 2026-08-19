@@ -452,10 +452,20 @@ export function RootLayout() {
   useEffect(() => { fetchAlerts(); }, []);
   useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items", "field_installation_orders", "profiles", "commission_payments"], "nav-alerts");
   useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
-  // Polling fallback so the bell updates even if realtime doesn't deliver (RLS) — every 30s while visible
+  // Polling + focus fallback so the bell stays current even when realtime doesn't deliver (RLS /
+  // dropped socket). Refreshes BOTH crew notifications AND computed alerts (overdue payments, close
+  // dates, etc.) so a cleared alert — e.g. a payment marked paid — disappears on its own within ~30s
+  // and immediately when the user returns to the tab, instead of lingering until a manual reload.
   useEffect(() => {
-    const id = setInterval(() => { if (!document.hidden) fetchNotifications(); }, 30000);
-    return () => clearInterval(id);
+    const refresh = () => { if (!document.hidden) { fetchNotifications(); fetchAlerts(); } };
+    const id = setInterval(refresh, 30000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   // When View As Foreman activates, navigate to the foreman portal
