@@ -189,15 +189,36 @@ serve(async (req) => {
       }).then(() => {});
 
       // Notify admin + PM via email
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({
-          to: "info@butlerconstruction.co",
-          subject: `Change order ${actionLabel} by ${clientName}`,
-          html: `<p>${clientName} has <strong>${actionLabel}</strong> a change order via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
-        }),
-      }).catch(() => {});
+      try {
+        const emailRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+          body: JSON.stringify({
+            to: "info@butlerconstruction.co",
+            subject: `Change order ${actionLabel} by ${clientName}`,
+            html: `<p>${clientName} has <strong>${actionLabel}</strong> a change order via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
+          }),
+        });
+        if (!emailRes.ok) {
+          await supabase.from("notifications").insert({
+            type: "co_alert_email_failed",
+            title: "Alert Email Failed",
+            message: `Failed to send email — ${clientName}'s change order ${actionLabel}.`,
+            metadata: { client_id: clientId },
+            link: `/clients/${clientId}`,
+            is_read: false,
+          }).then(() => {});
+        }
+      } catch {
+        await supabase.from("notifications").insert({
+          type: "co_alert_email_failed",
+          title: "Alert Email Failed",
+          message: `Failed to send email — ${clientName}'s change order ${actionLabel}.`,
+          metadata: { client_id: clientId },
+          link: `/clients/${clientId}`,
+          is_read: false,
+        }).then(() => {});
+      }
 
       // On rejection: SMS alert to admin + PM phones
       if (action === "co_reject") {
@@ -314,15 +335,36 @@ serve(async (req) => {
       }).then(() => {});
 
       // Notify admin + PM via email
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({
-          to: "info@butlerconstruction.co",
-          subject: `Proposal ${actionLabel2} by ${clientName2}`,
-          html: `<p>${clientName2} has <strong>${actionLabel2}</strong> a proposal via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
-        }),
-      }).catch(() => {});
+      try {
+        const emailRes2 = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+          body: JSON.stringify({
+            to: "info@butlerconstruction.co",
+            subject: `Proposal ${actionLabel2} by ${clientName2}`,
+            html: `<p>${clientName2} has <strong>${actionLabel2}</strong> a proposal via the client portal.</p>${comment ? `<p><em>Comment: ${comment}</em></p>` : ""}`,
+          }),
+        });
+        if (!emailRes2.ok) {
+          await supabase.from("notifications").insert({
+            type: "proposal_alert_email_failed",
+            title: "Alert Email Failed",
+            message: `Failed to send email — ${clientName2}'s proposal ${actionLabel2}.`,
+            metadata: { client_id: clientId },
+            link: `/clients/${clientId}`,
+            is_read: false,
+          }).then(() => {});
+        }
+      } catch {
+        await supabase.from("notifications").insert({
+          type: "proposal_alert_email_failed",
+          title: "Alert Email Failed",
+          message: `Failed to send email — ${clientName2}'s proposal ${actionLabel2}.`,
+          metadata: { client_id: clientId },
+          link: `/clients/${clientId}`,
+          is_read: false,
+        }).then(() => {});
+      }
 
       console.log(`[portal-action] SUCCESS: ${action} proposal ${entity_id} client_id=${clientId}`);
       return new Response(JSON.stringify({ success: true }), {
