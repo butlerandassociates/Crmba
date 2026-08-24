@@ -81,9 +81,10 @@ export function PayrollCrewDetail() {
         );
         const totalPaid = (fio.payments || []).reduce((s: number, p: any) => s + (parseFloat(p.amount_paid) || 0), 0);
         const remaining = Math.max(0, totalLabor - totalPaid);
-        // Derive status from payments if DB status is stale (pre-migration 057 records)
+        // Derive status from payments if DB status is stale (pre-migration 057 records,
+        // or a partial_paid FIO that has since been paid off in full)
         let effectiveStatus = fio.status;
-        if (effectiveStatus === "draft" && totalPaid > 0) {
+        if ((effectiveStatus === "draft" || effectiveStatus === "partial_paid") && totalPaid > 0) {
           effectiveStatus = remaining === 0 ? "paid" : "partial_paid";
         }
         return { ...fio, status: effectiveStatus, totalLabor, totalPaid, remaining };

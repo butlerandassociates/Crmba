@@ -132,7 +132,7 @@ export function ForemanDashboard() {
   const loadPayments = async () => {
     const { data: fios } = await supabase
       .from("field_installation_orders")
-      .select("id, project:projects(id, name, client:clients(first_name, last_name))")
+      .select("id, project:projects(id, name, client:clients(first_name, last_name)), items:field_installation_order_items(id, product_name)")
       .eq("foreman_id", effectiveId);
 
     if (!fios || fios.length === 0) { setPayments([]); return; }
@@ -398,6 +398,7 @@ export function ForemanDashboard() {
                       ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim()
                       : "—";
                     const jobName = fio?.project?.name ?? clientName;
+                    const itemName = p.fio_item_id ? (fio?.items || []).find((i: any) => i.id === p.fio_item_id)?.product_name : null;
                     return (
                       <div key={p.id} className="flex items-center justify-between gap-4 px-5 py-3 hover:bg-accent/40 transition-colors">
                         <div className="flex items-center gap-3 min-w-0">
@@ -405,7 +406,7 @@ export function ForemanDashboard() {
                             <CheckCircle2 className="h-4 w-4 text-green-700" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{jobName}</p>
+                            <p className="text-sm font-medium truncate">{jobName}{itemName ? ` — ${itemName}` : ""}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {clientName !== "—" ? `${clientName} · ` : ""}
                               Week ending {p.week_ending_date ? fmtDate(p.week_ending_date) : "—"}

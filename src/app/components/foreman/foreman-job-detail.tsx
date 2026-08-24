@@ -399,14 +399,18 @@ export function ForemanJobDetail() {
                       <span className="text-xs font-semibold text-green-700">{fmt(weekTotal)}</span>
                     </div>
                     <div className="space-y-1">
-                      {entries.map((p: any) => (
-                        <div key={p.id} className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            {p.completion_pct != null ? `${p.completion_pct}% complete` : "Payment"}
-                          </span>
-                          <span className="font-medium">{fmt(parseFloat(p.amount_paid) || 0)}</span>
-                        </div>
-                      ))}
+                      {entries.map((p: any) => {
+                        const itemName = p.fio_item_id ? items.find((i: any) => i.id === p.fio_item_id)?.product_name : null;
+                        return (
+                          <div key={p.id} className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">
+                              {itemName ?? "Payment"}
+                              {p.completion_pct != null ? ` · ${p.completion_pct}% complete` : ""}
+                            </span>
+                            <span className="font-medium">{fmt(parseFloat(p.amount_paid) || 0)}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
