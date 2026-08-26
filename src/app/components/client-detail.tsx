@@ -2672,11 +2672,15 @@ export function ClientDetail() {
               const commission = grossProfit > 0 && pmLiveRate > 0
                 ? Math.round(grossProfit * (pmLiveRate / 100) * 100) / 100
                 : 0;
-              // Fall back to client's sales rep when project doesn't have one assigned yet
+              // Fall back to client's sales rep ONLY when no project row exists yet at all.
+              // Once a project exists, project.sales_rep_id is the sole source of truth — even
+              // when null (explicitly removed) — so a removed rep never reappears here. See
+              // [[project_crmba_sales_rep_pm_removal]] for why this matters.
               const clientSalesRep = (client as any).sales_rep;
+              const hasProject = !!clientProjects[0];
               const salesRepRate = clientProjects[0]?.salesRepCommissionRate > 0
                 ? clientProjects[0]?.salesRepCommissionRate
-                : (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
+                : (!hasProject && client.sales_rep_id
                     ? (clientSalesRep?.commission_rate ?? 0)
                     : 0);
               // Sales rep commission on proposal subtotal (pre-BAD/tax), not GP — per Jonathan Aug 12
@@ -2685,13 +2689,13 @@ export function ClientDetail() {
                 ? Math.round(proposalSubtotalDonut * (salesRepRate / 100) * 100) / 100
                 : 0;
               const salesRepName = clientProjects[0]?.salesRepName
-                || (!clientProjects[0]?.sales_rep_id && client.sales_rep_id
+                || (!hasProject && client.sales_rep_id
                     ? `${clientSalesRep?.first_name ?? ""} ${clientSalesRep?.last_name ?? ""}`.trim()
                     : "");
               const projectedSalesRepCommission = salesRepCommission;
 
               // Sales rep commission from actual payment records — shown when rate isn't configured
-              const salesRepId = (clientProjects[0] as any)?.sales_rep_id ?? client.sales_rep_id ?? null;
+              const salesRepId = hasProject ? ((clientProjects[0] as any)?.sales_rep_id ?? null) : (client.sales_rep_id ?? null);
               const salesRepCommFromPayments = projectCommPayments
                 .filter((c: any) => salesRepId && c.profile_id === salesRepId)
                 .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);

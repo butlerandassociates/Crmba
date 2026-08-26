@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Loader2 } from "lucide-react";
-import { projectsAPI, clientsAPI, usersAPI, activityLogAPI } from "../utils/api";
+import { projectsAPI, clientsAPI, usersAPI, activityLogAPI, commissionPaymentsAPI } from "../utils/api";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -44,6 +44,10 @@ export function EditProjectDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [touched, setTouched] = useState(false);
+  const [confirmInfo, setConfirmInfo] = useState<null | {
+    items: { role: string; name: string; paid: number; pending: number }[];
+  }>(null);
+  const [checking, setChecking] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -96,10 +100,54 @@ export function EditProjectDialog({
   const pmHasNoRate  = !!(form.project_manager_id && form.project_manager_id !== "none" && projectManagers.find((p) => p.id === form.project_manager_id)?.commission_rate === 0);
   const repHasNoRate = !!(form.sales_rep_id && form.sales_rep_id !== "none" && salesReps.find((p) => p.id === form.sales_rep_id)?.commission_rate === 0);
 
+  /** Step 1: validate + check for at-risk commission on the person being replaced/removed. */
   const handleSave = async () => {
     setTouched(true);
     if (nameErr || clientErr || dateErr) return;
 
+    const newPmId = (form.project_manager_id && form.project_manager_id !== "none") ? form.project_manager_id : null;
+    const oldPmId = project.project_manager_id ?? null;
+    const pmChanged = newPmId !== oldPmId;
+
+    const newRepId = (form.sales_rep_id && form.sales_rep_id !== "none") ? form.sales_rep_id : null;
+    const oldRepId = project.sales_rep_id ?? null;
+    const repChanged = newRepId !== oldRepId;
+
+    const checks: { role: string; profileId: string; roster: any[] }[] = [];
+    if (pmChanged && oldPmId) checks.push({ role: "Project Manager", profileId: oldPmId, roster: projectManagers });
+    if (repChanged && oldRepId) checks.push({ role: "Sales Rep", profileId: oldRepId, roster: salesReps });
+
+    if (checks.length > 0) {
+      setChecking(true);
+      setError("");
+      try {
+        const items: { role: string; name: string; paid: number; pending: number }[] = [];
+        for (const c of checks) {
+          const rows = await commissionPaymentsAPI.getAll({ profile_id: c.profileId, project_id: project.id });
+          const paid = (rows ?? []).filter((r: any) => r.status === "processed").reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+          const pending = (rows ?? []).filter((r: any) => r.status === "pending").reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+          if (paid > 0 || pending > 0) {
+            const person = c.roster.find((p: any) => p.id === c.profileId);
+            items.push({ role: c.role, name: person ? profileName(person) : "—", paid, pending });
+          }
+        }
+        setChecking(false);
+        if (items.length > 0) {
+          setConfirmInfo({ items });
+          return; // wait for explicit confirmation before saving anything
+        }
+      } catch (err: any) {
+        setChecking(false);
+        setError(err.message ?? "Failed to check commission history.");
+        return;
+      }
+    }
+
+    await performSave();
+  };
+
+  /** Step 2: the actual save — runs immediately if nothing was at risk, or after confirmation. */
+  const performSave = async () => {
     setLoading(true);
     setError("");
     try {
@@ -149,6 +197,11 @@ export function EditProjectDialog({
           repCommissionUpdates = { sales_rep_commission: 0, sales_rep_commission_rate: 0 };
           if (oldRepId) {
             await supabase.from("commission_payments").delete().eq("project_id", project.id).eq("profile_id", oldRepId).eq("status", "pending");
+            // Also clear the client-level sales rep so a background sync effect
+            // (client → project) can't silently re-assign the removed rep back onto
+            // this project on next load. Only clears if it still matches the person
+            // being removed, so it never clobbers an unrelated value.
+            await supabase.from("clients").update({ sales_rep_id: null }).eq("id", form.client_id).eq("sales_rep_id", oldRepId);
           }
         } else {
           const { data: repProfile } = await supabase.from("profiles").select("commission_rate").eq("id", newRepId).maybeSingle();
@@ -249,10 +302,6 @@ export function EditProjectDialog({
         }
       }
 
-      if (repChanged && ["sold", "active"].includes(project.status)) {
-        toast.warning("Commission was calculated for the original rep. Are you sure you meant to change this?");
-      }
-
       // Record team assignment changes in history table (fire-and-forget)
       const teamChanges: { role: string; oldId: string | null; newId: string | null }[] = [];
       if (pmChanged) teamChanges.push({ role: "pm", oldId: oldPmId, newId: newPmId });
@@ -284,6 +333,7 @@ export function EditProjectDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -462,14 +512,62 @@ export function EditProjectDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading || checking}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={loading || pmHasNoRate || repHasNoRate}>
-            {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Changes"}
+          <Button onClick={handleSave} disabled={loading || checking || pmHasNoRate || repHasNoRate} className="min-w-[140px]">
+            <span className="flex items-center justify-center gap-2 whitespace-nowrap">
+              {checking ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Checking...</>
+              ) : loading ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Saving...</>
+              ) : (
+                "Save Changes"
+              )}
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={!!confirmInfo} onOpenChange={(v) => { if (!v) setConfirmInfo(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Team Change</DialogTitle>
+            <DialogDescription>
+              This will affect commission already tracked on this project.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            {confirmInfo?.items.map((item, i) => (
+              <div key={i} className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <p className="font-medium">{item.role}: {item.name}</p>
+                {item.paid > 0 && (
+                  <p className="text-muted-foreground">Already paid: <span className="font-medium text-foreground">${item.paid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> — not affected</p>
+                )}
+                {item.pending > 0 && (
+                  <p className="text-muted-foreground">Still pending: <span className="font-medium text-foreground">${item.pending.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> — will be cancelled and added back to GP</p>
+                )}
+              </div>
+            ))}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmInfo(null)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => { setConfirmInfo(null); performSave(); }}
+              disabled={loading}
+              className="min-w-[100px]"
+            >
+              <span className="flex items-center justify-center gap-2 whitespace-nowrap">
+                {loading ? <><Loader2 className="h-4 w-4 animate-spin" />Saving...</> : "Continue"}
+              </span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
