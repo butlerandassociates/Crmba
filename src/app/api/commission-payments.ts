@@ -147,19 +147,17 @@ export const commissionPaymentsAPI = {
 
   /**
    * Reconcile commission_payments for a given PM.
-   * 1. Backfills any paid project_payment that is missing a commission row.
-   * 2. Re-sums pending installments and writes the correct value back to projects.commission.
+   * Re-sums pending installments and writes the correct value back to projects.commission.
+   *
+   * NOTE: no longer backfills a row per paid milestone — that produced commission based on
+   * each milestone's dollar amount, which never matched the actual policy (PM commission =
+   * rate × Gross Profit, confirmed by Jonathan Aug 27 2026). New commission rows are created
+   * correctly at the source now (move-to-sold-modal.tsx, edit-project-dialog.tsx). This
+   * function only re-syncs the summary field from whatever pending rows already exist — it
+   * does not create or change any row amounts, so it's safe to keep running without touching
+   * historical data on projects other than the one explicitly corrected.
    */
   reconcileForPM: async (profile_id: string) => {
-    // Fetch PM's commission rate
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("commission_rate")
-      .eq("id", profile_id)
-      .maybeSingle();
-    const rate = Number(profile?.commission_rate) || 0;
-
-    // All projects where this PM is project_manager
     const { data: projects } = await supabase
       .from("projects")
       .select("id, commission")
@@ -168,34 +166,6 @@ export const commissionPaymentsAPI = {
 
     await Promise.all(
       projects.map(async (proj) => {
-        // Backfill: find all paid milestones with no commission row yet
-        if (rate > 0) {
-          const { data: paidPayments } = await supabase
-            .from("project_payments")
-            .select("id, amount, is_deposit")
-            .eq("project_id", proj.id)
-            .eq("is_paid", true)
-            .eq("is_deposit", false); // deposits never earn commission
-
-          await Promise.all(
-            (paidPayments ?? []).map(async (pp: any) => {
-              const { data: existing } = await supabase
-                .from("commission_payments")
-                .select("id")
-                .eq("progress_payment_id", pp.id)
-                .eq("profile_id", profile_id)
-                .maybeSingle();
-              if (!existing) {
-                const amount = (Number(pp.amount) || 0) * (rate / 100);
-                await supabase
-                  .from("commission_payments")
-                  .insert({ project_id: proj.id, progress_payment_id: pp.id, profile_id, amount, status: "pending" });
-              }
-            })
-          );
-        }
-
-        // Re-sum pending installments → sync projects.commission
         const { data: pending } = await supabase
           .from("commission_payments")
           .select("amount")
@@ -213,51 +183,16 @@ export const commissionPaymentsAPI = {
     );
   },
 
-  /** Same as reconcileForPM but for sales reps — backfills missing rows + syncs projects.sales_rep_commission. */
+  /** Same as reconcileForPM but for sales reps — re-syncs projects.sales_rep_commission from existing pending rows only. */
   reconcileForSalesRep: async (profile_id: string) => {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("commission_rate")
-      .eq("id", profile_id)
-      .maybeSingle();
-    const rate = Number(profile?.commission_rate) || 0;
-
     const { data: projects } = await supabase
       .from("projects")
-      .select("id, sales_rep_commission, sales_rep_commission_rate")
+      .select("id, sales_rep_commission")
       .eq("sales_rep_id", profile_id);
     if (!projects?.length) return;
 
     await Promise.all(
       projects.map(async (proj) => {
-        const effectiveRate = Number(proj.sales_rep_commission_rate) || rate;
-
-        if (effectiveRate > 0) {
-          const { data: paidPayments } = await supabase
-            .from("project_payments")
-            .select("id, amount, is_deposit")
-            .eq("project_id", proj.id)
-            .eq("is_paid", true)
-            .eq("is_deposit", false); // deposits never earn commission
-
-          await Promise.all(
-            (paidPayments ?? []).map(async (pp: any) => {
-              const { data: existing } = await supabase
-                .from("commission_payments")
-                .select("id")
-                .eq("progress_payment_id", pp.id)
-                .eq("profile_id", profile_id)
-                .maybeSingle();
-              if (!existing) {
-                const amount = (Number(pp.amount) || 0) * (effectiveRate / 100);
-                await supabase
-                  .from("commission_payments")
-                  .insert({ project_id: proj.id, progress_payment_id: pp.id, profile_id, amount, status: "pending" });
-              }
-            })
-          );
-        }
-
         const { data: pending } = await supabase
           .from("commission_payments")
           .select("amount")

@@ -211,11 +211,13 @@ export function MoveToSoldModal({ open, onOpenChange, client, project, onSuccess
           const { data: repProfile } = await supabase.from("profiles").select("commission_rate").eq("id", selectedSalesRep).maybeSingle();
           salesRepCommissionRate = Number(repProfile?.commission_rate ?? 0);
         }
-        const commissionBase = subtotalVal || totalValue;
+        // PM commission = rate × Gross Profit. Sales Rep commission = rate × contract subtotal.
+        // Confirmed policy — Jonathan Aug 27 2026 (matches Jul 21 2026 spec in project memory).
+        const salesRepCommissionBase = subtotalVal || totalValue;
         financials = {
           total_value: totalValue, total_costs: totalCosts, gross_profit: grossProfit, profit_margin: profitMargin,
-          commission: commissionBase * (commissionRate / 100), commission_rate: commissionRate,
-          sales_rep_commission: grossProfit * (salesRepCommissionRate / 100),
+          commission: grossProfit * (commissionRate / 100), commission_rate: commissionRate,
+          sales_rep_commission: salesRepCommissionBase * (salesRepCommissionRate / 100),
           sales_rep_commission_rate: salesRepCommissionRate,
         };
       }

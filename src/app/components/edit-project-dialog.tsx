@@ -178,20 +178,28 @@ export function EditProjectDialog({
         } else {
           const { data: pmProfile } = await supabase.from("profiles").select("commission_rate").eq("id", newPmId).maybeSingle();
           const rate = Number(pmProfile?.commission_rate ?? 0);
-          const base = newValue || oldValue;
-          commissionUpdates = { commission: base * (rate / 100), commission_rate: rate };
+          // PM commission = rate × Gross Profit (confirmed policy — Jonathan Aug 27 2026)
+          const pmBase = project.gross_profit ?? 0;
+          commissionUpdates = { commission: pmBase * (rate / 100), commission_rate: rate };
           const { data: existingCp } = await supabase.from("commission_payments").select("id").eq("project_id", project.id).eq("profile_id", oldPmId ?? newPmId).eq("status", "pending").maybeSingle();
           if (existingCp) {
-            await supabase.from("commission_payments").update({ profile_id: newPmId, amount: base * (rate / 100) }).eq("id", existingCp.id);
+            await supabase.from("commission_payments").update({ profile_id: newPmId, amount: pmBase * (rate / 100) }).eq("id", existingCp.id);
           } else {
-            await supabase.from("commission_payments").insert({ project_id: project.id, profile_id: newPmId, amount: base * (rate / 100), status: "pending" });
+            await supabase.from("commission_payments").insert({ project_id: project.id, profile_id: newPmId, amount: pmBase * (rate / 100), status: "pending" });
           }
         }
       }
 
-      // Recalculate sales rep commission when sales rep changes (base = gross_profit)
+      // Recalculate sales rep commission when sales rep changes.
+      // Sales Rep commission = rate × contract subtotal (confirmed policy — Jonathan Aug 27 2026).
       let repCommissionUpdates: Record<string, number> = {};
-      const gpBase = project.gross_profit ?? 0;
+      let salesRepBase = newValue || oldValue;
+      if (repChanged && (form.sales_rep_id && form.sales_rep_id !== "none")) {
+        const { data: acceptedEstimate } = await supabase
+          .from("estimates").select("subtotal, total").eq("client_id", form.client_id).eq("status", "accepted")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        salesRepBase = Number(acceptedEstimate?.subtotal ?? acceptedEstimate?.total ?? salesRepBase);
+      }
       if (repChanged) {
         if (!newRepId) {
           repCommissionUpdates = { sales_rep_commission: 0, sales_rep_commission_rate: 0 };
@@ -206,7 +214,7 @@ export function EditProjectDialog({
         } else {
           const { data: repProfile } = await supabase.from("profiles").select("commission_rate").eq("id", newRepId).maybeSingle();
           const rate = Number(repProfile?.commission_rate ?? 0);
-          const newRepCommission = gpBase * (rate / 100);
+          const newRepCommission = salesRepBase * (rate / 100);
           repCommissionUpdates = { sales_rep_commission: newRepCommission, sales_rep_commission_rate: rate };
           // Remove old rep's pending row first
           if (oldRepId && oldRepId !== newRepId) {
