@@ -1263,7 +1263,7 @@ export function ClientDetail() {
       let mileageActual = 0;
       for (const t of mileageTrips as any[]) mileageActual += Number((t as any).payout || 0);
 
-      // Commission payments for this project (PM + Sales Rep combined)
+      // Commission payments for this project (PM + Sales Rep combined, and split per role)
       const commPayments = await commissionPaymentsAPI.getAll({ project_id: projectId }).catch(() => [] as any[]);
       const commPaid = commPayments
         .filter((c: any) => c.status === "processed")
@@ -1271,6 +1271,26 @@ export function ClientDetail() {
       const commDue = commPayments
         .filter((c: any) => c.status === "pending")
         .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+
+      const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
+      const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
+      const pmCommPaid = pmProfileId
+        ? commPayments.filter((c: any) => c.profile_id === pmProfileId && c.status === "processed").reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
+        : 0;
+      const pmCommDue = pmProfileId
+        ? commPayments.filter((c: any) => c.profile_id === pmProfileId && c.status === "pending").reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
+        : 0;
+      const repCommPaid = repProfileId
+        ? commPayments.filter((c: any) => c.profile_id === repProfileId && c.status === "processed").reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
+        : 0;
+      const repCommDue = repProfileId
+        ? commPayments.filter((c: any) => c.profile_id === repProfileId && c.status === "pending").reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
+        : 0;
+      // Anything left over belongs to someone no longer assigned to this project (e.g. a
+      // previously removed PM/rep who still has paid or pending commission on record) — never
+      // silently fold this into the Total without a label, or the Total won't match PM + Rep.
+      const otherCommPaid = Math.max(0, commPaid - pmCommPaid - repCommPaid);
+      const otherCommDue = Math.max(0, commDue - pmCommDue - repCommDue);
 
       setGpHealthData((prev) => ({
         ...prev,
@@ -1282,6 +1302,12 @@ export function ClientDetail() {
           mileageActual,
           commPaid,
           commDue,
+          pmCommPaid,
+          pmCommDue,
+          repCommPaid,
+          repCommDue,
+          otherCommPaid,
+          otherCommDue,
           fioAssigned,
           crewPaid: laborFromCrewPayments,
           receipts,
@@ -3145,12 +3171,14 @@ export function ClientDetail() {
                 const d = gpHealthData[project.id];
                 const cv = project.totalValue ?? 0;
                 const liveGP = d ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : (project.grossProfit ?? 0);
-                const pmComm  = pmId  && (project.pmCommissionRate        || 0) > 0
-                  ? Math.round(liveGP * ((project.pmCommissionRate) / 100) * 100) / 100
+                // Read commission from the real commission_payments ledger (paid + pending combined)
+                // instead of recalculating from a stored rate — the rate field can go stale
+                // relative to what's actually recorded, which is what actually determines Net Profit.
+                const pmComm = pmId
+                  ? projectCommPayments.filter((c: any) => c.profile_id === pmId).reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
                   : 0;
-                const proposalSubtotalCard = clientProposals.find((p: any) => p.status === "accepted")?.subtotal ?? cv;
-                const repComm = repId && (project.salesRepCommissionRate || 0) > 0
-                  ? Math.round(proposalSubtotalCard * ((project.salesRepCommissionRate) / 100) * 100) / 100
+                const repComm = repId
+                  ? projectCommPayments.filter((c: any) => c.profile_id === repId).reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
                   : 0;
                 return (<>
                   <div>
@@ -3330,23 +3358,59 @@ export function ClientDetail() {
                     </div>
                   )}
 
-                  {/* Commissions — PM + Sales Rep paid and pending */}
+                  {/* Commissions — PM and Sales Rep shown separately so removing one is visibly reflected */}
                   {((d.commPaid ?? 0) > 0 || (d.commDue ?? 0) > 0) && (
-                    <div className="border rounded-lg p-3 space-y-1.5 bg-purple-50 border-purple-200">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-semibold">Commissions</p>
-                        <span className="text-[11px] text-muted-foreground">PM &amp; Sales Rep</span>
-                      </div>
-                      {(d.commPaid ?? 0) > 0 && (
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Paid out</span>
-                          <span className="font-semibold text-purple-700">{formatCurrency(d.commPaid)}</span>
+                    <div className="border rounded-lg p-3 space-y-2 bg-purple-50 border-purple-200">
+                      <p className="text-xs font-semibold">Commissions</p>
+                      {((d.pmCommPaid ?? 0) > 0 || (d.pmCommDue ?? 0) > 0) && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">PM — {clientProjects[0]?.projectManagerName || "—"}</span>
+                          {(d.pmCommPaid ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Paid out</span>
+                              <span className="font-semibold text-purple-700">{formatCurrency(d.pmCommPaid)}</span>
+                            </div>
+                          )}
+                          {(d.pmCommDue ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Pending payment</span>
+                              <span className="font-semibold text-amber-600">{formatCurrency(d.pmCommDue)}</span>
+                            </div>
+                          )}
                         </div>
                       )}
-                      {(d.commDue ?? 0) > 0 && (
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Pending payment</span>
-                          <span className="font-semibold text-amber-600">{formatCurrency(d.commDue)}</span>
+                      {((d.repCommPaid ?? 0) > 0 || (d.repCommDue ?? 0) > 0) && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Sales Rep — {clientProjects[0]?.salesRepName || "—"}</span>
+                          {(d.repCommPaid ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Paid out</span>
+                              <span className="font-semibold text-purple-700">{formatCurrency(d.repCommPaid)}</span>
+                            </div>
+                          )}
+                          {(d.repCommDue ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Pending payment</span>
+                              <span className="font-semibold text-amber-600">{formatCurrency(d.repCommDue)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {((d.otherCommPaid ?? 0) > 0 || (d.otherCommDue ?? 0) > 0) && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Other / Previous</span>
+                          {(d.otherCommPaid ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Paid out</span>
+                              <span className="font-semibold text-purple-700">{formatCurrency(d.otherCommPaid)}</span>
+                            </div>
+                          )}
+                          {(d.otherCommDue ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Pending payment</span>
+                              <span className="font-semibold text-amber-600">{formatCurrency(d.otherCommDue)}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className="flex justify-between text-xs font-medium border-t pt-1.5 mt-0.5">

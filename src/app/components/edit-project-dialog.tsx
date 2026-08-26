@@ -546,7 +546,7 @@ export function EditProjectDialog({
                   <p className="text-muted-foreground">Already paid: <span className="font-medium text-foreground">${item.paid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> — not affected</p>
                 )}
                 {item.pending > 0 && (
-                  <p className="text-muted-foreground">Still pending: <span className="font-medium text-foreground">${item.pending.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> — will be cancelled and added back to GP</p>
+                  <p className="text-muted-foreground">Still pending: <span className="font-medium text-foreground">${item.pending.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> — will be cancelled and added back to Net Profit</p>
                 )}
               </div>
             ))}
