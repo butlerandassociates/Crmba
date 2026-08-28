@@ -603,7 +603,14 @@ export function ClientsList() {
     list.filter((c) => {
       const name = `${c.first_name} ${c.last_name}`.toLowerCase();
       const term = searchTerm.toLowerCase();
-      const matchesSearch = !term || name.includes(term) || (c.email ?? "").toLowerCase().includes(term);
+      const matchesSearch = !term
+        || name.includes(term)
+        || (c.email ?? "").toLowerCase().includes(term)
+        || (c.phone ?? "").toLowerCase().includes(term)
+        || (c.address ?? "").toLowerCase().includes(term)
+        || (c.city ?? "").toLowerCase().includes(term)
+        || (c.state ?? "").toLowerCase().includes(term)
+        || (c.zip ?? "").toLowerCase().includes(term);
       const matchesPM = !filterPM || c.pmName === filterPM;
       const matchesSalesRep = !filterSalesRep || c.salesRepName === filterSalesRep;
       const matchesCrew = !filterCrew || c.foremanName === filterCrew;
@@ -1119,7 +1126,7 @@ export function ClientsList() {
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search clients..."
+              placeholder="Search by name, email, phone, or address..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"

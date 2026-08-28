@@ -11,7 +11,7 @@ export const clientsAPI = {
     let query = supabase
       .from("clients")
       .select(`
-        id, first_name, last_name, email, phone, address,
+        id, first_name, last_name, email, phone, address, city, state, zip,
         status, pipeline_stage_id, lead_source_id, sales_rep_id,
         created_at, updated_at, is_discarded,
         docusign_status, appointment_met, appointment_scheduled,

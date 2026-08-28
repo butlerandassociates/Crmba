@@ -30,7 +30,7 @@ function DiscardedClients() {
     setLoading(true);
     const { data, error } = await supabase
       .from("clients")
-      .select("id, first_name, last_name, email, phone, status, discarded_at, discarded_reason")
+      .select("id, first_name, last_name, email, phone, address, city, state, zip, status, discarded_at, discarded_reason")
       .eq("is_discarded", true)
       .order("discarded_at", { ascending: false });
     if (error) toast.error("Failed to load discarded clients");
@@ -68,6 +68,11 @@ function DiscardedClients() {
     return (
       `${c.first_name ?? ""} ${c.last_name ?? ""}`.toLowerCase().includes(q) ||
       (c.email ?? "").toLowerCase().includes(q) ||
+      (c.phone ?? "").toLowerCase().includes(q) ||
+      (c.address ?? "").toLowerCase().includes(q) ||
+      (c.city ?? "").toLowerCase().includes(q) ||
+      (c.state ?? "").toLowerCase().includes(q) ||
+      (c.zip ?? "").toLowerCase().includes(q) ||
       (c.discarded_reason ?? "").toLowerCase().includes(q)
     );
   });
@@ -84,7 +89,7 @@ function DiscardedClients() {
             <div className="relative w-64 shrink-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search discarded clients..."
+                placeholder="Search by name, email, phone, or address..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setDiscardedPage(0); }}
                 className="pl-9"
