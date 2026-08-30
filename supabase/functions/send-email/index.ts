@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { to, subject, html, from_name, cc, attachments } = await req.json();
+    const { to, subject, html, from_name, cc, attachments, reply_to } = await req.json();
 
     console.log(`[send-email] to=${to} subject="${subject}" has_cc=${Array.isArray(cc) && cc.length > 0} has_attachments=${Array.isArray(attachments) && attachments.length > 0}`);
 
@@ -40,6 +40,10 @@ serve(async (req) => {
       subject,
       content: [{ type: "text/html", value: html }],
     };
+
+    if (reply_to) {
+      body.reply_to = { email: reply_to };
+    }
 
     if (Array.isArray(attachments) && attachments.length > 0) {
       body.attachments = attachments;

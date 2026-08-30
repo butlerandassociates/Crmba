@@ -360,6 +360,59 @@ serve(async (req) => {
     });
     if (notifErr) console.error("[formspree] Notification insert error:", notifErr.message);
 
+    // Auto-reply to the lead confirming we received their submission.
+    // Applies to all Formspree forms, including Referral — confirmed by Jonathan Aug 27 2026.
+    if (email) {
+      const phoneLine = phone
+        ? `A member of our team will contact you shortly at ${phone} to schedule your free in-person consultation.`
+        : `A member of our team will contact you shortly to schedule your free in-person consultation.`;
+
+      const autoReplyHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:Inter,Helvetica,Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+    <div style="background:#0A0A0A;border-radius:6px 6px 0 0;padding:28px 32px;text-align:center;">
+      <img src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png" alt="Butler &amp; Associates" height="56" style="height:56px;width:auto;display:block;margin:0 auto 12px auto;" />
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#BB984D;margin:0;">Butler &amp; Associates Construction, Inc.</p>
+    </div>
+    <div style="height:2px;background:linear-gradient(90deg,#BB984D,#8A7040);"></div>
+    <div style="background:#fff;border:1px solid #E8E4DC;border-top:none;border-radius:0 0 6px 6px;padding:32px;">
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 16px 0;">Hi ${firstName || "there"},</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 16px 0;">Thank you for your interest in Butler &amp; Associates Construction. We've received your inquiry about your Outdoor Living Space Project!</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 16px 0;">${phoneLine}</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0 0 28px 0;">If you'd like to reach us sooner, call us at <a href="tel:2566174691" style="color:#BB984D;text-decoration:none;">(256) 617-4691</a> or reply to this email.</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:0;">We look forward to speaking with you.</p>
+      <p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;color:#3A3A38;line-height:1.7;margin:16px 0 0 0;">— The Butler &amp; Associates Team</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      try {
+        const autoReplyRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+          body: JSON.stringify({
+            to: email,
+            subject: "We received your request — Butler & Associates Construction",
+            html: autoReplyHtml,
+            from_name: "Butler & Associates Construction",
+            reply_to: "info@butlerconstruction.co",
+          }),
+        });
+        if (!autoReplyRes.ok) console.error("[formspree] Auto-reply email FAILED:", await autoReplyRes.text());
+        else console.log(`[formspree] Auto-reply sent to ${email}`);
+      } catch (autoReplyErr: any) {
+        console.error("[formspree] Auto-reply email error:", autoReplyErr.message);
+      }
+    } else {
+      console.log("[formspree] Skipped auto-reply — no email address on this lead");
+    }
+
     console.log(`[formspree] ✓ Done — client ${clientId} created from "${sourceForm}"`);
 
     return new Response(
