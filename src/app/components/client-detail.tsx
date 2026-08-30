@@ -2188,6 +2188,16 @@ export function ClientDetail() {
                 );
               })()}
             </div>
+            {(client as any).auto_reply_sent_at && (
+              <div className="pt-2 border-t">
+                <div className="text-xs text-muted-foreground">
+                  Auto-Reply Email Sent at: {new Date((client as any).auto_reply_sent_at).toLocaleString("en-US", {
+                    month: "short", day: "numeric", year: "numeric",
+                    hour: "numeric", minute: "2-digit",
+                  })} by System
+                </div>
+              </div>
+            )}
             {client.last_contact_date && (
               <div>
                 <div className="text-sm font-medium">Last Contact</div>

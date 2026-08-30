@@ -404,8 +404,16 @@ serve(async (req) => {
             reply_to: "info@butlerconstruction.co",
           }),
         });
-        if (!autoReplyRes.ok) console.error("[formspree] Auto-reply email FAILED:", await autoReplyRes.text());
-        else console.log(`[formspree] Auto-reply sent to ${email}`);
+        if (!autoReplyRes.ok) {
+          console.error("[formspree] Auto-reply email FAILED:", await autoReplyRes.text());
+        } else {
+          console.log(`[formspree] Auto-reply sent to ${email}`);
+          const { error: stampErr } = await supabase
+            .from("clients")
+            .update({ auto_reply_sent_at: new Date().toISOString() })
+            .eq("id", clientId);
+          if (stampErr) console.error("[formspree] Failed to record auto_reply_sent_at:", stampErr.message);
+        }
       } catch (autoReplyErr: any) {
         console.error("[formspree] Auto-reply email error:", autoReplyErr.message);
       }
