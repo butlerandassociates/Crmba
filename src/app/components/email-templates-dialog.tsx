@@ -460,7 +460,7 @@ export function EmailTemplatesDialog({
       }
 
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction", attachments },
+        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"] },
       });
       if (error) throw error;
       await activityLogAPI.create({

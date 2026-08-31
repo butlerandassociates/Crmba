@@ -365,7 +365,7 @@ serve(async (req) => {
     if (email) {
       const phoneLine = phone
         ? `A member of our team will contact you shortly at ${phone} to schedule your free in-person consultation.`
-        : `A member of our team will contact you shortly to schedule your free in-person consultation.`;
+        : `We would love the opportunity to connect with you over a phone call, but we weren't able to capture a phone number from your form submission. Please reply to this email with a good number to reach you, or call us directly, and a member of our team will schedule your free in-person consultation.`;
 
       const autoReplyHtml = `<!DOCTYPE html>
 <html>
@@ -402,6 +402,7 @@ serve(async (req) => {
             html: autoReplyHtml,
             from_name: "Butler & Associates Construction",
             reply_to: "info@butlerconstruction.co",
+            cc: ["info@butlerconstruction.co"],
           }),
         });
         if (!autoReplyRes.ok) {

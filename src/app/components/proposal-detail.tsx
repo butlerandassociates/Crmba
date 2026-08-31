@@ -1642,7 +1642,7 @@ export function ProposalDetail() {
       }
 
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction", attachments },
+        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"] },
       });
       if (error) throw error;
       await estimatesAPI.updateStatus(proposal.id, "sent");
