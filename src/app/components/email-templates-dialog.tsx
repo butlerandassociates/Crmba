@@ -58,6 +58,9 @@ export function EmailTemplatesDialog({
   };
   const startDate = fmtDate(client.project_start_date ?? client.projects?.[0]?.start_date);
   const endDate = fmtDate(client.project_end_date ?? client.projects?.[0]?.end_date);
+  const salesRepName = client.sales_rep ? `${client.sales_rep.first_name ?? ""} ${client.sales_rep.last_name ?? ""}`.trim() : "[Sales Rep Name]";
+  const salesRepPhone = "(256) 601-8777";
+  const salesRepEmail = "aaron@butlerconstruction.co";
 
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
@@ -86,7 +89,10 @@ export function EmailTemplatesDialog({
             .replace(/\{client_name\}/g, firstName)
             .replace(/\{address\}/g, clientAddress || "[Address]")
             .replace(/\{start_date\}/g, startDate)
-            .replace(/\{end_date\}/g, endDate),
+            .replace(/\{end_date\}/g, endDate)
+            .replace(/\{sales_rep_name\}/g, salesRepName)
+            .replace(/\{sales_rep_phone\}/g, salesRepPhone)
+            .replace(/\{sales_rep_email\}/g, salesRepEmail),
         }));
         setTemplates(mapped);
         setLoadingTemplates(false);

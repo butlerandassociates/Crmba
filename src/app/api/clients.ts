@@ -117,12 +117,12 @@ export const clientsAPI = {
     return data;
   },
 
-  /** Create a new client (created_by auto-set from current session) */
+  /** Create a new client (created_by + sales_rep_id auto-set from current session) */
   create: async (client: Record<string, unknown>) => {
     const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("clients")
-      .insert({ ...client, created_by: user?.id ?? null })
+      .insert({ ...client, created_by: user?.id ?? null, sales_rep_id: user?.id ?? null })
       .select()
       .single();
     if (error) throw new Error(error.message);
