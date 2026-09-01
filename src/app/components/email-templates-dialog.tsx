@@ -58,9 +58,11 @@ export function EmailTemplatesDialog({
   };
   const startDate = fmtDate(client.project_start_date ?? client.projects?.[0]?.start_date);
   const endDate = fmtDate(client.project_end_date ?? client.projects?.[0]?.end_date);
-  const salesRepName = client.sales_rep ? `${client.sales_rep.first_name ?? ""} ${client.sales_rep.last_name ?? ""}`.trim() : "[Sales Rep Name]";
-  const salesRepPhone = "(256) 601-8777";
-  const salesRepEmail = "aaron@butlerconstruction.co";
+  const firstAppt = client.appointments?.[0];
+  const assignedProfile = firstAppt?.assigned_to_profile ?? client.sales_rep;
+  const salesRepName = assignedProfile ? `${assignedProfile.first_name ?? ""} ${assignedProfile.last_name ?? ""}`.trim() : "";
+  const salesRepPhone = assignedProfile?.phone ?? "";
+  const salesRepEmail = assignedProfile?.email ?? "";
 
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
@@ -91,6 +93,8 @@ export function EmailTemplatesDialog({
             .replace(/\{start_date\}/g, startDate)
             .replace(/\{end_date\}/g, endDate)
             .replace(/\{sales_rep_name\}/g, salesRepName)
+            .replace(/Phone:\s*\{sales_rep_phone\}\n?/g, salesRepPhone ? `Phone: ${salesRepPhone}\n` : "")
+            .replace(/Email:\s*\{sales_rep_email\}\n?/g, salesRepEmail ? `Email: ${salesRepEmail}\n` : "")
             .replace(/\{sales_rep_phone\}/g, salesRepPhone)
             .replace(/\{sales_rep_email\}/g, salesRepEmail),
         }));
