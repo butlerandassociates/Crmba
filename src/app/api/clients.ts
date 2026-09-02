@@ -19,14 +19,14 @@ export const clientsAPI = {
         projected_value, closing_probability,
         lead_source:lead_sources(id, name),
         pipeline_stage:pipeline_stages(id, name, color, order_index),
-        sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active),
+        sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active, phone, email),
         projects(
           total_value, start_date, end_date, profit_margin, gross_profit, sales_rep_id, project_manager_id,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name, is_active),
           foreman:profiles!projects_foreman_id_fkey(first_name, last_name, is_active),
           sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name, is_active)
         ),
-        appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name, role)),
+        appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name, role, phone, email)),
         project_payments(id, is_paid, amount),
         estimates(id, total, status, created_at)
       `)
@@ -110,7 +110,7 @@ export const clientsAPI = {
   getById: async (id: string) => {
     const { data, error } = await supabase
       .from("clients")
-      .select(`*, lead_source:lead_sources(id,name), pipeline_stage:pipeline_stages(id,name,color,order_index), sales_rep:profiles!clients_sales_rep_id_fkey(id,first_name,last_name,commission_rate)`)
+      .select(`*, lead_source:lead_sources(id,name), pipeline_stage:pipeline_stages(id,name,color,order_index), sales_rep:profiles!clients_sales_rep_id_fkey(id,first_name,last_name,commission_rate,phone,email)`)
       .eq("id", id)
       .single();
     if (error) throw new Error(error.message);
