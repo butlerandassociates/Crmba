@@ -124,6 +124,8 @@ export function AppointmentDialog({
       return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
     };
     const timeLabel = startTime && endTime ? `${fmt12(startTime)} – ${fmt12(endTime)}` : "—";
+    const assignedRep = teamMembers.find((u) => u.id === assignedUserId);
+    const repFullName = assignedRep ? `${assignedRep.first_name ?? ""} ${assignedRep.last_name ?? ""}`.trim() : "";
     const vars: Record<string, string> = {
       client_name: clientName,
       date: dateLabel,
@@ -132,6 +134,10 @@ export function AppointmentDialog({
       address: clientAddress || "",
       intake_form_url: INTAKE_FORM_URL,
       meet_link: "",
+      rep_name: repFullName || "our team",
+      rep_first_name: assignedRep?.first_name || "our team",
+      rep_phone: assignedRep?.phone ?? "",
+      rep_email: assignedRep?.email ?? "",
     };
     const rawBody = apptType?.email_body?.trim() ||
       `Your {type} has been confirmed.\n\nDate: {date}\nTime: {time}\nLocation: {address}\n\nWe look forward to meeting with you!`;
@@ -336,6 +342,10 @@ export function AppointmentDialog({
           appointment_date:     startDT.toISOString(),
           appointment_end_date: endDT.toISOString(),
         });
+
+        if (isInitialAppointment && assignedUserId && assignedUserId !== client.sales_rep_id) {
+          clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
+        }
       } else {
         // CREATE new appointment row
         newAppt = await appointmentsAPI.create({
@@ -353,7 +363,7 @@ export function AppointmentDialog({
           email_notification_sent:  false,
         });
 
-        if (assignedUserId && salesRepIds.has(assignedUserId) && !client.sales_rep_id) {
+        if (isInitialAppointment && assignedUserId && assignedUserId !== client.sales_rep_id) {
           clientsAPI.assignSalesRep(client.id, assignedUserId).catch(() => {});
         }
 

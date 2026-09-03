@@ -117,12 +117,17 @@ export const clientsAPI = {
     return data;
   },
 
-  /** Create a new client (created_by + sales_rep_id auto-set from current session) */
+  /** Create a new client (created_by auto-set; sales_rep_id auto-set ONLY if creator's role is sales_rep) */
   create: async (client: Record<string, unknown>) => {
     const { data: { user } } = await supabase.auth.getUser();
+    let sales_rep_id: string | null = null;
+    if (user?.id) {
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+      if (profile?.role === "sales_rep") sales_rep_id = user.id;
+    }
     const { data, error } = await supabase
       .from("clients")
-      .insert({ ...client, created_by: user?.id ?? null, sales_rep_id: user?.id ?? null })
+      .insert({ ...client, created_by: user?.id ?? null, sales_rep_id })
       .select()
       .single();
     if (error) throw new Error(error.message);
