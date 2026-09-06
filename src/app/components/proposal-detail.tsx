@@ -40,7 +40,8 @@ import {
   Percent,
 } from "lucide-react";
 import { Switch } from "./ui/switch";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI } from "../utils/api";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI } from "../utils/api";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates } from "../utils/financials";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
@@ -84,6 +85,7 @@ export function ProposalDetail() {
   const { viewAsRole } = useViewAs();
   const [proposal, setProposal] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
+  const [clientProject, setClientProject] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -255,6 +257,11 @@ export function ProposalDetail() {
       setGlobalMarkupApplied(est.wizard_inputs?._markupApplied ?? false);
       if (est?.client_id) {
         clientsAPI.getById(est.client_id).then(setClient).catch(console.error);
+        // Live PM/Sales Rep commission rates for this client's project, if one exists yet
+        // (mirrors client-detail.tsx's Project Financials card so the two screens can't disagree).
+        projectsAPI.getAll()
+          .then((all: any[]) => setClientProject(all.find((p: any) => p.client_id === est.client_id) ?? null))
+          .catch(() => setClientProject(null));
         Promise.resolve(supabase.from("client_portal_tokens").select("token").eq("client_id", est.client_id).eq("is_active", true).maybeSingle())
           .then(({ data }) => { if (data?.token) setPortalToken(data.token); }).catch(() => {});
         supabase.from("estimates")
@@ -411,10 +418,18 @@ export function ProposalDetail() {
   const finMaterialCost      = editLineItems.reduce((s, i) => s + Number(i.material_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finLaborCost         = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finAvgMarkup         = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
-  const finPmRate            = 3; // PM: 3% of GP — confirmed Jonathan Jul 21
-  const finSalesRepRate      = 7; // Sales Rep: 7% of GP — confirmed Jonathan Jul 21
-  const finPmCommission      = computedGrossProfit * (finPmRate / 100);
-  const finSalesRepCommission = computedGrossProfit * (finSalesRepRate / 100);
+  const { pmRate: finPmRate, salesRepRate: finSalesRepRate } = resolveEffectiveCommissionRates({
+    project: clientProject
+      ? { pmCommissionRate: clientProject.pmCommissionRate, salesRepCommissionRate: clientProject.salesRepCommissionRate }
+      : null,
+    clientSalesRepId: client?.sales_rep_id ?? null,
+    clientSalesRepCommissionRate: client?.sales_rep?.commission_rate ?? null,
+  });
+  // PM commission = % of gross profit. Sales Rep commission = % of subtotal (pre-BAD/tax),
+  // NOT gross profit — confirmed by Jonathan Aug 12, then again Sep 6 after this exact modal
+  // was found still computing it off GP. Do not change this basis without his explicit sign-off.
+  const finPmCommission      = calcPmCommission(computedGrossProfit, finPmRate);
+  const finSalesRepCommission = calcSalesRepCommission(computedSubtotal, finSalesRepRate);
   const finTotalCommission   = finPmCommission + finSalesRepCommission;
 
   const updateQty = (idx: number, qty: number) => {
@@ -3276,7 +3291,7 @@ export function ProposalDetail() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between font-semibold">
-                      <span>Your Commission ({finSalesRepRate}% of GP)</span>
+                      <span>Your Commission ({finSalesRepRate}% of subtotal)</span>
                       <span>{formatCurrency(finSalesRepCommission)}</span>
                     </div>
                   </div>
@@ -3329,7 +3344,7 @@ export function ProposalDetail() {
                       <span>{formatCurrency(finPmCommission)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of GP)</span>
+                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of subtotal)</span>
                       <span>{formatCurrency(finSalesRepCommission)}</span>
                     </div>
                     <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5">

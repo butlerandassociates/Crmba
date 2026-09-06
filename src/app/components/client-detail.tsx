@@ -1,5 +1,6 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates } from "@/app/utils/financials";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect, useRef } from "react";
@@ -2703,27 +2704,23 @@ export function ClientDetail() {
               const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
               const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
-              // Always use live commission_rate from profile (not stale projects.commission_rate)
-              const pmLiveRate = clientProjects[0]?.pmCommissionRate ?? 0;
-              const commission = grossProfit > 0 && pmLiveRate > 0
-                ? Math.round(grossProfit * (pmLiveRate / 100) * 100) / 100
-                : 0;
               // Fall back to client's sales rep ONLY when no project row exists yet at all.
               // Once a project exists, project.sales_rep_id is the sole source of truth — even
               // when null (explicitly removed) — so a removed rep never reappears here. See
               // [[project_crmba_sales_rep_pm_removal]] for why this matters.
               const clientSalesRep = (client as any).sales_rep;
               const hasProject = !!clientProjects[0];
-              const salesRepRate = clientProjects[0]?.salesRepCommissionRate > 0
-                ? clientProjects[0]?.salesRepCommissionRate
-                : (!hasProject && client.sales_rep_id
-                    ? (clientSalesRep?.commission_rate ?? 0)
-                    : 0);
+              const { pmRate: pmLiveRate, salesRepRate } = resolveEffectiveCommissionRates({
+                project: hasProject
+                  ? { pmCommissionRate: clientProjects[0]?.pmCommissionRate, salesRepCommissionRate: clientProjects[0]?.salesRepCommissionRate }
+                  : null,
+                clientSalesRepId: client.sales_rep_id ?? null,
+                clientSalesRepCommissionRate: clientSalesRep?.commission_rate ?? null,
+              });
+              const commission = calcPmCommission(grossProfit, pmLiveRate);
               // Sales rep commission on proposal subtotal (pre-BAD/tax), not GP — per Jonathan Aug 12
               const proposalSubtotalDonut = acceptedProposal?.subtotal ?? totalValue;
-              const salesRepCommission = proposalSubtotalDonut > 0 && salesRepRate > 0
-                ? Math.round(proposalSubtotalDonut * (salesRepRate / 100) * 100) / 100
-                : 0;
+              const salesRepCommission = calcSalesRepCommission(proposalSubtotalDonut, salesRepRate);
               const salesRepName = clientProjects[0]?.salesRepName
                 || (!hasProject && client.sales_rep_id
                     ? `${clientSalesRep?.first_name ?? ""} ${clientSalesRep?.last_name ?? ""}`.trim()
