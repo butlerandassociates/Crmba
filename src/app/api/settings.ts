@@ -6,21 +6,40 @@
 import { supabase } from "@/lib/supabase";
 
 export const companySettingsAPI = {
-  /** Get company profile (single row) */
+  /**
+   * Get company profile. Meant to be a singleton row, but the live table has held two
+   * rows since Mar 21 2026 (a pre-existing data issue, not caused by this fix) — the old
+   * `.single()` call throws whenever more than one row exists, which was silently
+   * swallowed everywhere this was called, falling back to hardcoded defaults across the
+   * app without anyone noticing. Ordering by created_at + taking the first row makes this
+   * resilient regardless of how many rows exist, and deterministic (always the same row).
+   */
   get: async () => {
     const { data, error } = await supabase
       .from("company_settings")
       .select("*")
-      .single();
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
     if (error) throw new Error(error.message);
     return data;
   },
 
-  /** Update company settings */
+  /** Update company settings — resolves the canonical row (see get()) first, so this
+   * only ever updates exactly one row even if duplicates exist. */
   update: async (settings: Record<string, unknown>) => {
+    const { data: existing, error: findError } = await supabase
+      .from("company_settings")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (findError) throw new Error(findError.message);
+    if (!existing) throw new Error("No company_settings row found to update.");
     const { data, error } = await supabase
       .from("company_settings")
       .update(settings)
+      .eq("id", existing.id)
       .select()
       .single();
     if (error) throw new Error(error.message);

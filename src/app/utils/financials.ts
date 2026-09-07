@@ -41,3 +41,36 @@ export function resolveEffectiveCommissionRates(params: {
     : (!hasProject && params.clientSalesRepId ? (params.clientSalesRepCommissionRate ?? 0) : 0);
   return { pmRate, salesRepRate };
 }
+
+// BAD (Base, Aggregate & Disposal) — NEW-proposal model only. Old proposals
+// (estimate.bad_rate === null) never call these; they keep their original
+// subtotal/price-based formula untouched, forever, per Jonathan's Sep 7 2026
+// instruction not to affect any already-existing proposal regardless of status.
+const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
+
+export type BadQualifyingItem = {
+  category?: string | null;
+  quantity: number;
+  material_cost?: number | null;
+  labor_cost?: number | null;
+};
+
+// Direct cost (material + labor) of items that qualify for BAD — same category/labor-cost
+// filter the old formula always used, just summing cost instead of price.
+export function calcBadQualifyingDirectCost(items: BadQualifyingItem[]): number {
+  return items
+    .filter((item) => BAD_CATEGORIES.includes(item.category ?? "") || Number(item.labor_cost ?? 0) > 0)
+    .reduce((sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)), 0);
+}
+
+// contingency_reserve = qualifying direct cost x bad_rate. For new proposals this is also
+// the client-facing BAD dollar amount — the two are the same figure, just tracked under
+// two field names for internal (contingency) vs client-facing (bad_amount) reporting.
+export function calcContingencyReserve(qualifyingDirectCost: number, badRatePct: number): number {
+  return Math.round(qualifyingDirectCost * (badRatePct / 100) * 100) / 100
+}
+
+// contingency_released — computed once at job close, never recomputed after.
+export function calcContingencyReleased(reserve: number, consumed: number): number {
+  return Math.round((reserve - consumed) * 100) / 100
+}

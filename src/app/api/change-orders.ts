@@ -74,7 +74,7 @@ export const changeOrdersAPI = {
     // 1. Find the accepted estimate with all financial fields
     const { data: estimate, error: estError } = await supabase
       .from("estimates")
-      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin, stripe_fee_enabled, bad_amount")
+      .select("id, subtotal, discount_percentage, discount_amount, tax_rate, tax_amount, total, total_cost, gross_profit, profit_margin, stripe_fee_enabled, bad_amount, bad_rate")
       .eq("client_id", clientId)
       .eq("status", "accepted")
       .order("accepted_at", { ascending: false })
@@ -146,21 +146,45 @@ export const changeOrdersAPI = {
     const newSubtotal = (allLineItems ?? []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
 
     // BAD — stored-base + delta (full recalculation is wrong: labor_cost not stored on all qualifying items)
+    // Which formula applies is fixed by this estimate's bad_rate — bad_rate NULL means this
+    // is an existing proposal (sold/accepted before the Sep 2026 BAD rework) and must keep
+    // the exact original price-based formula forever, per Jonathan's Sep 7 2026 instruction
+    // not to affect any already-existing proposal regardless of its status.
     const BAD_CATEGORIES = ["Concrete", "Pavers", "Retaining Walls", "Sod"];
+    const usesNewBadModel = estimate.bad_rate != null;
+    const effectiveBadRate = Number(estimate.bad_rate ?? 1.5);
     const originalBad = Number(estimate.bad_amount || 0);
     const modBadDelta = mods.reduce((s: number, mod: any) => {
       const li = (originalLineItems ?? []).find((l: any) => l.id === mod.estimate_item_id);
       if (!li) return s;
       const qualifies = BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0;
       if (!qualifies) return s;
+      if (usesNewBadModel) {
+        const liDirectCost = Number(li.quantity || 0) * (Number(li.material_cost || 0) + Number(li.labor_cost || 0));
+        if (mod.action === "delete") return s - liDirectCost * (effectiveBadRate / 100);
+        if (mod.action === "edit") {
+          const modDirectCost = Number(mod.quantity ?? li.quantity ?? 0) * (Number(li.material_cost || 0) + Number(li.labor_cost || 0));
+          return s + (modDirectCost - liDirectCost) * (effectiveBadRate / 100);
+        }
+        return s;
+      }
       if (mod.action === "delete") return s + (-Number(li.total_price || 0) * 0.015 * 1.5);
       if (mod.action === "edit") return s + ((Number(mod.total_price || 0) - Number(li.total_price || 0)) * 0.015 * 1.5);
       return s;
     }, 0);
-    const coBadQualifying = coItems
+    // New CO items only track material_cost here (no per-item labor_cost field on a
+    // change order line), so their new-model contribution is material-cost-only — a
+    // known, small undercount versus an item added directly on a proposal.
+    const coBadQualifyingOld = coItems
       .filter((i: any) => i.description?.trim() && BAD_CATEGORIES.includes(i.category))
       .reduce((s: number, i: any) => s + Number(i.total || 0), 0);
-    const newBadAmount = Math.round((originalBad + modBadDelta + coBadQualifying * 0.015 * 1.5) * 100) / 100;
+    const coBadQualifyingDirectCostNew = coItems
+      .filter((i: any) => i.description?.trim() && BAD_CATEGORIES.includes(i.category))
+      .reduce((s: number, i: any) => s + Number(i.quantity || 0) * Number(i.material_cost || 0), 0);
+    const coBadDelta = usesNewBadModel
+      ? coBadQualifyingDirectCostNew * (effectiveBadRate / 100)
+      : coBadQualifyingOld * 0.015 * 1.5;
+    const newBadAmount = Math.round((originalBad + modBadDelta + coBadDelta) * 100) / 100;
 
     // Recalculate discount amount if a % discount is applied
     const discountPct = estimate.discount_percentage || 0;
@@ -219,10 +243,14 @@ export const changeOrdersAPI = {
 
     const newTotal = preStripeTotal + newStripeFee;
 
-    // Recalculate gross profit & margin (cost side stays the same)
+    // Recalculate gross profit & margin (cost side stays the same). Old proposals
+    // (bad_rate NULL) keep this exact original formula (BAD counts toward GP) forever.
+    // New proposals exclude BAD from GP entirely — it's tracked as contingency_reserve
+    // instead, per Jonathan Sep 6-7 2026.
     const totalCost = estimate.total_cost || 0;
-    const newGrossProfit = newTotal - totalCost;
-    const newProfitMargin = newTotal > 0 ? (newGrossProfit / newTotal) * 100 : 0;
+    const newGrossProfit = usesNewBadModel ? newSubtotal - totalCost : newTotal - totalCost;
+    const newRevenueForMargin = usesNewBadModel ? newSubtotal : newTotal;
+    const newProfitMargin = newRevenueForMargin > 0 ? (newGrossProfit / newRevenueForMargin) * 100 : 0;
 
     const { error: estUpdateError } = await supabase
       .from("estimates")
@@ -230,6 +258,7 @@ export const changeOrdersAPI = {
         subtotal: newSubtotal,
         discount_amount: newDiscountAmount,
         bad_amount: newBadAmount,
+        ...(usesNewBadModel ? { contingency_reserve: newBadAmount } : {}),
         tax_amount: newTaxAmount,
         stripe_fee_amount: newStripeFee,
         total: newTotal,

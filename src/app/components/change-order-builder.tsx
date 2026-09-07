@@ -17,6 +17,7 @@ import { Dialog, DialogContent } from "./ui/dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { changeOrdersAPI } from "../api/change-orders";
+import { calcContingencyReserve } from "../utils/financials";
 import { supabase, guessContentType } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { toast } from "sonner";
@@ -834,9 +835,15 @@ export function ChangeOrderBuilder() {
     : originalDiscountAmount;
   const liveSubtotalAfterDiscount = liveSubtotal - liveDiscountAmount;
 
-  // BAD — stored bad_amount as base + apply deltas from each change (preserves manual overrides)
-  // Delta from edits/deletes of existing qualifying proposal items
-  const modBadDelta = Object.values(modifications).reduce((s: number, mod: any) => {
+  // BAD — which formula applies is fixed by the PARENT proposal's bad_rate, same rule as
+  // proposal-detail.tsx: bad_rate NULL = old proposal, keep the old price-based delta
+  // formula forever (Jonathan, Sep 7 2026: never affect an existing sold/active/completed
+  // job). bad_rate set = new proposal, use the direct-cost-based delta instead.
+  const usesNewBadModel = proposal?.bad_rate != null;
+  const effectiveBadRate = proposal?.bad_rate ?? 1.5;
+
+  // Old-model delta (price-based, unchanged) — only ever used when usesNewBadModel is false
+  const modBadDeltaOld = Object.values(modifications).reduce((s: number, mod: any) => {
     const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
     if (!li) return s;
     const qualifies = BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0;
@@ -845,9 +852,35 @@ export function ChangeOrderBuilder() {
     if (mod.action === 'edit') return s + ((Number(mod.total_price || 0) - Number(li.total_price || 0)) * 0.015 * 1.5);
     return s;
   }, 0);
-  // Delta from new qualifying CO items
-  const coBadQualifying = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
-  const coBadDelta = coBadQualifying * 0.015 * 1.5;
+  const coBadQualifyingOld = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
+  const coBadDeltaOld = coBadQualifyingOld * 0.015 * 1.5;
+
+  // New-model delta (direct-cost-based). Original line items carry full material_cost +
+  // labor_cost so their delta is exact. New CO-added items only track material_cost in
+  // this builder today (no per-item labor_cost field exists on a change order line yet),
+  // so their contribution to the reserve is material-cost-only — a known, small
+  // undercount versus a line item added directly on a proposal, not a bug in this change.
+  const modBadDeltaNewDirectCost = Object.values(modifications).reduce((s: number, mod: any) => {
+    const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
+    if (!li) return s;
+    const qualifies = BAD_CATEGORIES.includes(li.category) || Number(li.labor_cost || 0) > 0;
+    if (!qualifies) return s;
+    const liDirectCost = Number(li.quantity || 0) * (Number(li.material_cost || 0) + Number(li.labor_cost || 0));
+    if (mod.action === 'delete') return s - liDirectCost;
+    if (mod.action === 'edit') {
+      const modDirectCost = Number(mod.quantity ?? li.quantity ?? 0) * (Number(li.material_cost || 0) + Number(li.labor_cost || 0));
+      return s + (modDirectCost - liDirectCost);
+    }
+    return s;
+  }, 0);
+  const coBadQualifyingDirectCostNew = items
+    .filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category))
+    .reduce((s, i) => s + Number(i.quantity || 0) * Number(i.material_cost || 0), 0);
+  const modBadDeltaNew = calcContingencyReserve(modBadDeltaNewDirectCost, effectiveBadRate);
+  const coBadDeltaNew = calcContingencyReserve(coBadQualifyingDirectCostNew, effectiveBadRate);
+
+  const modBadDelta = usesNewBadModel ? modBadDeltaNew : modBadDeltaOld;
+  const coBadDelta = usesNewBadModel ? coBadDeltaNew : coBadDeltaOld;
   const liveBad = Math.round((originalBad + modBadDelta + coBadDelta) * 100) / 100;
 
   // Tax — ADDITIVE: keep the original proposal's tax and only ADD the zip rate (e.g.

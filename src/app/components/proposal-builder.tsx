@@ -24,7 +24,8 @@ import {
 } from "./ui/select";
 import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check, Percent } from "lucide-react";
 import { Switch } from "./ui/switch";
-import { clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, estimatesAPI, activityLogAPI } from "../utils/api";
+import { clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, estimatesAPI, activityLogAPI, companySettingsAPI } from "../utils/api";
+import { calcBadQualifyingDirectCost, calcContingencyReserve } from "../utils/financials";
 import { TemplateWizard } from "./wizards/template-wizard";
 import { ConcreteWizard } from "./wizards/concrete-wizard"; // legacy fallback
 import { toast } from "sonner";
@@ -99,6 +100,17 @@ export function ProposalBuilder() {
 
   useEffect(() => { loadProducts(); }, []);
   useRealtimeRefetch(loadProducts, ["products_services", "service_categories", "estimate_templates"], "proposal-builder");
+
+  // Every proposal created through this builder is a brand-new proposal, so it always
+  // gets the new BAD/contingency model (Jonathan, Sep 7 2026: "make this for new
+  // proposals going forward"). This is the one place `bad_rate` gets set at all —
+  // existing proposals in the DB have it NULL forever and never pick up this model.
+  const [defaultBadRate, setDefaultBadRate] = useState<number>(1.5);
+  useEffect(() => {
+    companySettingsAPI.get().then((s: any) => {
+      if (s?.default_bad_rate != null) setDefaultBadRate(Number(s.default_bad_rate));
+    }).catch(() => {});
+  }, []);
 
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalDescription, setProposalDescription] = useState("");
@@ -413,9 +425,11 @@ export function ProposalBuilder() {
     try {
       const subtotalVal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
       const totalCostVal = lineItems.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0);
-      const revenueVal = subtotalVal + (hasBad ? badPrice : 0);
-      const grossProfitVal = revenueVal - totalCostVal;
-      const profitMarginVal = revenueVal > 0 ? (grossProfitVal / revenueVal) * 100 : 0;
+      // BAD no longer counts toward revenue/GP for new proposals — Jonathan, Sep 6-7 2026.
+      // It's still part of what the client pays (see preStripeVal below), just tracked
+      // separately as contingency_reserve instead of inflating profit.
+      const grossProfitVal = subtotalVal - totalCostVal;
+      const profitMarginVal = subtotalVal > 0 ? (grossProfitVal / subtotalVal) * 100 : 0;
 
       const taxableVal = lineItems
         .filter((item) => item.salesTaxApplicable)
@@ -443,6 +457,11 @@ export function ProposalBuilder() {
         gross_profit: grossProfitVal,
         profit_margin: profitMarginVal,
         bad_amount: hasBad && badPrice > 0 ? badPrice : null,
+        // Marks this as a "new model" proposal forever — see migration 121 and
+        // financials.ts. Only set here, at creation; never backfilled onto old rows.
+        bad_rate: defaultBadRate,
+        contingency_reserve: hasBad ? badPrice : 0,
+        contingency_consumed: 0,
         discount_type: discountType,
         discount_percentage: discountType === "percent" ? discountValue : 0,
         discount_amount: discountAmtVal,
@@ -512,13 +531,13 @@ export function ProposalBuilder() {
     .reduce((sum, item) => sum + (item.quantity * item.materialCost), 0);
   const tax = taxEnabled ? taxableMaterials * (taxRate / 100) : 0;
 
-  // Base, Aggregate & Disposal — 1.5% of qualifying scope subtotals, markup follows globalMarkupPct or defaults to 50%
-  const badQualifyingSubtotal = lineItems
-    .filter((item) => BAD_CATEGORIES.includes(item.category) || item.laborCost > 0)
-    .reduce((sum, item) => sum + item.totalPrice, 0);
-  const badCost = badQualifyingSubtotal * 0.015;
-  const badMarkupFactor = globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5;
-  const badPriceAuto = badCost * badMarkupFactor;
+  // Base, Aggregate & Disposal — new proposals only (this builder always creates new
+  // ones): rate x qualifying DIRECT COST, not price. Same figure serves as both the
+  // client-facing bad_amount and the internal contingency_reserve — see financials.ts.
+  const badQualifyingDirectCost = calcBadQualifyingDirectCost(
+    lineItems.map((item) => ({ category: item.category, quantity: item.quantity, material_cost: item.materialCost, labor_cost: item.laborCost }))
+  );
+  const badPriceAuto = calcContingencyReserve(badQualifyingDirectCost, defaultBadRate);
   const badPrice = badOverride !== null ? badOverride : badPriceAuto;
   const hasBad = badPriceAuto > 0;
 

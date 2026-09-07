@@ -10,6 +10,7 @@ import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { Checkbox } from "./ui/checkbox";
 import {
   ArrowLeft,
   Save,
@@ -40,8 +41,8 @@ import {
   Percent,
 } from "lucide-react";
 import { Switch } from "./ui/switch";
-import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI } from "../utils/api";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates } from "../utils/financials";
+import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve } from "../utils/financials";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
@@ -54,6 +55,8 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogBody,
+  DialogFooter,
   DialogTitle,
 } from "./ui/dialog";
 import {
@@ -211,6 +214,24 @@ export function ProposalDetail() {
   const [stripeFeeEnabled, setStripeFeeEnabled] = useState(false);
   const [showSavingsDialog, setShowSavingsDialog] = useState(false);
   const [showFinancials, setShowFinancials] = useState(false);
+  const [commissionExcluded, setCommissionExcluded] = useState(false);
+  // pricing_mode: 'visibility' (default, markup on direct cost) or 'burdened' (markup on
+  // direct cost + overhead). Ships defaulting to visibility on every proposal — never
+  // silently switches. Jonathan, original spec: enabling burdened raises client pricing
+  // ~29%, must only happen via explicit admin action, never automatically.
+  const [pricingMode, setPricingMode] = useState<"visibility" | "burdened">("visibility");
+  const [overheadBurdenInput, setOverheadBurdenInput] = useState("0");
+  // PM labor hours — same conceptual role as material_cost/labor_cost, flows into direct
+  // cost. hourly_rate is captured per-line at entry time (see migration 123) so a later
+  // company-default change never retroactively alters an already-saved proposal.
+  type PmLaborItem = { id: string; description: string; hours: number; hourly_rate: number };
+  const [pmLaborItems, setPmLaborItems] = useState<PmLaborItem[]>([]);
+  const [defaultPmHourlyRate, setDefaultPmHourlyRate] = useState(0);
+  const [pmRateLoaded, setPmRateLoaded] = useState(false);
+  const [newPmDescription, setNewPmDescription] = useState("");
+  const [newPmHours, setNewPmHours] = useState("");
+  const [savingPmLabor, setSavingPmLabor] = useState(false);
+  const [savingFinancialSetting, setSavingFinancialSetting] = useState<"commission" | "visibility" | "burdened" | "overhead" | null>(null);
 
   useEffect(() => {
     productsAPI.getCategories().then(setDbCategories).catch(console.error);
@@ -249,6 +270,16 @@ export function ProposalDetail() {
       setDiscountValue(dtype === "fixed" ? (est.discount_amount ?? 0) : (est.discount_percentage ?? 0));
       setDiscountLabel(est.discount_label ?? "");
       setStripeFeeEnabled(est.stripe_fee_enabled ?? false);
+      setCommissionExcluded(est.commission_excluded ?? false);
+      setPricingMode(est.pricing_mode === "burdened" ? "burdened" : "visibility");
+      setOverheadBurdenInput(String(est.overhead_burden ?? 0));
+      if (est?.id) {
+        Promise.resolve(supabase.from("estimate_pm_labor_items").select("id, description, hours, hourly_rate").eq("estimate_id", est.id).order("sort_order"))
+          .then(({ data }: any) => setPmLaborItems((data ?? []) as PmLaborItem[])).catch(() => setPmLaborItems([]));
+      }
+      companySettingsAPI.get().then((s: any) => {
+        if (s?.default_pm_hourly_rate != null) setDefaultPmHourlyRate(Number(s.default_pm_hourly_rate));
+      }).catch(() => {}).finally(() => setPmRateLoaded(true));
       const savedTaxEnabled = est.wizard_inputs?._taxEnabled;
       setTaxEnabled(savedTaxEnabled !== undefined ? savedTaxEnabled : (est.tax_label !== null || (est.tax_amount ?? 0) > 0));
       const savedMarkup = est.wizard_inputs?._markupPct ?? null;
@@ -386,14 +417,31 @@ export function ProposalDetail() {
   const computedSubtotal = isDirty
     ? editLineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.client_price)), 0)
     : (proposal?.subtotal ?? 0);
+  // Which BAD/GP formula applies is decided ONCE, by whether this proposal already has a
+  // bad_rate — never by its current status. Jonathan, Sep 7 2026: "don't affect sold,
+  // active or completed jobs... make this for new proposals going forward." Proposals
+  // created before migration 121 have bad_rate = NULL forever and keep this exact
+  // original formula untouched; only proposals created after it (via proposal-builder.tsx,
+  // which always sets bad_rate) use the new direct-cost/contingency model below.
+  const usesNewBadModel = proposal?.bad_rate != null;
+
   const badQualifyingSubtotal = editLineItems
     .filter((item) => BAD_CATEGORIES.includes(item.category) || Number(item.labor_cost ?? 0) > 0)
     .reduce((sum, item) => sum + Number(item.quantity) * Number(item.client_price), 0);
   // When global markup has been applied to item prices, markup is already in the qualifying subtotal.
   // Only apply the extra factor when items haven't been updated (legacy / no global apply).
   const badMarkupFactor = globalMarkupApplied ? 1.0 : (globalMarkupPct !== null ? (1 + globalMarkupPct / 100) : 1.5);
-  const badPriceAuto = Math.round(badQualifyingSubtotal * 0.015 * badMarkupFactor * 100) / 100;
+  const badPriceAutoOld = Math.round(badQualifyingSubtotal * 0.015 * badMarkupFactor * 100) / 100;
+
+  const badQualifyingDirectCost = calcBadQualifyingDirectCost(
+    editLineItems.map((item) => ({ category: item.category, quantity: item.quantity, material_cost: item.material_cost, labor_cost: item.labor_cost }))
+  );
+  const effectiveBadRate = proposal?.bad_rate ?? 1.5;
+  const badPriceAutoNew = calcContingencyReserve(badQualifyingDirectCost, effectiveBadRate);
+
+  const badPriceAuto = usesNewBadModel ? badPriceAutoNew : badPriceAutoOld;
   const activeBad = badOverride !== null ? badOverride : (isDirty ? badPriceAuto : (proposal?.bad_amount ?? 0));
+  const activeContingencyReserve = usesNewBadModel ? (badOverride !== null ? badOverride : badPriceAuto) : 0;
   // Scale tax proportionally with subtotal changes (preserves $0 tax for unknown zip)
   const origSubtotal = proposal?.subtotal || 0;
   const taxRatio = origSubtotal > 0 ? ((proposal?.tax_amount ?? 0) > 0 ? (proposal.tax_amount ?? 0) : 0) / origSubtotal : 0;
@@ -405,12 +453,17 @@ export function ProposalDetail() {
   const preStripeTotal = computedSubtotal + activeBad + activeTax - discountAmt;
   const stripeFeeAmt = stripeFeeEnabled ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100 : 0;
   const computedTotal = preStripeTotal + stripeFeeAmt;
+  const pmLaborTotalCost = pmLaborItems.reduce((sum, it) => sum + Number(it.hours) * Number(it.hourly_rate), 0);
   const computedTotalCost = editLineItems.reduce(
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
-  );
-  // BAD adds to profit; Tax does not — confirmed Jonathan Jul 21
-  const computedRevenueForGP = computedTotal - activeTax;
+  ) + pmLaborTotalCost;
+  // Old proposals (bad_rate NULL): BAD adds to profit; Tax does not — confirmed Jonathan
+  // Jul 21, untouched forever. New proposals (bad_rate set): BAD no longer counts toward
+  // GP at all — it's still part of what the client pays (computedTotal above), just
+  // tracked separately as contingency_reserve instead of inflating profit — confirmed
+  // Jonathan Sep 6-7 2026.
+  const computedRevenueForGP = usesNewBadModel ? computedSubtotal : computedTotal - activeTax;
   const computedGrossProfit = computedRevenueForGP - computedTotalCost;
   const computedProfitMargin = computedRevenueForGP > 0 ? (computedGrossProfit / computedRevenueForGP) * 100 : 0;
 
@@ -430,7 +483,23 @@ export function ProposalDetail() {
   // was found still computing it off GP. Do not change this basis without his explicit sign-off.
   const finPmCommission      = calcPmCommission(computedGrossProfit, finPmRate);
   const finSalesRepCommission = calcSalesRepCommission(computedSubtotal, finSalesRepRate);
-  const finTotalCommission   = finPmCommission + finSalesRepCommission;
+  // When excluded, individual PM/Sales Rep lines still display what they WOULD be (shown
+  // struck-through in the modal) so admin can see the number, but nothing is counted toward
+  // the total or net_after_commission.
+  const finTotalCommission   = commissionExcluded ? 0 : finPmCommission + finSalesRepCommission;
+
+  // Internal-only burden/net figures — never shown to sales_rep role or on any
+  // client-facing view. pricing_mode does NOT change what the client is charged in this
+  // pass — it only changes which cost base these internal figures report against. Wiring
+  // pricing_mode into the actual live markup/pricing engine is a separate, higher-risk
+  // change deliberately not made here without Jonathan's explicit direction, per his own
+  // warning that enabling burdened changes real client pricing ~29%.
+  const overheadBurdenVal = parseFloat(overheadBurdenInput) || 0;
+  const finBurdenedCost = computedTotalCost + overheadBurdenVal;
+  const finMarkupBase = pricingMode === "burdened" ? finBurdenedCost : computedTotalCost;
+  const finNetGp = computedGrossProfit - overheadBurdenVal;
+  const finNetMarginPct = computedRevenueForGP > 0 ? (finNetGp / computedRevenueForGP) * 100 : 0;
+  const finNetAfterCommission = finNetGp - finTotalCommission;
 
   const updateQty = (idx: number, qty: number) => {
     setEditLineItems((prev) =>
@@ -513,8 +582,21 @@ export function ProposalDetail() {
     const wizTaxRatio = wizOrigSubtotal > 0 ? (proposal.tax_amount ?? 0) / wizOrigSubtotal : 0;
     const wizTax = Math.round(newSubtotal * wizTaxRatio * 100) / 100;
     const newTotal = newSubtotal + wizBad + wizTax;
-    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax }).eq("id", proposal.id);
-    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
+    // total_cost/gross_profit/profit_margin were previously left stale by this quick-save
+    // path (never included in the payload below) — fixed Sep 7 2026. Mirrors handleSave's
+    // formula, including the old-vs-new BAD model branch.
+    const newTotalCost = updatedItems.reduce(
+      (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
+      0
+    );
+    const newRevenueForGP = usesNewBadModel ? newSubtotal : newTotal - wizTax;
+    const newGrossProfit = newRevenueForGP - newTotalCost;
+    const newProfitMargin = newRevenueForGP > 0 ? (newGrossProfit / newRevenueForGP) * 100 : 0;
+    await supabase.from("estimates").update({
+      subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax,
+      total_cost: newTotalCost, gross_profit: newGrossProfit, profit_margin: newProfitMargin,
+    }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal, total_cost: newTotalCost, gross_profit: newGrossProfit, profit_margin: newProfitMargin }));
 
     // Save wizard inputs so we can pre-fill next time
     if (formData) {
@@ -587,6 +669,11 @@ export function ProposalDetail() {
     const newPreStripe = newSubtotal + newBad + newTax - newDiscountAmt;
     const newStripeFee = stripeFeeEnabled ? Math.round((newPreStripe * 0.029 + 0.30) * 100) / 100 : 0;
     const newTotal = newPreStripe + newStripeFee;
+    // gross_profit/profit_margin were previously left stale here (total_cost was updated
+    // but not these two) — fixed Sep 7 2026. Mirrors handleSave's formula.
+    const newRevenueForGP = usesNewBadModel ? newSubtotal : newTotal - newTax;
+    const newGrossProfit = newRevenueForGP - newTotalCost;
+    const newProfitMargin = newRevenueForGP > 0 ? (newGrossProfit / newRevenueForGP) * 100 : 0;
     setEditLineItems(remainingItems);
     setSectionOrder((prev) => prev.filter((c) => c !== cat));
     const updatedCustomSections = customSections.filter((s) => s !== cat);
@@ -599,9 +686,11 @@ export function ProposalDetail() {
       subtotal: newSubtotal,
       total: newTotal,
       total_cost: newTotalCost,
+      gross_profit: newGrossProfit,
+      profit_margin: newProfitMargin,
       wizard_inputs: updatedInputs,
     }).eq("id", proposal.id);
-    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs, subtotal: newSubtotal, total: newTotal, total_cost: newTotalCost }));
+    setProposal((p: any) => ({ ...p, wizard_inputs: updatedInputs, subtotal: newSubtotal, total: newTotal, total_cost: newTotalCost, gross_profit: newGrossProfit, profit_margin: newProfitMargin }));
     setDeletingCat(null);
     toast.success(`"${cat}" section removed.`);
   };
@@ -638,8 +727,21 @@ export function ProposalDetail() {
     const taxRatio = origSubtotal > 0 ? (proposal.tax_amount ?? 0) / origSubtotal : 0;
     const wizTax = Math.round(newSubtotal * taxRatio * 100) / 100;
     const newTotal = newSubtotal + wizBad + wizTax;
-    await supabase.from("estimates").update({ subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax }).eq("id", proposal.id);
-    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal }));
+    // total_cost/gross_profit/profit_margin were previously left stale by this quick-save
+    // path — fixed Sep 7 2026. Mirrors handleSave's formula, including the old-vs-new BAD
+    // model branch.
+    const newTotalCost = updatedItems.reduce(
+      (sum, it) => sum + Number(it.quantity) * (Number(it.material_cost ?? 0) + Number(it.labor_cost ?? 0)),
+      0
+    );
+    const newRevenueForGP = usesNewBadModel ? newSubtotal : newTotal - wizTax;
+    const newGrossProfit = newRevenueForGP - newTotalCost;
+    const newProfitMargin = newRevenueForGP > 0 ? (newGrossProfit / newRevenueForGP) * 100 : 0;
+    await supabase.from("estimates").update({
+      subtotal: newSubtotal, total: newTotal, bad_amount: wizBad, tax_amount: wizTax,
+      total_cost: newTotalCost, gross_profit: newGrossProfit, profit_margin: newProfitMargin,
+    }).eq("id", proposal.id);
+    setProposal((p: any) => ({ ...p, subtotal: newSubtotal, total: newTotal, total_cost: newTotalCost, gross_profit: newGrossProfit, profit_margin: newProfitMargin }));
     if (formData) {
       const updatedInputs = { ...(proposal.wizard_inputs ?? {}), [appendWizardCategory]: formData };
       await supabase.from("estimates").update({ wizard_inputs: updatedInputs }).eq("id", proposal.id);
@@ -664,6 +766,34 @@ export function ProposalDetail() {
     setSectionOrder((prev) => prev.includes(name) ? prev : [...prev, name]);
     setShowNewSectionWizardDialog(false);
     setShowAppendWizard(true);
+  };
+
+  const handleAddPmLaborItem = async () => {
+    if (!proposal?.id) return;
+    const hours = parseFloat(newPmHours) || 0;
+    if (!newPmDescription.trim() || hours <= 0) return;
+    // Guard against the company default rate not having loaded yet — without this, a
+    // fast add right after opening the modal could silently save at rate $0.
+    if (!pmRateLoaded) { toast.error("Still loading the hourly rate — try again in a moment."); return; }
+    setSavingPmLabor(true);
+    const { data, error } = await supabase.from("estimate_pm_labor_items").insert({
+      estimate_id: proposal.id,
+      description: newPmDescription.trim(),
+      hours,
+      hourly_rate: defaultPmHourlyRate,
+      sort_order: pmLaborItems.length,
+    }).select("id, description, hours, hourly_rate").single();
+    setSavingPmLabor(false);
+    if (error) { toast.error("Failed to add PM hours."); return; }
+    setPmLaborItems((prev) => [...prev, data as PmLaborItem]);
+    setNewPmDescription("");
+    setNewPmHours("");
+  };
+
+  const handleRemovePmLaborItem = async (id: string) => {
+    const { error } = await supabase.from("estimate_pm_labor_items").delete().eq("id", id);
+    if (error) { toast.error("Failed to remove PM hours entry."); return; }
+    setPmLaborItems((prev) => prev.filter((it) => it.id !== id));
   };
 
   const isLocked = proposal?.status === "accepted" || proposal?.status === "voided";
@@ -707,6 +837,10 @@ export function ProposalDetail() {
         gross_profit: computedGrossProfit,
         profit_margin: computedProfitMargin,
         bad_amount: activeBad,
+        // contingency_reserve only ever updates for proposals that already have a
+        // bad_rate set (new model) — omitting bad_rate itself here means it's never
+        // written on an existing proposal, so an old proposal can never flip models.
+        ...(usesNewBadModel ? { contingency_reserve: activeContingencyReserve } : {}),
         tax_amount: activeTax,
         tax_label: taxEnabled ? (proposal.tax_label ?? null) : null,
         discount_type: discountType,
@@ -717,6 +851,12 @@ export function ProposalDetail() {
         stripe_fee_amount: stripeFeeAmt,
         category_notes: categoryNotes,
         wizard_inputs: updatedWizardInputs,
+        commission_excluded: commissionExcluded,
+        overhead_burden: overheadBurdenVal,
+        burdened_cost: finBurdenedCost,
+        net_gp: finNetGp,
+        net_margin_pct: finNetMarginPct,
+        net_after_commission: finNetAfterCommission,
       });
       setProposal((p: any) => ({ ...p, wizard_inputs: updatedWizardInputs }));
       // Delete items that were removed from editLineItems
@@ -3262,7 +3402,7 @@ export function ProposalDetail() {
             <DialogTitle>Projected Financials</DialogTitle>
             <DialogDescription>Based on current saved line items</DialogDescription>
           </DialogHeader>
-          <div className="px-6 py-5 space-y-5">
+          <DialogBody className="space-y-5">
 
             {role === "sales_rep" ? (
               <>
@@ -3316,6 +3456,7 @@ export function ProposalDetail() {
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-muted-foreground">Material Cost</span><span>{formatCurrency(finMaterialCost)}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Labor Cost</span><span>{formatCurrency(finLaborCost)}</span></div>
+                    {pmLaborTotalCost > 0 && <div className="flex justify-between"><span className="text-muted-foreground">PM Labor Hours</span><span>{formatCurrency(pmLaborTotalCost)}</span></div>}
                     <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Total Cost</span><span>{formatCurrency(computedTotalCost)}</span></div>
                   </div>
                 </div>
@@ -3334,32 +3475,168 @@ export function ProposalDetail() {
                       <span className="text-muted-foreground">Avg Markup</span>
                       <span className="font-semibold">{finAvgMarkup.toFixed(1)}%</span>
                     </div>
+                    {usesNewBadModel && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Contingency Reserve (BAD, {effectiveBadRate}% of direct cost)</span>
+                        <span className="font-semibold">{formatCurrency(activeContingencyReserve)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Commission</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Commission</p>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                      <Checkbox
+                        checked={commissionExcluded}
+                        onCheckedChange={async (v) => {
+                          const next = v === true;
+                          setCommissionExcluded(next);
+                          if (!proposal?.id) return;
+                          setSavingFinancialSetting("commission");
+                          const { error } = await supabase.from("estimates").update({ commission_excluded: next }).eq("id", proposal.id);
+                          setSavingFinancialSetting(null);
+                          if (error) { toast.error("Failed to save commission setting."); setCommissionExcluded(!next); return; }
+                          setProposal((p: any) => ({ ...p, commission_excluded: next }));
+                        }}
+                        disabled={isLocked || savingFinancialSetting === "commission"}
+                      />
+                      {savingFinancialSetting === "commission" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Exclude from this job"}
+                    </label>
+                  </div>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">PM Commission ({finPmRate}% of GP)</span>
-                      <span>{formatCurrency(finPmCommission)}</span>
+                      <span className={`text-muted-foreground ${commissionExcluded ? "line-through opacity-60" : ""}`}>PM Commission ({finPmRate}% of GP)</span>
+                      <span className={commissionExcluded ? "line-through opacity-60" : ""}>{formatCurrency(finPmCommission)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Sales Rep Commission ({finSalesRepRate}% of subtotal)</span>
-                      <span>{formatCurrency(finSalesRepCommission)}</span>
+                      <span className={`text-muted-foreground ${commissionExcluded ? "line-through opacity-60" : ""}`}>Sales Rep Commission ({finSalesRepRate}% of subtotal)</span>
+                      <span className={commissionExcluded ? "line-through opacity-60" : ""}>{formatCurrency(finSalesRepCommission)}</span>
                     </div>
                     <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5">
-                      <span>Total Commission Pool</span>
+                      <span>Total Commission Pool{commissionExcluded ? " (excluded from job)" : ""}</span>
                       <span>{formatCurrency(finTotalCommission)}</span>
                     </div>
                   </div>
                 </div>
+
+                {/* Internal-only figures — admin role only, never PM, never sales_rep, never
+                    any client-facing view. Not part of the client-facing proposal or PDF. */}
+                {role === "admin" && (
+                  <div className="border-t pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">PM Labor Hours</p>
+                    <div className="space-y-1.5 mb-2">
+                      {pmLaborItems.map((it) => (
+                        <div key={it.id} className="flex items-center justify-between text-xs gap-2">
+                          <span className="truncate flex-1">{it.description}</span>
+                          <span className="text-muted-foreground shrink-0">{it.hours}h × {formatCurrency(it.hourly_rate)}/hr</span>
+                          <span className="shrink-0 font-medium">{formatCurrency(Number(it.hours) * Number(it.hourly_rate))}</span>
+                          {!isLocked && (
+                            <button type="button" className="text-muted-foreground hover:text-destructive shrink-0" onClick={() => handleRemovePmLaborItem(it.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {pmLaborItems.length === 0 && (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5" /> No PM hours logged yet.
+                        </p>
+                      )}
+                    </div>
+                    {!isLocked && (
+                      <div className="flex gap-1.5 mb-1">
+                        <Input placeholder="e.g. Design & layout" className="h-7 text-xs flex-1" value={newPmDescription} onChange={(e) => setNewPmDescription(e.target.value)} />
+                        <Input type="number" min={0} step={0.25} placeholder="Hrs" className="h-7 text-xs w-16" value={newPmHours} onChange={(e) => setNewPmHours(e.target.value)} />
+                        <Button type="button" size="sm" className="h-7 min-w-[52px] text-xs px-2" disabled={savingPmLabor || !pmRateLoaded} onClick={handleAddPmLaborItem}>
+                          <span className="flex items-center justify-center gap-1">
+                            {savingPmLabor ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+                          </span>
+                        </Button>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground mb-3">Rate: {formatCurrency(defaultPmHourlyRate)}/hr (company default, captured per entry). Total: {formatCurrency(pmLaborTotalCost)} — flows into direct cost above.</p>
+
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Internal Only — Admin</p>
+                      <div className="flex rounded-md border overflow-hidden text-xs">
+                        <button
+                          type="button"
+                          className={`px-2.5 py-1 flex items-center gap-1 ${pricingMode === "visibility" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground"}`}
+                          disabled={isLocked || savingFinancialSetting === "visibility"}
+                          onClick={async () => {
+                            const prev = pricingMode;
+                            setPricingMode("visibility");
+                            if (!proposal?.id) return;
+                            setSavingFinancialSetting("visibility");
+                            const { error } = await supabase.from("estimates").update({ pricing_mode: "visibility" }).eq("id", proposal.id);
+                            setSavingFinancialSetting(null);
+                            if (error) { toast.error("Failed to save pricing mode."); setPricingMode(prev); return; }
+                            setProposal((p: any) => ({ ...p, pricing_mode: "visibility" }));
+                          }}
+                        >
+                          {savingFinancialSetting === "visibility" && <Loader2 className="h-3 w-3 animate-spin" />}
+                          Visibility
+                        </button>
+                        <button
+                          type="button"
+                          className={`px-2.5 py-1 border-l flex items-center gap-1 ${pricingMode === "burdened" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground"}`}
+                          disabled={isLocked || savingFinancialSetting === "burdened"}
+                          onClick={async () => {
+                            if (pricingMode !== "burdened" && !window.confirm("Switch pricing mode to Burdened? This is an internal reporting setting only in this build — it does not change client pricing yet. Confirm you want this on.")) return;
+                            const prev = pricingMode;
+                            setPricingMode("burdened");
+                            if (!proposal?.id) return;
+                            setSavingFinancialSetting("burdened");
+                            const { error } = await supabase.from("estimates").update({ pricing_mode: "burdened" }).eq("id", proposal.id);
+                            setSavingFinancialSetting(null);
+                            if (error) { toast.error("Failed to save pricing mode."); setPricingMode(prev); return; }
+                            setProposal((p: any) => ({ ...p, pricing_mode: "burdened" }));
+                          }}
+                        >
+                          {savingFinancialSetting === "burdened" && <Loader2 className="h-3 w-3 animate-spin" />}
+                          Burdened
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mb-2">
+                      <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        Overhead Burden ($)
+                        {savingFinancialSetting === "overhead" && <Loader2 className="h-3 w-3 animate-spin" />}
+                      </Label>
+                      <Input
+                        type="number" min={0} step={0.01}
+                        className="h-7 text-xs w-32"
+                        value={overheadBurdenInput}
+                        disabled={isLocked}
+                        onChange={(e) => setOverheadBurdenInput(e.target.value)}
+                        onBlur={async () => {
+                          if (!proposal?.id) return;
+                          setSavingFinancialSetting("overhead");
+                          const { error } = await supabase.from("estimates").update({ overhead_burden: overheadBurdenVal }).eq("id", proposal.id);
+                          setSavingFinancialSetting(null);
+                          if (error) { toast.error("Failed to save overhead burden."); return; }
+                          setProposal((p: any) => ({ ...p, overhead_burden: overheadBurdenVal }));
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Burdened Cost (cost + overhead)</span><span>{formatCurrency(finBurdenedCost)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Markup Base ({pricingMode})</span><span>{formatCurrency(finMarkupBase)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Net GP (after overhead)</span><span>{formatCurrency(finNetGp)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Net Margin %</span><span>{finNetMarginPct.toFixed(1)}%</span></div>
+                      <div className="flex justify-between font-semibold border-t pt-1.5 mt-1.5"><span>Net After Commission</span><span>{formatCurrency(finNetAfterCommission)}</span></div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground">Visible to admin only. Never appears on the client-facing proposal, portal, or any shareable link.</p>
+                  </div>
+                )}
               </>
             )}
 
-          </div>
-          <div className="px-6 py-4 border-t flex justify-end">
+          </DialogBody>
+          <DialogFooter className="px-6 py-4 border-t flex justify-end">
             <Button onClick={() => setShowFinancials(false)}>Close</Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
