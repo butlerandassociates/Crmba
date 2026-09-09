@@ -417,6 +417,24 @@ export function ProposalDetail() {
   const computedSubtotal = isDirty
     ? editLineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.client_price)), 0)
     : (proposal?.subtotal ?? 0);
+
+  // PM labor hours — marked up at the job's markup rate and added to what the client is
+  // charged, so it's billed the same way material/labor cost is, not a cost the company
+  // eats. Jonathan, Sep 8 2026: "please make sure the PM hours are marked up to whatever
+  // the markup is for that particular job so it isn't a cost we're eating." The markup
+  // rate is derived from the line items ALONE (not including PM cost itself) to avoid a
+  // circular calculation — this is "the markup for that job" as already shown to admin as
+  // Avg Markup, computed before PM cost is folded in anywhere.
+  const pmLaborTotalCost = pmLaborItems.reduce((sum, it) => sum + Number(it.hours) * Number(it.hourly_rate), 0);
+  const lineItemsDirectCost = editLineItems.reduce(
+    (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
+    0
+  );
+  const pmLaborMarkupPct = globalMarkupPct !== null
+    ? globalMarkupPct
+    : (lineItemsDirectCost > 0 ? ((computedSubtotal - lineItemsDirectCost) / lineItemsDirectCost) * 100 : 0);
+  const pmLaborMarkedUpValue = Math.round(pmLaborTotalCost * (1 + pmLaborMarkupPct / 100) * 100) / 100;
+
   // Which BAD/GP formula applies is decided ONCE, by whether this proposal already has a
   // bad_rate — never by its current status. Jonathan, Sep 7 2026: "don't affect sold,
   // active or completed jobs... make this for new proposals going forward." Proposals
@@ -450,10 +468,9 @@ export function ProposalDetail() {
   const discountAmt = discountType === "percent"
     ? Math.round(computedSubtotal * discountValue / 100 * 100) / 100
     : Math.min(discountValue, computedSubtotal);
-  const preStripeTotal = computedSubtotal + activeBad + activeTax - discountAmt;
+  const preStripeTotal = computedSubtotal + activeBad + pmLaborMarkedUpValue + activeTax - discountAmt;
   const stripeFeeAmt = stripeFeeEnabled ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100 : 0;
   const computedTotal = preStripeTotal + stripeFeeAmt;
-  const pmLaborTotalCost = pmLaborItems.reduce((sum, it) => sum + Number(it.hours) * Number(it.hourly_rate), 0);
   const computedTotalCost = editLineItems.reduce(
     (sum, item) => sum + Number(item.quantity) * (Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)),
     0
@@ -462,15 +479,19 @@ export function ProposalDetail() {
   // Jul 21, untouched forever. New proposals (bad_rate set): BAD no longer counts toward
   // GP at all — it's still part of what the client pays (computedTotal above), just
   // tracked separately as contingency_reserve instead of inflating profit — confirmed
-  // Jonathan Sep 6-7 2026.
-  const computedRevenueForGP = usesNewBadModel ? computedSubtotal : computedTotal - activeTax;
+  // Jonathan Sep 6-7 2026. Either way, PM labor's marked-up value DOES count toward
+  // revenue/GP in both models — it's real billed revenue, not internal-only like BAD's
+  // new-model treatment.
+  const computedRevenueForGP = usesNewBadModel ? (computedSubtotal + pmLaborMarkedUpValue) : computedTotal - activeTax;
   const computedGrossProfit = computedRevenueForGP - computedTotalCost;
   const computedProfitMargin = computedRevenueForGP > 0 ? (computedGrossProfit / computedRevenueForGP) * 100 : 0;
 
   // Financials breakdown
   const finMaterialCost      = editLineItems.reduce((s, i) => s + Number(i.material_cost ?? 0) * Number(i.quantity ?? 0), 0);
   const finLaborCost         = editLineItems.reduce((s, i) => s + Number(i.labor_cost ?? 0) * Number(i.quantity ?? 0), 0);
-  const finAvgMarkup         = computedTotalCost > 0 ? ((computedSubtotal - computedTotalCost) / computedTotalCost) * 100 : 0;
+  // Same line-items-only basis as pmLaborMarkupPct — kept in sync deliberately so "the
+  // markup for that job" always means the same number everywhere it's shown or used.
+  const finAvgMarkup         = pmLaborMarkupPct;
   const { pmRate: finPmRate, salesRepRate: finSalesRepRate } = resolveEffectiveCommissionRates({
     project: clientProject
       ? { pmCommissionRate: clientProject.pmCommissionRate, salesRepCommissionRate: clientProject.salesRepCommissionRate }
@@ -771,7 +792,11 @@ export function ProposalDetail() {
   const handleAddPmLaborItem = async () => {
     if (!proposal?.id) return;
     const hours = parseFloat(newPmHours) || 0;
-    if (!newPmDescription.trim() || hours <= 0) return;
+    // Previously a silent no-op when either field was missing — Jonathan hit this
+    // exact case (filled in hours, left description blank) with zero feedback that
+    // anything was wrong. Fixed to always tell the user why nothing happened.
+    if (!newPmDescription.trim()) { toast.error("Please enter a description for the PM hours entry."); return; }
+    if (hours <= 0) { toast.error("Please enter the number of hours."); return; }
     // Guard against the company default rate not having loaded yet — without this, a
     // fast add right after opening the modal could silently save at rate $0.
     if (!pmRateLoaded) { toast.error("Still loading the hourly rate — try again in a moment."); return; }
@@ -3445,6 +3470,7 @@ export function ProposalDetail() {
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(computedSubtotal)}</span></div>
                     {activeBad > 0 && <div className="flex justify-between"><span className="text-muted-foreground">BAD</span><span>{formatCurrency(activeBad)}</span></div>}
+                    {pmLaborMarkedUpValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">PM Labor ({pmLaborMarkupPct.toFixed(1)}% markup)</span><span>{formatCurrency(pmLaborMarkedUpValue)}</span></div>}
                     {activeTax > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(activeTax)}</span></div>}
                     {discountAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-green-600">− {formatCurrency(discountAmt)}</span></div>}
                     {stripeFeeAmt > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Stripe Fee</span><span>{formatCurrency(stripeFeeAmt)}</span></div>}
@@ -3555,7 +3581,7 @@ export function ProposalDetail() {
                         </Button>
                       </div>
                     )}
-                    <p className="text-[10px] text-muted-foreground mb-3">Rate: {formatCurrency(defaultPmHourlyRate)}/hr (company default, captured per entry). Total: {formatCurrency(pmLaborTotalCost)} — flows into direct cost above.</p>
+                    <p className="text-[10px] text-muted-foreground mb-3">Rate: {formatCurrency(defaultPmHourlyRate)}/hr (company default, captured per entry). Cost: {formatCurrency(pmLaborTotalCost)}, marked up {pmLaborMarkupPct.toFixed(1)}% to {formatCurrency(pmLaborMarkedUpValue)} — billed to the client, not absorbed as a cost.</p>
 
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Internal Only — Admin</p>

@@ -562,7 +562,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                     <p className="text-xs text-orange-600 mt-1">{overheadPct}% of revenue</p>
                   </div>
                   <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                    <p className="text-sm text-purple-700 font-medium mb-1">True Gross Profit</p>
+                    <p className="text-sm text-purple-700 font-medium mb-1">Net Profit</p>
                     <p className="text-xl font-bold text-purple-900">{formatCurrency(trueGrossProfit)}</p>
                     <p className="text-xs text-purple-600 mt-1">{trueGrossPct}% of revenue</p>
                   </div>
@@ -721,7 +721,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                           <span className="font-semibold text-orange-600">-{formatCurrency(totalOverhead)}</span>
                         </div>
                         <div className="border-t border-gray-300 pt-2 flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">True Gross Profit</span>
+                          <span className="font-semibold text-gray-900">Net Profit</span>
                           <span className="font-bold text-purple-600 text-lg">{formatCurrency(trueGrossProfit)}</span>
                         </div>
                       </div>
