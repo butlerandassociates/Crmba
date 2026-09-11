@@ -262,6 +262,7 @@ export function EmailTemplatesDialog({
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            body4El = q("proposal-page-body-4"), body5El = q("proposal-page-body-5"),
             ftrEl = q("proposal-page-footer"), colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !ftrEl || !colHdrEl) return null;
 
@@ -278,6 +279,14 @@ export function EmailTemplatesDialog({
       const groupStartsPx3: number[] = body3El ? Array.from(
         body3El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
       ).map((el) => Math.round((el.getBoundingClientRect().top - body3El.getBoundingClientRect().top) * SCALE)) : [];
+
+      const groupStartsPx4: number[] = body4El ? Array.from(
+        body4El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
+      ).map((el) => Math.round((el.getBoundingClientRect().top - body4El.getBoundingClientRect().top) * SCALE)) : [];
+
+      const groupStartsPx5: number[] = body5El ? Array.from(
+        body5El.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>
+      ).map((el) => Math.round((el.getBoundingClientRect().top - body5El.getBoundingClientRect().top) * SCALE)) : [];
 
       // Capture header/footer/body1/colHeader first so we can size body2 to fill the page slot
       const [hdrC, body1C, ftrC, colC] = await Promise.all([
@@ -299,9 +308,11 @@ export function EmailTemplatesDialog({
       const slot = pageH - hdrH - ftrH;
       const slotFull = slot - 2 * PAD, slotCol = slot - colH - COL_GAP - 2 * PAD;
 
-      const [body2C, body3C] = await Promise.all([
+      const [body2C, body3C, body4C, body5C] = await Promise.all([
         body2El ? html2canvas(body2El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
         body3El ? html2canvas(body3El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body4El ? html2canvas(body4El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body5El ? html2canvas(body5El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const hImg = hdrC.toDataURL("image/jpeg", 0.97);
@@ -383,7 +394,9 @@ export function EmailTemplatesDialog({
 
       const p1 = renderPages(body1C, true, 0);
       const p2 = body2C ? renderPages(body2C, false, p1, groupStartsPx2) : p1;
-      if (body3C) renderPages(body3C, false, p2, groupStartsPx3);
+      const p3 = body3C ? renderPages(body3C, false, p2, groupStartsPx3) : p2;
+      const p4 = body4C ? renderPages(body4C, false, p3, groupStartsPx4) : p3;
+      if (body5C) renderPages(body5C, false, p4, groupStartsPx5);
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
       console.error("PDF generation error:", err);

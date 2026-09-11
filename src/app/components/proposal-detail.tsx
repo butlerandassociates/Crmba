@@ -93,6 +93,7 @@ export function ProposalDetail() {
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [regeneratingPdf, setRegeneratingPdf] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -369,6 +370,9 @@ export function ProposalDetail() {
 
   useEffect(() => {
     if (showPreview && proposal) {
+      // Already-sent proposals show the exact stored PDF, never a live re-render —
+      // whatever design went out with a sent proposal is what stays associated with it.
+      if (proposal.status !== "draft" && proposal.pdf_url) return;
       setPreviewPages([]);
       generatePreviewImages();
     }
@@ -961,7 +965,10 @@ export function ProposalDetail() {
       }
       // Regen PDF when a sent proposal is edited so portal clients see the updated version
       if (proposal.status === "sent" || proposal.status === "opened") {
-        saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
+        saveProposalPdfOnSend(proposal.id, proposal.client_id).catch((err) => {
+          console.error("[proposal-pdf] regen on edit failed:", err);
+          toast.error("Proposal saved, but the updated PDF failed to save — client's downloaded copy may be out of date.");
+        });
       }
       toast.success("Proposal saved.");
     } catch (err: any) {
@@ -1068,6 +1075,8 @@ export function ProposalDetail() {
       let   groupsEndCanvasPx = -1;
       const groupStartsCanvasPx2: number[] = [];
       const groupStartsCanvasPx3: number[] = [];
+      const groupStartsCanvasPx4: number[] = [];
+      const groupStartsCanvasPx5: number[] = [];
       const baseOpts = {
         scale: SCALE,
         useCORS: true,
@@ -1101,6 +1110,18 @@ export function ProposalDetail() {
               groupStartsCanvasPx3.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
             });
           }
+          if (el.id === "proposal-page-body-4") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              groupStartsCanvasPx4.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
+          if (el.id === "proposal-page-body-5") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              groupStartsCanvasPx5.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
         },
       };
 
@@ -1109,6 +1130,8 @@ export function ProposalDetail() {
       const body1El  = q("proposal-page-body");
       const body2El  = q("proposal-page-body-2");
       const body3El  = q("proposal-page-body-3");
+      const body4El  = q("proposal-page-body-4");
+      const body5El  = q("proposal-page-body-5");
       const lastFtrEl = q("proposal-last-footer");
       const colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !colHdrEl) return null;
@@ -1140,9 +1163,11 @@ export function ProposalDetail() {
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
-      const [body2Canvas, body3Canvas] = await Promise.all([
+      const [body2Canvas, body3Canvas, body4Canvas, body5Canvas] = await Promise.all([
         body2El ? html2canvas(body2El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
         body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body4El ? html2canvas(body4El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.97);
@@ -1233,8 +1258,10 @@ export function ProposalDetail() {
       };
 
       const nextPage  = renderBodyPages(body1Canvas, true, 0);
-      const nextPage2 = body2Canvas ? renderBodyPages(body2Canvas, false, nextPage, groupStartsCanvasPx2) : nextPage;
-      if (body3Canvas) renderBodyPages(body3Canvas, false, nextPage2, groupStartsCanvasPx3, -1);
+      const nextPage2 = body2Canvas ? renderBodyPages(body2Canvas, false, nextPage, groupStartsCanvasPx2, -1) : nextPage;
+      const nextPage3 = body3Canvas ? renderBodyPages(body3Canvas, false, nextPage2, groupStartsCanvasPx3, -1) : nextPage2;
+      const nextPage4 = body4Canvas ? renderBodyPages(body4Canvas, false, nextPage3, groupStartsCanvasPx4, -1) : nextPage3;
+      if (body5Canvas) renderBodyPages(body5Canvas, false, nextPage4, groupStartsCanvasPx5, -1);
 
       if (lastFtrImg) pdf.addImage(lastFtrImg, "JPEG", 0, pageH - lastFtrH, pageW, lastFtrH);
 
@@ -1245,7 +1272,31 @@ export function ProposalDetail() {
     }
   };
 
+  // Once a proposal has been sent (any status past draft), Preview and Download both
+  // show the exact stored PDF the client received — never a live re-render, which would
+  // silently apply whatever the current template looks like to an already-sent proposal.
+  // Only draft (not-yet-sent) proposals render live from the current template.
+  const isAlreadySent = proposal?.status !== "draft";
+
   const handleDownload = async () => {
+    if (isAlreadySent && proposal.pdf_url) {
+      setDownloading(true);
+      try {
+        const res = await fetch(proposal.pdf_url);
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `Estimate-${proposal.estimate_number ?? ""}-${proposal.title ?? "Proposal"}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
+      } catch {
+        window.open(proposal.pdf_url, "_blank");
+      } finally {
+        setDownloading(false);
+      }
+      return;
+    }
     const container = document.getElementById("proposal-export-content");
     if (!container) return;
     setDownloading(true);
@@ -1267,17 +1318,37 @@ export function ProposalDetail() {
 
   const saveProposalPdfOnSend = async (proposalId: string, clientId: string): Promise<void> => {
     const container = document.getElementById("proposal-export-content");
-    if (!container) return;
+    if (!container) throw new Error("PDF export content not found on page");
     const pdf = await buildProposalPdf(container);
-    if (!pdf) return;
+    if (!pdf) throw new Error("PDF generation failed");
     const blob = pdf.output("blob");
     const path = `${clientId}/proposals/${proposalId}.pdf`;
     const { error: uploadErr } = await supabase.storage
       .from("client-files")
       .upload(path, blob, { contentType: "application/pdf", upsert: true });
-    if (uploadErr) { console.error("[portal-pdf] upload failed:", uploadErr.message); return; }
+    if (uploadErr) throw new Error(`PDF upload failed: ${uploadErr.message}`);
     const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
-    await supabase.from("estimates").update({ pdf_url: publicUrl }).eq("id", proposalId);
+    const { error: updateErr } = await supabase.from("estimates").update({ pdf_url: publicUrl }).eq("id", proposalId);
+    if (updateErr) throw new Error(`Saving pdf_url failed: ${updateErr.message}`);
+  };
+
+  // Repairs a sent proposal that never got a stored PDF (e.g. the send-time generation
+  // silently failed in the past). Only ever shown when pdf_url is genuinely missing —
+  // never used to "refresh" a proposal that already has its original stored PDF, since
+  // that original is what the client actually received and must stay untouched.
+  const handleRegeneratePdf = async () => {
+    setRegeneratingPdf(true);
+    try {
+      await saveProposalPdfOnSend(proposal.id, proposal.client_id);
+      const fresh = await estimatesAPI.getById(proposal.id);
+      setProposal(fresh);
+      toast.success("PDF generated and saved.");
+    } catch (err: any) {
+      console.error("[proposal-pdf] manual regenerate failed:", err);
+      toast.error(`PDF generation failed: ${err?.message ?? "unknown error"}`);
+    } finally {
+      setRegeneratingPdf(false);
+    }
   };
 
   const generatePreviewImages = async () => {
@@ -1301,6 +1372,8 @@ export function ProposalDetail() {
       let   previewGroupsEndPx = -1;
       const previewGroupStartsPx2: number[] = [];
       const previewGroupStartsPx3: number[] = [];
+      const previewGroupStartsPx4: number[] = [];
+      const previewGroupStartsPx5: number[] = [];
       const h2cOpts = {
         scale: SCALE, useCORS: true, allowTaint: false, logging: false,
         imageTimeout: 10000, removeContainer: true,
@@ -1330,12 +1403,25 @@ export function ProposalDetail() {
               previewGroupStartsPx3.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
             });
           }
+          if (el.id === "proposal-page-body-4") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              previewGroupStartsPx4.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
+          if (el.id === "proposal-page-body-5") {
+            const bodyRect = el.getBoundingClientRect();
+            Array.from(el.querySelectorAll("[data-group]") as NodeListOf<HTMLElement>).forEach((g) => {
+              previewGroupStartsPx5.push(Math.round((g.getBoundingClientRect().top - bodyRect.top) * SCALE));
+            });
+          }
         },
       };
 
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            body4El = q("proposal-page-body-4"), body5El = q("proposal-page-body-5"),
             lastFtrElPrev = q("proposal-last-footer"),
             colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !colHdrEl) return;
@@ -1363,9 +1449,11 @@ export function ProposalDetail() {
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
-      const [body2C, body3C] = await Promise.all([
+      const [body2C, body3C, body4C, body5C] = await Promise.all([
         body2El ? html2canvas(body2El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
         body3El ? html2canvas(body3El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body4El ? html2canvas(body4El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body5El ? html2canvas(body5El, { ...h2cOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
@@ -1454,8 +1542,10 @@ export function ProposalDetail() {
       };
 
       renderToPages(body1C, true);
-      if (body2C) renderToPages(body2C, false, previewGroupStartsPx2);
+      if (body2C) renderToPages(body2C, false, previewGroupStartsPx2, -1);
       if (body3C) renderToPages(body3C, false, previewGroupStartsPx3, -1);
+      if (body4C) renderToPages(body4C, false, previewGroupStartsPx4, -1);
+      if (body5C) renderToPages(body5C, false, previewGroupStartsPx5, -1);
 
       // Draw last-page footer (dark bar + thank you) on the very last preview page
       if (lastFtrC && pages.length > 0) {
@@ -1605,6 +1695,7 @@ export function ProposalDetail() {
       const q = (id: string) => container.querySelector(`[id="${id}"]`) as HTMLElement | null;
       const hdrEl = q("proposal-page-header"), body1El = q("proposal-page-body"),
             body2El = q("proposal-page-body-2"), body3El = q("proposal-page-body-3"),
+            body4El = q("proposal-page-body-4"), body5El = q("proposal-page-body-5"),
             lastFtrEl_b64 = q("proposal-last-footer"),
             colHdrEl = q("proposal-col-header");
       if (!hdrEl || !body1El || !colHdrEl) return null;
@@ -1635,9 +1726,11 @@ export function ProposalDetail() {
       const slotFull = slot - 2 * PAD;
       const slotCol  = slot - colH - COL_GAP - 2 * PAD;
 
-      const [body2Canvas, body3Canvas] = await Promise.all([
+      const [body2Canvas, body3Canvas, body4Canvas, body5Canvas] = await Promise.all([
         body2El ? html2canvas(body2El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
         body3El ? html2canvas(body3El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body4El ? html2canvas(body4El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
+        body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
       const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.97);
@@ -1680,7 +1773,9 @@ export function ProposalDetail() {
 
       const nextPage  = renderPages(body1Canvas, true, 0);
       const nextPage2 = body2Canvas ? renderPages(body2Canvas, false, nextPage) : nextPage;
-      if (body3Canvas) renderPages(body3Canvas, false, nextPage2);
+      const nextPage3 = body3Canvas ? renderPages(body3Canvas, false, nextPage2) : nextPage2;
+      const nextPage4 = body4Canvas ? renderPages(body4Canvas, false, nextPage3) : nextPage3;
+      if (body5Canvas) renderPages(body5Canvas, false, nextPage4);
 
       if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "JPEG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
 
@@ -1829,7 +1924,10 @@ export function ProposalDetail() {
       setProposal({ ...proposal, status: "sent", sent_at: new Date().toISOString() });
       setShowEmailDialog(false);
       activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_sent", description: `Proposal sent to client: "${proposal.title}" — ${emailTo}` }).catch(() => {});
-      saveProposalPdfOnSend(proposal.id, proposal.client_id).catch(() => {});
+      saveProposalPdfOnSend(proposal.id, proposal.client_id).catch((err) => {
+        console.error("[proposal-pdf] save on send failed:", err);
+        toast.error("Proposal sent, but the PDF failed to save — client's Preview/Download in the portal won't work until this is fixed. Try re-saving the proposal to retry.");
+      });
       toast.success("Proposal sent to " + clientName);
     } catch (err: any) {
       toast.error(err.message || "Failed to send email");
@@ -1925,6 +2023,12 @@ export function ProposalDetail() {
                     <Download className="h-4 w-4 mr-2" />
                     Download PDF
                   </DropdownMenuItem>
+                  {isAlreadySent && !proposal.pdf_url && (
+                    <DropdownMenuItem onClick={handleRegeneratePdf} disabled={regeneratingPdf}>
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      {regeneratingPdf ? "Generating PDF…" : "Generate Missing PDF"}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                 </>
               )}
@@ -3114,21 +3218,25 @@ export function ProposalDetail() {
 
           {/* Scrollable PDF viewer area */}
           <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll-dark">
-            <div className="py-8 flex flex-col items-center gap-6">
-              {previewLoading ? (
-                <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                  <span className="text-sm">Generating preview…</span>
-                </div>
-              ) : previewPages.map((url, i) => (
-                <img
-                  key={i}
-                  src={url}
-                  alt={`Page ${i + 1}`}
-                  style={{ width: 794, display: "block", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}
-                />
-              ))}
-            </div>
+            {isAlreadySent && proposal.pdf_url ? (
+              <iframe src={`${proposal.pdf_url}#toolbar=0`} className="w-full h-full border-0" title="PDF Preview" />
+            ) : (
+              <div className="py-8 flex flex-col items-center gap-6">
+                {previewLoading ? (
+                  <div className="flex flex-col items-center gap-3 text-white/60 mt-20">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                    <span className="text-sm">Generating preview…</span>
+                  </div>
+                ) : previewPages.map((url, i) => (
+                  <img
+                    key={i}
+                    src={url}
+                    alt={`Page ${i + 1}`}
+                    style={{ width: 794, display: "block", boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
