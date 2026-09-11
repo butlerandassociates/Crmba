@@ -137,7 +137,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
       <div style={{ background: "#fff", borderBottom: `1px solid ${B.bg}`, padding: "24px 40px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <img
-            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo.png"
+            src="https://yohhdvwifjgarnaxrbev.supabase.co/storage/v1/object/public/assets/ba-logo-gold.jpg"
             alt="B&A"
             style={{ height: 52, width: "auto", flexShrink: 0 }}
             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -243,7 +243,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                   </div>
-                  {group.category && categoryNotes[group.category]?.trim() && (
+                  {categoryNotes[group.category]?.trim() && (
                     <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#FAF8F3", borderLeft: "2px solid #BB984D", borderRadius: "0 4px 4px 0" }}>
                       <p style={{ fontFamily: B.inter, fontSize: 10.5, color: B.text, margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" as const }}>{categoryNotes[group.category]}</p>
                     </div>
@@ -308,7 +308,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
   );
 
   const pricingSummaryContent = (
-    <div style={{ padding: "24px 40px", minHeight: 820, boxSizing: "border-box" as const, display: "flex", flexDirection: "column" as const }}>
+    <div style={{ padding: "24px 40px", minHeight: 895, boxSizing: "border-box" as const, display: "flex", flexDirection: "column" as const }}>
 
       <div style={{ display: "flex", gap: 32, marginBottom: 24 }} data-group="true">
         {/* Left: scope recap */}
@@ -322,13 +322,9 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
             {groupedItems.map((group, i) => {
               const catTotal = group.items.reduce((s, it) => s + it.lineTotal, 0);
               const label = group.category ?? "Other Items";
-              const desc = group.items.map((it) => it.name).join(", ");
               return (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE8" }}>
-                  <div style={{ paddingRight: 12 }}>
-                    <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0 }}>{label}</p>
-                    <p style={{ fontFamily: B.inter, fontSize: 10, color: "#999", margin: "2px 0 0 0", lineHeight: 1.4 }}>{desc}</p>
-                  </div>
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE8" }}>
+                  <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0 }}>{label}</p>
                   <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
                 </div>
               );
@@ -436,7 +432,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
               <p style={{ fontFamily: B.inter, fontSize: 9.5, fontWeight: 500, letterSpacing: "0.16em", color: B.gold, margin: "0 0 4px 0" }}>{step.label}</p>
               <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 500, color: B.black, margin: "0 0 6px 0" }}>{step.title}</p>
               {step.highlight ? (
-                <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px" }}>
+                <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px", marginTop: 16 }}>
                   <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.75, margin: 0, lineHeight: 1.6 }}>{step.body}</p>
                   <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", color: B.gold, margin: "8px 0 0 0" }}>
                     ● PROPRIETARY CLIENT PORTAL — INCLUDED WITH EVERY PROJECT
@@ -450,15 +446,18 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
         );
       })}
 
-      <div data-group="true" style={{ marginTop: 24, paddingTop: 20, paddingBottom: 20, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
+      <div style={{ marginTop: 24, paddingTop: 20, paddingBottom: 20, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
         {[
-          { label: "Contract & Documents", text: "Your signed agreement and any change orders, always accessible." },
-          { label: "Payments", text: "View your payment schedule, submit payments, and track your balance." },
-          { label: "Live Progress", text: "Real-time project updates so you're never in the dark." },
+          { icon: "📋", label: "Contract & Documents", text: "Your signed agreement and any change orders, always accessible." },
+          { icon: "💳", label: "Payments", text: "View your payment schedule, submit payments, and track your balance." },
+          { icon: "📊", label: "Live Progress", text: "Real-time project updates so you're never in the dark." },
         ].map((f) => (
-          <div key={f.label} style={{ flex: 1 }}>
-            <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 4px 0" }}>{f.label}</p>
-            <p style={{ fontFamily: B.inter, fontSize: 10.5, color: B.text, opacity: 0.65, margin: 0, lineHeight: 1.5 }}>{f.text}</p>
+          <div key={f.label} style={{ flex: 1, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 17, lineHeight: 1, marginTop: 1 }}>{f.icon}</span>
+            <div>
+              <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: B.gold, margin: "0 0 4px 0" }}>{f.label}</p>
+              <p style={{ fontFamily: B.inter, fontSize: 10.5, color: B.text, opacity: 0.65, margin: 0, lineHeight: 1.5 }}>{f.text}</p>
+            </div>
           </div>
         ))}
       </div>

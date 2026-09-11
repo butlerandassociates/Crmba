@@ -315,9 +315,9 @@ export function EmailTemplatesDialog({
         body5El ? html2canvas(body5El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg = hdrC.toDataURL("image/jpeg", 0.97);
-      const fImg = ftrC.toDataURL("image/jpeg", 0.97);
-      const colImg = colC.toDataURL("image/jpeg", 0.97);
+      const hImg = hdrC.toDataURL("image/png");
+      const fImg = ftrC.toDataURL("image/png");
+      const colImg = colC.toDataURL("image/png");
 
       const slice = (src: HTMLCanvasElement, yPx: number, hPx: number) => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -354,12 +354,14 @@ export function EmailTemplatesDialog({
           const isFirst = pageIdx === startPage;
           const avail = (!isFirst && showCol) ? slotCol : slotFull;
           const remaining = bodyH - consumed;
+          // Widow control: see matching comment in proposal-detail.tsx's renderBodyPages.
+          const targetAvailE = avail;
           let sliceH: number;
           if (remaining <= avail + 1) {
             sliceH = remaining;
           } else {
             const consumedPx  = Math.round(consumed * pxPerPt);
-            const idealCutPx  = consumedPx + Math.round(avail * pxPerPt);
+            const idealCutPx  = consumedPx + Math.round(targetAvailE * pxPerPt);
             const groupEndsE  = groups.map((_, i) =>
               i + 1 < groups.length ? groups[i + 1] : bodyC.height
             );
@@ -372,21 +374,21 @@ export function EmailTemplatesDialog({
               .sort((a, b) => a - b)[0];
             const cutBeforeE  = splitIdxE !== -1 ? groups[splitIdxE] : orphanedE;
             let safeCutPx: number;
-            if (cutBeforeE !== undefined && cutBeforeE > consumedPx + Math.round(avail * 0.3 * pxPerPt)) {
+            if (cutBeforeE !== undefined && cutBeforeE > consumedPx + Math.round(targetAvailE * 0.3 * pxPerPt)) {
               safeCutPx = findSafeCutPx(bodyC, cutBeforeE - 2, Math.round(30 * pxPerPt));
             } else {
               safeCutPx = findSafeCutPx(bodyC, idealCutPx, Math.round(90 * pxPerPt));
             }
-            sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+            sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, targetAvailE * 0.3);
           }
           const sc = slice(bodyC, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
           pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
-          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
+          pdf.addImage(hImg, "PNG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
-          if (!isFirst && showCol) { pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH); bodyY = hdrH + PAD + colH + COL_GAP; }
-          pdf.addImage(sc.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
-          pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
+          if (!isFirst && showCol) { pdf.addImage(colImg, "PNG", colX, hdrH + PAD, colW, colH); bodyY = hdrH + PAD + colH + COL_GAP; }
+          pdf.addImage(sc.toDataURL("image/png"), "PNG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(fImg, "PNG", 0, pageH - ftrH, pageW, ftrH);
           consumed += sliceH; pageIdx++;
         }
         return pageIdx;

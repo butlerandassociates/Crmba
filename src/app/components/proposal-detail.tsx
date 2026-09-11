@@ -1170,9 +1170,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.97);
-      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.97) : null;
-      const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.97);
+      const hImg      = hdrCanvas.toDataURL("image/png");
+      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/png") : null;
+      const colImg    = colHdrCanvas.toDataURL("image/png");
 
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1189,21 +1189,27 @@ export function ProposalDetail() {
         startPage: number,
         groupStarts: number[] = groupStartsCanvasPx,
         groupsEnd: number = groupsEndCanvasPx,
-      ): number => {
+        startConsumedPt: number = 0,
+      ): { nextPage: number; leftoverPt: number } => {
         const bodyH  = toPt(bodyCanvas);
+        const isSharedStart = startConsumedPt > 0;
         let consumed = 0;
         let pageIdx  = startPage;
+        let lastAvail = slotFull;
+        let lastSliceH = 0;
         while (consumed < bodyH - 1) {
-          if (pageIdx > 0) pdf.addPage();
           const isFirst  = pageIdx === startPage;
-          const avail    = (!isFirst && showCol) ? slotCol : slotFull;
+          const continuesSharedPage = isFirst && isSharedStart;
+          if (pageIdx > 0 && !continuesSharedPage) pdf.addPage();
+          const avail    = continuesSharedPage ? Math.max(1, slotFull - startConsumedPt) : (!isFirst && showCol) ? slotCol : slotFull;
           const remaining = bodyH - consumed;
+          const targetAvail = avail;
           let sliceH: number;
           if (remaining <= avail + 1) {
             sliceH = remaining;
           } else {
             const consumedPx  = Math.round(consumed * pxPerPt);
-            const idealCutPx  = consumedPx + Math.round(avail * pxPerPt);
+            const idealCutPx  = consumedPx + Math.round(targetAvail * pxPerPt);
             const lastGroupEnd = groupsEnd > 0 ? groupsEnd : bodyCanvas.height;
             const groupEnds = groupStarts.map((start, i) => {
               if (i + 1 < groupStarts.length) return groupStarts[i + 1];
@@ -1214,11 +1220,11 @@ export function ProposalDetail() {
               (start, i) => idealCutPx > start && idealCutPx < groupEnds[i]
             );
             const splitGroupFits = splitIdxRaw !== -1 &&
-              (groupEnds[splitIdxRaw] - groupStarts[splitIdxRaw]) <= Math.round(avail * pxPerPt);
+              (groupEnds[splitIdxRaw] - groupStarts[splitIdxRaw]) <= Math.round(targetAvail * pxPerPt);
             const isTotalsBodyGroup = splitIdxRaw !== -1 &&
               groupsEnd > 0 && groupStarts[splitIdxRaw] >= groupsEnd;
             const blankThreshold = isTotalsBodyGroup ? 0.50 : 0.25;
-            const maxBlankPx = Math.round(avail * blankThreshold * pxPerPt);
+            const maxBlankPx = Math.round(targetAvail * blankThreshold * pxPerPt);
             const splitIdx = (splitGroupFits && (idealCutPx - groupStarts[splitIdxRaw]) <= maxBlankPx)
               ? splitIdxRaw : -1;
             const orphanZonePx = Math.round(75 * pxPerPt);
@@ -1229,41 +1235,47 @@ export function ProposalDetail() {
             let safeCutPx: number;
             const minCutPx = splitIdx !== -1
               ? consumedPx + 4
-              : consumedPx + Math.round(avail * 0.3 * pxPerPt);
+              : consumedPx + Math.round(targetAvail * 0.3 * pxPerPt);
             if (cutBeforePx !== undefined && cutBeforePx > minCutPx) {
               safeCutPx = findSafeCutPx(bodyCanvas, cutBeforePx - 2, Math.round(30 * pxPerPt));
               sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, 1);
             } else {
               safeCutPx = findSafeCutPx(bodyCanvas, idealCutPx, Math.round(90 * pxPerPt));
-              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, targetAvail * 0.3);
             }
           }
           const sliceCanvas = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
 
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(0, 0, pageW, pageH, "F");
-          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
-
-          let bodyY = hdrH + PAD;
-          if (!isFirst && showCol) {
-            pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
-            bodyY = hdrH + PAD + colH + COL_GAP;
+          let bodyY: number;
+          if (continuesSharedPage) {
+            bodyY = hdrH + PAD + startConsumedPt;
+          } else {
+            pdf.setFillColor(255, 255, 255);
+            pdf.rect(0, 0, pageW, pageH, "F");
+            pdf.addImage(hImg, "PNG", 0, 0, pageW, hdrH);
+            bodyY = hdrH + PAD;
+            if (!isFirst && showCol) {
+              pdf.addImage(colImg, "PNG", colX, hdrH + PAD, colW, colH);
+              bodyY = hdrH + PAD + colH + COL_GAP;
+            }
           }
 
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
+          lastAvail = avail;
+          lastSliceH = sliceH;
           pageIdx++;
         }
-        return pageIdx;
+        return { nextPage: pageIdx, leftoverPt: Math.max(0, lastAvail - lastSliceH) };
       };
 
-      const nextPage  = renderBodyPages(body1Canvas, true, 0);
-      const nextPage2 = body2Canvas ? renderBodyPages(body2Canvas, false, nextPage, groupStartsCanvasPx2, -1) : nextPage;
-      const nextPage3 = body3Canvas ? renderBodyPages(body3Canvas, false, nextPage2, groupStartsCanvasPx3, -1) : nextPage2;
-      const nextPage4 = body4Canvas ? renderBodyPages(body4Canvas, false, nextPage3, groupStartsCanvasPx4, -1) : nextPage3;
-      if (body5Canvas) renderBodyPages(body5Canvas, false, nextPage4, groupStartsCanvasPx5, -1);
+      const r1 = renderBodyPages(body1Canvas, true, 0);
+      const r2 = body2Canvas ? renderBodyPages(body2Canvas, false, r1.nextPage, groupStartsCanvasPx2, -1) : r1;
+      const r3 = body3Canvas ? renderBodyPages(body3Canvas, false, r2.nextPage, groupStartsCanvasPx3, -1) : r2;
+      const r4 = body4Canvas ? renderBodyPages(body4Canvas, false, r3.nextPage, groupStartsCanvasPx4, -1) : r3;
+      if (body5Canvas) renderBodyPages(body5Canvas, false, r4.nextPage, groupStartsCanvasPx5, -1);
 
-      if (lastFtrImg) pdf.addImage(lastFtrImg, "JPEG", 0, pageH - lastFtrH, pageW, lastFtrH);
+      if (lastFtrImg) pdf.addImage(lastFtrImg, "PNG", 0, pageH - lastFtrH, pageW, lastFtrH);
 
       return pdf;
     } catch (err: any) {
@@ -1466,24 +1478,30 @@ export function ProposalDetail() {
 
       const pages: string[] = [];
 
-      const renderToPages = (
+      const renderToPages = async (
         bodyCanvas: HTMLCanvasElement,
         showCol: boolean,
         groupStarts: number[] = previewGroupStartsPx,
         groupsEnd: number = previewGroupsEndPx,
-      ) => {
+        startConsumedPt: number = 0,
+      ): Promise<number> => {
         const bodyH = toPt(bodyCanvas);
+        const isSharedStart = startConsumedPt > 0;
         let consumed = 0, pageNum = 0;
+        let lastAvail = slotFull;
+        let lastSliceH = 0;
         while (consumed < bodyH - 1) {
+          const continuesSharedPage = pageNum === 0 && isSharedStart;
           const needsCol  = pageNum > 0 && showCol;
-          const avail     = needsCol ? slotCol : slotFull;
+          const avail     = continuesSharedPage ? Math.max(1, slotFull - startConsumedPt) : needsCol ? slotCol : slotFull;
           const remaining = bodyH - consumed;
+          const targetAvailP = avail;
           let sliceH: number;
           if (remaining <= avail + 1) {
             sliceH = remaining;
           } else {
             const consumedPx   = Math.round(consumed * pxPerPt);
-            const idealCutPx   = consumedPx + Math.round(avail * pxPerPt);
+            const idealCutPx   = consumedPx + Math.round(targetAvailP * pxPerPt);
             const lastGroupEndP = groupsEnd > 0 ? groupsEnd : bodyCanvas.height;
             const groupEndsP = groupStarts.map((start, i) => {
               if (i + 1 < groupStarts.length) return groupStarts[i + 1];
@@ -1494,11 +1512,11 @@ export function ProposalDetail() {
               (start, i) => idealCutPx > start && idealCutPx < groupEndsP[i]
             );
             const splitGroupFitsP = splitIdxPRaw !== -1 &&
-              (groupEndsP[splitIdxPRaw] - groupStarts[splitIdxPRaw]) <= Math.round(avail * pxPerPt);
+              (groupEndsP[splitIdxPRaw] - groupStarts[splitIdxPRaw]) <= Math.round(targetAvailP * pxPerPt);
             const isTotalsBodyGroupP = splitIdxPRaw !== -1 &&
               groupsEnd > 0 && groupStarts[splitIdxPRaw] >= groupsEnd;
             const blankThresholdP = isTotalsBodyGroupP ? 0.50 : 0.25;
-            const maxBlankPxP = Math.round(avail * blankThresholdP * pxPerPt);
+            const maxBlankPxP = Math.round(targetAvailP * blankThresholdP * pxPerPt);
             const splitIdxP = (splitGroupFitsP && (idealCutPx - groupStarts[splitIdxPRaw]) <= maxBlankPxP)
               ? splitIdxPRaw : -1;
             const orphanZonePx = Math.round(75 * pxPerPt);
@@ -1509,13 +1527,13 @@ export function ProposalDetail() {
             let safeCutPx: number;
             const minCutPxP = splitIdxP !== -1
               ? consumedPx + 4
-              : consumedPx + Math.round(avail * 0.3 * pxPerPt);
+              : consumedPx + Math.round(targetAvailP * 0.3 * pxPerPt);
             if (cutBeforeP !== undefined && cutBeforeP > minCutPxP) {
               safeCutPx = findSafeCutPx(bodyCanvas, cutBeforeP - 2, Math.round(30 * pxPerPt));
               sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, 1);
             } else {
               safeCutPx = findSafeCutPx(bodyCanvas, idealCutPx, Math.round(90 * pxPerPt));
-              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, avail * 0.3);
+              sliceH = Math.max((safeCutPx - consumedPx) / pxPerPt, targetAvailP * 0.3);
             }
           }
           const slice    = makeSlice(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
@@ -1524,28 +1542,40 @@ export function ProposalDetail() {
           page.width = pageW_px; page.height = pageH_px;
           const ctx = page.getContext("2d")!;
 
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, pageW_px, pageH_px);
-          ctx.drawImage(hdrC, 0, 0);
-
-          let bodyY_px = Math.round((hdrH + PAD) * pxPerPt);
-          if (needsCol) {
-            ctx.drawImage(colC, Math.round(colX * pxPerPt), Math.round((hdrH + PAD) * pxPerPt));
-            bodyY_px = Math.round((hdrH + PAD + colH + COL_GAP) * pxPerPt);
+          let bodyY_px: number;
+          if (continuesSharedPage && pages.length > 0) {
+            const prevImg = new Image();
+            prevImg.src = pages[pages.length - 1];
+            await new Promise<void>((res) => { prevImg.onload = () => res(); });
+            ctx.drawImage(prevImg, 0, 0);
+            bodyY_px = Math.round((hdrH + PAD + startConsumedPt) * pxPerPt);
+            ctx.drawImage(slice, 0, bodyY_px);
+            pages[pages.length - 1] = page.toDataURL("image/png");
+          } else {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, pageW_px, pageH_px);
+            ctx.drawImage(hdrC, 0, 0);
+            bodyY_px = Math.round((hdrH + PAD) * pxPerPt);
+            if (needsCol) {
+              ctx.drawImage(colC, Math.round(colX * pxPerPt), Math.round((hdrH + PAD) * pxPerPt));
+              bodyY_px = Math.round((hdrH + PAD + colH + COL_GAP) * pxPerPt);
+            }
+            ctx.drawImage(slice, 0, bodyY_px);
+            pages.push(page.toDataURL("image/png"));
           }
-          ctx.drawImage(slice, 0, bodyY_px);
-
-          pages.push(page.toDataURL("image/jpeg", 0.96));
           consumed += sliceH;
+          lastAvail = avail;
+          lastSliceH = sliceH;
           pageNum++;
         }
+        return Math.max(0, lastAvail - lastSliceH);
       };
 
-      renderToPages(body1C, true);
-      if (body2C) renderToPages(body2C, false, previewGroupStartsPx2, -1);
-      if (body3C) renderToPages(body3C, false, previewGroupStartsPx3, -1);
-      if (body4C) renderToPages(body4C, false, previewGroupStartsPx4, -1);
-      if (body5C) renderToPages(body5C, false, previewGroupStartsPx5, -1);
+      const lo1 = await renderToPages(body1C, true);
+      const lo2 = body2C ? await renderToPages(body2C, false, previewGroupStartsPx2, -1) : lo1;
+      const lo3 = body3C ? await renderToPages(body3C, false, previewGroupStartsPx3, -1) : lo2;
+      const lo4 = body4C ? await renderToPages(body4C, false, previewGroupStartsPx4, -1) : lo3;
+      if (body5C) await renderToPages(body5C, false, previewGroupStartsPx5, -1);
 
       // Draw last-page footer (dark bar + thank you) on the very last preview page
       if (lastFtrC && pages.length > 0) {
@@ -1557,7 +1587,7 @@ export function ProposalDetail() {
         const ctx2 = lastCanvas.getContext("2d")!;
         ctx2.drawImage(lastImg, 0, 0);
         ctx2.drawImage(lastFtrC, 0, pageH_px - lastFtrC.height);
-        pages[pages.length - 1] = lastCanvas.toDataURL("image/jpeg", 0.96);
+        pages[pages.length - 1] = lastCanvas.toDataURL("image/png");
       }
 
       setPreviewPages(pages);
@@ -1733,9 +1763,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.97);
-      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/jpeg", 0.97) : null;
-      const colImg        = colHdrCanvas.toDataURL("image/jpeg", 0.97);
+      const hImg          = hdrCanvas.toDataURL("image/png");
+      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/png") : null;
+      const colImg        = colHdrCanvas.toDataURL("image/png");
 
       const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1754,17 +1784,18 @@ export function ProposalDetail() {
           if (pageIdx > 0) pdf.addPage();
           const isFirst = pageIdx === startPage;
           const avail   = (!isFirst && showCol) ? slotCol : slotFull;
-          const sliceH  = Math.min(avail, bodyH - consumed);
+          const remaining = bodyH - consumed;
+          const sliceH  = Math.min(avail, remaining);
           const sliceCanvas = makeSliceB64(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
           pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
-          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
+          pdf.addImage(hImg, "PNG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
           if (!isFirst && showCol) {
-            pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
+            pdf.addImage(colImg, "PNG", colX, hdrH + PAD, colW, colH);
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           pageIdx++;
         }
@@ -1777,7 +1808,7 @@ export function ProposalDetail() {
       const nextPage4 = body4Canvas ? renderPages(body4Canvas, false, nextPage3) : nextPage3;
       if (body5Canvas) renderPages(body5Canvas, false, nextPage4);
 
-      if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "JPEG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
+      if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "PNG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
 
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
