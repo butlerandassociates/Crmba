@@ -133,7 +133,7 @@ serve(async (req) => {
       supabase
         .from("estimates")
         .select(`
-          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at, pdf_url,
+          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at, pdf_url, updated_at,
           line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
         `)
         .eq("client_id", clientId)

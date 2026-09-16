@@ -1170,9 +1170,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg      = hdrCanvas.toDataURL("image/png");
-      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/png") : null;
-      const colImg    = colHdrCanvas.toDataURL("image/png");
+      const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.95);
+      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.95) : null;
+      const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.95);
 
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1252,15 +1252,15 @@ export function ProposalDetail() {
           } else {
             pdf.setFillColor(255, 255, 255);
             pdf.rect(0, 0, pageW, pageH, "F");
-            pdf.addImage(hImg, "PNG", 0, 0, pageW, hdrH);
+            pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
             bodyY = hdrH + PAD;
             if (!isFirst && showCol) {
-              pdf.addImage(colImg, "PNG", colX, hdrH + PAD, colW, colH);
+              pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
               bodyY = hdrH + PAD + colH + COL_GAP;
             }
           }
 
-          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           lastAvail = avail;
           lastSliceH = sliceH;
@@ -1275,7 +1275,7 @@ export function ProposalDetail() {
       const r4 = body4Canvas ? renderBodyPages(body4Canvas, false, r3.nextPage, groupStartsCanvasPx4, -1) : r3;
       if (body5Canvas) renderBodyPages(body5Canvas, false, r4.nextPage, groupStartsCanvasPx5, -1);
 
-      if (lastFtrImg) pdf.addImage(lastFtrImg, "PNG", 0, pageH - lastFtrH, pageW, lastFtrH);
+      if (lastFtrImg) pdf.addImage(lastFtrImg, "JPEG", 0, pageH - lastFtrH, pageW, lastFtrH);
 
       return pdf;
     } catch (err: any) {
@@ -1293,8 +1293,9 @@ export function ProposalDetail() {
   const handleDownload = async () => {
     if (isAlreadySent && proposal.pdf_url) {
       setDownloading(true);
+      const bustedUrl = `${proposal.pdf_url}?v=${encodeURIComponent(proposal.updated_at ?? "")}`;
       try {
-        const res = await fetch(proposal.pdf_url);
+        const res = await fetch(bustedUrl);
         const blob = await res.blob();
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -1303,7 +1304,7 @@ export function ProposalDetail() {
         URL.revokeObjectURL(a.href);
         activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_pdf_exported", description: `Proposal PDF exported: "${proposal.title}"` }).catch(() => {});
       } catch {
-        window.open(proposal.pdf_url, "_blank");
+        window.open(bustedUrl, "_blank");
       } finally {
         setDownloading(false);
       }
@@ -1763,9 +1764,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg          = hdrCanvas.toDataURL("image/png");
-      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/png") : null;
-      const colImg        = colHdrCanvas.toDataURL("image/png");
+      const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.95);
+      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/jpeg", 0.95) : null;
+      const colImg        = colHdrCanvas.toDataURL("image/jpeg", 0.95);
 
       const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1789,13 +1790,13 @@ export function ProposalDetail() {
           const sliceCanvas = makeSliceB64(bodyCanvas, Math.round(consumed * pxPerPt), Math.round(sliceH * pxPerPt));
           pdf.setFillColor(255, 255, 255);
           pdf.rect(0, 0, pageW, pageH, "F");
-          pdf.addImage(hImg, "PNG", 0, 0, pageW, hdrH);
+          pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
           if (!isFirst && showCol) {
-            pdf.addImage(colImg, "PNG", colX, hdrH + PAD, colW, colH);
+            pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
-          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           pageIdx++;
         }
@@ -1808,7 +1809,7 @@ export function ProposalDetail() {
       const nextPage4 = body4Canvas ? renderPages(body4Canvas, false, nextPage3) : nextPage3;
       if (body5Canvas) renderPages(body5Canvas, false, nextPage4);
 
-      if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "PNG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
+      if (lastFtrImg_b64) pdf.addImage(lastFtrImg_b64, "JPEG", 0, pageH - lastFtrH_b64, pageW, lastFtrH_b64);
 
       return pdf.output("datauristring").split(",")[1];
     } catch (err) {
@@ -3250,7 +3251,7 @@ export function ProposalDetail() {
           {/* Scrollable PDF viewer area */}
           <div className="flex-1 overflow-y-auto bg-[#525659] thin-scroll-dark">
             {isAlreadySent && proposal.pdf_url ? (
-              <iframe src={`${proposal.pdf_url}#toolbar=0`} className="w-full h-full border-0" title="PDF Preview" />
+              <iframe src={`${proposal.pdf_url}?v=${encodeURIComponent(proposal.updated_at ?? "")}#toolbar=0`} className="w-full h-full border-0" title="PDF Preview" />
             ) : (
               <div className="py-8 flex flex-col items-center gap-6">
                 {previewLoading ? (

@@ -181,12 +181,15 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Deduplication: skip if an identical lead was created in the last 10 minutes
-    // (Formspree sometimes retries or fires multiple webhooks per submission)
+    // Deduplication: skip only if an identical lead (same contact AND same requested
+    // service) was created in the last 10 minutes — Formspree sometimes retries or
+    // fires multiple webhooks for one real submission, and this catches that. A second,
+    // genuinely different inquiry from the same person (different service) still comes
+    // through as its own client, rather than being silently dropped.
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     let dupQuery = supabase
       .from("clients")
-      .select("id")
+      .select("id, scope_of_work")
       .gte("created_at", tenMinutesAgo)
       .limit(1);
 
@@ -195,11 +198,16 @@ serve(async (req) => {
 
     const { data: existing } = await dupQuery.maybeSingle();
     if (existing) {
-      console.log(`[formspree] Duplicate detected — client ${existing.id} already created within 10 min. Skipping.`);
-      return new Response(
-        JSON.stringify({ ok: true, skipped: "duplicate", existing_id: existing.id }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const existingServices = [...(existing.scope_of_work ?? [])].sort().join("|");
+      const newServices = [...services].sort().join("|");
+      if (existingServices === newServices) {
+        console.log(`[formspree] Duplicate detected — client ${existing.id} already created within 10 min with the same service(s). Skipping.`);
+        return new Response(
+          JSON.stringify({ ok: true, skipped: "duplicate", existing_id: existing.id }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.log(`[formspree] Same contact within 10 min but different service (existing: ${existingServices || "none"}, new: ${newServices || "none"}) — treating as a new, separate lead.`);
     }
 
     // Lead source — "Referral" for referral forms, "Website" for everything else

@@ -6,11 +6,12 @@
 import { supabase } from "@/lib/supabase";
 
 export const estimatesAPI = {
-  /** All estimates with client name — for list views */
+  /** All estimates with client name — for list views. Excludes discarded clients' proposals. */
   getAll: async () => {
     const { data, error } = await supabase
       .from("estimates")
-      .select(`*, client:clients(first_name, last_name)`)
+      .select(`*, client:clients!inner(first_name, last_name, is_discarded)`)
+      .eq("client.is_discarded", false)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;

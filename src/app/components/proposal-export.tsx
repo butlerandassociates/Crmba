@@ -407,46 +407,48 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
   // ── Section 3: Our Process ────────────────────────────────────────────────────
 
   const processContent = (
-    <div style={{ padding: "24px 40px" }}>
-      <div style={{ marginBottom: 20 }} data-group="true">
+    <div style={{ padding: "24px 40px", minHeight: 910, boxSizing: "border-box" as const, display: "flex", flexDirection: "column" as const, justifyContent: "space-between" as const }}>
+      <div data-group="true" style={{ marginBottom: 4 }}>
         <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" as const, color: "#999", margin: "0 0 6px 0" }}>What Happens Next</p>
-        <h2 style={{ fontFamily: B.lato, fontSize: 26, fontWeight: 400, color: B.black, margin: "0 0 10px 0" }}>Our Process</h2>
-        <div style={{ width: 44, height: 2, background: B.gold, marginBottom: 14 }} />
-        <p style={{ fontFamily: B.inter, fontSize: 11.5, color: B.text, opacity: 0.7, lineHeight: 1.6, margin: 0, maxWidth: 460 }}>
+        <h2 style={{ fontFamily: B.lato, fontSize: 26, fontWeight: 400, color: B.black, margin: "0 0 12px 0" }}>Our Process</h2>
+        <div style={{ width: 44, height: 2, background: B.gold, marginBottom: 8 }} />
+        <p style={{ fontFamily: B.inter, fontSize: 11.5, color: B.text, opacity: 0.7, lineHeight: 1.5, margin: 0, maxWidth: 460 }}>
           From the moment you accept this proposal to the final handshake at project close out, here is exactly what you can expect working with Butler &amp; Associates.
         </p>
-        <div style={{ borderBottom: "1px solid #E0E0E0", marginTop: 20 }} />
+        <div style={{ borderBottom: "1px solid #E0E0E0", marginTop: 14 }} />
       </div>
 
-      {PROCESS_STEPS.map((step, i) => {
-        const isLast = i === PROCESS_STEPS.length - 1;
-        return (
-          <div key={step.number} data-group="true" style={{ display: "flex", gap: 18, paddingBottom: isLast ? 0 : 22 }}>
-            <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", flexShrink: 0, width: 30 }}>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: B.gold, flexShrink: 0, textAlign: "center" as const }}>
-                <span style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: "#fff", letterSpacing: "0.04em", lineHeight: "30px", display: "block", position: "relative" as const, top: -5 }}>{step.number}</span>
-              </div>
-              {!isLast && <div style={{ width: 1, flex: 1, minHeight: 28, marginTop: 6, background: "#E8E0D0" }} />}
-            </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontFamily: B.inter, fontSize: 9.5, fontWeight: 500, letterSpacing: "0.16em", color: B.gold, margin: "0 0 4px 0" }}>{step.label}</p>
-              <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 500, color: B.black, margin: "0 0 6px 0" }}>{step.title}</p>
-              {step.highlight ? (
-                <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px", marginTop: 16 }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.75, margin: 0, lineHeight: 1.6 }}>{step.body}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", color: B.gold, margin: "8px 0 0 0" }}>
-                    ● PROPRIETARY CLIENT PORTAL — INCLUDED WITH EVERY PROJECT
-                  </p>
+      <div>
+        {PROCESS_STEPS.map((step, i) => {
+          const isLast = i === PROCESS_STEPS.length - 1;
+          return (
+            <div key={step.number} data-group="true" style={{ display: "flex", gap: 18, paddingBottom: isLast ? 0 : 16 }}>
+              <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", flexShrink: 0, width: 30 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: B.gold, flexShrink: 0, textAlign: "center" as const }}>
+                  <span style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: "#fff", letterSpacing: "0.04em", lineHeight: "30px", display: "block", position: "relative" as const, top: -5 }}>{step.number}</span>
                 </div>
-              ) : (
-                <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.7, margin: 0, lineHeight: 1.6 }}>{step.body}</p>
-              )}
+                {!isLast && <div style={{ width: 1, flex: 1, minHeight: 28, marginTop: 6, background: "#E8E0D0" }} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontFamily: B.inter, fontSize: 9.5, fontWeight: 500, letterSpacing: "0.16em", color: B.gold, margin: "0 0 4px 0" }}>{step.label}</p>
+                <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 500, color: B.black, margin: "0 0 6px 0" }}>{step.title}</p>
+                {step.highlight ? (
+                  <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px", marginTop: 16 }}>
+                    <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.75, margin: 0, lineHeight: 1.6 }}>{step.body}</p>
+                    <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", color: B.gold, margin: "8px 0 0 0" }}>
+                      ● PROPRIETARY CLIENT PORTAL — INCLUDED WITH EVERY PROJECT
+                    </p>
+                  </div>
+                ) : (
+                  <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.7, margin: 0, lineHeight: 1.4 }}>{step.body}</p>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
-      <div style={{ marginTop: 24, paddingTop: 20, paddingBottom: 20, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
+      <div style={{ paddingTop: 10, paddingBottom: 10, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
         {[
           { icon: "📋", label: "Contract & Documents", text: "Your signed agreement and any change orders, always accessible." },
           { icon: "💳", label: "Payments", text: "View your payment schedule, submit payments, and track your balance." },

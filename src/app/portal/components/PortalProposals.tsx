@@ -38,11 +38,17 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
     }
   }, [viewingId]);
 
+  // Appends a version param so a regenerated PDF at the same storage path is never
+  // served from a browser's stale cache of the old file at that same URL.
+  const bustCache = (proposal: PortalProposal) =>
+    `${proposal.pdf_url}?v=${encodeURIComponent(proposal.updated_at ?? "")}`;
+
   const handleDownloadPdf = async (proposal: PortalProposal) => {
     if (!proposal.pdf_url) return;
     setDownloadingPdfId(proposal.id);
+    const bustedUrl = bustCache(proposal);
     try {
-      const res = await fetch(proposal.pdf_url);
+      const res = await fetch(bustedUrl);
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -50,7 +56,7 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
-      window.open(proposal.pdf_url, "_blank");
+      window.open(bustedUrl, "_blank");
     } finally {
       setDownloadingPdfId(null);
     }
@@ -400,7 +406,7 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
               </div>
               {/* Desktop: iframe */}
               <div className="flex-1 overflow-x-hidden overflow-y-auto thin-scroll">
-                {pp?.pdf_url && <iframe src={`${pp.pdf_url}#toolbar=0&view=FitH`} className="w-full h-full border-0" title="PDF Preview" />}
+                {pp?.pdf_url && <iframe src={`${bustCache(pp)}#toolbar=0&view=FitH`} className="w-full h-full border-0" title="PDF Preview" />}
               </div>
             </DialogContent>
           </Dialog>

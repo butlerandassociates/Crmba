@@ -158,6 +158,7 @@ export interface PortalProposal {
   accepted_at: string | null;
   declined_at: string | null;
   pdf_url: string | null;
+  updated_at: string | null;
   line_items: PortalProposalLineItem[];
 }
 
