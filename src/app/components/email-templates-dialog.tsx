@@ -315,9 +315,9 @@ export function EmailTemplatesDialog({
         body5El ? html2canvas(body5El, { ...opts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg = hdrC.toDataURL("image/jpeg", 0.95);
-      const fImg = ftrC.toDataURL("image/jpeg", 0.95);
-      const colImg = colC.toDataURL("image/jpeg", 0.95);
+      const hImg = hdrC.toDataURL("image/jpeg", 0.98);
+      const fImg = ftrC.toDataURL("image/jpeg", 0.98);
+      const colImg = colC.toDataURL("image/jpeg", 0.98);
 
       const slice = (src: HTMLCanvasElement, yPx: number, hPx: number) => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -387,7 +387,7 @@ export function EmailTemplatesDialog({
           pdf.addImage(hImg, "JPEG", 0, 0, pageW, hdrH);
           let bodyY = hdrH + PAD;
           if (!isFirst && showCol) { pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH); bodyY = hdrH + PAD + colH + COL_GAP; }
-          pdf.addImage(sc.toDataURL("image/jpeg", 0.95), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sc.toDataURL("image/jpeg", 0.98), "JPEG", 0, bodyY, pageW, sliceH);
           pdf.addImage(fImg, "JPEG", 0, pageH - ftrH, pageW, ftrH);
           consumed += sliceH; pageIdx++;
         }

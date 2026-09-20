@@ -1170,9 +1170,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.95);
-      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.95) : null;
-      const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.95);
+      const hImg      = hdrCanvas.toDataURL("image/jpeg", 0.98);
+      const lastFtrImg = lastFtrCanvas ? lastFtrCanvas.toDataURL("image/jpeg", 0.98) : null;
+      const colImg    = colHdrCanvas.toDataURL("image/jpeg", 0.98);
 
       const makeSlice = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1260,7 +1260,7 @@ export function ProposalDetail() {
             }
           }
 
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.98), "JPEG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           lastAvail = avail;
           lastSliceH = sliceH;
@@ -1764,9 +1764,9 @@ export function ProposalDetail() {
         body5El ? html2canvas(body5El, { ...baseOpts, backgroundColor: "#ffffff" }) : Promise.resolve(null),
       ]);
 
-      const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.95);
-      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/jpeg", 0.95) : null;
-      const colImg        = colHdrCanvas.toDataURL("image/jpeg", 0.95);
+      const hImg          = hdrCanvas.toDataURL("image/jpeg", 0.98);
+      const lastFtrImg_b64 = lastFtrCanvas_b64 ? lastFtrCanvas_b64.toDataURL("image/jpeg", 0.98) : null;
+      const colImg        = colHdrCanvas.toDataURL("image/jpeg", 0.98);
 
       const makeSliceB64 = (src: HTMLCanvasElement, yPx: number, hPx: number): HTMLCanvasElement => {
         const h = Math.max(1, Math.min(hPx, src.height - yPx));
@@ -1796,7 +1796,7 @@ export function ProposalDetail() {
             pdf.addImage(colImg, "JPEG", colX, hdrH + PAD, colW, colH);
             bodyY = hdrH + PAD + colH + COL_GAP;
           }
-          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, bodyY, pageW, sliceH);
+          pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.98), "JPEG", 0, bodyY, pageW, sliceH);
           consumed += sliceH;
           pageIdx++;
         }

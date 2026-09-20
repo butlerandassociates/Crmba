@@ -65,6 +65,17 @@ const PROCESS_STEPS = [
 export function ProposalExport({ proposal, client, reviews = [], warrantySections = [], warrantyDisclaimer = "", preview = false }: ProposalExportProps) {
   const fmt = (v: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
+  const money = (v: number) => {
+    const s = fmt(v);
+    const i = s.indexOf("$");
+    return (
+      <>
+        {s.slice(0, i)}
+        <span style={{ marginRight: "0.22em" }}>$</span>
+        {s.slice(i + 1)}
+      </>
+    );
+  };
   const fmtDate = (d: string) =>
     new Date(d.includes("T") ? d : `${d}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
@@ -241,7 +252,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                 <div key={gIdx} data-group="true" style={{ marginBottom: 20 }}>
                   <div style={{ display: "flex", alignItems: "baseline", padding: "8px 0 12px 0", borderBottom: "1px solid #C8C4BC", marginBottom: 12 }}>
                     <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, flex: 1 }}>{group.category}</p>
-                    <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
+                    <p style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black, margin: 0, width: 90, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" }}>{money(catTotal)}</p>
                   </div>
                   {categoryNotes[group.category]?.trim() && (
                     <div style={{ margin: "0 0 12px 0", padding: "8px 12px", background: "#FAF8F3", borderLeft: "2px solid #BB984D", borderRadius: "0 4px 4px 0" }}>
@@ -325,14 +336,14 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
               return (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE8" }}>
                   <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0 }}>{label}</p>
-                  <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(catTotal)}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, margin: 0, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{money(catTotal)}</p>
                 </div>
               );
             })}
           </div>
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #0A0A0A", display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65 }}>Subtotal</span>
-            <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</span>
+            <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>{money(subtotal)}</span>
           </div>
         </div>
 
@@ -351,14 +362,14 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
             <div style={{ padding: "14px 20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F0EEE8" }}>
                 <span style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65 }}>Subtotal</span>
-                <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>{fmt(subtotal)}</span>
+                <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>{money(subtotal)}</span>
               </div>
               {discountAmount > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F0EEE8" }}>
                   <span style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65 }}>
                     {discountLabel || (discountType === "percent" && discountPct > 0 ? `Discount (${discountPct}%)` : "Discount")}
                   </span>
-                  <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>− {fmt(discountAmount)}</span>
+                  <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums" }}>− {money(discountAmount)}</span>
                 </div>
               )}
               {feesTotal > 0 && (
@@ -367,12 +378,12 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                     <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, opacity: 0.65, margin: 0 }}>Taxes &amp; Fees</p>
                     {feesNoteParts.length > 0 && <p style={{ fontFamily: B.inter, fontSize: 9.5, color: "#999", margin: "2px 0 0 0" }}>{feesNoteParts.join(" + ")}</p>}
                   </div>
-                  <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmt(feesTotal)}</span>
+                  <span style={{ fontFamily: B.inter, fontSize: 12, fontWeight: 500, color: B.black, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{money(feesTotal)}</span>
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "14px 0 4px 0", marginTop: 4, borderTop: `2px solid ${B.gold}` }}>
                 <span style={{ fontFamily: B.lato, fontSize: 14, fontWeight: 500, color: B.black }}>Total</span>
-                <span style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 600, color: B.gold, fontVariantNumeric: "tabular-nums" }}>{fmt(total)}</span>
+                <span style={{ fontFamily: B.lato, fontSize: 22, fontWeight: 600, color: B.gold, fontVariantNumeric: "tabular-nums" }}>{money(total)}</span>
               </div>
             </div>
           </div>
