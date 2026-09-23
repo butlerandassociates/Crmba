@@ -120,6 +120,34 @@ export function EmailTemplatesDialog({
       .then(({ data }) => setProposalReviews(data ?? []));
   }, [attachPdf, selectedProposalId]);
 
+  // PM Labor Hours, marked up, folded into the client-facing BAD line — same rule as the
+  // main proposal builder (Jonathan, Sep 22 2026). Display-only: never written back to the
+  // database, matches the same real-`bad_amount`-stays-pure approach used in proposal-detail.tsx.
+  const [pmLaborMarkedUpValue, setPmLaborMarkedUpValue] = useState(0);
+  useEffect(() => {
+    if (!attachPdf || !selectedProposalId) { setPmLaborMarkedUpValue(0); return; }
+    supabase
+      .from("estimate_pm_labor_items")
+      .select("hours, hourly_rate")
+      .eq("estimate_id", selectedProposalId)
+      .then(({ data }) => {
+        const items = data ?? [];
+        const totalCost = items.reduce((sum, it: any) => sum + Number(it.hours) * Number(it.hourly_rate), 0);
+        if (totalCost === 0) { setPmLaborMarkedUpValue(0); return; }
+        const sp = proposals.find((p) => p.id === selectedProposalId);
+        const savedMarkupPct = sp?.wizard_inputs?._markupPct ?? null;
+        const lineItemsDirectCost = (sp?.line_items ?? []).reduce(
+          (sum: number, li: any) => sum + Number(li.quantity) * (Number(li.material_cost ?? 0) + Number(li.labor_cost ?? 0)), 0
+        );
+        const subtotal = Number(sp?.subtotal ?? 0);
+        const markupPct = savedMarkupPct !== null
+          ? savedMarkupPct
+          : (lineItemsDirectCost > 0 ? ((subtotal - lineItemsDirectCost) / lineItemsDirectCost) * 100 : 0);
+        setPmLaborMarkedUpValue(Math.round(totalCost * (1 + markupPct / 100) * 100) / 100);
+      })
+      .catch(() => setPmLaborMarkedUpValue(0));
+  }, [attachPdf, selectedProposalId]);
+
   const handleTemplateSelect = (templateId: string) => {
     const template = templates.find((t) => t.id === templateId);
     if (template) {
@@ -792,7 +820,11 @@ export function EmailTemplatesDialog({
         style={{ position: "fixed", left: "-9999px", top: 0, zIndex: -1, pointerEvents: "none" }}
         aria-hidden="true"
       >
-        <ProposalExport proposal={selectedProposal} client={client} reviews={proposalReviews} />
+        <ProposalExport
+          proposal={selectedProposal ? { ...selectedProposal, bad_amount: Number(selectedProposal.bad_amount ?? 0) + pmLaborMarkedUpValue } : selectedProposal}
+          client={client}
+          reviews={proposalReviews}
+        />
       </div>
     )}
     </>

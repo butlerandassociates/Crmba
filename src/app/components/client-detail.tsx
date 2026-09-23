@@ -1883,14 +1883,14 @@ export function ClientDetail() {
                 </DropdownMenuItem>
               </Link>
             )}
-            {["prospect", "scheduled", "selling"].includes(client.status) && can("can_manage_users") && !client.sales_rep_id && (
+            {["prospect", "scheduled", "selling"].includes(client.status) && can("can_manage_users") && (
               <DropdownMenuItem onClick={() => {
                 setAssignRepId(client.sales_rep_id ?? clientProjects[0]?.sales_rep_id ?? "");
                 usersAPI.getByRole("sales_rep").then(setAssignRepList).catch(() => {});
                 setAssignRepOpen(true);
               }}>
                 <UserCheck className="h-4 w-4 mr-2" />
-                Assign Sales Rep
+                {client.sales_rep_id ? "Change / Unassign Sales Rep" : "Assign Sales Rep"}
               </DropdownMenuItem>
             )}
             {client.appointment_scheduled && !client.appointment_met && (

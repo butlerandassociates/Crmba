@@ -3813,7 +3813,17 @@ export function ProposalDetail() {
             proposal={{
               ...proposal,
               subtotal: computedSubtotal,
-              bad_amount: activeBad,
+              // Client-facing BAD line only — folds in PM Labor's marked-up value so the
+              // client is billed for it (Jonathan, Sep 22 2026: "bake the PM labor into the
+              // BAD line... but internally, keep them separately"). This is a display-only
+              // adjustment for what ProposalExport renders/recomputes its total from — the
+              // REAL `bad_amount` written to the database (search this file for the Save
+              // handler's `bad_amount: activeBad`) is deliberately left as BAD alone, since
+              // that saved value is also the baseline the builder reloads BAD from on the
+              // next edit. Combining them there would double-count PM Labor on every
+              // subsequent save. Do not "simplify" this by folding PM Labor into activeBad
+              // itself.
+              bad_amount: activeBad + pmLaborMarkedUpValue,
               tax_amount: activeTax,
               discount_amount: discountAmt,
               discount_percentage: discountType === "percent" ? discountValue : 0,
