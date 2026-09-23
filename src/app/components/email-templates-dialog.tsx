@@ -145,7 +145,7 @@ export function EmailTemplatesDialog({
           : (lineItemsDirectCost > 0 ? ((subtotal - lineItemsDirectCost) / lineItemsDirectCost) * 100 : 0);
         setPmLaborMarkedUpValue(Math.round(totalCost * (1 + markupPct / 100) * 100) / 100);
       })
-      .catch(() => setPmLaborMarkedUpValue(0));
+      .then(undefined, () => setPmLaborMarkedUpValue(0));
   }, [attachPdf, selectedProposalId]);
 
   const handleTemplateSelect = (templateId: string) => {
