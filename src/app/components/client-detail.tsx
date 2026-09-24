@@ -278,9 +278,10 @@ export function ClientDetail() {
       setClientProjects(filtered);
       if (filtered[0]?.id) {
         commissionPaymentsAPI.getAll({ project_id: filtered[0].id }).then(setProjectCommPayments).catch(console.error);
-        if (["sold", "active", "completed"].includes(filtered[0]?.status ?? "")) {
-          loadGpHealth(filtered[0].id);
-        }
+        // loadGpHealth is NOT called here — clientProposals (fetched separately, in parallel)
+        // is very often still empty at this point, which would silently zero out material/
+        // labor budgets. A dedicated effect below calls it once clientProposals actually has
+        // data, so this mount-time race can't produce a wrong first render.
       }
       // Stale data guard — zero out commission if assigned person was removed
       filtered.forEach((p: any) => {
@@ -1255,9 +1256,13 @@ export function ClientDetail() {
       const laborFromCrewPayments = allCrewPayments.reduce((s: number, cp: any) =>
         s + (parseFloat(cp.amount_paid) || 0), 0);
 
-      // Use whichever is larger: committed FIO labor vs actual paid
-      // This matches the DB trigger logic in migration 050
-      const laborActual = laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments);
+      // True actual labor paid — Jonathan (Sep 24 2026): "Actual" must equal Paid to Crew,
+      // not Committed (FIO). Committed stays on its own line.
+      const laborPaid = laborFromReceipts + laborFromCrewPayments;
+      // Projected labor — whichever is larger: committed FIO labor vs actual paid. Used for
+      // Projected GP only, never displayed as "Actual". Matches the DB trigger logic in
+      // migration 050, which this same max-of-committed-vs-paid approach was originally for.
+      const laborProjected = laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments);
 
       // Mileage attributed to this job (approved/paid, non-personal) — matches migration 095
       const mileageTrips = await mileageTripsAPI.getProjectCostTrips(projectId).catch(() => [] as any[]);
@@ -1299,7 +1304,8 @@ export function ClientDetail() {
           materialBudget: effectiveMaterialBudget,
           laborBudget: effectiveLaborBudget,
           materialActual,
-          laborActual,
+          laborActual: laborPaid,
+          laborProjected,
           mileageActual,
           commPaid,
           commDue,
@@ -1319,6 +1325,20 @@ export function ClientDetail() {
       toast.error("Failed to load financial data — please refresh the page.");
     }
   };
+
+  // Runs loadGpHealth once clientProposals has actually loaded (fetched separately, in
+  // parallel, from the effect that sets clientProjects) — fixes a mount-time race where the
+  // Financial Health panel could briefly show $0 material/labor budgets, and the header
+  // Gross Profit/GP% could show the full contract value, until something else happened to
+  // re-trigger a reload.
+  useEffect(() => {
+    const projectId = clientProjects[0]?.id;
+    const status = clientProjects[0]?.status ?? "";
+    if (projectId && clientProposals.length > 0 && ["sold", "active", "completed"].includes(status)) {
+      loadGpHealth(projectId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientProjects[0]?.id, clientProjects[0]?.status, clientProposals]);
 
   useRealtimeRefetch(
     () => {
@@ -3131,10 +3151,12 @@ export function ClientDetail() {
                 {(() => {
                   const d = gpHealthData[project.id];
                   const cv = project.totalValue ?? 0;
-                  const liveGP = d ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : (project.grossProfit ?? 0);
+                  // Header shows Budgeted GP — fixed at sale, not the live/projected number
+                  // (Jonathan, Sep 24 2026 follow-up ticket).
+                  const budgetedGP = d ? cv - (d.materialBudget + d.laborBudget) : (project.grossProfit ?? 0);
                   return role === "project_manager"
-                    ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (liveGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
-                    : <p className="font-semibold text-base text-green-600">{formatCurrency(liveGP)}</p>;
+                    ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (budgetedGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
+                    : <p className="font-semibold text-base text-green-600">{formatCurrency(budgetedGP)}</p>;
                 })()}
               </div>
               )}
@@ -3153,7 +3175,7 @@ export function ClientDetail() {
                           <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground" onClick={(e) => e.stopPropagation()} />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-xs">
-                          Live GP margin based on FIO committed labor and actual costs. Click to see the full Financial Health breakdown.
+                          Budgeted GP margin — fixed at sale from the material and labor budgets. Click to see the full Financial Health breakdown.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -3163,8 +3185,8 @@ export function ClientDetail() {
                       const d = gpHealthData[project.id];
                       const cv = project.totalValue ?? 0;
                       if (d && cv > 0) {
-                        const liveGP = cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0));
-                        return (liveGP / cv * 100).toFixed(1);
+                        const budgetedGP = cv - (d.materialBudget + d.laborBudget);
+                        return (budgetedGP / cv * 100).toFixed(1);
                       }
                       return (project.profitMargin ?? 0).toFixed(1);
                     })()}%
@@ -3177,7 +3199,7 @@ export function ClientDetail() {
                 const repId = project.sales_rep_id ?? null;
                 const d = gpHealthData[project.id];
                 const cv = project.totalValue ?? 0;
-                const liveGP = d ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : (project.grossProfit ?? 0);
+                const budgetedGP = d ? cv - (d.materialBudget + d.laborBudget) : (project.grossProfit ?? 0);
                 // Read commission from the real commission_payments ledger (paid + pending combined)
                 // instead of recalculating from a stored rate — the rate field can go stale
                 // relative to what's actually recorded, which is what actually determines Net Profit.
@@ -3216,10 +3238,10 @@ export function ClientDetail() {
                       )}
                     </div>
                   )}
-                  {(pmComm > 0 || repComm > 0) && liveGP > 0 && role !== "project_manager" && role !== "sales_rep" && (
+                  {(pmComm > 0 || repComm > 0) && budgetedGP > 0 && role !== "project_manager" && role !== "sales_rep" && (
                     <div>
                       <p className="text-xs text-muted-foreground">Net Profit</p>
-                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, liveGP - pmComm - repComm))}</p>
+                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, budgetedGP - pmComm - repComm))}</p>
                     </div>
                   )}
                 </>);
@@ -3236,36 +3258,60 @@ export function ClientDetail() {
 
               const contractValue = project.totalValue ?? 0;
               const totalBudget = d.materialBudget + d.laborBudget;
-              const totalActual = d.materialActual + d.laborActual + (d.mileageActual ?? 0);
-              const liveGP = contractValue - totalActual;
-              const liveGPPct = contractValue > 0 ? (liveGP / contractValue) * 100 : 0;
-              // Budgeted Job Cost = material + labor budgeted for this project (from the
-              // accepted proposal's line items) — a fixed number that doesn't move as actuals
-              // come in. Jonathan (Sep 24 2026, follow-up): a "Budgeted GP" label was a category
-              // mismatch since GP is what's left AFTER costs, not a budget input — renamed to
-              // "Budgeted JC" (job cost) showing the cost figure directly instead of netting it
-              // against contract value. Was previously project.grossProfit, which a DB trigger
-              // (migrations 049+050) recalculates from live actuals, so it always mirrored Live
-              // GP instead of staying fixed.
-              const budgetedJC = totalBudget;
+              // Jonathan (Sep 24 2026 follow-up ticket) — exact formulas:
+              // Budgeted GP = Contract Value − Materials Budget − Labor Budget. Fixed at sale.
+              const budgetedGP = contractValue - totalBudget;
+              const budgetedGPPct = contractValue > 0 ? (budgetedGP / contractValue) * 100 : 0;
+              // Projected GP: for each category, Projected Cost = the greater of Actual and
+              // (Committed if a commitment exists, otherwise Budget). Materials has no
+              // commitment source in this system (purchase_orders carries no dollar amount),
+              // so it always falls back to max(Actual, Budget). Labor's commitment is the FIO
+              // assignment — d.laborProjected already computes max(fioAssigned, laborPaid) plus
+              // any labor receipts, from loadGpHealth.
+              // Category completion (Jonathan follow-up, Sep 24 2026): once a category is
+              // marked complete, its Projected Cost collapses to the literal Actual, releasing
+              // any unspent budget/commitment into Projected GP. At job closeout ("completed"
+              // status) both categories are treated as complete automatically, regardless of
+              // the individual toggles — final Projected GP = Contract − all Actuals.
+              const jobComplete = project.status === "completed";
+              const materialsComplete = jobComplete || !!project.materials_complete;
+              const laborComplete = jobComplete || !!project.labor_complete;
+              const materialProjected = materialsComplete ? d.materialActual : Math.max(d.materialActual, d.materialBudget);
+              const laborProjected = laborComplete ? d.laborActual : (d.laborProjected ?? Math.max(d.laborActual, d.laborBudget));
+              const projectedGP = contractValue - materialProjected - laborProjected;
+              const projectedGPPct = contractValue > 0 ? (projectedGP / contractValue) * 100 : 0;
+              const toggleCategoryComplete = async (field: "materials_complete" | "labor_complete", value: boolean) => {
+                try {
+                  await projectsAPI.update(project.id, { [field]: value });
+                  setClientProjects((prev) => prev.map((p: any) => p.id === project.id ? { ...p, [field]: value } : p));
+                } catch {
+                  toast.error("Failed to update category status — please try again.");
+                }
+              };
 
-              const health = (actual: number, budget: number) => {
+              const health = (projected: number, budget: number) => {
                 if (budget === 0) return "text-muted-foreground";
-                const ratio = actual / budget;
+                const ratio = projected / budget;
                 if (ratio <= 0.9) return "text-green-600";
                 if (ratio <= 1.0) return "text-amber-500";
                 return "text-red-600";
               };
-              const healthBg = (actual: number, budget: number) => {
+              const healthBg = (projected: number, budget: number) => {
                 if (budget === 0) return "bg-gray-50";
-                const ratio = actual / budget;
+                const ratio = projected / budget;
                 if (ratio <= 0.9) return "bg-green-50 border-green-200";
                 if (ratio <= 1.0) return "bg-amber-50 border-amber-200";
                 return "bg-red-50 border-red-200";
               };
-              const overUnder = (actual: number, budget: number) => {
+              // Variance compares Projected Cost to Budget, not Actual to Budget — and before
+              // any cost is recorded (actual = $0, nothing committed), shows a neutral
+              // "Not started" state instead of a misleading "under budget".
+              const overUnder = (projected: number, budget: number, actual: number, committed?: number) => {
                 if (budget === 0) return null;
-                const diff = budget - actual;
+                if (actual === 0 && !(committed && committed > 0)) {
+                  return <span className="text-muted-foreground text-xs font-medium">Not started — $0 of {formatCurrency(budget)} spent</span>;
+                }
+                const diff = budget - projected;
                 return diff >= 0
                   ? <span className="text-green-600 text-xs font-medium">{formatCurrency(diff)} under budget</span>
                   : <span className="text-red-600 text-xs font-medium">{formatCurrency(Math.abs(diff))} OVER budget</span>;
@@ -3275,55 +3321,55 @@ export function ClientDetail() {
                 <div className="border-t pt-4 space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Financial Health</p>
 
-                  {/* Live GP vs Budgeted JC */}
+                  {/* Budgeted GP vs Projected GP */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="border rounded-lg p-3 bg-gray-50">
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        Budgeted JC
+                        Budgeted GP
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-pointer" />
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-[240px] text-xs">
-                              Total budgeted job cost — material + labor budgeted for this project. Fixed, doesn't change as actual costs come in.
+                              What GP should be based on the material and labor budgets. Fixed at sale, doesn't change as actual costs come in.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </p>
-                      <p className="font-bold text-base text-foreground">{formatCurrency(budgetedJC)}</p>
-                      <p className="text-xs text-muted-foreground">Materials + Labor</p>
+                      <p className="font-bold text-base text-green-600">{formatCurrency(budgetedGP)}</p>
+                      <p className="text-xs text-muted-foreground">{budgetedGPPct.toFixed(1)}% margin</p>
                     </div>
-                    <div className={`border rounded-lg p-3 ${totalActual <= totalBudget ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+                    <div className={`border rounded-lg p-3 ${projectedGP >= budgetedGP ? "bg-green-50 border-green-200" : projectedGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        Live GP
+                        Projected GP
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-pointer" />
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-[240px] text-xs">
-                              Real-time GP based on costs recorded so far. Will decrease as material receipts are added and crew payments are recorded.
+                              Expected profit at completion based on actual spend, locked-in commitments, and remaining budget.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </p>
-                      <p className={`font-bold text-base ${totalActual <= totalBudget ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
-                        {formatCurrency(liveGP)}
+                      <p className={`font-bold text-base ${projectedGP >= budgetedGP ? "text-green-600" : projectedGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
+                        {formatCurrency(projectedGP)}
                       </p>
-                      <p className="text-xs text-muted-foreground">{liveGPPct.toFixed(1)}% margin</p>
+                      <p className="text-xs text-muted-foreground">{projectedGPPct.toFixed(1)}% margin</p>
                     </div>
                   </div>
 
                   {/* Material breakdown */}
-                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(d.materialActual, d.materialBudget)}`}>
+                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(materialProjected, d.materialBudget)}`}>
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold">Materials</p>
-                      {overUnder(d.materialActual, d.materialBudget)}
+                      {overUnder(materialProjected, d.materialBudget, d.materialActual)}
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.materialBudget)}</span></span>
-                      <span>Actual: <span className={`font-semibold ${health(d.materialActual, d.materialBudget)}`}>{formatCurrency(d.materialActual)}</span></span>
+                      <span>Actual: <span className={`font-semibold ${health(materialProjected, d.materialBudget)}`}>{formatCurrency(d.materialActual)}</span></span>
                     </div>
                     {d.materialBudget > 0 && (
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -3333,17 +3379,28 @@ export function ClientDetail() {
                         />
                       </div>
                     )}
+                    {!jobComplete && (
+                      <label className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!project.materials_complete}
+                          onChange={(e) => toggleCategoryComplete("materials_complete", e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                        />
+                        Mark materials complete
+                      </label>
+                    )}
                   </div>
 
                   {/* Labor breakdown */}
-                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(d.laborActual, d.laborBudget)}`}>
+                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(laborProjected, d.laborBudget)}`}>
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold">Labor</p>
-                      {overUnder(d.laborActual, d.laborBudget)}
+                      {overUnder(laborProjected, d.laborBudget, d.laborActual, d.fioAssigned)}
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.laborBudget)}</span></span>
-                      <span>Actual: <span className={`font-semibold ${health(d.laborActual, d.laborBudget)}`}>{formatCurrency(d.laborActual)}</span></span>
+                      <span>Actual: <span className={`font-semibold ${health(laborProjected, d.laborBudget)}`}>{formatCurrency(d.laborActual)}</span></span>
                     </div>
                     {(d.fioAssigned ?? 0) > 0 && (
                       <div className="space-y-0.5">
@@ -3368,6 +3425,17 @@ export function ClientDetail() {
                           style={{ width: `${Math.min((d.laborActual / d.laborBudget) * 100, 100)}%` }}
                         />
                       </div>
+                    )}
+                    {!jobComplete && (
+                      <label className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!project.labor_complete}
+                          onChange={(e) => toggleCategoryComplete("labor_complete", e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                        />
+                        Mark labor complete
+                      </label>
                     )}
                   </div>
 
@@ -3447,8 +3515,8 @@ export function ClientDetail() {
                     </div>
                   )}
 
-                  {totalActual === 0 && (
-                    <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet — live GP updates automatically as you add receipts.</p>
+                  {d.materialActual === 0 && d.laborActual === 0 && (d.mileageActual ?? 0) === 0 && (
+                    <p className="text-xs text-muted-foreground text-center pb-1">No cost attributions yet — Projected GP updates automatically as you add receipts.</p>
                   )}
                   {d.isFallbackBudget && (
                     <p className="text-xs text-muted-foreground text-center pb-1">* Material/labor split estimated at 70/30 — product cost breakdown not available in proposal line items.</p>
