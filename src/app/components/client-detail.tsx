@@ -3239,13 +3239,15 @@ export function ClientDetail() {
               const totalActual = d.materialActual + d.laborActual + (d.mileageActual ?? 0);
               const liveGP = contractValue - totalActual;
               const liveGPPct = contractValue > 0 ? (liveGP / contractValue) * 100 : 0;
-              // Projected GP = contract value minus what material + labor were BUDGETED for
-              // (from the accepted proposal's line items) — a fixed number that doesn't move
-              // as actuals come in. Jonathan (Sep 24 2026): the old "Budgeted GP" box read
-              // project.grossProfit, which a DB trigger (migrations 049+050) recalculates
-              // from live actuals, so it always mirrored Live GP instead of staying fixed.
-              const budgetedGP = contractValue - totalBudget;
-              const budgetedGPPct = contractValue > 0 ? (budgetedGP / contractValue) * 100 : 0;
+              // Budgeted Job Cost = material + labor budgeted for this project (from the
+              // accepted proposal's line items) — a fixed number that doesn't move as actuals
+              // come in. Jonathan (Sep 24 2026, follow-up): a "Budgeted GP" label was a category
+              // mismatch since GP is what's left AFTER costs, not a budget input — renamed to
+              // "Budgeted JC" (job cost) showing the cost figure directly instead of netting it
+              // against contract value. Was previously project.grossProfit, which a DB trigger
+              // (migrations 049+050) recalculates from live actuals, so it always mirrored Live
+              // GP instead of staying fixed.
+              const budgetedJC = totalBudget;
 
               const health = (actual: number, budget: number) => {
                 if (budget === 0) return "text-muted-foreground";
@@ -3273,26 +3275,26 @@ export function ClientDetail() {
                 <div className="border-t pt-4 space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Financial Health</p>
 
-                  {/* Live GP vs Projected GP */}
+                  {/* Live GP vs Budgeted JC */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="border rounded-lg p-3 bg-gray-50">
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        Projected GP
+                        Budgeted JC
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-pointer" />
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-[240px] text-xs">
-                              What GP should be based on the material and labor budgets — fixed, doesn't change as actual costs come in.
+                              Total budgeted job cost — material + labor budgeted for this project. Fixed, doesn't change as actual costs come in.
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </p>
-                      <p className="font-bold text-base text-green-600">{formatCurrency(budgetedGP)}</p>
-                      <p className="text-xs text-muted-foreground">{budgetedGPPct.toFixed(1)}% margin</p>
+                      <p className="font-bold text-base text-foreground">{formatCurrency(budgetedJC)}</p>
+                      <p className="text-xs text-muted-foreground">Materials + Labor</p>
                     </div>
-                    <div className={`border rounded-lg p-3 ${liveGP >= budgetedGP ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
+                    <div className={`border rounded-lg p-3 ${totalActual <= totalBudget ? "bg-green-50 border-green-200" : liveGP >= 0 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         Live GP
                         <TooltipProvider>
@@ -3306,7 +3308,7 @@ export function ClientDetail() {
                           </Tooltip>
                         </TooltipProvider>
                       </p>
-                      <p className={`font-bold text-base ${liveGP >= budgetedGP ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
+                      <p className={`font-bold text-base ${totalActual <= totalBudget ? "text-green-600" : liveGP >= 0 ? "text-amber-600" : "text-red-600"}`}>
                         {formatCurrency(liveGP)}
                       </p>
                       <p className="text-xs text-muted-foreground">{liveGPPct.toFixed(1)}% margin</p>
