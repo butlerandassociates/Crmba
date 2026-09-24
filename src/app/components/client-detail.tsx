@@ -2717,8 +2717,11 @@ export function ClientDetail() {
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
               // Use same live source as project info card (gpHealthData auto-loads on page for active/sold/completed)
               const _d = gpHealthData[clientProjects[0]?.id];
+              // Budgeted GP — same fixed figure shown in the Financial Health panel's header
+              // below (Jonathan, Sep 24 2026: this donut didn't match that panel when
+              // expanded, because it was still computing a live-cost-based number).
               const grossProfit = _d
-                ? Math.max(0, totalValue - (_d.materialActual + _d.laborActual + (_d.mileageActual ?? 0)))
+                ? Math.max(0, totalValue - (_d.materialBudget + _d.laborBudget))
                 : (clientProjects[0]?.grossProfit ?? 0);
               const cost = grossProfit < totalValue ? totalValue - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
               const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
