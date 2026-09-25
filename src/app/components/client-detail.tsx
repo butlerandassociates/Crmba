@@ -2717,11 +2717,19 @@ export function ClientDetail() {
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
               // Use same live source as project info card (gpHealthData auto-loads on page for active/sold/completed)
               const _d = gpHealthData[clientProjects[0]?.id];
-              // Budgeted GP — same fixed figure shown in the Financial Health panel's header
-              // below (Jonathan, Sep 24 2026: this donut didn't match that panel when
-              // expanded, because it was still computing a live-cost-based number).
+              // Budgeted GP while the job is in progress — same fixed figure shown in the
+              // Financial Health panel's header below (Jonathan, Sep 24 2026: this donut
+              // didn't match that panel when expanded, because it was still computing a
+              // live-cost-based number). Once the job is Completed, both cost categories are
+              // auto-complete per the closeout rule, so switch to the final realized GP
+              // (Contract − all Actuals) instead of staying frozen at the original budget
+              // forever (Jonathan, Sep 25 2026: closed-out job still showed the pre-closeout
+              // budgeted number here instead of the final $4,105/50.6% shown everywhere else).
+              const isCompleted = clientProjects[0]?.status === "completed";
               const grossProfit = _d
-                ? Math.max(0, totalValue - (_d.materialBudget + _d.laborBudget))
+                ? (isCompleted
+                    ? totalValue - (_d.materialActual + _d.laborActual + (_d.mileageActual ?? 0))
+                    : totalValue - (_d.materialBudget + _d.laborBudget))
                 : (clientProjects[0]?.grossProfit ?? 0);
               const cost = grossProfit < totalValue ? totalValue - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
               const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
@@ -3154,12 +3162,18 @@ export function ClientDetail() {
                 {(() => {
                   const d = gpHealthData[project.id];
                   const cv = project.totalValue ?? 0;
-                  // Header shows Budgeted GP — fixed at sale, not the live/projected number
-                  // (Jonathan, Sep 24 2026 follow-up ticket).
-                  const budgetedGP = d ? cv - (d.materialBudget + d.laborBudget) : (project.grossProfit ?? 0);
+                  // Header shows Budgeted GP while the job is in progress — fixed at sale, not
+                  // the live/projected number (Jonathan, Sep 24 2026 follow-up ticket). Once
+                  // Completed, both categories are auto-complete per the closeout rule, so this
+                  // switches to the final realized GP (Jonathan, Sep 25 2026: the header stayed
+                  // frozen at the pre-closeout budget instead of showing the final number).
+                  const isCompleted = project.status === "completed";
+                  const headerGP = d
+                    ? (isCompleted ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : cv - (d.materialBudget + d.laborBudget))
+                    : (project.grossProfit ?? 0);
                   return role === "project_manager"
-                    ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (budgetedGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
-                    : <p className="font-semibold text-base text-green-600">{formatCurrency(budgetedGP)}</p>;
+                    ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (headerGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
+                    : <p className="font-semibold text-base text-green-600">{formatCurrency(headerGP)}</p>;
                 })()}
               </div>
               )}
@@ -3178,7 +3192,9 @@ export function ClientDetail() {
                           <Info className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground" onClick={(e) => e.stopPropagation()} />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-xs">
-                          Budgeted GP margin — fixed at sale from the material and labor budgets. Click to see the full Financial Health breakdown.
+                          {project.status === "completed"
+                            ? "Final GP margin — contract minus all actual costs, now that the job is closed out."
+                            : "Budgeted GP margin — fixed at sale from the material and labor budgets."} Click to see the full Financial Health breakdown.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -3188,8 +3204,10 @@ export function ClientDetail() {
                       const d = gpHealthData[project.id];
                       const cv = project.totalValue ?? 0;
                       if (d && cv > 0) {
-                        const budgetedGP = cv - (d.materialBudget + d.laborBudget);
-                        return (budgetedGP / cv * 100).toFixed(1);
+                        const headerGP = project.status === "completed"
+                          ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0))
+                          : cv - (d.materialBudget + d.laborBudget);
+                        return (headerGP / cv * 100).toFixed(1);
                       }
                       return (project.profitMargin ?? 0).toFixed(1);
                     })()}%
@@ -3202,7 +3220,9 @@ export function ClientDetail() {
                 const repId = project.sales_rep_id ?? null;
                 const d = gpHealthData[project.id];
                 const cv = project.totalValue ?? 0;
-                const budgetedGP = d ? cv - (d.materialBudget + d.laborBudget) : (project.grossProfit ?? 0);
+                const headerGP = d
+                  ? (project.status === "completed" ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : cv - (d.materialBudget + d.laborBudget))
+                  : (project.grossProfit ?? 0);
                 // Read commission from the real commission_payments ledger (paid + pending combined)
                 // instead of recalculating from a stored rate — the rate field can go stale
                 // relative to what's actually recorded, which is what actually determines Net Profit.
@@ -3241,10 +3261,10 @@ export function ClientDetail() {
                       )}
                     </div>
                   )}
-                  {(pmComm > 0 || repComm > 0) && budgetedGP > 0 && role !== "project_manager" && role !== "sales_rep" && (
+                  {(pmComm > 0 || repComm > 0) && headerGP > 0 && role !== "project_manager" && role !== "sales_rep" && (
                     <div>
                       <p className="text-xs text-muted-foreground">Net Profit</p>
-                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, budgetedGP - pmComm - repComm))}</p>
+                      <p className="font-semibold text-base text-orange-600">{formatCurrency(Math.max(0, headerGP - pmComm - repComm))}</p>
                     </div>
                   )}
                 </>);
