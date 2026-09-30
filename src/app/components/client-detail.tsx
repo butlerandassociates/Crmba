@@ -152,6 +152,25 @@ function parseApptDate(dateStr: string): Date {
   return new Date(dateStr.includes("T") ? dateStr : dateStr + "T00:00:00");
 }
 
+// Shared Projected GP formula — Jonathan (Sep 29 2026): the top-level "Gross Profit"
+// field (next to Start Date, and the "Project Financials" donut) should always track
+// real numbers as they come in, including going below budget on an overage — not stay
+// frozen at the original budget the way the panel's own dedicated "Budgeted GP" box
+// intentionally does. Extracted to one place after this same formula previously drifted
+// out of sync across 5 separate inline copies (donut + 3 header spots + the panel) each
+// time a new edge case was added; every "Gross Profit"/GP% summary elsewhere in this
+// component should call this instead of recomputing it inline.
+function computeProjectedGP(d: any, project: any): number {
+  const contractValue = project?.totalValue ?? 0;
+  if (!d) return project?.grossProfit ?? 0;
+  const jobComplete = project?.status === "completed";
+  const materialsComplete = jobComplete || !!project?.materials_complete;
+  const laborComplete = jobComplete || !!project?.labor_complete;
+  const materialProjected = materialsComplete ? d.materialActual : Math.max(d.materialActual, d.materialBudget);
+  const laborProjected = laborComplete ? d.laborActual : (d.laborProjected ?? Math.max(d.laborActual, d.laborBudget));
+  return contractValue - materialProjected - laborProjected;
+}
+
 export function ClientDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -2717,20 +2736,10 @@ export function ClientDetail() {
               const totalValue = clientProjects[0]?.totalValue || acceptedProposal?.total || 0;
               // Use same live source as project info card (gpHealthData auto-loads on page for active/sold/completed)
               const _d = gpHealthData[clientProjects[0]?.id];
-              // Budgeted GP while the job is in progress — same fixed figure shown in the
-              // Financial Health panel's header below (Jonathan, Sep 24 2026: this donut
-              // didn't match that panel when expanded, because it was still computing a
-              // live-cost-based number). Once the job is Completed, both cost categories are
-              // auto-complete per the closeout rule, so switch to the final realized GP
-              // (Contract − all Actuals) instead of staying frozen at the original budget
-              // forever (Jonathan, Sep 25 2026: closed-out job still showed the pre-closeout
-              // budgeted number here instead of the final $4,105/50.6% shown everywhere else).
-              const isCompleted = clientProjects[0]?.status === "completed";
-              const grossProfit = _d
-                ? (isCompleted
-                    ? totalValue - (_d.materialActual + _d.laborActual + (_d.mileageActual ?? 0))
-                    : totalValue - (_d.materialBudget + _d.laborBudget))
-                : (clientProjects[0]?.grossProfit ?? 0);
+              // Projected GP — tracks real numbers continuously (Jonathan, Sep 29 2026: this
+              // needs to reflect an overage immediately, not stay pinned to the budget until
+              // closeout). See computeProjectedGP for the full history of this field.
+              const grossProfit = computeProjectedGP(_d, clientProjects[0]);
               const cost = grossProfit < totalValue ? totalValue - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
               const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
@@ -3162,15 +3171,10 @@ export function ClientDetail() {
                 {(() => {
                   const d = gpHealthData[project.id];
                   const cv = project.totalValue ?? 0;
-                  // Header shows Budgeted GP while the job is in progress — fixed at sale, not
-                  // the live/projected number (Jonathan, Sep 24 2026 follow-up ticket). Once
-                  // Completed, both categories are auto-complete per the closeout rule, so this
-                  // switches to the final realized GP (Jonathan, Sep 25 2026: the header stayed
-                  // frozen at the pre-closeout budget instead of showing the final number).
-                  const isCompleted = project.status === "completed";
-                  const headerGP = d
-                    ? (isCompleted ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : cv - (d.materialBudget + d.laborBudget))
-                    : (project.grossProfit ?? 0);
+                  // Header shows Projected GP — tracks real numbers continuously, including
+                  // reflecting an overage immediately (Jonathan, Sep 29 2026). See
+                  // computeProjectedGP for the full history of this field.
+                  const headerGP = computeProjectedGP(d, project);
                   return role === "project_manager"
                     ? <p className="font-semibold text-base text-green-600">{(cv > 0 ? (headerGP / cv) * 100 : (project.profitMargin ?? 0)).toFixed(1)}% GP</p>
                     : <p className="font-semibold text-base text-green-600">{formatCurrency(headerGP)}</p>;
@@ -3204,9 +3208,7 @@ export function ClientDetail() {
                       const d = gpHealthData[project.id];
                       const cv = project.totalValue ?? 0;
                       if (d && cv > 0) {
-                        const headerGP = project.status === "completed"
-                          ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0))
-                          : cv - (d.materialBudget + d.laborBudget);
+                        const headerGP = computeProjectedGP(d, project);
                         return (headerGP / cv * 100).toFixed(1);
                       }
                       return (project.profitMargin ?? 0).toFixed(1);
@@ -3220,9 +3222,7 @@ export function ClientDetail() {
                 const repId = project.sales_rep_id ?? null;
                 const d = gpHealthData[project.id];
                 const cv = project.totalValue ?? 0;
-                const headerGP = d
-                  ? (project.status === "completed" ? cv - (d.materialActual + d.laborActual + (d.mileageActual ?? 0)) : cv - (d.materialBudget + d.laborBudget))
-                  : (project.grossProfit ?? 0);
+                const headerGP = computeProjectedGP(d, project);
                 // Read commission from the real commission_payments ledger (paid + pending combined)
                 // instead of recalculating from a stored rate — the rate field can go stale
                 // relative to what's actually recorded, which is what actually determines Net Profit.

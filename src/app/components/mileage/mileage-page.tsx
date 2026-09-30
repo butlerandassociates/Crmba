@@ -107,7 +107,7 @@ function EmployeeMileagePage() {
   const [histFrom, setHistFrom] = useState("");
   const [histTo, setHistTo] = useState("");
 
-  const rate = settings?.rate_per_mile ?? 0.725;
+  const rate = settings?.rate_per_mile ?? 0.76;
   const isDeadlinePassed = period ? new Date() > new Date(period.submission_deadline) : false;
 
   const fetchAll = async (quiet = false) => {

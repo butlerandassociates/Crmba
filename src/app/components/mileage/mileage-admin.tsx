@@ -1404,7 +1404,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [submitting, setSubmitting] = useState(false);
   const [uploadParsed, setUploadParsed] = useState(false); // MileageUpload has parsed-but-unsaved trips
 
-  const rate = settings?.rate_per_mile ?? 0.725;
+  const rate = settings?.rate_per_mile ?? 0.76;
 
   // Dirty when: CSV parsed but not saved, OR trips saved to a draft but not yet submitted.
   useEffect(() => {
@@ -1626,7 +1626,7 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
         <div style={{ padding: "12px 14px", background: "#eff6ff", border: "1px solid #dbeafe", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
           <Info style={{ width: 16, height: 16, color: "#2563eb", flexShrink: 0, marginTop: 1 }} />
           <p style={{ margin: 0, fontSize: 12.5, color: "#1e293b", lineHeight: 1.55 }}>
-            <strong style={{ fontWeight: 700 }}>Reimbursement rate:</strong> ${settings?.rate_per_mile ?? 0.725} per business mile. Personal trips and home-to-office commute are excluded automatically.
+            <strong style={{ fontWeight: 700 }}>Reimbursement rate:</strong> ${settings?.rate_per_mile ?? 0.76} per business mile. Personal trips and home-to-office commute are excluded automatically.
           </p>
         </div>
       </div>
@@ -2220,7 +2220,7 @@ export function MileageAdmin() {
           {[
             { label: "Pending Approval",        value: fmtMoney(kpi.pendingAmt),  sub: `${kpi.pendingEmps} ${kpi.pendingEmps === 1 ? "employee" : "employees"}`, valueColor: "#d97706", iconBg: "#fef3c7", iconColor: "#d97706", icon: <Clock style={{ width: 18, height: 18 }} /> },
             { label: "Approved This Period",     value: fmtMoney(kpi.approvedAmt), sub: `${kpi.approvedTrips} ${kpi.approvedTrips === 1 ? "employee" : "employees"} approved`, valueColor: "#059669", iconBg: "#d1fae5", iconColor: "#059669", icon: <TrendingUp style={{ width: 18, height: 18 }} /> },
-            { label: "Total Reimbursable Miles", value: kpi.totalMiles.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), sub: `@ $${settings?.rate_per_mile ?? 0.725}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
+            { label: "Total Reimbursable Miles", value: kpi.totalMiles.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), sub: `@ $${settings?.rate_per_mile ?? 0.76}/mile`, valueColor: "#2563eb", iconBg: "#dbeafe", iconColor: "#2563eb", icon: <Car style={{ width: 18, height: 18 }} /> },
             { label: `${freqLabel} Estimated Payout`, value: fmtMoney(kpi.pendingAmt + kpi.approvedAmt), sub: currentPeriod ? `paid ${fmt(currentPeriod.payment_date)}` : "—", valueColor: "#0a0a0a", iconBg: "#f3f4f6", iconColor: "#6b7280", icon: <DollarSign style={{ width: 18, height: 18 }} /> },
           ].map(c => (
             <div key={c.label} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 20px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
