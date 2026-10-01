@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { aggregateProjectCosts, computeProjectedGP } from "@/app/utils/financials";
 
 export const clientsAPI = {
   /** List active clients for a given stage (or all stages if omitted) */
@@ -21,14 +22,20 @@ export const clientsAPI = {
         pipeline_stage:pipeline_stages(id, name, color, order_index),
         sales_rep:profiles!clients_sales_rep_id_fkey(first_name, last_name, is_active, phone, email),
         projects(
-          total_value, start_date, end_date, profit_margin, gross_profit, sales_rep_id, project_manager_id,
+          id, total_value, start_date, end_date, profit_margin, gross_profit, sales_rep_id, project_manager_id,
+          status, materials_complete, labor_complete,
           project_manager:profiles!projects_project_manager_id_fkey(first_name, last_name, is_active),
           foreman:profiles!projects_foreman_id_fkey(first_name, last_name, is_active),
-          sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name, is_active)
+          sales_rep:profiles!projects_sales_rep_id_fkey(first_name, last_name, is_active),
+          receipts:project_receipts(category, amount),
+          fios:field_installation_orders(
+            items:field_installation_order_items(labor_cost_per_unit, quantity),
+            crew_payments:fio_crew_payments(amount_paid)
+          )
         ),
         appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name, role, phone, email)),
         project_payments(id, is_paid, amount),
-        estimates(id, total, status, created_at)
+        estimates(id, total, total_cost, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity))
       `)
       .eq("is_discarded", false)
       .order("created_at", { ascending: false });
@@ -43,8 +50,37 @@ export const clientsAPI = {
       );
       const project_start_date  = firstProject?.start_date  ?? null;
       const project_end_date    = firstProject?.end_date    ?? null;
-      const project_profit_margin = firstProject?.profit_margin != null ? Number(firstProject.profit_margin) : null;
-      const project_gross_profit = firstProject?.gross_profit != null ? Number(firstProject.gross_profit) : null;
+
+      // Projected GP — same formula + shared aggregation as the client detail page's
+      // own header/donut (financials.ts), so this list's quick-view GP% can never drift
+      // from what the job's own page shows again (Jonathan, Oct 1 2026: caught this list
+      // reading the raw, live-cost-only `projects.profit_margin` DB column while the
+      // detail page showed the correct Budgeted/Projected figure for the same job).
+      const acceptedEstimate = (c.estimates ?? []).find((e: any) => e.status === "accepted")
+        ?? (c.estimates ?? []).filter((e: any) => e.status !== "declined" && e.status !== "voided")
+          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      let project_profit_margin: number | null = null;
+      let project_gross_profit: number | null = null;
+      if (firstProject) {
+        const fios = firstProject.fios ?? [];
+        const costs = aggregateProjectCosts({
+          lineItems: acceptedEstimate?.line_items ?? [],
+          estimateTotalCost: acceptedEstimate?.total_cost ?? 0,
+          receipts: firstProject.receipts ?? [],
+          fioItems: fios.flatMap((f: any) => f.items ?? []),
+          crewPayments: fios.flatMap((f: any) => f.crew_payments ?? []),
+        });
+        project_gross_profit = computeProjectedGP(costs, {
+          totalValue: firstProject.total_value,
+          status: firstProject.status,
+          materials_complete: firstProject.materials_complete,
+          labor_complete: firstProject.labor_complete,
+          grossProfit: firstProject.gross_profit,
+        });
+        project_profit_margin = firstProject.total_value > 0
+          ? (project_gross_profit / firstProject.total_value) * 100
+          : (firstProject.profit_margin != null ? Number(firstProject.profit_margin) : null);
+      }
 
       const projectSalesRepName = firstProject?.sales_rep
         ? `${firstProject.sales_rep.first_name ?? ""} ${firstProject.sales_rep.last_name ?? ""}`.trim()
@@ -74,8 +110,6 @@ export const clientsAPI = {
       const paidAmount = payments.filter((p: any) => p.is_paid).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
       const payment_progress_pct = totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : null;
 
-      const latestProposal = (c.estimates ?? []).find((e: any) => e.status === "accepted")
-        ?? (c.estimates ?? []).filter((e: any) => e.status !== "declined" && e.status !== "voided").sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
       return {
         ...c,
         project_total,
@@ -90,7 +124,7 @@ export const clientsAPI = {
         pmName,
         foremanName,
         payment_progress_pct,
-        proposal_forecast: latestProposal?.total ?? 0,
+        proposal_forecast: acceptedEstimate?.total ?? 0,
       };
     });
   },

@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates } from "@/app/utils/financials";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, computeProjectedGP, aggregateProjectCosts } from "@/app/utils/financials";
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect, useRef } from "react";
@@ -150,25 +150,6 @@ function formatApptTime(time: string): string {
 function parseApptDate(dateStr: string): Date {
   // Append local midnight to prevent UTC-offset day shift
   return new Date(dateStr.includes("T") ? dateStr : dateStr + "T00:00:00");
-}
-
-// Shared Projected GP formula — Jonathan (Sep 29 2026): the top-level "Gross Profit"
-// field (next to Start Date, and the "Project Financials" donut) should always track
-// real numbers as they come in, including going below budget on an overage — not stay
-// frozen at the original budget the way the panel's own dedicated "Budgeted GP" box
-// intentionally does. Extracted to one place after this same formula previously drifted
-// out of sync across 5 separate inline copies (donut + 3 header spots + the panel) each
-// time a new edge case was added; every "Gross Profit"/GP% summary elsewhere in this
-// component should call this instead of recomputing it inline.
-function computeProjectedGP(d: any, project: any): number {
-  const contractValue = project?.totalValue ?? 0;
-  if (!d) return project?.grossProfit ?? 0;
-  const jobComplete = project?.status === "completed";
-  const materialsComplete = jobComplete || !!project?.materials_complete;
-  const laborComplete = jobComplete || !!project?.labor_complete;
-  const materialProjected = materialsComplete ? d.materialActual : Math.max(d.materialActual, d.materialBudget);
-  const laborProjected = laborComplete ? d.laborActual : (d.laborProjected ?? Math.max(d.laborActual, d.laborBudget));
-  return contractValue - materialProjected - laborProjected;
 }
 
 export function ClientDetail() {
@@ -1245,27 +1226,11 @@ export function ClientDetail() {
       const lineItems = acceptedProposal?.line_items ?? [];
       const estimateTotalCost = acceptedProposal?.total_cost ?? 0;
 
-      // Budgeted costs from proposal line items
-      const materialBudget = lineItems.reduce((s: number, li: any) =>
-        s + (parseFloat(li.material_cost) || 0) * (parseFloat(li.quantity) || 1), 0);
-      const laborBudget = lineItems.reduce((s: number, li: any) =>
-        s + (parseFloat(li.labor_cost) || 0) * (parseFloat(li.quantity) || 1), 0);
-      // If line items have no cost breakdown, distribute estimate.total_cost proportionally
-      const lineItemCostTotal = materialBudget + laborBudget;
-      const effectiveMaterialBudget = lineItemCostTotal > 0 ? materialBudget : estimateTotalCost * 0.7;
-      const effectiveLaborBudget = lineItemCostTotal > 0 ? laborBudget : estimateTotalCost * 0.3;
-
-      // Actual spend from cost attribution receipts
-      const materialActual = receipts.filter((r: any) => r.category === "material")
-        .reduce((s: number, r: any) => s + (r.amount || 0), 0);
-      const laborFromReceipts = receipts.filter((r: any) => r.category === "labor")
-        .reduce((s: number, r: any) => s + (r.amount || 0), 0);
-
       // FIO assigned labor — sum across all FIOs for this project (one per foreman)
       const fios = await fioAPI.getByProject(projectId).catch(() => [] as any[]);
-      const fioAssigned = fios.reduce((total: number, f: any) =>
-        total + (f.items ?? []).reduce((s: number, item: any) =>
-          s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0), 0);
+      const fioItems = fios.flatMap((f: any) => f.items ?? []);
+      const fioAssigned = fioItems.reduce((s: number, item: any) =>
+        s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0);
 
       // Actual labor paid via FIO crew payments — aggregate across all FIOs
       const crewPaymentArrays = await Promise.all(
@@ -1275,13 +1240,22 @@ export function ClientDetail() {
       const laborFromCrewPayments = allCrewPayments.reduce((s: number, cp: any) =>
         s + (parseFloat(cp.amount_paid) || 0), 0);
 
-      // True actual labor paid — Jonathan (Sep 24 2026): "Actual" must equal Paid to Crew,
-      // not Committed (FIO). Committed stays on its own line.
-      const laborPaid = laborFromReceipts + laborFromCrewPayments;
-      // Projected labor — whichever is larger: committed FIO labor vs actual paid. Used for
-      // Projected GP only, never displayed as "Actual". Matches the DB trigger logic in
-      // migration 050, which this same max-of-committed-vs-paid approach was originally for.
-      const laborProjected = laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments);
+      // Shared with clients.ts's list view (see financials.ts) so the two can't drift
+      // out of sync the way "Active" tab GP% vs this detail page's GP% just did.
+      const {
+        materialBudget: effectiveMaterialBudget,
+        laborBudget: effectiveLaborBudget,
+        materialActual,
+        laborActual: laborPaid,
+        laborProjected,
+        isFallbackBudget,
+      } = aggregateProjectCosts({
+        lineItems,
+        estimateTotalCost,
+        receipts,
+        fioItems,
+        crewPayments: allCrewPayments,
+      });
 
       // Mileage attributed to this job (approved/paid, non-personal) — matches migration 095
       const mileageTrips = await mileageTripsAPI.getProjectCostTrips(projectId).catch(() => [] as any[]);
@@ -1337,7 +1311,7 @@ export function ClientDetail() {
           fioAssigned,
           crewPaid: laborFromCrewPayments,
           receipts,
-          isFallbackBudget: lineItemCostTotal === 0 && estimateTotalCost > 0,
+          isFallbackBudget,
         },
       }));
     } catch {

@@ -45,6 +45,13 @@ const CATEGORY_TO_WIZARD_TYPE: Record<string, string> = {
 export function TemplateWizard({ template, dbProducts, wizardVariants = [], onComplete, onCancel, initialData }: TemplateWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<Record<string, any>>(initialData ?? {});
+  // Guards against the Finish button being clicked more than once before the dialog
+  // closes (the real root cause of Retaining Wall / other wizard duplicate line items —
+  // Jonathan, Sep 30 2026: confirmed by reproducing it directly, a rapid double-click on
+  // "Add to Proposal" calls calculateAndComplete() twice, and since the parent's
+  // addLineItemsFromWizard is purely additive for a new section, every generated item
+  // gets appended twice). There was previously no re-entry guard on this button at all.
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const steps: any[] = template.steps ?? [];
   const calcRules: any[] = template.calc_rules ?? [];
@@ -122,6 +129,8 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
   const handleNext = () => {
     if (!validateStep()) return;
     if (currentStep === visibleSteps.length - 1) {
+      if (isSubmitting) return; // already processing this exact click — ignore repeats
+      setIsSubmitting(true);
       calculateAndComplete();
     } else {
       setCurrentStep((prev) => prev + 1);
@@ -478,9 +487,11 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
           <ArrowLeft className="h-4 w-4 mr-2" />
           {currentStep === 0 ? "Cancel" : "Back"}
         </Button>
-        <Button size="lg" onClick={handleNext} disabled={!validateStep()}>
+        <Button size="lg" onClick={handleNext} disabled={!validateStep() || isSubmitting}>
           {currentStep === visibleSteps.length - 1 ? (
-            <><Check className="h-4 w-4 mr-2" />Add to Proposal</>
+            isSubmitting
+              ? <>Adding…</>
+              : <><Check className="h-4 w-4 mr-2" />Add to Proposal</>
           ) : (
             <>Next Step <ArrowRight className="h-4 w-4 ml-2" /></>
           )}
