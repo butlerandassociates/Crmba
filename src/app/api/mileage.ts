@@ -156,15 +156,33 @@ export const mileagePeriodsAPI = {
   ensureCurrentPeriod: async (createdBy: string, settings: MileageSettings): Promise<MileagePeriod> => {
     const existing = await mileagePeriodsAPI.getCurrent();
     if (existing) return existing;
+    return mileagePeriodsAPI.createPeriodContaining(new Date(), createdBy, settings);
+  },
 
+  /** The weekly period containing a given trip date (YYYY-MM-DD), created if it doesn't exist yet. */
+  ensureForDate: async (dateStr: string, createdBy: string, settings: MileageSettings): Promise<MileagePeriod> => {
+    const { data, error } = await supabase
+      .from("mileage_periods")
+      .select("*")
+      .eq("is_active", true)
+      .lte("week_start", dateStr)
+      .gte("week_end", dateStr)
+      .order("week_start", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return data;
+    return mileagePeriodsAPI.createPeriodContaining(new Date(dateStr + "T12:00:00"), createdBy, settings);
+  },
+
+  createPeriodContaining: async (now: Date, createdBy: string, settings: MileageSettings): Promise<MileagePeriod> => {
     // LOCAL calendar date — toISOString() would shift to UTC and, in UTC+
     // timezones, push a Friday week_start back to Thursday (violating the
     // Friday-only constraint and breaking period creation entirely).
     const toDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const now = new Date();
 
     // Pay week runs Friday → Thursday (Jonathan confirmed Jun 2 2026).
-    // Start on the most recent Friday (today if today is Friday).
+    // Start on the most recent Friday (the date itself if it is a Friday).
     const day = now.getDay();                 // 0=Sun..6=Sat; Friday = 5
     const diffToFriday = (day - 5 + 7) % 7;
     const periodStart = new Date(now);
@@ -264,6 +282,21 @@ export const mileageSubmissionsAPI = {
       .single();
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  /** Admin upload tab: an employee's active drafts across all periods, with their active-trip counts */
+  getDraftsByUser: async (userId: string): Promise<(MileageSubmission & { tripCount: number })[]> => {
+    const { data, error } = await supabase
+      .from("mileage_submissions")
+      .select("*, period:mileage_periods(id, week_start, week_end, payment_date), trips:mileage_trips(id, is_active)")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .eq("status", "draft")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? [])
+      .map((s: any) => ({ ...s, tripCount: (s.trips ?? []).filter((t: any) => t.is_active).length }))
+      .filter((s: any) => s.tripCount > 0);
   },
 
   /** Employee reopens a denied submission to fix it (denied → draft), clearing the denial */
@@ -393,6 +426,19 @@ export const mileageTripsAPI = {
       .order("trip_date", { ascending: true });
     if (error) throw new Error(error.message);
     return data ?? [];
+  },
+
+  /** date + destination of every active trip an employee has, across all periods (duplicate detection) */
+  getKeysByUser: async (userId: string): Promise<{ trip_date: string; end_address: string }[]> => {
+    const { data, error } = await supabase
+      .from("mileage_trips")
+      .select("trip_date, end_address, _sub:mileage_submissions!inner(user_id, is_active)")
+      .eq("is_active", true)
+      .eq("_sub.user_id", userId)
+      .eq("_sub.is_active", true)
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((t: any) => ({ trip_date: t.trip_date, end_address: t.end_address }));
   },
 
   /** All trips across every period (admin All Trips view) with project, client + employee/submission joins */

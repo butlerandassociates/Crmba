@@ -10,11 +10,16 @@ import {
   parseEverlanceCSV,
   mileageTripsAPI,
   mileageSubmissionsAPI,
+  mileagePeriodsAPI,
   type ParsedTrip,
+  type MileagePeriod,
+  type MileageSettings,
 } from "../../api/mileage";
 
 interface Props {
   submissionId: string;
+  /** Admin upload: route each trip into the weekly period containing its trip date, for this employee */
+  periodMatch?: { ownerUserId: string; settings: MileageSettings };
   periodLabel: string;
   ratePerMile: number;
   userId: string;
@@ -25,7 +30,7 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, existingTrips, projects, homeAddress = "", onSaved, onDirtyChange }: Props) {
+export function MileageUpload({ submissionId, periodMatch, periodLabel, ratePerMile, userId, existingTrips, projects, homeAddress = "", onSaved, onDirtyChange }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [trips, setTrips] = useState<ParsedTrip[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
@@ -135,30 +140,72 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
 
     setSaving(true);
     try {
-      await mileageTripsAPI.bulkInsert(
-        trips.map((t) => ({
-          submission_id:    submissionId,
-          trip_date:        t.trip_date,
-          start_address:    t.start_address,
-          end_address:      t.end_address,
-          miles:            t.miles,
-          project_id:       t.is_personal ? null : t.project_id,
-          client_id:        t.is_personal ? null : t.client_id,
-          is_duplicate:     t.is_duplicate,
-          match_confidence: t.match_confidence,
-          payout:           t.payout,
-          map_image_url:    t.map_image_url,
-          is_personal:      t.is_personal,
-          is_office:        t.is_personal ? false : (t.is_office ?? false),
-          is_active:        true,
-          discarded_at:     null,
-          discarded_by:     null,
-          created_by:       userId,
-          updated_by:       userId,
-        }))
-      );
-      await mileageSubmissionsAPI.recalcTotals(submissionId, userId);
-      toast.success("Trips saved to your submission.");
+      const rowFor = (t: ParsedTrip, subId: string) => ({
+        submission_id:    subId,
+        trip_date:        t.trip_date,
+        start_address:    t.start_address,
+        end_address:      t.end_address,
+        miles:            t.miles,
+        project_id:       t.is_personal ? null : t.project_id,
+        client_id:        t.is_personal ? null : t.client_id,
+        is_duplicate:     t.is_duplicate,
+        match_confidence: t.match_confidence,
+        payout:           t.payout,
+        map_image_url:    t.map_image_url,
+        is_personal:      t.is_personal,
+        is_office:        t.is_personal ? false : (t.is_office ?? false),
+        is_active:        true,
+        discarded_at:     null,
+        discarded_by:     null,
+        created_by:       userId,
+        updated_by:       userId,
+      });
+
+      if (periodMatch) {
+        // Resolve the weekly period (and this employee's submission) for every trip date
+        // BEFORE inserting anything, so a blocked week can't leave a half-saved upload.
+        const periods: MileagePeriod[] = [];
+        const periodFor = async (date: string) => {
+          const known = periods.find((p) => p.week_start <= date && p.week_end >= date);
+          if (known) return known;
+          const p = await mileagePeriodsAPI.ensureForDate(date, userId, periodMatch.settings);
+          periods.push(p);
+          return p;
+        };
+        const subByPeriod = new Map<string, { id: string; status: string; label: string }>();
+        const tripPeriod = new Map<string, string>();
+        const fmtD = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        for (const t of [...trips].sort((a, b) => a.trip_date.localeCompare(b.trip_date))) {
+          const p = await periodFor(t.trip_date);
+          if (!subByPeriod.has(p.id)) {
+            const sub = await mileageSubmissionsAPI.getOrCreateDraft(p.id, periodMatch.ownerUserId, ratePerMile);
+            subByPeriod.set(p.id, { id: sub.id, status: sub.status, label: `${fmtD(p.week_start)} – ${fmtD(p.week_end)}` });
+          }
+          tripPeriod.set(t._id, p.id);
+        }
+        const blocked = [...subByPeriod.values()].filter((s) => s.status !== "draft");
+        if (blocked.length > 0) {
+          toast.error(
+            `Nothing was saved. This employee's mileage for ${blocked.map((b) => `${b.label} (${b.status})`).join(", ")} is already past draft — remove those trips from this upload, or handle that week in Pending Review first.`
+          );
+          return;
+        }
+        const grouped = new Map<string, ParsedTrip[]>();
+        for (const t of trips) {
+          const pid = tripPeriod.get(t._id)!;
+          grouped.set(pid, [...(grouped.get(pid) ?? []), t]);
+        }
+        for (const [pid, group] of grouped) {
+          const subId = subByPeriod.get(pid)!.id;
+          await mileageTripsAPI.bulkInsert(group.map((t) => rowFor(t, subId)));
+          await mileageSubmissionsAPI.recalcTotals(subId, userId);
+        }
+        toast.success(`Trips saved into ${grouped.size} weekly period${grouped.size !== 1 ? "s" : ""}, matched to their trip dates.`);
+      } else {
+        await mileageTripsAPI.bulkInsert(trips.map((t) => rowFor(t, submissionId)));
+        await mileageSubmissionsAPI.recalcTotals(submissionId, userId);
+        toast.success("Trips saved to your submission.");
+      }
       setTrips([]);
       setFileName("");
       setParseStats(null);
@@ -196,7 +243,9 @@ export function MileageUpload({ submissionId, periodLabel, ratePerMile, userId, 
             <div className="text-center">
               <p className="font-medium">Upload Everlance CSV</p>
               <p className="text-sm text-muted-foreground mt-1">Drag &amp; drop or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">Week: {periodLabel} · Rate: ${ratePerMile}/mile</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {periodMatch ? "Trips are filed into the weekly period matching each trip date" : `Week: ${periodLabel}`} · Rate: ${ratePerMile}/mile
+              </p>
             </div>
           </CardContent>
         </Card>

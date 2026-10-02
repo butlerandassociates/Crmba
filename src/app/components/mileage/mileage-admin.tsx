@@ -1397,11 +1397,13 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
   const [selectedEmp, setSelectedEmp] = useState<string>("");
   const [empOpen, setEmpOpen] = useState(false);
   const [projects, setProjects] = useState<ClientOption[]>([]);
-  const [draft, setDraft] = useState<MileageSubmission | null>(null);
+  // The selected employee's unsubmitted drafts — one per weekly period their saved trips fall in.
+  const [drafts, setDrafts] = useState<(MileageSubmission & { tripCount: number })[]>([]);
   const [existingTrips, setExistingTrips] = useState<{ trip_date: string; end_address: string }[]>([]);
   const [preparing, setPreparing] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const savedCount = drafts.reduce((s, d) => s + d.tripCount, 0);
+  const draftPayout = drafts.reduce((s, d) => s + Number(d.total_payout), 0);
   const [uploadParsed, setUploadParsed] = useState(false); // MileageUpload has parsed-but-unsaved trips
 
   const rate = settings?.rate_per_mile ?? 0.76;
@@ -1422,39 +1424,33 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
     loadClientOptions().then(setProjects).catch(console.error);
   }, []);
 
+  const loadEmployeeState = async (empId: string) => {
+    const [d, keys] = await Promise.all([
+      mileageSubmissionsAPI.getDraftsByUser(empId),
+      mileageTripsAPI.getKeysByUser(empId),
+    ]);
+    setDrafts(d);
+    setExistingTrips(keys);
+  };
+
   const selectEmployee = async (empId: string) => {
-    setSelectedEmp(empId); setEmpOpen(false); setSavedCount(0); setDraft(null);
-    if (!period) return;
+    setSelectedEmp(empId); setEmpOpen(false); setDrafts([]); setExistingTrips([]);
     setPreparing(true);
-    try {
-      const d = await mileageSubmissionsAPI.getOrCreateDraft(period.id, empId, rate);
-      setDraft(d);
-      const trips = await mileageTripsAPI.getBySubmission(d.id);
-      setExistingTrips(trips.map(t => ({ trip_date: t.trip_date, end_address: t.end_address })));
-      setSavedCount(trips.length);
-    } catch (e: any) { toast.error(e.message ?? "Failed to prepare submission."); }
+    try { await loadEmployeeState(empId); }
+    catch (e: any) { toast.error(e.message ?? "Failed to prepare submission."); }
     finally { setPreparing(false); }
   };
 
   const refreshDraft = async () => {
-    if (!draft) return;
-    const trips = await mileageTripsAPI.getBySubmission(draft.id);
-    setExistingTrips(trips.map(t => ({ trip_date: t.trip_date, end_address: t.end_address })));
-    setSavedCount(trips.length);
+    if (selectedEmp) await loadEmployeeState(selectedEmp).catch(() => {});
     onUploaded();
   };
 
-  // Auto-sync the selected employee's submission so this tab updates the moment
+  // Auto-sync the selected employee's drafts so this tab updates the moment
   // they submit it themselves (status leaves "draft") — no manual refresh needed.
   const syncSelected = async () => {
-    if (!period || !selectedEmp) return;
-    try {
-      const d = await mileageSubmissionsAPI.getOrCreateDraft(period.id, selectedEmp, rate);
-      setDraft(d);
-      const trips = await mileageTripsAPI.getBySubmission(d.id);
-      setExistingTrips(trips.map(t => ({ trip_date: t.trip_date, end_address: t.end_address })));
-      setSavedCount(trips.length);
-    } catch { /* ignore transient errors */ }
+    if (!selectedEmp) return;
+    try { await loadEmployeeState(selectedEmp); } catch { /* ignore transient errors */ }
   };
   const syncRef = useRef(syncSelected);
   syncRef.current = syncSelected;
@@ -1464,28 +1460,39 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
     return () => clearInterval(id);
   }, [selectedEmp]);
 
-  const handleSubmit = async () => {
-    if (!draft) return;
+  // Admin's own mileage: submit AND approve in one step (Jonathan, Oct 2 2026) — "Mark as Paid" stays separate.
+  const isOwnMileage = !!selectedEmp && selectedEmp === adminId;
+
+  const handleSubmit = async (alsoApprove = false) => {
+    if (drafts.length === 0) return;
     setSubmitting(true);
     try {
       const emp = employees.find(e => e.id === selectedEmp);
-      const didSubmit = await mileageSubmissionsAPI.submit(draft.id, adminId);
-      if (!didSubmit) {
-        // Employee already submitted this week themselves — nothing to do here.
-        toast.info(`${emp?.name ?? "This employee"} already submitted this week — review it in Pending Review.`);
-        setDraft(null); setSelectedEmp(""); setSavedCount(0);
-        onUploaded();
-        return;
+      let submittedCount = 0;
+      for (const d of drafts) {
+        const didSubmit = await mileageSubmissionsAPI.submit(d.id, adminId);
+        if (!didSubmit) continue; // already past draft (employee submitted it themselves)
+        submittedCount++;
+        if (alsoApprove) await mileageSubmissionsAPI.approve(d.id, adminId);
+        if (selectedEmp && !isOwnMileage) await notificationsAPI.create({
+          type: "mileage_submitted", title: "Mileage Submitted",
+          message: `Admin submitted your mileage for ${d.period ? periodLabel(d.period as MileagePeriod) : "this period"} on your behalf — it's now pending approval.`,
+          link: "/mileage", recipient_id: selectedEmp,
+        }).catch(() => {});
       }
-      if (selectedEmp) await notificationsAPI.create({
-        type: "mileage_submitted", title: "Mileage Submitted",
-        message: `Admin submitted your mileage for ${period ? periodLabel(period) : "this period"} on your behalf — it's now pending approval.`,
-        link: "/mileage", recipient_id: selectedEmp,
-      }).catch(() => {});
-      toast.success(`Submitted ${emp?.name ?? "employee"}'s mileage for review.`);
-      setDraft(null); setSelectedEmp(""); setSavedCount(0);
+      if (submittedCount === 0) {
+        toast.info(`${emp?.name ?? "This employee"} already submitted this mileage — review it in Pending Review.`);
+      } else {
+        toast.success(alsoApprove
+          ? `Submitted and approved ${submittedCount} week${submittedCount !== 1 ? "s" : ""} of ${emp?.name ?? "employee"}'s mileage — ready to mark as paid.`
+          : `Submitted ${submittedCount} week${submittedCount !== 1 ? "s" : ""} of ${emp?.name ?? "employee"}'s mileage for review.`);
+      }
+      setDrafts([]); setSelectedEmp("");
       onUploaded();
-    } catch (e: any) { toast.error(e.message ?? "Failed to submit."); }
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to submit.");
+      if (selectedEmp) await loadEmployeeState(selectedEmp).catch(() => {});
+    }
     finally { setSubmitting(false); }
   };
 
@@ -1542,10 +1549,11 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
           </div>
         ) : preparing ? (
           <p style={{ color: "#9ca3af", fontSize: 13, padding: 20 }}>Preparing {selName}'s submission…</p>
-        ) : draft ? (
+        ) : (
           <>
             <MileageUpload
-              submissionId={draft.id}
+              submissionId=""
+              periodMatch={{ ownerUserId: selectedEmp, settings: settings! }}
               periodLabel={`${fmt(period.week_start)} – ${fmt(period.week_end)}`}
               ratePerMile={rate}
               userId={adminId}
@@ -1555,24 +1563,27 @@ function UploadCSVTab({ period, settings, adminId, onUploaded, onDirtyChange }: 
               onSaved={refreshDraft}
               onDirtyChange={setUploadParsed}
             />
-            {draft?.status === "draft" && savedCount > 0 && (
-              <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-                <span style={{ fontSize: 13, color: "#059669", fontWeight: 600 }}>{savedCount} trip{savedCount !== 1 ? "s" : ""} saved to {selName}'s draft</span>
-                <button onClick={handleSubmit} disabled={submitting}
-                  style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
-                  {submitting ? "Submitting…" : "Submit for Review"}
-                </button>
-              </div>
-            )}
-            {draft && draft.status !== "draft" && (
-              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10 }}>
-                <span style={{ fontSize: 13, color: "#1d4ed8", fontWeight: 600 }}>
-                  {selName}'s mileage is already {draft.status === "submitted" ? "submitted for review" : draft.status === "approved" ? "approved" : draft.status === "denied" ? "denied" : draft.status === "paid" ? "paid" : draft.status} — review it in the Pending Review tab.
+            {savedCount > 0 && (
+              <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
+                <span style={{ fontSize: 13, color: "#059669", fontWeight: 600 }}>
+                  {savedCount} trip{savedCount !== 1 ? "s" : ""} saved as {selName}'s draft across {drafts.length} weekly period{drafts.length !== 1 ? "s" : ""} · {fmtMoney(draftPayout)} · not yet submitted
                 </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => handleSubmit(false)} disabled={submitting}
+                    style={{ border: "1px solid #d1d5db", background: "#fff", color: "#0a0a0a", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
+                    {submitting ? "Submitting…" : "Submit for Review"}
+                  </button>
+                  {isOwnMileage && (
+                    <button onClick={() => handleSubmit(true)} disabled={submitting}
+                      style={{ border: 0, background: "#0a0a0a", color: "#fff", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
+                      {submitting ? "Submitting…" : "Submit & Approve"}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </>
-        ) : null}
+        )}
       </div>
 
       {/* Helper info below the upload box — stacked full width, same as the iPad layout */}
