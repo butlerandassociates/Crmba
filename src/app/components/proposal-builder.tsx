@@ -148,6 +148,7 @@ export function ProposalBuilder() {
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [dragItemId, setDragItemId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [itemOrderTouched, setItemOrderTouched] = useState(false);
 
   // Custom blank sections (no items yet)
   const [customSections, setCustomSections] = useState<string[]>([]);
@@ -255,6 +256,7 @@ export function ProposalBuilder() {
       const toIdx = prev.findIndex((li) => li.id === toId);
       if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev;
       if (prev[fromIdx].category !== prev[toIdx].category) return prev;
+      setItemOrderTouched(true);
       const next = [...prev];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
@@ -511,7 +513,7 @@ export function ProposalBuilder() {
         stripe_fee_enabled: stripeFeeEnabled,
         stripe_fee_amount: stripeFeeVal,
         category_notes: categoryNotes,
-        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}), ...(globalMarkupPct !== null ? { _markupPct: globalMarkupPct } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
+        wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}), ...(globalMarkupPct !== null ? { _markupPct: globalMarkupPct } : {}), ...(itemOrderTouched ? { _manualItemOrder: true } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
       // sort_order follows what's on screen: sections in their shown order, items in their dragged order

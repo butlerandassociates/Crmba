@@ -680,6 +680,8 @@ export function ProposalDetail() {
   // Drag-and-drop ordering of items within one section (pointer events: mouse + touch).
   const [dragItemIdx, setDragItemIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  // Set once someone actually drags an item: from then on the public /p/ link follows the saved order.
+  const [itemOrderTouched, setItemOrderTouched] = useState(false);
 
   const reorderItem = (fromIdx: number, toIdx: number) => {
     setEditLineItems((prev) => {
@@ -687,6 +689,7 @@ export function ProposalDetail() {
       const to = prev[toIdx];
       if (fromIdx === toIdx || !from || !to) return prev;
       if ((from.category || "(No Category)") !== (to.category || "(No Category)")) return prev;
+      setItemOrderTouched(true);
       const next = [...prev];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
@@ -904,6 +907,7 @@ export function ProposalDetail() {
         _markupApplied: globalMarkupApplied,
         _customSections: customSections,
         _taxEnabled: taxEnabled,
+        ...((itemOrderTouched || proposal?.wizard_inputs?._manualItemOrder) ? { _manualItemOrder: true } : {}),
       };
       await estimatesAPI.update(proposal.id, {
         title: editTitle,
