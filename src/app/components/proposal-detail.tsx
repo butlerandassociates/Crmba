@@ -39,6 +39,7 @@ import {
   Clock,
   BarChart2,
   Percent,
+  GripVertical,
 } from "lucide-react";
 import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
@@ -320,6 +321,8 @@ export function ProposalDetail() {
       editLineItems.some((item, i) => {
         const orig = originalItems[i];
         if (!orig) return true;
+        // Dragging items into a new order must count as an unsaved change
+        if (String(item.id) !== String(orig.id)) return true;
         return (
           Number(item.quantity) !== Number(orig.quantity) ||
           Number(item.client_price ?? item.price_per_unit) !== Number(orig.client_price ?? orig.price_per_unit) ||
@@ -672,6 +675,51 @@ export function ProposalDetail() {
       [next[idx], next[swap]] = [next[swap], next[idx]];
       return next;
     });
+  };
+
+  // Drag-and-drop ordering of items within one section (pointer events: mouse + touch).
+  const [dragItemIdx, setDragItemIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  const reorderItem = (fromIdx: number, toIdx: number) => {
+    setEditLineItems((prev) => {
+      const from = prev[fromIdx];
+      const to = prev[toIdx];
+      if (fromIdx === toIdx || !from || !to) return prev;
+      if ((from.category || "(No Category)") !== (to.category || "(No Category)")) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const startItemDrag = (e: React.PointerEvent, idx: number) => {
+    if (isLocked) return;
+    e.preventDefault();
+    const cat = editLineItems[idx]?.category || "(No Category)";
+    let target = idx;
+    setDragItemIdx(idx);
+    setDragOverIdx(idx);
+    const onMove = (ev: PointerEvent) => {
+      if (ev.clientY < 90) window.scrollBy(0, -14);
+      else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 14);
+      const row = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("tr[data-item-idx]") as HTMLElement | null;
+      if (!row || row.dataset.itemCat !== cat) return;
+      target = Number(row.dataset.itemIdx);
+      setDragOverIdx(target);
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      setDragItemIdx(null);
+      setDragOverIdx(null);
+      if (target !== idx) reorderItem(idx, target);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
   };
 
   const handleDeleteCategory = async (cat: string) => {
@@ -2551,8 +2599,24 @@ export function ProposalDetail() {
                             const markupPct = Number(item.markup_percent ?? 0);
                             return (
                               <Fragment key={rowKey}>
-                                <tr key={rowKey} className="hover:bg-accent/50">
+                                <tr
+                                  key={rowKey}
+                                  data-item-idx={idx}
+                                  data-item-cat={cat}
+                                  className={`hover:bg-accent/50 ${dragItemIdx === idx ? "opacity-40" : ""} ${dragItemIdx !== null && dragOverIdx === idx && dragItemIdx !== idx ? "bg-primary/10 shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : ""}`}
+                                >
                                   <td className="p-3">
+                                    <div className="flex items-start gap-2">
+                                      {!isLocked && groupItems.length > 1 && (
+                                        <span
+                                          onPointerDown={(e) => startItemDrag(e, idx)}
+                                          title="Drag to reorder within this section"
+                                          className="mt-0.5 shrink-0 cursor-grab touch-none select-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                                        >
+                                          <GripVertical className="h-4 w-4" />
+                                        </span>
+                                      )}
+                                      <div className="min-w-0 flex-1">
                                     <div className="text-sm font-medium">{item.name ?? item.product_name ?? ""}</div>
                                     {item.description && (
                                       <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
@@ -2568,6 +2632,8 @@ export function ProposalDetail() {
                                     ) : item.client_note ? (
                                       <div className="text-xs text-blue-700 mt-1 whitespace-pre-wrap">{item.client_note}</div>
                                     ) : null}
+                                      </div>
+                                    </div>
                                   </td>
                                   <td className="p-3">
                                     {isLocked

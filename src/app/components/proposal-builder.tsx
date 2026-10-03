@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check, Percent } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Hammer, X, ChevronDown, ChevronUp, Loader2, AlertTriangle, MapPin, Pencil, FileText, Package, PenLine, BadgePercent, Wand2, Check, Percent, GripVertical } from "lucide-react";
 import { Switch } from "./ui/switch";
 import { clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, estimatesAPI, activityLogAPI, companySettingsAPI } from "../utils/api";
 import { calcBadQualifyingDirectCost, calcContingencyReserve } from "../utils/financials";
@@ -146,6 +146,8 @@ export function ProposalBuilder() {
 
   // Section order for drag-free reordering
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
+  const [dragItemId, setDragItemId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // Custom blank sections (no items yet)
   const [customSections, setCustomSections] = useState<string[]>([]);
@@ -245,6 +247,46 @@ export function ProposalBuilder() {
       </div>
     );
   }
+
+  // Drag-and-drop ordering of items within one section (pointer events: mouse + touch).
+  const reorderItem = (fromId: string, toId: string) => {
+    setLineItems((prev) => {
+      const fromIdx = prev.findIndex((li) => li.id === fromId);
+      const toIdx = prev.findIndex((li) => li.id === toId);
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev;
+      if (prev[fromIdx].category !== prev[toIdx].category) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const startItemDrag = (e: React.PointerEvent, itemId: string, cat: string) => {
+    e.preventDefault();
+    let target = itemId;
+    setDragItemId(itemId);
+    setDragOverId(itemId);
+    const onMove = (ev: PointerEvent) => {
+      if (ev.clientY < 90) window.scrollBy(0, -14);
+      else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 14);
+      const row = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("tr[data-item-id]") as HTMLElement | null;
+      if (!row || row.dataset.itemCat !== cat) return;
+      target = row.dataset.itemId as string;
+      setDragOverId(target);
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      setDragItemId(null);
+      setDragOverId(null);
+      if (target !== itemId) reorderItem(itemId, target);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
 
   const moveSection = (cat: string, dir: 'up' | 'down') => {
     setSectionOrder((prev) => {
@@ -472,7 +514,15 @@ export function ProposalBuilder() {
         wizard_inputs: (() => { const all = { ...wizardInputs, ...(Object.keys(wizardTypeMap).length > 0 ? { _wizardTypeMap: wizardTypeMap } : {}), ...(customSections.length > 0 ? { _customSections: customSections } : {}), ...(globalMarkupPct !== null ? { _markupPct: globalMarkupPct } : {}) }; return Object.keys(all).length > 0 ? all : undefined; })(),
       };
 
+      // sort_order follows what's on screen: sections in their shown order, items in their dragged order
+      const orderedCats = [...new Set([...sectionOrder, ...lineItems.map((li) => li.category)])];
+      const sortOrderById = new Map<string, number>();
+      let sortIdx = 0;
+      for (const c of orderedCats) {
+        for (const li of lineItems) if (li.category === c) sortOrderById.set(li.id, sortIdx++);
+      }
       const items = lineItems.map((item) => ({
+        sort_order: sortOrderById.get(item.id) ?? 999,
         category: item.category,
         name: item.productName,
         product_name: item.productName,
@@ -1000,8 +1050,24 @@ export function ProposalBuilder() {
                           const isExpanded = expandedRows.has(item.id);
                           return (
                             <Fragment key={item.id}>
-                              <tr key={item.id} className="border-b border-slate-100 hover:bg-primary/5 transition-colors group">
+                              <tr
+                                key={item.id}
+                                data-item-id={item.id}
+                                data-item-cat={category}
+                                className={`border-b border-slate-100 hover:bg-primary/5 transition-colors group ${dragItemId === item.id ? "opacity-40" : ""} ${dragItemId !== null && dragOverId === item.id && dragItemId !== item.id ? "bg-primary/10 shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : ""}`}
+                              >
                                 <td className="px-6 py-4">
+                                  <div className="flex items-start gap-2">
+                                    {items.length > 1 && (
+                                      <span
+                                        onPointerDown={(e) => startItemDrag(e, item.id, category)}
+                                        title="Drag to reorder within this section"
+                                        className="mt-0.5 shrink-0 cursor-grab touch-none select-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                                      >
+                                        <GripVertical className="h-4 w-4" />
+                                      </span>
+                                    )}
+                                    <div className="min-w-0 flex-1">
                                   <div className="font-semibold text-sm">{item.productName}</div>
                                   {item.description && (
                                     <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</div>
@@ -1013,6 +1079,8 @@ export function ProposalBuilder() {
                                     onChange={(e) => updateLineItem(item.id, "client_note" as any, e.target.value)}
                                     className="h-7 text-xs mt-1.5 max-w-md"
                                   />
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="px-4 py-4 text-center">
                                   <Input
