@@ -123,7 +123,7 @@ serve(async (req) => {
         .select(`
           id, title, reason, timeline_impact, cost_impact, status, created_at,
           approval_verified, approval_file_url, approval_file_name, pdf_url,
-          original_total, new_total, modifications,
+          original_total, new_total, pre_merge_total, post_merge_total, modifications,
           items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
         `)
         .eq("client_id", clientId)
@@ -275,11 +275,18 @@ serve(async (req) => {
         };
       });
       const { modifications: _mods, ...coRest } = co;
+      // A merged change order carries the contract totals saved at merge time (the same
+      // figures the CRM's Project Financials shows). Use them for Original / Change Order /
+      // Revised so the portal can't show "+$0.00" or the post-merge total as the original
+      // when original_total/new_total/cost_impact were never stored (or hold item-sum only).
+      const hasMergeSnapshot = co.pre_merge_total != null && co.post_merge_total != null;
+      const preMerge = hasMergeSnapshot ? Number(co.pre_merge_total) : null;
+      const postMerge = hasMergeSnapshot ? Number(co.post_merge_total) : null;
       return {
         ...coRest,
-        cost_impact: Number(co.cost_impact ?? 0),
-        original_total: co.original_total != null ? Number(co.original_total) : null,
-        new_total: co.new_total != null ? Number(co.new_total) : null,
+        cost_impact: hasMergeSnapshot ? Math.round((postMerge! - preMerge!) * 100) / 100 : Number(co.cost_impact ?? 0),
+        original_total: hasMergeSnapshot ? preMerge : (co.original_total != null ? Number(co.original_total) : null),
+        new_total: hasMergeSnapshot ? postMerge : (co.new_total != null ? Number(co.new_total) : null),
         items: (co.items ?? []).sort((a: any, b: any) => a.sort_order - b.sort_order),
         modifications_display,
       };

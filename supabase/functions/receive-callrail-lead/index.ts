@@ -29,7 +29,9 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const incomingSecret = req.headers.get("x-callrail-signature") ?? req.headers.get("x-webhook-secret") ?? "";
+  // CallRail's webhook settings can't send custom headers, so the secret also travels as ?secret=
+  // in the webhook URL (same approach as receive-lsa-lead). Without this every call is rejected.
+  const incomingSecret = req.headers.get("x-callrail-signature") ?? req.headers.get("x-webhook-secret") ?? new URL(req.url).searchParams.get("secret") ?? "";
   if (CALLRAIL_WEBHOOK_SECRET && incomingSecret !== CALLRAIL_WEBHOOK_SECRET) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
   }

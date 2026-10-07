@@ -3359,14 +3359,17 @@ export function ClientDetail() {
                   </div>
 
                   {/* Material breakdown */}
-                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(materialProjected, d.materialBudget)}`}>
+                  {/* Materials has no "committed" figure (POs carry no dollar amount), so its remaining
+                      budget and colour track Actual spend in real time. Projected Cost (max(actual,
+                      budget)) only feeds Projected GP — using it here pinned this to "$0.00 under". */}
+                  <div className={`border rounded-lg p-3 space-y-1.5 ${healthBg(d.materialActual, d.materialBudget)}`}>
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold">Materials</p>
-                      {overUnder(materialProjected, d.materialBudget, d.materialActual)}
+                      {overUnder(d.materialActual, d.materialBudget, d.materialActual)}
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Budget: <span className="font-medium text-foreground">{formatCurrency(d.materialBudget)}</span></span>
-                      <span>Actual: <span className={`font-semibold ${health(materialProjected, d.materialBudget)}`}>{formatCurrency(d.materialActual)}</span></span>
+                      <span>Actual: <span className={`font-semibold ${health(d.materialActual, d.materialBudget)}`}>{formatCurrency(d.materialActual)}</span></span>
                     </div>
                     {d.materialBudget > 0 && (
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
