@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { usePermissions } from "../hooks/usePermissions";
 import { toast } from "sonner";
 import { formatCurrency } from "@/app/utils/format";
+import { aggregateProjectCosts, computeProjectedGP } from "@/app/utils/financials";
 
 const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#6366f1"];
 const TODAY = new Date().toISOString().split("T")[0];
@@ -30,6 +31,47 @@ interface OverheadModalProps {
   totalRevenue: number;
   grossProfit: number;
 }
+
+// Same nested select + shared GP math as clients.ts getAll(), so the revenue/GP shown here
+// can never drift from the job's own page or the clients list (raw projects.gross_profit is
+// a live-cost trigger value and must not be displayed).
+const PROJECT_FINANCIALS_SELECT = `
+  id, total_value, status, gross_profit, materials_complete, labor_complete,
+  receipts:project_receipts(category, amount),
+  fios:field_installation_orders(
+    items:field_installation_order_items(labor_cost_per_unit, quantity),
+    crew_payments:fio_crew_payments(amount_paid)
+  ),
+  clients!inner(
+    first_name, last_name, is_discarded,
+    lead_sources!lead_source_id(name),
+    estimates(id, total_cost, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity))
+  )
+`;
+
+function projectGP(p: any): number {
+  const estimates: any[] = p.clients?.estimates ?? [];
+  const est = estimates.find((e) => e.status === "accepted")
+    ?? estimates.filter((e) => e.status !== "declined" && e.status !== "voided")
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  const fios: any[] = p.fios ?? [];
+  const costs = aggregateProjectCosts({
+    lineItems: est?.line_items ?? [],
+    estimateTotalCost: est?.total_cost ?? 0,
+    receipts: p.receipts ?? [],
+    fioItems: fios.flatMap((f) => f.items ?? []),
+    crewPayments: fios.flatMap((f) => f.crew_payments ?? []),
+  });
+  return computeProjectedGP(costs, {
+    totalValue: Number(p.total_value) || 0,
+    status: p.status,
+    materials_complete: p.materials_complete,
+    labor_complete: p.labor_complete,
+    grossProfit: p.gross_profit,
+  });
+}
+
+type ActiveJob = { id: string; client: string; revenue: number; gp: number };
 
 function isInMonth(item: OverheadCost, year: number, month: number): boolean {
   const d = new Date(item.date + "T00:00:00");
@@ -103,6 +145,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   // Filtered revenue + GP (re-computed per selected date range from sold_at)
   const [filteredRevenue, setFilteredRevenue] = useState<number>(totalRevenue);
   const [filteredGP, setFilteredGP] = useState<number>(grossProfit);
+  const [activeJobs, setActiveJobs] = useState<ActiveJob[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -131,13 +174,14 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
     try {
       const { data } = await supabase
         .from("projects")
-        .select("total_value, gross_profit, clients(lead_sources!lead_source_id(name))")
+        .select(PROJECT_FINANCIALS_SELECT)
         .in("status", ["sold", "active", "completed"])
+        .eq("clients.is_discarded", false)
         .gte("sold_at", fromDate)
         .lte("sold_at", toDate);
       // Update Revenue + GP based on selected date range
       setFilteredRevenue((data ?? []).reduce((s: number, p: any) => s + (Number(p.total_value) || 0), 0));
-      setFilteredGP((data ?? []).reduce((s: number, p: any) => s + (Number(p.gross_profit) || 0), 0));
+      setFilteredGP((data ?? []).reduce((s: number, p: any) => s + projectGP(p), 0));
       // ROI grouped by lead source
       const grouped: Record<string, { revenue: number; count: number }> = {};
       (data ?? []).forEach((p: any) => {
@@ -153,6 +197,29 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
       setRoiLoading(false);
     }
   };
+
+  // Active jobs are a "right now" snapshot, so they are not tied to the period filter.
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("projects")
+          .select(PROJECT_FINANCIALS_SELECT)
+          .eq("status", "active")
+          .eq("clients.is_discarded", false);
+        if (error) throw error;
+        setActiveJobs((data ?? []).map((p: any) => ({
+          id: p.id,
+          client: `${p.clients?.first_name ?? ""} ${p.clients?.last_name ?? ""}`.trim() || "Unnamed",
+          revenue: Number(p.total_value) || 0,
+          gp: projectGP(p),
+        })).sort((a: ActiveJob, b: ActiveJob) => b.revenue - a.revenue));
+      } catch {
+        toast.error("Failed to load active jobs");
+      }
+    })();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -215,6 +282,10 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
   const trueGrossProfit = filteredGP - totalOverhead;
   const overheadPct = filteredRevenue > 0 ? ((totalOverhead / filteredRevenue) * 100).toFixed(1) : "0.0";
   const trueGrossPct = filteredRevenue > 0 ? ((trueGrossProfit / filteredRevenue) * 100).toFixed(1) : "0.0";
+
+  const activeRevenue = activeJobs.reduce((s, j) => s + j.revenue, 0);
+  const activeGP = activeJobs.reduce((s, j) => s + j.gp, 0);
+  const activeGPPct = activeRevenue > 0 ? ((activeGP / activeRevenue) * 100).toFixed(1) : "0.0";
 
   const chartData = roots
     .map((r) => {
@@ -549,11 +620,11 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                 {/* Summary cards */}
                 <div className="grid grid-cols-4 gap-4 mb-8">
                   <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                    <p className="text-sm text-blue-700 font-medium mb-1">Total Revenue</p>
+                    <p className="text-sm text-blue-700 font-medium mb-1">Sold Revenue</p>
                     <p className="text-xl font-bold text-blue-900">{formatCurrency(filteredRevenue)}</p>
                   </div>
                   <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                    <p className="text-sm text-green-700 font-medium mb-1">Gross Profit</p>
+                    <p className="text-sm text-green-700 font-medium mb-1">Sold Gross Profit (projected)</p>
                     <p className="text-xl font-bold text-green-900">{formatCurrency(filteredGP)}</p>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
@@ -566,6 +637,47 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                     <p className="text-xl font-bold text-purple-900">{formatCurrency(trueGrossProfit)}</p>
                     <p className="text-xs text-purple-600 mt-1">{trueGrossPct}% of revenue</p>
                   </div>
+                </div>
+
+                {/* Active jobs — current snapshot, shown alongside the sold figures above.
+                    Not added into them: a job sold this period that is also active would count twice. */}
+                <div className="mb-8 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">Active Jobs ({activeJobs.length})</h3>
+                      <p className="text-xs text-gray-500">Current snapshot — not affected by the date filter</p>
+                    </div>
+                    <div className="flex gap-6 text-right">
+                      <div>
+                        <p className="text-xs text-gray-500">Revenue</p>
+                        <p className="text-sm font-bold text-blue-900">{formatCurrency(activeRevenue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Gross Profit</p>
+                        <p className="text-sm font-bold text-green-900">{formatCurrency(activeGP)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">GP %</p>
+                        <p className="text-sm font-bold text-gray-900">{activeGPPct}%</p>
+                      </div>
+                    </div>
+                  </div>
+                  {activeJobs.length === 0 ? (
+                    <p className="px-4 py-4 text-sm text-gray-500">No active jobs.</p>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto divide-y divide-gray-100">
+                      {activeJobs.map((j) => (
+                        <div key={j.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                          <span className="text-gray-800 truncate pr-4">{j.client}</span>
+                          <div className="flex gap-6 text-right shrink-0">
+                            <span className="w-24 text-gray-900">{formatCurrency(j.revenue)}</span>
+                            <span className="w-24 text-green-700">{formatCurrency(j.gp)}</span>
+                            <span className="w-14 text-gray-500">{j.revenue > 0 ? ((j.gp / j.revenue) * 100).toFixed(1) : "0.0"}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Main grid: 2/3 items + 1/3 chart */}
@@ -709,7 +821,7 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">Profit Analysis</h4>
                       <div className="space-y-2">
                         <div className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">Revenue</span>
+                          <span className="text-gray-600">Sold Revenue</span>
                           <span className="font-semibold text-gray-900">{formatCurrency(filteredRevenue)}</span>
                         </div>
                         <div className="flex justify-between items-center text-sm">
