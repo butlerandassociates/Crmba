@@ -164,11 +164,17 @@ export function PublicProposal() {
 
   const subtotal       = proposal?.subtotal ?? (proposal?.line_items ?? []).reduce((s: number, i: any) => s + (i.total_price ?? (Number(i.quantity || 1) * Number(i.client_price || i.price_per_unit || 0))), 0);
   const discountAmount = proposal?.discount_amount ?? 0;
-  const badAmount      = proposal?.bad_amount ?? 0;
+  // The client-facing BAD line also carries the marked-up PM Labor Hours (Jonathan, Sep 22
+  // 2026), exactly like the PDF (proposal-export.tsx) — the saved bad_amount is BAD alone, so
+  // get_public_proposal() (migration 127) returns pm_labor_amount + stripe_fee_amount and they
+  // are added here. Before this, this page's total came out lower than the PDF for any
+  // proposal with PM hours or the CC fee (Oct 12 2026, $110,685.99 vs $113,879.74).
+  const badAmount      = (proposal?.bad_amount ?? 0) + (proposal?.pm_labor_amount ?? 0);
   const badLabel       = proposal?.bad_label ?? "Base, Aggregate & Disposal";
   const taxAmount      = proposal?.tax_amount ?? 0;
   const taxLabel       = "Sales Tax";
-  const total          = subtotal + badAmount + taxAmount - discountAmount;
+  const stripeFeeAmount = proposal?.stripe_fee_amount ?? 0;
+  const total          = subtotal + badAmount + taxAmount - discountAmount + stripeFeeAmount;
 
   return (
     <>
@@ -336,6 +342,12 @@ export function PublicProposal() {
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
                   <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>{taxLabel}</p>
                   <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(taxAmount)}</p>
+                </div>
+              )}
+              {stripeFeeAmount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 24px", background: "#fff" }}>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0 }}>CC Processing Fee</p>
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3A3A38", margin: 0, fontVariantNumeric: "tabular-nums" }}>{formatCurrency(stripeFeeAmount)}</p>
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", background: "#F5F3EF", borderTop: "1px solid #e8e4dc" }}>

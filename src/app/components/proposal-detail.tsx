@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve } from "../utils/financials";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal } from "../utils/financials";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
@@ -1905,7 +1905,10 @@ export function ProposalDetail() {
       const scopeTableRows = scopeRows.map(r =>
         `<tr><td style="padding:10px 16px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;border-bottom:1px solid #F5F3EF;">${r.name}</td><td style="padding:10px 16px;font-family:Inter,sans-serif;font-size:13px;color:#3A3A38;text-align:right;border-bottom:1px solid #F5F3EF;font-variant-numeric:tabular-nums;">${fmt(r.total)}</td></tr>`
       ).join("");
-      const grandTotal = fmt((proposal?.subtotal ?? 0) + (proposal?.bad_amount ?? 0) + (proposal?.tax_amount ?? 0) - (proposal?.discount_amount ?? 0));
+      const grandTotal = fmt(calcClientProposalTotal({
+        subtotal: proposal?.subtotal, badAmount: proposal?.bad_amount, pmLaborMarkedUp: pmLaborMarkedUpValue,
+        taxAmount: proposal?.tax_amount, discountAmount: proposal?.discount_amount, stripeFeeEnabled: proposal?.stripe_fee_enabled,
+      }).total);
 
       // Build review quotes (show up to 2)
       const topReviews = reviews.slice(0, 2);
@@ -3442,7 +3445,10 @@ export function ProposalDetail() {
                 const scopeHtmlP = scopeRowsP.map(r =>
                   `<tr><td style="padding:10px 16px;font-size:13px;color:#3A3A38;border-bottom:1px solid #F5F3EF;">${r.name}</td><td style="padding:10px 16px;font-size:13px;color:#3A3A38;text-align:right;border-bottom:1px solid #F5F3EF;">${fmtP(r.total)}</td></tr>`
                 ).join("");
-                const grandTotalP = fmtP((proposal?.subtotal ?? 0) + (proposal?.bad_amount ?? 0) + (proposal?.tax_amount ?? 0) - (proposal?.discount_amount ?? 0));
+                const grandTotalP = fmtP(calcClientProposalTotal({
+                  subtotal: proposal?.subtotal, badAmount: proposal?.bad_amount, pmLaborMarkedUp: pmLaborMarkedUpValue,
+                  taxAmount: proposal?.tax_amount, discountAmount: proposal?.discount_amount, stripeFeeEnabled: proposal?.stripe_fee_enabled,
+                }).total);
                 const topReviewsP = reviews.slice(0, 2);
                 const reviewsHtmlP = topReviewsP.length > 0 ? `
                   <div style="margin:0 0 28px 0;">

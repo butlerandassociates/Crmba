@@ -42,6 +42,27 @@ export function resolveEffectiveCommissionRates(params: {
   return { pmRate, salesRepRate };
 }
 
+// What the client actually pays, in one place. Oct 12 2026: Jonathan found the "View Proposal"
+// page and the proposal email showed $110,685.99 while the PDF showed $113,879.74 for the same
+// proposal — those screens each re-added subtotal + BAD + tax - discount themselves and left
+// out the marked-up PM Labor Hours (billed inside the client-facing BAD line) and the CC
+// processing fee. Anything that shows a client-facing total from saved proposal fields must
+// go through this so it can't drift from the PDF (proposal-export.tsx) again.
+export function calcClientProposalTotal(p: {
+  subtotal?: number | null;
+  badAmount?: number | null;
+  pmLaborMarkedUp?: number | null;
+  taxAmount?: number | null;
+  discountAmount?: number | null;
+  stripeFeeEnabled?: boolean | null;
+}): { preStripeTotal: number; stripeFee: number; total: number } {
+  const preStripeTotal =
+    Number(p.subtotal ?? 0) + Number(p.badAmount ?? 0) + Number(p.pmLaborMarkedUp ?? 0) +
+    Number(p.taxAmount ?? 0) - Number(p.discountAmount ?? 0);
+  const stripeFee = p.stripeFeeEnabled ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100 : 0;
+  return { preStripeTotal, stripeFee, total: preStripeTotal + stripeFee };
+}
+
 // BAD (Base, Aggregate & Disposal) — NEW-proposal model only. Old proposals
 // (estimate.bad_rate === null) never call these; they keep their original
 // subtotal/price-based formula untouched, forever, per Jonathan's Sep 7 2026
