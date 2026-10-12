@@ -207,6 +207,9 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
           .from("projects")
           .select(PROJECT_FINANCIALS_SELECT)
           .eq("status", "active")
+          // "Active" means what the Active tab shows, i.e. the CLIENT's stage. A job moved to
+          // Completed can still have projects.status = 'active' (Ginny & Bob Aldridge, Oct 13).
+          .ilike("clients.status", "active")
           .eq("clients.is_discarded", false);
         if (error) throw error;
         setActiveJobs((data ?? []).map((p: any) => ({
