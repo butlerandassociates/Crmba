@@ -1216,7 +1216,7 @@ function TrackingTab({ programId }: { programId: string }) {
         <div>
           <p className="font-semibold text-sm">Automatic reminder emails</p>
           <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
-            Every 3 days, anyone who hasn't finished onboarding gets a reminder email, and Jonathan and Thomas are CC'd on each one.
+            Every 3 days, anyone who hasn't finished onboarding gets a reminder email (sent to the employee only).
             You can still send a reminder to one person from the table below even when this is off.
           </p>
         </div>

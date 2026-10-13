@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SENDGRID_API_KEY = Deno.env.get("SENDGRID_API_KEY")!;
-const JONATHAN_EMAIL   = "jonathan@butlerconstruction.co";
-const THOMAS_EMAIL     = "info@butlerconstruction.co";
 const CRM_URL          = Deno.env.get("CRM_BASE_URL") ?? "https://crm.butlerconstruction.co";
 
 const corsHeaders = {
@@ -48,10 +46,9 @@ async function sendEmail(to: string, subject: string, html: string) {
     method: "POST",
     headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      personalizations: [{
-        to: [{ email: to }],
-        cc: [{ email: JONATHAN_EMAIL }, { email: THOMAS_EMAIL }].filter(e => e.email !== to),
-      }],
+      // Employee only — Jonathan (Oct 13 2026): "Just have them sent to the employee." These
+      // used to CC him and Thomas on every reminder.
+      personalizations: [{ to: [{ email: to }] }],
       from: { email: "noreply@butlerconstruction.co", name: "Butler & Associates Construction" },
       subject,
       content: [{ type: "text/html", value: html }],
