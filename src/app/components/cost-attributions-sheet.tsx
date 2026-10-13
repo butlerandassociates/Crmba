@@ -13,7 +13,7 @@ import { mileageTripsAPI } from "../api/mileage";
 import { fioAPI } from "../api/field-installation-orders";
 import { activityLogAPI } from "../api/activity-log";
 import { usePermissions } from "../hooks/usePermissions";
-import { computeProjectedGP, expectedMaterialByCategory, rollupMaterialByCategory, OTHER_MATERIAL_CATEGORY } from "../utils/financials";
+import { computeProjectedGP, expectedMaterialByCategory, rollupMaterialByCategory, splitDeliveryExpected, countsAsMaterialCost, OTHER_MATERIAL_CATEGORY, type ReceiptType } from "../utils/financials";
 import { toast } from "sonner";
 
 interface CostAttributionsSheetProps {
@@ -31,7 +31,22 @@ interface CostAttributionsSheetProps {
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
 
-const EMPTY = { name: "", amount: "", note: "", materialCategory: "" };
+const EMPTY = { type: "material" as ReceiptType, name: "", amount: "", note: "", materialCategory: "" };
+
+// What the Category dropdown offers (Jonathan, Oct 14 2026). "labor" receipts that already exist
+// stay as they are but are no longer offered for new entries (crew pay comes from the FIO).
+const TYPE_OPTIONS: { value: ReceiptType; label: string }[] = [
+  { value: "material", label: "Material" },
+  { value: "subcontractor", label: "Subcontractors" },
+  { value: "delivery", label: "Delivery" },
+];
+const TYPE_LABEL: Record<string, string> = { material: "material", labor: "labor", subcontractor: "subcontractor", delivery: "delivery" };
+const TYPE_BADGE: Record<string, string> = {
+  material: "border-amber-300 text-amber-700",
+  labor: "border-blue-300 text-blue-700",
+  subcontractor: "border-violet-300 text-violet-700",
+  delivery: "border-teal-300 text-teal-700",
+};
 
 export function CostAttributionsSheet({ open, onOpenChange, client, project, proposal, gpData, onReceiptChange }: CostAttributionsSheetProps) {
   const { can } = usePermissions();
@@ -47,7 +62,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", amount: "", note: "", materialCategory: "" });
+  const [editForm, setEditForm] = useState({ type: "material" as ReceiptType, name: "", amount: "", note: "", materialCategory: "" });
   const [savingEdit, setSavingEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,14 +107,23 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
     () => expectedMaterialByCategory(proposal?.line_items ?? []),
     [proposal?.line_items],
   );
+  // The sold "Delivery" category is tracked in its own Delivery section below, not as a sold-material row.
+  const split = useMemo(() => splitDeliveryExpected(expectedByCategory), [expectedByCategory]);
   const categoryOptions = useMemo(() => {
-    const names = Object.keys(expectedByCategory).filter((n) => n !== OTHER_MATERIAL_CATEGORY).sort((a, b) => a.localeCompare(b));
+    const names = Object.keys(split.material).filter((n) => n !== OTHER_MATERIAL_CATEGORY).sort((a, b) => a.localeCompare(b));
     return [...names, OTHER_MATERIAL_CATEGORY];
-  }, [expectedByCategory]);
-  const rollup = useMemo(() => rollupMaterialByCategory(expectedByCategory, receipts), [expectedByCategory, receipts]);
+  }, [split]);
+  const rollup = useMemo(() => rollupMaterialByCategory(split.material, receipts), [split, receipts]);
   const laborReceipts = receipts.filter((r) => r.category === "labor");
+  const subReceipts = receipts.filter((r) => r.category === "subcontractor");
+  const deliveryReceipts = receipts.filter((r) => r.category === "delivery");
+  const sumAmt = (rs: any[]) => Math.round(rs.reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100;
+  const totalSub = sumAmt(subReceipts);
+  const totalDelivery = sumAmt(deliveryReceipts);
 
-  const totalMaterialReceipts = receipts.filter((r) => r.category !== "labor").reduce((s, r) => s + Number(r.amount || 0), 0);
+  // Delivery is part of the material budget (proposals store delivery cost in material_cost), so
+  // "Actual Material Spend" includes delivery receipts to stay comparable with "Expected Material Spend".
+  const totalMaterialReceipts = receipts.filter((r) => countsAsMaterialCost(r)).reduce((s, r) => s + Number(r.amount || 0), 0);
   const totalCrewPaid = crewPayments.reduce((s, p) => s + Number(p.amount_paid || 0), 0);
   const totalMileage  = mileageTrips.reduce((s, t) => s + Number(t.payout || 0), 0);
 
@@ -110,22 +134,23 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
   const gpPct = projectedGP !== null && contractValue > 0 ? (projectedGP / contractValue) * 100 : null;
   const expectedMaterialTotal = gpData?.materialBudget ?? Object.values(expectedByCategory).reduce((s, v) => s + v, 0);
 
-  const canAdd = !!form.name.trim() && !!form.amount && !!form.materialCategory;
+  const needsSoldItem = form.type === "material";
+  const canAdd = !!form.name.trim() && !!form.amount && (!needsSoldItem || !!form.materialCategory);
 
   const handleAdd = async () => {
     if (!form.name.trim() || !form.amount) { toast.error("Supplier and amount are required."); return; }
-    if (!form.materialCategory) { toast.error("Choose which sold material this receipt belongs to (or Other / General)."); return; }
+    if (needsSoldItem && !form.materialCategory) { toast.error("Choose which sold material this receipt belongs to (or Other / General)."); return; }
     if (!project?.id) { toast.error("No project linked — a project must exist before adding receipts."); return; }
     setSaving(true);
     try {
       const saved = await receiptsAPI.create(
-        { project_id: project.id, name: form.name.trim(), amount: parseFloat(form.amount), category: "material", note: form.note || undefined, material_category: form.materialCategory },
+        { project_id: project.id, name: form.name.trim(), amount: parseFloat(form.amount), category: form.type, note: form.note || undefined, material_category: needsSoldItem ? form.materialCategory : null },
         droppedFile || undefined
       );
       setReceipts((prev) => [saved, ...prev]);
-      setForm({ ...EMPTY });
+      setForm({ ...EMPTY, type: form.type });
       setDroppedFile(null);
-      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_added", description: `Receipt added: "${form.name}" — ${fmt(parseFloat(form.amount))} (material · ${form.materialCategory})` }).catch(() => {});
+      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_added", description: `Receipt added: "${form.name}" — ${fmt(parseFloat(form.amount))} (${form.type}${needsSoldItem ? ` · ${form.materialCategory}` : ""})` }).catch(() => {});
       toast.success("Receipt added");
       onReceiptChange?.();
     } catch (err: any) {
@@ -137,13 +162,13 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
 
   const startEdit = (r: any) => {
     setEditingId(r.id);
-    setEditForm({ name: r.name ?? "", amount: String(r.amount ?? ""), note: r.note ?? "", materialCategory: r.material_category ?? "" });
+    setEditForm({ type: (r.category ?? "material") as ReceiptType, name: r.name ?? "", amount: String(r.amount ?? ""), note: r.note ?? "", materialCategory: r.material_category ?? "" });
   };
 
   const handleSaveEdit = async (r: any) => {
     const amount = parseFloat(editForm.amount);
     if (!editForm.name.trim() || !(amount >= 0)) { toast.error("Supplier and a valid amount are required."); return; }
-    const isMaterial = r.category !== "labor";
+    const isMaterial = r.category !== "labor" && editForm.type === "material";
     if (isMaterial && !editForm.materialCategory) { toast.error("Choose which sold material this receipt belongs to (or Other / General)."); return; }
     setSavingEdit(true);
     try {
@@ -151,11 +176,12 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
         name: editForm.name.trim(),
         amount,
         note: editForm.note.trim() || null,
-        ...(isMaterial ? { material_category: editForm.materialCategory } : {}),
+        // legacy "labor" receipts keep their type; everything else follows the dropdown
+        ...(r.category === "labor" ? {} : { category: editForm.type, material_category: isMaterial ? editForm.materialCategory : null }),
       });
       setReceipts((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...saved } : x)));
       setEditingId(null);
-      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_updated", description: `Receipt updated: "${editForm.name.trim()}" — ${fmt(amount)}${isMaterial ? ` (${editForm.materialCategory})` : ""}` }).catch(() => {});
+      activityLogAPI.create({ client_id: client?.id, action_type: "receipt_updated", description: `Receipt updated: "${editForm.name.trim()}" — ${fmt(amount)}${r.category === "labor" ? "" : ` (${editForm.type}${isMaterial ? ` · ${editForm.materialCategory}` : ""})`}` }).catch(() => {});
       toast.success("Receipt updated");
       onReceiptChange?.();
     } catch (err: any) {
@@ -184,11 +210,12 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
 
   const renderReceipt = (r: any) => {
     if (editingId === r.id) {
-      const isMaterial = r.category !== "labor";
+      const isLegacyLabor = r.category === "labor";
+      const isMaterial = !isLegacyLabor && editForm.type === "material";
       return (
         <div key={r.id} className="border rounded-lg p-3 bg-accent/20 space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <div className="space-y-1 sm:col-span-2">
+            <div className="space-y-1">
               <Label className="text-xs">Supplier or payee</Label>
               <Input className="h-8 text-sm" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
             </div>
@@ -196,6 +223,17 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
               <Label className="text-xs">Actual cost ($)</Label>
               <Input type="number" className="h-8 text-sm" value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} />
             </div>
+            {!isLegacyLabor && (
+              <div className="space-y-1">
+                <Label className="text-xs">Category</Label>
+                <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: v as ReceiptType }))}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TYPE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {isMaterial && (
               <div className="space-y-1">
                 <Label className="text-xs">Sold material item</Label>
@@ -226,8 +264,8 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm truncate">{r.name}</span>
-            <Badge variant="outline" className={`text-xs shrink-0 ${r.category === "labor" ? "border-blue-300 text-blue-700" : "border-amber-300 text-amber-700"}`}>
-              {r.category === "labor" ? "labor" : "material"}
+            <Badge variant="outline" className={`text-xs shrink-0 ${TYPE_BADGE[r.category] ?? TYPE_BADGE.material}`}>
+              {TYPE_LABEL[r.category] ?? "material"}
             </Badge>
           </div>
           {r.note && <p className="text-xs text-muted-foreground mt-0.5">{r.note}</p>}
@@ -310,7 +348,12 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Category *</Label>
-                  <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">Material</div>
+                  <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v as ReceiptType, materialCategory: v === "material" ? f.materialCategory : "" }))}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TYPE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Actual cost *</Label>
@@ -322,7 +365,24 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
                 <Input className="h-9 text-sm" placeholder="Optional detail" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
               </div>
 
+              {/* Delivery / subcontractor hint — no sold-material attribution needed */}
+              {form.type === "delivery" && (
+                <div className="rounded-lg border bg-teal-50/50 p-3 flex items-center justify-between gap-3 text-sm">
+                  <p className="text-xs text-muted-foreground">Delivery fees are tracked against the Delivery sold on this job.</p>
+                  <div className="flex items-center gap-2 tabular-nums shrink-0">
+                    <span>{split.delivery > 0 ? fmt(split.delivery) : "—"}</span>
+                    <span className="text-[10px] font-semibold text-emerald-700">CRM</span>
+                  </div>
+                </div>
+              )}
+              {form.type === "subcontractor" && (
+                <div className="rounded-lg border bg-violet-50/50 p-3">
+                  <p className="text-xs text-muted-foreground">One-off payments to subcontractors (no FIO). Counts toward labor cost and GP.</p>
+                </div>
+              )}
+
               {/* Material attribution */}
+              {form.type === "material" && (
               <div className="rounded-lg border bg-emerald-50/50 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div>
                   <p className="text-sm font-semibold">Material attribution</p>
@@ -347,6 +407,7 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex gap-3 items-stretch">
                 <div
@@ -414,6 +475,36 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
                   </div>
                 );
               })}
+
+              {/* Delivery — actual vs the Delivery sold on the job */}
+              {(deliveryReceipts.length > 0 || split.delivery > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
+                    <div className="text-right text-xs tabular-nums">
+                      <span className="font-semibold text-sm">{fmt(totalDelivery)}</span>
+                      {split.delivery > 0 && <span className="text-muted-foreground"> of {fmt(split.delivery)} expected</span>}
+                      {split.delivery > 0 && (totalDelivery > split.delivery
+                        ? <span className="ml-2 font-semibold text-red-600">{fmt(Math.round((totalDelivery - split.delivery) * 100) / 100)} over</span>
+                        : <span className="ml-2 text-emerald-700">{fmt(Math.round((split.delivery - totalDelivery) * 100) / 100)} left</span>)}
+                    </div>
+                  </div>
+                  {deliveryReceipts.length === 0
+                    ? <p className="text-xs text-muted-foreground px-1">No delivery fees attributed yet.</p>
+                    : deliveryReceipts.map(renderReceipt)}
+                </div>
+              )}
+
+              {/* Subcontractors — one-off payments without an FIO; nothing sold to compare against */}
+              {subReceipts.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subcontractors <span className="font-normal normal-case">(no FIO)</span></p>
+                    <span className="text-sm font-semibold tabular-nums">{fmt(totalSub)}</span>
+                  </div>
+                  {subReceipts.map(renderReceipt)}
+                </div>
+              )}
 
               {laborReceipts.length > 0 && (
                 <div className="space-y-2">

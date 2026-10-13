@@ -370,8 +370,8 @@ export function ProjectDetail() {
 
   // Calculate financial health stats
   const calculateFinancialHealth = () => {
-    const actualMaterialCost = receipts.filter(r => r.category === 'material').reduce((sum, r) => sum + r.amount, 0);
-    const actualLaborCost = receipts.filter(r => r.category === 'labor').reduce((sum, r) => sum + r.amount, 0);
+    const actualMaterialCost = receipts.filter(r => r.category === 'material' || r.category === 'delivery').reduce((sum, r) => sum + r.amount, 0);
+    const actualLaborCost = receipts.filter(r => r.category === 'labor' || r.category === 'subcontractor').reduce((sum, r) => sum + r.amount, 0);
     const totalActualCosts = actualMaterialCost + actualLaborCost;
     const actualGrossProfit = project.totalValue - totalActualCosts;
     const actualProfitMargin = project.totalValue > 0 ? (actualGrossProfit / project.totalValue) * 100 : 0;

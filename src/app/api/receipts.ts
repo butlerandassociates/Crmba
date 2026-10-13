@@ -4,6 +4,7 @@
  */
 
 import { supabase, guessContentType } from "@/lib/supabase";
+import { countsAsLaborCost, type ReceiptType } from "@/app/utils/financials";
 
 export const receiptsAPI = {
   /** All receipts across all projects — for the Cost Attributions overview page */
@@ -53,7 +54,7 @@ export const receiptsAPI = {
     for (const r of receipts ?? []) {
       const pid = r.project?.id;
       if (!pid) continue;
-      if (r.category === "labor") {
+      if (countsAsLaborCost(r)) {
         laborReceiptsByProject[pid] = (laborReceiptsByProject[pid] || 0) + (Number(r.amount) || 0);
       } else {
         materialByProject[pid] = (materialByProject[pid] || 0) + (Number(r.amount) || 0);
@@ -92,7 +93,7 @@ export const receiptsAPI = {
       project_id: string;
       name: string;
       amount: number;
-      category: "material" | "labor";
+      category: ReceiptType;
       note?: string;
       /** Sold material category this receipt is attributed to (null/undefined = unattributed) */
       material_category?: string | null;
@@ -139,7 +140,7 @@ export const receiptsAPI = {
   /** Edit a receipt's name / amount / note / sold-category attribution */
   update: async (
     id: string,
-    patch: { name?: string; amount?: number; note?: string | null; material_category?: string | null }
+    patch: { name?: string; amount?: number; note?: string | null; category?: ReceiptType; material_category?: string | null }
   ) => {
     const { data, error } = await supabase
       .from("project_receipts")

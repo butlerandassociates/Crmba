@@ -93,6 +93,37 @@ export function expectedMaterialByCategory(
   return out;
 }
 
+// ─── Receipt types (project_receipts.category) ───────────────────────────────────────────────
+// Jonathan, Oct 14 2026: besides Material, a receipt can be a one-off Subcontractor payment (no
+// FIO) or a Delivery fee, so ALL spend on what was sold is tracked. For GP these fold into the
+// two buckets the formulas already know: delivery -> material (proposals store delivery cost in
+// material_cost) and subcontractor -> labor. Change the two functions below to change that rule
+// everywhere (GP, Cost Attributions, receipts overview) — don't re-test category strings inline.
+export type ReceiptType = "material" | "labor" | "subcontractor" | "delivery";
+export const DELIVERY_SOLD_CATEGORY = "Delivery";
+
+export const isMaterialReceipt = (r: { category?: string | null }) => (r.category ?? "material") === "material";
+export const countsAsMaterialCost = (r: { category?: string | null }) => {
+  const c = r.category ?? "material";
+  return c === "material" || c === "delivery";
+};
+export const countsAsLaborCost = (r: { category?: string | null }) => {
+  const c = r.category ?? "";
+  return c === "labor" || c === "subcontractor";
+};
+
+// Sold "Delivery" category (case-insensitive) is tracked in its own Delivery section, not as a
+// sold-material row, so split it out of the expected-by-category map.
+export function splitDeliveryExpected(expected: Record<string, number>): { material: Record<string, number>; delivery: number } {
+  const material: Record<string, number> = {};
+  let delivery = 0;
+  for (const [k, v] of Object.entries(expected)) {
+    if (k.trim().toLowerCase() === DELIVERY_SOLD_CATEGORY.toLowerCase()) delivery += v;
+    else material[k] = v;
+  }
+  return { material, delivery: Math.round(delivery * 100) / 100 };
+}
+
 // One row per category that has a budget or any attributed receipt, plus an "Unattributed" row
 // ("" category) for material receipts nobody has tagged yet. Labor receipts are not material
 // and are ignored here.
@@ -100,7 +131,7 @@ export function rollupMaterialByCategory(
   expected: Record<string, number>,
   receipts: { category?: string | null; amount?: number | string | null; material_category?: string | null }[],
 ): MaterialCategoryRow[] {
-  const material = (receipts ?? []).filter((r) => r.category !== "labor");
+  const material = (receipts ?? []).filter((r) => isMaterialReceipt(r));
   const names = new Set<string>(Object.keys(expected));
   for (const r of material) if (r.material_category) names.add(r.material_category);
   const rows: MaterialCategoryRow[] = [];
@@ -197,9 +228,9 @@ export function aggregateProjectCosts(params: {
   const effectiveMaterialBudget = lineItemCostTotal > 0 ? materialBudget : estimateTotalCost * 0.7;
   const effectiveLaborBudget = lineItemCostTotal > 0 ? laborBudget : estimateTotalCost * 0.3;
 
-  const materialActual = params.receipts.filter((r) => r.category === "material")
+  const materialActual = params.receipts.filter((r) => r.category === "material" || r.category === "delivery")
     .reduce((s, r) => s + (r.amount || 0), 0);
-  const laborFromReceipts = params.receipts.filter((r) => r.category === "labor")
+  const laborFromReceipts = params.receipts.filter((r) => r.category === "labor" || r.category === "subcontractor")
     .reduce((s, r) => s + (r.amount || 0), 0);
 
   const fioAssigned = params.fioItems.reduce((s, item) =>

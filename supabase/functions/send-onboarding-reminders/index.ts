@@ -81,6 +81,26 @@ Deno.serve(async (req) => {
 
     console.log(`[send-onboarding-reminders] starting — mode=${nudgeUserId ? `nudge user_id=${nudgeUserId}` : "cron"}`);
 
+    // Automatic (cron) runs only go out while an admin has the switch on (company_settings.
+    // onboarding_reminders_enabled — migration 130, defaults to OFF). A manual nudge for one
+    // person always sends. If the setting can't be read we do NOT send: failing closed is
+    // safer than emailing everyone plus Jonathan/Thomas while the switch is off.
+    if (!nudgeUserId) {
+      const { data: setting, error: settingErr } = await supabase
+        .from("company_settings")
+        .select("onboarding_reminders_enabled")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (settingErr || setting?.onboarding_reminders_enabled !== true) {
+        console.log(`[send-onboarding-reminders] automatic reminders are off${settingErr ? ` (setting unreadable: ${settingErr.message})` : ""} — nothing sent`);
+        return new Response(
+          JSON.stringify({ success: true, sent: 0, skipped: 0, disabled: true }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // ── 1. Get all active programs ──────────────────────────────────────────
     const { data: programs } = await supabase
       .from("onboarding_programs")

@@ -21,6 +21,7 @@ import {
   BarChart3, Users, CheckCircle2, XCircle, Trophy, Upload, X,
 } from "lucide-react";
 import { SkeletonList } from "../ui/page-loader";
+import { companySettingsAPI } from "../../api/settings";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1085,6 +1086,31 @@ function TrackingTab({ programId }: { programId: string }) {
   const [resetting, setResetting] = useState<string | null>(null);
   const [nudging, setNudging] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<{ userId: string; name: string } | null>(null);
+  // Automatic reminder emails on/off (company_settings.onboarding_reminders_enabled, migration 130).
+  // null = still loading; a failed load leaves the switch disabled instead of guessing.
+  const [autoReminders, setAutoReminders] = useState<boolean | null>(null);
+  const [savingAutoReminders, setSavingAutoReminders] = useState(false);
+
+  useEffect(() => {
+    companySettingsAPI.get()
+      .then((s: any) => setAutoReminders(s?.onboarding_reminders_enabled === true))
+      .catch(() => setAutoReminders(null));
+  }, []);
+
+  const toggleAutoReminders = async (next: boolean) => {
+    const prev = autoReminders;
+    setAutoReminders(next);
+    setSavingAutoReminders(true);
+    try {
+      await companySettingsAPI.update({ onboarding_reminders_enabled: next });
+      toast.success(next ? "Automatic onboarding reminders turned on." : "Automatic onboarding reminders turned off.");
+    } catch (err: unknown) {
+      setAutoReminders(prev);
+      toast.error("Couldn't save the setting: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingAutoReminders(false);
+    }
+  };
 
   const GHOST_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -1185,6 +1211,26 @@ function TrackingTab({ programId }: { programId: string }) {
 
   return (
     <div className="pt-4 space-y-6">
+      {/* Automatic reminder emails switch */}
+      <div className="flex items-center justify-between gap-4 border rounded-xl p-4 bg-card">
+        <div>
+          <p className="font-semibold text-sm">Automatic reminder emails</p>
+          <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+            Every 3 days, anyone who hasn't finished onboarding gets a reminder email, and Jonathan and Thomas are CC'd on each one.
+            You can still send a reminder to one person from the table below even when this is off.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground">{autoReminders === null ? "…" : autoReminders ? "On" : "Off"}</span>
+          <Switch
+            checked={autoReminders === true}
+            disabled={autoReminders === null || savingAutoReminders}
+            onCheckedChange={toggleAutoReminders}
+            aria-label="Automatic onboarding reminder emails"
+          />
+        </div>
+      </div>
+
       {/* Summary stats */}
       <div className="grid grid-cols-4 gap-3">
         {[
