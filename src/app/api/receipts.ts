@@ -94,6 +94,8 @@ export const receiptsAPI = {
       amount: number;
       category: "material" | "labor";
       note?: string;
+      /** Sold material category this receipt is attributed to (null/undefined = unattributed) */
+      material_category?: string | null;
     },
     file?: File
   ) => {
@@ -129,6 +131,21 @@ export const receiptsAPI = {
         created_by: user?.id,
       })
       .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  /** Edit a receipt's name / amount / note / sold-category attribution */
+  update: async (
+    id: string,
+    patch: { name?: string; amount?: number; note?: string | null; material_category?: string | null }
+  ) => {
+    const { data, error } = await supabase
+      .from("project_receipts")
+      .update(patch)
+      .eq("id", id)
+      .select("*, uploader:profiles!project_receipts_created_by_fkey(first_name, last_name)")
       .single();
     if (error) throw new Error(error.message);
     return data;

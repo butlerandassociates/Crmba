@@ -63,6 +63,63 @@ export function calcClientProposalTotal(p: {
   return { preStripeTotal, stripeFee, total: preStripeTotal + stripeFee };
 }
 
+// ─── Cost Attributions: expected vs actual material per SOLD category ─────────────────────
+// Jonathan, Oct 12-13 2026: each material receipt is attributed to a category sold on the job
+// (Concrete, Pavers, ...) so we can see what we actually spent vs what the sold line items
+// budgeted for that category. "Expected" is OUR material cost (qty x material_cost of the sold
+// line items, change orders included once merged into the proposal) — never the client price.
+export const OTHER_MATERIAL_CATEGORY = "Other / General";
+
+export type MaterialCategoryRow = {
+  category: string;            // sold category name, OTHER_MATERIAL_CATEGORY, or "" for unattributed
+  expected: number;
+  actual: number;
+  remaining: number;           // expected - actual (negative = over budget)
+  over: number;                // dollars over expected (0 when within budget or no budget)
+  receipts: any[];
+};
+
+export function expectedMaterialByCategory(
+  lineItems: { category?: string | null; quantity?: number | string | null; material_cost?: number | string | null }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const li of lineItems ?? []) {
+    const cost = (parseFloat(String(li.quantity)) || 1) * (parseFloat(String(li.material_cost)) || 0);
+    if (cost <= 0) continue;
+    const key = (li.category ?? "").trim() || OTHER_MATERIAL_CATEGORY;
+    out[key] = (out[key] || 0) + cost;
+  }
+  for (const k of Object.keys(out)) out[k] = Math.round(out[k] * 100) / 100;
+  return out;
+}
+
+// One row per category that has a budget or any attributed receipt, plus an "Unattributed" row
+// ("" category) for material receipts nobody has tagged yet. Labor receipts are not material
+// and are ignored here.
+export function rollupMaterialByCategory(
+  expected: Record<string, number>,
+  receipts: { category?: string | null; amount?: number | string | null; material_category?: string | null }[],
+): MaterialCategoryRow[] {
+  const material = (receipts ?? []).filter((r) => r.category !== "labor");
+  const names = new Set<string>(Object.keys(expected));
+  for (const r of material) if (r.material_category) names.add(r.material_category);
+  const rows: MaterialCategoryRow[] = [];
+  const build = (category: string, exp: number, rs: any[]): MaterialCategoryRow => {
+    const actual = Math.round(rs.reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
+    const remaining = Math.round((exp - actual) * 100) / 100;
+    return { category, expected: exp, actual, remaining, over: exp > 0 && actual > exp ? Math.round((actual - exp) * 100) / 100 : 0, receipts: rs };
+  };
+  const named = Array.from(names).sort((a, b) => {
+    if (a === OTHER_MATERIAL_CATEGORY) return 1;
+    if (b === OTHER_MATERIAL_CATEGORY) return -1;
+    return a.localeCompare(b);
+  });
+  for (const n of named) rows.push(build(n, expected[n] || 0, material.filter((r) => r.material_category === n)));
+  const unattributed = material.filter((r) => !r.material_category);
+  if (unattributed.length > 0) rows.push(build("", 0, unattributed));
+  return rows;
+}
+
 // BAD (Base, Aggregate & Disposal) — NEW-proposal model only. Old proposals
 // (estimate.bad_rate === null) never call these; they keep their original
 // subtotal/price-based formula untouched, forever, per Jonathan's Sep 7 2026

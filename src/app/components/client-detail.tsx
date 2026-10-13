@@ -5775,6 +5775,9 @@ export function ClientDetail() {
         onOpenChange={setCostAttributionsOpen}
         client={client}
         project={clientProjects[0] ?? null}
+        // Same proposal loadGpHealth budgets from: the accepted one (its line items are what was sold)
+        proposal={clientProposals.find((p) => p.status === "accepted") ?? null}
+        gpData={clientProjects[0]?.id ? gpHealthData[clientProjects[0].id] : undefined}
         onReceiptChange={() => {
           const projectId = clientProjects[0]?.id;
           if (projectId) loadGpHealth(projectId);
