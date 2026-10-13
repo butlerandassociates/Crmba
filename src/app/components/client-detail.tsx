@@ -1,6 +1,9 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, computeProjectedGP, aggregateProjectCosts } from "@/app/utils/financials";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, computeProjectedGP, computeProjectedFinancials, aggregateProjectCosts } from "@/app/utils/financials";
+
+// Revenue base for job-level GP / GP%: contract value minus sales tax (Jonathan, Oct 14 2026).
+const gpRevenueOf = (d: any, project: any): number => computeProjectedFinancials(d, project).revenue;
 import { supabase } from "@/lib/supabase";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { useState, useEffect, useRef } from "react";
@@ -1228,6 +1231,11 @@ export function ClientDetail() {
 
       // FIO assigned labor — sum across all FIOs for this project (one per foreman)
       const fios = await fioAPI.getByProject(projectId).catch(() => [] as any[]);
+      // Planned PM Labor Hours sold on the accepted proposal (a real cost; BAD/PM revenue is already
+      // inside the contract value)
+      const pmLaborRows = acceptedProposal?.id
+        ? ((await supabase.from("estimate_pm_labor_items").select("hours, hourly_rate").eq("estimate_id", acceptedProposal.id)).data ?? [])
+        : [];
       const fioItems = fios.flatMap((f: any) => f.items ?? []);
       const fioAssigned = fioItems.reduce((s: number, item: any) =>
         s + (parseFloat(item.labor_cost_per_unit) || 0) * (parseFloat(item.quantity) || 0), 0);
@@ -1249,12 +1257,18 @@ export function ClientDetail() {
         laborActual: laborPaid,
         laborProjected,
         isFallbackBudget,
+        taxAmount,
+        pmLaborPlannedCost,
+        pmLaborActualCost,
       } = aggregateProjectCosts({
         lineItems,
         estimateTotalCost,
         receipts,
         fioItems,
         crewPayments: allCrewPayments,
+        estimateTaxAmount: acceptedProposal?.tax_amount ?? 0,
+        pmLaborItems: pmLaborRows,
+        pmLaborActualHours: acceptedProposal?.pm_labor_actual_hours ?? null,
       });
 
       // Mileage attributed to this job (approved/paid, non-personal) — matches migration 095
@@ -1312,6 +1326,9 @@ export function ClientDetail() {
           crewPaid: laborFromCrewPayments,
           receipts,
           isFallbackBudget,
+          taxAmount,
+          pmLaborPlannedCost,
+          pmLaborActualCost,
         },
       }));
     } catch {
@@ -2713,9 +2730,12 @@ export function ClientDetail() {
               // Projected GP — tracks real numbers continuously (Jonathan, Sep 29 2026: this
               // needs to reflect an overage immediately, not stay pinned to the budget until
               // closeout). See computeProjectedGP for the full history of this field.
-              const grossProfit = computeProjectedGP(_d, clientProjects[0]);
-              const cost = grossProfit < totalValue ? totalValue - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
-              const margin = totalValue > 0 ? (grossProfit / totalValue) * 100 : (clientProjects[0]?.profitMargin ?? 0);
+              const projFin = computeProjectedFinancials(_d, clientProjects[0]);
+              const grossProfit = projFin.gp;
+              // GP is measured on revenue = contract value minus sales tax (Jonathan, Oct 14 2026)
+              const gpBase = _d ? projFin.revenue : totalValue;
+              const cost = grossProfit < gpBase ? gpBase - grossProfit : (clientProjects[0]?.totalCosts ?? 0);
+              const margin = gpBase > 0 ? (grossProfit / gpBase) * 100 : (clientProjects[0]?.profitMargin ?? 0);
               const pmProfileId = clientProjects[0]?.project_manager_id ?? null;
               const repProfileId = clientProjects[0]?.sales_rep_id ?? null;
               // Fall back to client's sales rep ONLY when no project row exists yet at all.
@@ -3144,7 +3164,7 @@ export function ClientDetail() {
                 <p className="text-xs text-muted-foreground">Gross Profit</p>
                 {(() => {
                   const d = gpHealthData[project.id];
-                  const cv = project.totalValue ?? 0;
+                  const cv = gpRevenueOf(d, project);
                   // Header shows Projected GP — tracks real numbers continuously, including
                   // reflecting an overage immediately (Jonathan, Sep 29 2026). See
                   // computeProjectedGP for the full history of this field.
@@ -3180,7 +3200,7 @@ export function ClientDetail() {
                   <p className="font-semibold text-base group-hover:text-primary transition-colors">
                     {(() => {
                       const d = gpHealthData[project.id];
-                      const cv = project.totalValue ?? 0;
+                      const cv = gpRevenueOf(d, project);
                       if (d && cv > 0) {
                         const headerGP = computeProjectedGP(d, project);
                         return (headerGP / cv * 100).toFixed(1);
@@ -3195,7 +3215,7 @@ export function ClientDetail() {
                 const pmId = project.project_manager_id ?? null;
                 const repId = project.sales_rep_id ?? null;
                 const d = gpHealthData[project.id];
-                const cv = project.totalValue ?? 0;
+                const cv = gpRevenueOf(d, project);
                 const headerGP = computeProjectedGP(d, project);
                 // Read commission from the real commission_payments ledger (paid + pending combined)
                 // instead of recalculating from a stored rate — the rate field can go stale
@@ -3253,8 +3273,10 @@ export function ClientDetail() {
                 </div>
               );
 
-              const contractValue = project.totalValue ?? 0;
-              const totalBudget = d.materialBudget + d.laborBudget;
+              const projFinPanel = computeProjectedFinancials(d, project);
+              // Revenue = contract value minus sales tax; budgets include the planned PM Labor Hours cost
+              const contractValue = projFinPanel.revenue;
+              const totalBudget = d.materialBudget + d.laborBudget + (project.status === "completed" ? 0 : (d.pmLaborPlannedCost ?? 0));
               // Jonathan (Sep 24 2026 follow-up ticket) — exact formulas:
               // Budgeted GP = Contract Value − Materials Budget − Labor Budget. Fixed at sale.
               const budgetedGP = contractValue - totalBudget;
@@ -3275,7 +3297,7 @@ export function ClientDetail() {
               const laborComplete = jobComplete || !!project.labor_complete;
               const materialProjected = materialsComplete ? d.materialActual : Math.max(d.materialActual, d.materialBudget);
               const laborProjected = laborComplete ? d.laborActual : (d.laborProjected ?? Math.max(d.laborActual, d.laborBudget));
-              const projectedGP = contractValue - materialProjected - laborProjected;
+              const projectedGP = contractValue - materialProjected - laborProjected - projFinPanel.pmLaborProjected;
               const projectedGPPct = contractValue > 0 ? (projectedGP / contractValue) * 100 : 0;
               const toggleCategoryComplete = async (field: "materials_complete" | "labor_complete", value: boolean) => {
                 try {
@@ -5778,6 +5800,8 @@ export function ClientDetail() {
         // Same proposal loadGpHealth budgets from: the accepted one (its line items are what was sold)
         proposal={clientProposals.find((p) => p.status === "accepted") ?? null}
         gpData={clientProjects[0]?.id ? gpHealthData[clientProjects[0].id] : undefined}
+        // Re-read the proposals after the actual PM hours change — the GP reload is keyed on them
+        onProposalChange={() => { if (id) estimatesAPI.getByClient(id).then(setClientProposals).catch(console.error); }}
         onReceiptChange={() => {
           const projectId = clientProjects[0]?.id;
           if (projectId) loadGpHealth(projectId);

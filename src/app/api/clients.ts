@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import { aggregateProjectCosts, computeProjectedGP } from "@/app/utils/financials";
+import { aggregateProjectCosts, computeProjectedFinancials } from "@/app/utils/financials";
 
 export const clientsAPI = {
   /** List active clients for a given stage (or all stages if omitted) */
@@ -35,7 +35,7 @@ export const clientsAPI = {
         ),
         appointments(created_at, assigned_to, assigned_to_profile:profiles!assigned_to(first_name, last_name, role, phone, email)),
         project_payments(id, is_paid, amount),
-        estimates(id, total, total_cost, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity))
+        estimates(id, total, total_cost, tax_amount, pm_labor_actual_hours, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity), pm_labor:estimate_pm_labor_items(hours, hourly_rate))
       `)
       .eq("is_discarded", false)
       .order("created_at", { ascending: false });
@@ -69,16 +69,21 @@ export const clientsAPI = {
           receipts: firstProject.receipts ?? [],
           fioItems: fios.flatMap((f: any) => f.items ?? []),
           crewPayments: fios.flatMap((f: any) => f.crew_payments ?? []),
+          estimateTaxAmount: acceptedEstimate?.tax_amount ?? 0,
+          pmLaborItems: acceptedEstimate?.pm_labor ?? [],
+          pmLaborActualHours: acceptedEstimate?.pm_labor_actual_hours ?? null,
         });
-        project_gross_profit = computeProjectedGP(costs, {
+        const projectedFin = computeProjectedFinancials(costs, {
           totalValue: firstProject.total_value,
           status: firstProject.status,
           materials_complete: firstProject.materials_complete,
           labor_complete: firstProject.labor_complete,
           grossProfit: firstProject.gross_profit,
         });
-        project_profit_margin = firstProject.total_value > 0
-          ? (project_gross_profit / firstProject.total_value) * 100
+        project_gross_profit = projectedFin.gp;
+        // GP % is on revenue (contract minus sales tax), same base as the job page
+        project_profit_margin = projectedFin.revenue > 0
+          ? projectedFin.gpPct
           : (firstProject.profit_margin != null ? Number(firstProject.profit_margin) : null);
       }
 

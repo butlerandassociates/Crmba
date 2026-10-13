@@ -70,6 +70,11 @@ export function calcClientProposalTotal(p: {
 // line items, change orders included once merged into the proposal) — never the client price.
 export const OTHER_MATERIAL_CATEGORY = "Other / General";
 
+// Round to cents the way a person would (0.75 x $930.42 = 697.815 -> $697.82). Plain Math.round on
+// the raw float gives 697.81 for some values (697.8149999...), which made the proposal's line
+// total and the Cost Attributions "expected" differ by a cent for the same item.
+export const roundCents = (n: number): number => Math.round(Number((n * 100).toPrecision(12))) / 100;
+
 export type MaterialCategoryRow = {
   category: string;            // sold category name, OTHER_MATERIAL_CATEGORY, or "" for unattributed
   expected: number;
@@ -89,7 +94,7 @@ export function expectedMaterialByCategory(
     const key = (li.category ?? "").trim() || OTHER_MATERIAL_CATEGORY;
     out[key] = (out[key] || 0) + cost;
   }
-  for (const k of Object.keys(out)) out[k] = Math.round(out[k] * 100) / 100;
+  for (const k of Object.keys(out)) out[k] = roundCents(out[k]);
   return out;
 }
 
@@ -205,6 +210,14 @@ export type ProjectedGPInputs = {
   laborProjected: number; // material receipts + max(FIO committed, crew paid)
   isFallbackBudget: boolean; // true when line items had no cost breakdown, so the
   // budget split was estimated (70/30) from the estimate total rather than itemized
+  // Jonathan, Oct 14 2026 (job-level GP): sales tax is part of the contract total but is NOT
+  // revenue/profit, so it comes off the top; PM Labor Hours are a real cost, planned on the
+  // proposal (hours x rate) and optionally replaced by the actual hours someone enters.
+  // BAD stays in revenue at job level, exactly as before. All optional so older callers and
+  // saved snapshots keep working (missing = 0 / not entered).
+  taxAmount?: number;
+  pmLaborPlannedCost?: number;
+  pmLaborActualCost?: number | null; // null = no actual hours entered yet
 };
 
 // Aggregates the raw rows (accepted proposal's line items, cost-attribution receipts,
@@ -217,6 +230,14 @@ export function aggregateProjectCosts(params: {
   receipts: { category?: string | null; amount?: number | null }[];
   fioItems: { labor_cost_per_unit?: number | string | null; quantity?: number | string | null }[];
   crewPayments: { amount_paid?: number | string | null }[];
+  /** accepted proposal's sales tax (estimates.tax_amount) */
+  estimateTaxAmount?: number | string | null;
+  /** accepted proposal's planned PM hours (estimate_pm_labor_items) */
+  pmLaborItems?: { hours?: number | string | null; hourly_rate?: number | string | null }[];
+  /** estimates.pm_labor_actual_hours — null/undefined until someone enters it */
+  pmLaborActualHours?: number | string | null;
+  /** used to price actual hours only when the proposal has no planned PM entries to take a rate from */
+  pmFallbackRate?: number;
 }): ProjectedGPInputs {
   const materialBudget = params.lineItems.reduce((s, li) =>
     s + (parseFloat(String(li.material_cost)) || 0) * (parseFloat(String(li.quantity)) || 1), 0);
@@ -238,6 +259,16 @@ export function aggregateProjectCosts(params: {
   const laborFromCrewPayments = params.crewPayments.reduce((s, cp) =>
     s + (parseFloat(String(cp.amount_paid)) || 0), 0);
 
+  const pmItems = params.pmLaborItems ?? [];
+  const pmPlannedHours = pmItems.reduce((s, it) => s + (parseFloat(String(it.hours)) || 0), 0);
+  const pmLaborPlannedCost = Math.round(pmItems.reduce((s, it) =>
+    s + (parseFloat(String(it.hours)) || 0) * (parseFloat(String(it.hourly_rate)) || 0), 0) * 100) / 100;
+  const actualHoursRaw = params.pmLaborActualHours;
+  const actualHours = actualHoursRaw === null || actualHoursRaw === undefined || String(actualHoursRaw) === ""
+    ? null : (parseFloat(String(actualHoursRaw)) || 0);
+  const pmRate = pmPlannedHours > 0 ? pmLaborPlannedCost / pmPlannedHours : (params.pmFallbackRate ?? 0);
+  const pmLaborActualCost = actualHours === null ? null : Math.round(actualHours * pmRate * 100) / 100;
+
   return {
     materialBudget: effectiveMaterialBudget,
     laborBudget: effectiveLaborBudget,
@@ -245,6 +276,9 @@ export function aggregateProjectCosts(params: {
     laborActual: laborFromReceipts + laborFromCrewPayments,
     laborProjected: laborFromReceipts + Math.max(fioAssigned, laborFromCrewPayments),
     isFallbackBudget: lineItemCostTotal === 0 && estimateTotalCost > 0,
+    taxAmount: parseFloat(String(params.estimateTaxAmount)) || 0,
+    pmLaborPlannedCost,
+    pmLaborActualCost,
   };
 }
 
@@ -252,13 +286,47 @@ export function aggregateProjectCosts(params: {
 // Actual and (Committed-if-one-exists, otherwise Budget) — except once a category is
 // marked complete (or the job reaches "Completed" status, which auto-completes both),
 // where Projected Cost collapses to the literal Actual.
-export function computeProjectedGP(
+export type ProjectedFinancials = {
+  revenue: number;          // contract value minus sales tax (BAD stays in)
+  materialProjected: number;
+  laborProjected: number;
+  pmLaborProjected: number;
+  cost: number;             // material + labor + PM labor, projected
+  gp: number;
+  gpPct: number;            // gp / revenue
+};
+
+type ProjectForGP = { totalValue?: number | null; status?: string | null; materials_complete?: boolean | null; labor_complete?: boolean | null; grossProfit?: number | null };
+
+// PM Labor Hours cost, same philosophy as materials/labor: until the job is closed out the
+// projected cost is the greater of what was planned (sold) and what has actually been entered;
+// once completed it is the literal actual — falling back to the plan when no actual was ever entered.
+export function pmLaborProjectedCost(inputs: ProjectedGPInputs, jobComplete: boolean): number {
+  const planned = inputs.pmLaborPlannedCost ?? 0;
+  const actual = inputs.pmLaborActualCost;
+  if (jobComplete) return actual ?? planned;
+  return Math.max(actual ?? 0, planned);
+}
+
+// The single job-level GP formula (Active tab, Financial Health, Cost Attributions, overhead
+// tool, clients list). Jonathan, Oct 14 2026: revenue = contract value minus sales tax (BAD and
+// PM labor revenue stay in), cost = projected material + labor + PM Labor Hours.
+// COMPLETED jobs are deliberately left on the original formula (contract value incl. tax, no PM
+// Labor Hours cost) — Jonathan, Oct 14 2026: "leave all completed jobs untouched and apply this
+// revision to sold and active only." Do not "fix" that without asking him.
+export function computeProjectedFinancials(
   inputs: ProjectedGPInputs | null | undefined,
-  project: { totalValue?: number | null; status?: string | null; materials_complete?: boolean | null; labor_complete?: boolean | null; grossProfit?: number | null } | null | undefined,
-): number {
+  project: ProjectForGP | null | undefined,
+): ProjectedFinancials {
   const contractValue = project?.totalValue ?? 0;
-  if (!inputs) return project?.grossProfit ?? 0;
+  if (!inputs) {
+    const gp = project?.grossProfit ?? 0;
+    return { revenue: contractValue, materialProjected: 0, laborProjected: 0, pmLaborProjected: 0, cost: contractValue - gp, gp, gpPct: contractValue > 0 ? (gp / contractValue) * 100 : 0 };
+  }
   const jobComplete = project?.status === "completed";
+  const revenue = jobComplete
+    ? contractValue
+    : contractValue - Math.min(Math.max(inputs.taxAmount ?? 0, 0), Math.max(contractValue, 0));
   const materialsComplete = jobComplete || !!project?.materials_complete;
   const laborComplete = jobComplete || !!project?.labor_complete;
   const materialProjected = materialsComplete ? inputs.materialActual : Math.max(inputs.materialActual, inputs.materialBudget);
@@ -268,5 +336,15 @@ export function computeProjectedGP(
   // since it's a pre-existing, separate question (what should Projected Labor show
   // before any FIO exists?) outside the scope of the list-vs-detail consistency bug.
   const laborProjectedFinal = laborComplete ? inputs.laborActual : (inputs.laborProjected ?? Math.max(inputs.laborActual, inputs.laborBudget));
-  return contractValue - materialProjected - laborProjectedFinal;
+  const pmProjected = jobComplete ? 0 : pmLaborProjectedCost(inputs, jobComplete);
+  const cost = materialProjected + laborProjectedFinal + pmProjected;
+  const gp = revenue - cost;
+  return { revenue, materialProjected, laborProjected: laborProjectedFinal, pmLaborProjected: pmProjected, cost, gp, gpPct: revenue > 0 ? (gp / revenue) * 100 : 0 };
+}
+
+export function computeProjectedGP(
+  inputs: ProjectedGPInputs | null | undefined,
+  project: ProjectForGP | null | undefined,
+): number {
+  return computeProjectedFinancials(inputs, project).gp;
 }

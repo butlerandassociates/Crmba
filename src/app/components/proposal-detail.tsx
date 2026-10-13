@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal } from "../utils/financials";
+import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal, roundCents } from "../utils/financials";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
@@ -2730,6 +2730,32 @@ export function ProposalDetail() {
                                           )}
                                         </div>
                                       </div>
+                                      {/* Line totals — the figures above are per unit; this is what the row actually
+                                          adds up to (quantity x per unit). Jonathan, Oct 13 2026: "Yes, please!" */}
+                                      {Number(item.quantity) !== 1 && (
+                                        <div className="flex items-center justify-end gap-8 text-xs mt-2 pt-2 border-t border-dashed">
+                                          <span className="text-muted-foreground italic">Line total × {Number(item.quantity)}</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew</span>
+                                            <span className="font-semibold">{formatCurrency(roundCents(Number(item.quantity) * laborCost))}</span>
+                                          </div>
+                                          <div className="h-3 w-px bg-border" />
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground font-medium uppercase tracking-wide">Material</span>
+                                            <span className="font-semibold">{formatCurrency(roundCents(Number(item.quantity) * materialCost))}</span>
+                                          </div>
+                                          <div className="h-3 w-px bg-border" />
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost</span>
+                                            <span className="font-semibold">{formatCurrency(roundCents(Number(item.quantity) * (laborCost + materialCost)))}</span>
+                                          </div>
+                                          <div className="h-3 w-px bg-border" />
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground font-medium uppercase tracking-wide">Client Price</span>
+                                            <span className="font-semibold text-primary">{formatCurrency(roundCents(Number(item.quantity) * Number(item.client_price ?? 0)))}</span>
+                                          </div>
+                                        </div>
+                                      )}
                                     </td>
                                   </tr>
                                 )}
@@ -3717,6 +3743,14 @@ export function ProposalDetail() {
                       <span className="text-muted-foreground">Avg Markup</span>
                       <span className="font-semibold">{finAvgMarkup.toFixed(1)}%</span>
                     </div>
+                    {pmLaborMarkedUpValue > 0 && (
+                      // Jonathan, Oct 13 2026: "how do we measure the profit from the markup on this item?"
+                      // Billed PM Labor minus its cost — already inside Gross Profit above, shown on its own here.
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">PM Labor profit (markup)</span>
+                        <span className={pmLaborMarkedUpValue - pmLaborTotalCost >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>{formatCurrency(pmLaborMarkedUpValue - pmLaborTotalCost)}</span>
+                      </div>
+                    )}
                     {usesNewBadModel && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Contingency Reserve (BAD, {effectiveBadRate}% of direct cost)</span>

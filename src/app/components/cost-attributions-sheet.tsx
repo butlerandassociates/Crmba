@@ -13,7 +13,8 @@ import { mileageTripsAPI } from "../api/mileage";
 import { fioAPI } from "../api/field-installation-orders";
 import { activityLogAPI } from "../api/activity-log";
 import { usePermissions } from "../hooks/usePermissions";
-import { computeProjectedGP, expectedMaterialByCategory, rollupMaterialByCategory, splitDeliveryExpected, countsAsMaterialCost, OTHER_MATERIAL_CATEGORY, type ReceiptType } from "../utils/financials";
+import { computeProjectedFinancials, expectedMaterialByCategory, rollupMaterialByCategory, splitDeliveryExpected, countsAsMaterialCost, OTHER_MATERIAL_CATEGORY, type ReceiptType } from "../utils/financials";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 interface CostAttributionsSheetProps {
@@ -26,6 +27,8 @@ interface CostAttributionsSheetProps {
   /** Same gpHealthData[project.id] the Financial Health panel uses (budgets, actuals, FIO) */
   gpData?: any;
   onReceiptChange?: () => void;
+  /** called after the proposal itself changed (actual PM hours) so the parent re-reads proposals + GP */
+  onProposalChange?: () => void;
 }
 
 const fmt = (v: number) =>
@@ -48,7 +51,7 @@ const TYPE_BADGE: Record<string, string> = {
   delivery: "border-teal-300 text-teal-700",
 };
 
-export function CostAttributionsSheet({ open, onOpenChange, client, project, proposal, gpData, onReceiptChange }: CostAttributionsSheetProps) {
+export function CostAttributionsSheet({ open, onOpenChange, client, project, proposal, gpData, onReceiptChange, onProposalChange }: CostAttributionsSheetProps) {
   const { can } = usePermissions();
   const canEdit = can("can_edit_financials");
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -65,6 +68,11 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
   const [editForm, setEditForm] = useState({ type: "material" as ReceiptType, name: "", amount: "", note: "", materialCategory: "" });
   const [savingEdit, setSavingEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // PM Labor Hours: sold (planned) vs actual hours (estimates.pm_labor_actual_hours, migration 131)
+  const [pmPlanned, setPmPlanned] = useState<{ hours: number; cost: number }>({ hours: 0, cost: 0 });
+  const [pmActualInput, setPmActualInput] = useState("");
+  const [pmActualSaved, setPmActualSaved] = useState<number | null>(null);
+  const [savingPm, setSavingPm] = useState(false);
 
   const loadReceipts = async () => {
     if (!project?.id) return;
@@ -89,6 +97,16 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
         ),
       );
       setCrewPayments(payments.flat());
+      if (proposal?.id) {
+        const { data: pmRows } = await supabase.from("estimate_pm_labor_items").select("hours, hourly_rate").eq("estimate_id", proposal.id);
+        const rows = pmRows ?? [];
+        setPmPlanned({
+          hours: rows.reduce((s: number, r: any) => s + (Number(r.hours) || 0), 0),
+          cost: rows.reduce((s: number, r: any) => s + (Number(r.hours) || 0) * (Number(r.hourly_rate) || 0), 0),
+        });
+      } else {
+        setPmPlanned({ hours: 0, cost: 0 });
+      }
     } catch {
       toast.error("Failed to load receipts — please refresh.");
     } finally {
@@ -98,7 +116,15 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
 
   useEffect(() => {
     if (open) loadReceipts();
-  }, [open, project?.id]);
+  }, [open, project?.id, proposal?.id]);
+
+  // Reset the actual-hours box from the saved value whenever the dialog opens / the proposal changes
+  useEffect(() => {
+    const saved = proposal?.pm_labor_actual_hours;
+    const n = saved === null || saved === undefined || saved === "" ? null : Number(saved);
+    setPmActualSaved(n);
+    setPmActualInput(n === null ? "" : String(n));
+  }, [open, proposal?.id, proposal?.pm_labor_actual_hours]);
 
   useRealtimeRefetch(() => { if (open && project?.id) loadReceipts(); }, ["project_receipts", "mileage_trips", "mileage_submissions", "fio_crew_payments"], `cost-attr-${project?.id}`);
 
@@ -128,10 +154,37 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
   const totalMileage  = mileageTrips.reduce((s, t) => s + Number(t.payout || 0), 0);
 
   // ── Header numbers — same projected-GP source as the Financial Health panel / Active tab ──
-  const contractValue = Number(project?.totalValue ?? project?.total_value ?? 0);
-  const projectedGP = gpData ? computeProjectedGP(gpData, project) : null;
-  const totalProjectCost = projectedGP !== null ? contractValue - projectedGP : null;
-  const gpPct = projectedGP !== null && contractValue > 0 ? (projectedGP / contractValue) * 100 : null;
+  // Same single job-level formula as the Active tab: revenue = contract minus sales tax, cost =
+  // projected material + labor + PM Labor Hours (Jonathan, Oct 14 2026).
+  const fin = gpData ? computeProjectedFinancials(gpData, project) : null;
+  const projectedGP = fin ? fin.gp : null;
+  const totalProjectCost = fin ? fin.cost : null;
+  const gpPct = fin && fin.revenue > 0 ? fin.gpPct : null;
+
+  // PM Labor Hours monitor: sold hours vs actual hours entered
+  const pmRate = pmPlanned.hours > 0 ? pmPlanned.cost / pmPlanned.hours : 0;
+  const pmActualCost = pmActualSaved === null ? null : Math.round(pmActualSaved * pmRate * 100) / 100;
+  const pmHoursOver = pmActualSaved === null ? 0 : Math.round((pmActualSaved - pmPlanned.hours) * 100) / 100;
+  const pmInputNum = pmActualInput.trim() === "" ? null : Number(pmActualInput);
+  const pmDirty = (pmInputNum ?? null) !== (pmActualSaved ?? null);
+  const pmInputInvalid = pmInputNum !== null && !(pmInputNum >= 0 && pmInputNum <= 10000);
+
+  const handleSavePmHours = async () => {
+    if (!proposal?.id || pmInputInvalid) { toast.error("Enter a valid number of hours (0 or more)."); return; }
+    setSavingPm(true);
+    try {
+      const { error } = await supabase.from("estimates").update({ pm_labor_actual_hours: pmInputNum }).eq("id", proposal.id);
+      if (error) throw new Error(error.message);
+      setPmActualSaved(pmInputNum);
+      activityLogAPI.create({ client_id: client?.id, action_type: "pm_labor_hours_updated", description: pmInputNum === null ? "Actual PM labor hours cleared" : `Actual PM labor hours set to ${pmInputNum} (sold ${pmPlanned.hours})` }).catch(() => {});
+      toast.success("PM labor hours saved");
+      onProposalChange?.();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save PM labor hours");
+    } finally {
+      setSavingPm(false);
+    }
+  };
   const expectedMaterialTotal = gpData?.materialBudget ?? Object.values(expectedByCategory).reduce((s, v) => s + v, 0);
 
   const needsSoldItem = form.type === "material";
@@ -333,6 +386,44 @@ export function CostAttributionsSheet({ open, onOpenChange, client, project, pro
             {stat(null, "Active GP %", gpPct !== null ? `${gpPct.toFixed(1)}%` : "—")}
             {stat(null, "Projected GP $", projectedGP !== null ? fmt(projectedGP) : "—")}
           </div>
+
+          {/* PM Labor Hours — sold vs actual (only when PM hours were sold on the proposal) */}
+          {pmPlanned.hours > 0 && (
+            <div className="px-6 py-4 border-b flex flex-wrap items-end gap-x-8 gap-y-3">
+              <div>
+                <p className="text-sm font-semibold">PM Labor Hours</p>
+                <p className="text-xs text-muted-foreground">Sold {pmPlanned.hours} hrs · {fmt(pmPlanned.cost)} cost</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Actual hours</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number" min={0} step="0.25" className="h-9 w-28 text-sm"
+                    placeholder="e.g. 12.5" value={pmActualInput} disabled={!canEdit}
+                    onChange={(e) => setPmActualInput(e.target.value)}
+                  />
+                  {canEdit && (
+                    <Button size="sm" disabled={savingPm || !pmDirty || pmInputInvalid} onClick={handleSavePmHours}>
+                      {savingPm && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Save
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs tabular-nums">
+                {pmActualSaved === null ? (
+                  <span className="text-muted-foreground">{project?.status === "completed" ? "No actual hours entered. Completed jobs keep their original GP calculation." : "No actual hours entered yet — using the sold hours."}</span>
+                ) : (
+                  <>
+                    <span className="font-semibold text-sm">{fmt(pmActualCost ?? 0)}</span>
+                    <span className="text-muted-foreground"> actual cost · </span>
+                    {pmHoursOver > 0
+                      ? <span className="font-semibold text-red-600">{pmHoursOver} hrs over ({fmt(Math.round(pmHoursOver * pmRate * 100) / 100)})</span>
+                      : <span className="text-emerald-700">{Math.abs(pmHoursOver)} hrs under</span>}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Add receipt */}
           {canEdit && (

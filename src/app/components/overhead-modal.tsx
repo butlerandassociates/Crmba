@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { usePermissions } from "../hooks/usePermissions";
 import { toast } from "sonner";
 import { formatCurrency } from "@/app/utils/format";
-import { aggregateProjectCosts, computeProjectedGP } from "@/app/utils/financials";
+import { aggregateProjectCosts, computeProjectedFinancials } from "@/app/utils/financials";
 
 const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#6366f1"];
 const TODAY = new Date().toISOString().split("T")[0];
@@ -45,11 +45,13 @@ const PROJECT_FINANCIALS_SELECT = `
   clients!inner(
     first_name, last_name, is_discarded,
     lead_sources!lead_source_id(name),
-    estimates(id, total_cost, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity))
+    estimates(id, total_cost, tax_amount, pm_labor_actual_hours, status, created_at, line_items:estimate_line_items(material_cost, labor_cost, quantity), pm_labor:estimate_pm_labor_items(hours, hourly_rate))
   )
 `;
 
-function projectGP(p: any): number {
+// Revenue here is the contract value minus sales tax (tax is not revenue — Jonathan, Oct 14 2026),
+// the same base the job page and Active tab use for GP%.
+function projectFin(p: any) {
   const estimates: any[] = p.clients?.estimates ?? [];
   const est = estimates.find((e) => e.status === "accepted")
     ?? estimates.filter((e) => e.status !== "declined" && e.status !== "voided")
@@ -61,8 +63,11 @@ function projectGP(p: any): number {
     receipts: p.receipts ?? [],
     fioItems: fios.flatMap((f) => f.items ?? []),
     crewPayments: fios.flatMap((f) => f.crew_payments ?? []),
+    estimateTaxAmount: est?.tax_amount ?? 0,
+    pmLaborItems: est?.pm_labor ?? [],
+    pmLaborActualHours: est?.pm_labor_actual_hours ?? null,
   });
-  return computeProjectedGP(costs, {
+  return computeProjectedFinancials(costs, {
     totalValue: Number(p.total_value) || 0,
     status: p.status,
     materials_complete: p.materials_complete,
@@ -180,14 +185,14 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
         .gte("sold_at", fromDate)
         .lte("sold_at", toDate);
       // Update Revenue + GP based on selected date range
-      setFilteredRevenue((data ?? []).reduce((s: number, p: any) => s + (Number(p.total_value) || 0), 0));
-      setFilteredGP((data ?? []).reduce((s: number, p: any) => s + projectGP(p), 0));
+      setFilteredRevenue((data ?? []).reduce((s: number, p: any) => s + projectFin(p).revenue, 0));
+      setFilteredGP((data ?? []).reduce((s: number, p: any) => s + projectFin(p).gp, 0));
       // ROI grouped by lead source
       const grouped: Record<string, { revenue: number; count: number }> = {};
       (data ?? []).forEach((p: any) => {
         const ls = (p.clients?.lead_sources?.name as string | null) || "Unknown";
         if (!grouped[ls]) grouped[ls] = { revenue: 0, count: 0 };
-        grouped[ls].revenue += Number(p.total_value) || 0;
+        grouped[ls].revenue += projectFin(p).revenue;
         grouped[ls].count += 1;
       });
       setLeadSourceData(grouped);
@@ -215,8 +220,8 @@ export function OverheadModal({ open, onOpenChange, totalRevenue, grossProfit }:
         setActiveJobs((data ?? []).map((p: any) => ({
           id: p.id,
           client: `${p.clients?.first_name ?? ""} ${p.clients?.last_name ?? ""}`.trim() || "Unnamed",
-          revenue: Number(p.total_value) || 0,
-          gp: projectGP(p),
+          revenue: projectFin(p).revenue,
+          gp: projectFin(p).gp,
         })).sort((a: ActiveJob, b: ActiveJob) => b.revenue - a.revenue));
       } catch {
         toast.error("Failed to load active jobs");
