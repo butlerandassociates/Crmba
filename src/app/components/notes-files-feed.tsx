@@ -111,7 +111,9 @@ export function NotesFilesFeed({ notes, files, fileTypes, canDeleteNotes, canDel
           if (item._type === "note") {
             if (item.is_system_generated) {
               return (
-                <div key={`note-${item.id}`} className="group cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 mb-2 hover:bg-blue-100 transition-colors flex items-start gap-2" onClick={() => onOpenNote(item)}>
+                // my-3 keeps the blue auto-note (e.g. "BUDGET: $15K – $40K") clear of the rows above and below it
+                // (Jonathan, Oct 20 2026: it sat too close to the other items on mobile)
+                <div key={`note-${item.id}`} className="group cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 my-3 first:mt-0 last:mb-0 hover:bg-blue-100 transition-colors flex items-start gap-3" onClick={() => onOpenNote(item)}>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-semibold text-blue-600 uppercase tracking-wide mb-1">{item.content.split("\n")[0]}</p>
                     <p className="text-xs text-muted-foreground">{ts}</p>
@@ -125,7 +127,7 @@ export function NotesFilesFeed({ notes, files, fileTypes, canDeleteNotes, canDel
               );
             }
             return (
-              <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 transition-colors" onClick={() => onOpenNote(item)}>
+              <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 cursor-pointer hover:bg-muted/40 transition-colors" onClick={() => onOpenNote(item)}>
                 <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{item.content.split("\n")[0]}</p>

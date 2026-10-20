@@ -63,7 +63,8 @@ export function FileUploadDialog({ open, mode, originalName, position, types, in
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && !saving) onCancel(); }}>
-      <DialogContent className="sm:max-w-md p-0 gap-0">
+      {/* no auto-focus: otherwise the first type chip opens with a focus ring that looks pre-selected */}
+      <DialogContent className="sm:max-w-md p-0 gap-0" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader className="px-6 py-4 pr-12">
           <DialogTitle className="text-base">
             {mode === "upload" ? "Add file" : "Edit file"}

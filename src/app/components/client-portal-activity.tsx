@@ -20,6 +20,7 @@ export function ClientPortalActivity({ clientId }: { clientId: string }) {
   const [loads, setLoads] = useState<PortalLoad[] | null>(null); // null = loading; [] = no link / no visits
   const [hasLink, setHasLink] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   const load = async () => {
     // Never select the token itself — only the access log.
@@ -96,15 +97,30 @@ export function ClientPortalActivity({ clientId }: { clientId: string }) {
 
             {stats.total > 0 && (
               <div>
-                <p className="text-xs text-muted-foreground mb-1.5">Visits per week, last 8 weeks</p>
+                <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                  <p className="text-xs text-muted-foreground">Visits per week, last 8 weeks</p>
+                  {/* tap/click a bar to see its week: hover tooltips don't exist on phones */}
+                  <p className="text-xs font-medium tabular-nums" aria-live="polite">
+                    {selectedWeek === null
+                      ? <span className="font-normal text-muted-foreground">Tap a bar for details</span>
+                      : `${weekLabel(selectedWeek)}: ${stats.weekly[selectedWeek]} visit${stats.weekly[selectedWeek] === 1 ? "" : "s"}`}
+                  </p>
+                </div>
                 <div className="flex items-end gap-1.5 h-11">
                   {stats.weekly.map((n, i) => (
-                    <div
+                    <button
                       key={i}
+                      type="button"
                       title={`${weekLabel(i)}: ${n} visit${n === 1 ? "" : "s"}`}
-                      className={`flex-1 rounded-sm ${n > 0 ? "bg-blue-500" : "bg-gray-200"}`}
-                      style={{ height: n > 0 ? Math.max(8, Math.round((n / maxWeek) * 44)) : 4 }}
-                    />
+                      aria-label={`${weekLabel(i)}: ${n} visit${n === 1 ? "" : "s"}`}
+                      onClick={() => setSelectedWeek((s) => (s === i ? null : i))}
+                      className="flex-1 h-full flex items-end group focus:outline-none"
+                    >
+                      <span
+                        className={`block w-full rounded-sm transition-colors ${n > 0 ? "bg-blue-500 group-hover:bg-blue-600" : "bg-gray-200 group-hover:bg-gray-300"} ${selectedWeek === i ? "ring-2 ring-offset-1 ring-blue-300" : ""}`}
+                        style={{ height: n > 0 ? Math.max(8, Math.round((n / maxWeek) * 44)) : 4 }}
+                      />
+                    </button>
                   ))}
                 </div>
               </div>
