@@ -608,32 +608,34 @@ export function ProposalBuilder() {
   return (
     <div className="flex flex-col">
       {/* Header — sticky so it stays visible while scrolling */}
-      <div className="sticky top-0 z-20 border-b p-4 bg-white shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="sticky top-0 z-20 border-b p-3 sm:p-4 bg-white shadow-sm">
+        {/* phones: title row, then the two action buttons share the next row (Jonathan, Oct 20 2026: builder is hard to use on mobile) */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <Button
               variant="outline"
               size="sm"
+              className="shrink-0"
               onClick={() => {
                 const isDirty = lineItems.length > 0 || proposalTitle.trim() !== "" || customSections.length > 0;
                 if (isDirty) setShowUnsavedDialog(true);
                 else navigate(`/clients/${clientId}`);
               }}
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              <ArrowLeft className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Back</span>
             </Button>
-            <div>
-              <h1 className="text-xl font-bold">New Proposal</h1>
-              <p className="text-sm text-muted-foreground">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold leading-tight">New Proposal</h1>
+              <p className="text-sm text-muted-foreground truncate">{`${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowSavingsDialog(true)}>
+            <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => setShowSavingsDialog(true)}>
               <BadgePercent className="h-4 w-4 mr-2" />
               Savings & Fees
             </Button>
-            <Button onClick={handleSaveProposal} disabled={saving}>
+            <Button className="flex-1 sm:flex-none" onClick={handleSaveProposal} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               {saving ? "Saving..." : "Save Proposal"}
             </Button>
@@ -642,10 +644,10 @@ export function ProposalBuilder() {
       </div>
 
       {/* Main Content - no inner scroll, parent main handles it */}
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
 
-        {/* Top Row: Proposal Details + Add Items + Metrics */}
-        <div className="grid grid-cols-3 gap-5 mb-6">
+        {/* Top Row: Proposal Details + Add Items + Metrics (stacked on phones, 3 across from md up) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 mb-6">
           {/* Proposal Details */}
           <Card>
             <CardHeader className="pb-3">
@@ -768,7 +770,7 @@ export function ProposalBuilder() {
                             placeholder="e.g. Custom Lighting"
                             value={customItem.name}
                             onChange={(e) => setCustomItem((p) => ({ ...p, name: e.target.value }))}
-                            className={`h-8 text-xs ${customValidated && !customItem.name.trim() ? "border-red-400" : ""}`}
+                            className={`h-10 md:h-8 text-base md:text-xs ${customValidated && !customItem.name.trim() ? "border-red-400" : ""}`}
                           />
                         </div>
                         <div className="space-y-1">
@@ -777,7 +779,7 @@ export function ProposalBuilder() {
                             placeholder="e.g. Landscaping"
                             value={customItem.category}
                             onChange={(e) => setCustomItem((p) => ({ ...p, category: e.target.value }))}
-                            className={`h-8 text-xs ${customValidated && !customItem.category.trim() ? "border-red-400" : ""}`}
+                            className={`h-10 md:h-8 text-base md:text-xs ${customValidated && !customItem.category.trim() ? "border-red-400" : ""}`}
                           />
                         </div>
                       </div>
@@ -790,7 +792,7 @@ export function ProposalBuilder() {
                             type="number" min={0}
                             value={customItem.qty}
                             onChange={(e) => setCustomItem((p) => ({ ...p, qty: parseFloat(e.target.value) || 0 }))}
-                            className="h-8 text-xs"
+                            className="h-10 md:h-8 text-base md:text-xs"
                           />
                         </div>
                         <div className="space-y-1">
@@ -799,7 +801,7 @@ export function ProposalBuilder() {
                             placeholder="e.g. SF, LF, EA"
                             value={customItem.unit}
                             onChange={(e) => setCustomItem((p) => ({ ...p, unit: e.target.value }))}
-                            className={`h-8 text-xs ${customValidated && !customItem.unit.trim() ? "border-red-400" : ""}`}
+                            className={`h-10 md:h-8 text-base md:text-xs ${customValidated && !customItem.unit.trim() ? "border-red-400" : ""}`}
                           />
                         </div>
                       </div>
@@ -812,7 +814,7 @@ export function ProposalBuilder() {
                             type="number" min={0} step={0.01}
                             value={customItem.materialCost}
                             onChange={(e) => setCustomItem((p) => ({ ...p, materialCost: parseFloat(e.target.value) || 0 }))}
-                            className="h-8 text-xs"
+                            className="h-10 md:h-8 text-base md:text-xs"
                           />
                         </div>
                         <div className="space-y-1">
@@ -821,7 +823,7 @@ export function ProposalBuilder() {
                             type="number" min={0} step={0.01}
                             value={customItem.laborCost}
                             onChange={(e) => setCustomItem((p) => ({ ...p, laborCost: parseFloat(e.target.value) || 0 }))}
-                            className="h-8 text-xs"
+                            className="h-10 md:h-8 text-base md:text-xs"
                           />
                         </div>
                         <div className="space-y-1">
@@ -830,7 +832,7 @@ export function ProposalBuilder() {
                             type="number" min={0} step={1}
                             value={customItem.markup}
                             onChange={(e) => setCustomItem((p) => ({ ...p, markup: parseFloat(e.target.value) || 0 }))}
-                            className="h-8 text-xs"
+                            className="h-10 md:h-8 text-base md:text-xs"
                           />
                         </div>
                       </div>
@@ -860,12 +862,12 @@ export function ProposalBuilder() {
           </Card>
 
           {/* Internal Metrics */}
-          <Card className="bg-muted/50">
+          <Card className="bg-muted/50 md:col-span-2 lg:col-span-1">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm text-muted-foreground">Internal Metrics (Admin Only)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-3 gap-3 md:gap-4 text-sm">
                 <div>
                   <div className="text-xs text-muted-foreground">Total Cost</div>
                   <div className="font-semibold">{formatCurrency(totalCost)}</div>
@@ -886,9 +888,9 @@ export function ProposalBuilder() {
         {/* Full-Width Line Items Table */}
         <Card className={saveTouched && (itemsErr || totalErr) ? "border-red-500" : ""}>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-base">Proposal Line Items</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
               {lineItems.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -931,7 +933,7 @@ export function ProposalBuilder() {
             </div>
           </CardHeader>
           {saveTouched && (itemsErr || totalErr) && (
-            <div className="px-6 pb-2">
+            <div className="px-4 md:px-6 pb-2">
               <p className="text-xs text-red-500">{itemsErr || totalErr}</p>
             </div>
           )}
@@ -944,8 +946,8 @@ export function ProposalBuilder() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-sm">
-                  <thead>
+                <table className="block md:table w-full md:min-w-[640px] text-sm">
+                  <thead className="hidden md:table-header-group">
                     <tr className="border-b bg-muted/40">
                       <th className="text-left px-6 py-3 font-semibold text-muted-foreground">Product</th>
                       <th className="text-center px-4 py-3 font-semibold text-muted-foreground w-[110px]">FIO Qty</th>
@@ -957,7 +959,7 @@ export function ProposalBuilder() {
                       <th className="px-2 py-3 w-[40px]"></th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="block md:table-row-group">
                     {(() => {
                       const allKnown = [...new Set([...sectionOrder, ...Object.keys(groupedLineItems), ...customSections])];
                       const allCats = allKnown.filter((c) => groupedLineItems[c] || customSections.includes(c));
@@ -969,9 +971,9 @@ export function ProposalBuilder() {
                       return (
                       <Fragment key={category}>
                         {/* Category section header */}
-                        <tr className="bg-slate-100/80 border-y border-slate-200">
-                          <td colSpan={8} className="px-6 py-2">
-                            <div className="flex items-center justify-between">
+                        <tr className="block md:table-row bg-slate-100/80 border-y border-slate-200">
+                          <td colSpan={8} className="block md:table-cell px-4 md:px-6 py-2">
+                            <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
                               {renamingCat === category ? (
                                 <div className="flex items-center gap-1.5">
                                   <input
@@ -987,12 +989,12 @@ export function ProposalBuilder() {
                               ) : (
                                 <div className="flex items-center gap-1.5 group">
                                   <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">{category}</span>
-                                  <button onClick={() => { setRenamingCat(category); setRenameValue(category); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
-                                    <Pencil className="h-3 w-3" />
+                                  <button onClick={() => { setRenamingCat(category); setRenameValue(category); }} className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-1 -m-1">
+                                    <Pencil className="h-3.5 w-3.5" />
                                   </button>
                                 </div>
                               )}
-                              <div className="flex items-center gap-1">
+                              <div className="flex flex-wrap items-center gap-1">
                                 <div className="flex items-center mr-1">
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(category, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === totalCats - 1} onClick={() => moveSection(category, 'down')}><ChevronDown className="h-3.5 w-3.5" /></Button>
@@ -1017,20 +1019,20 @@ export function ProposalBuilder() {
                           </td>
                         </tr>
                         {/* Category client note — shown under the section header on the proposal + PDF */}
-                        <tr className="border-b border-slate-100">
-                          <td colSpan={8} className="px-6 pb-2 pt-0 bg-slate-100/40">
+                        <tr className="block md:table-row border-b border-slate-100">
+                          <td colSpan={8} className="block md:table-cell px-4 md:px-6 pb-2 pt-1 md:pt-0 bg-slate-100/40">
                             <Input
                               placeholder={`Client note for "${category}" (optional) — shows on the proposal`}
                               value={categoryNotes[category] ?? ""}
                               onChange={(e) => setCategoryNotes((prev) => ({ ...prev, [category]: e.target.value }))}
-                              className="h-7 text-xs"
+                              className="h-9 md:h-7 text-base md:text-xs"
                             />
                           </td>
                         </tr>
                         {items.length === 0 && (
-                          <tr className="border-b border-slate-100">
-                            <td colSpan={8} className="px-6 py-3">
-                              <div className="flex items-center gap-2">
+                          <tr className="block md:table-row border-b border-slate-100">
+                            <td colSpan={8} className="block md:table-cell px-4 md:px-6 py-3">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-xs text-muted-foreground italic">No items yet —</p>
                                 <Button variant="outline" size="sm" className="h-6 text-xs px-2 gap-1" onClick={() => {
                                   const isDbCat = categories.some((c: any) => c.name === category);
@@ -1056,9 +1058,9 @@ export function ProposalBuilder() {
                                 key={item.id}
                                 data-item-id={item.id}
                                 data-item-cat={category}
-                                className={`border-b border-slate-100 hover:bg-primary/5 transition-colors group ${dragItemId === item.id ? "opacity-40" : ""} ${dragItemId !== null && dragOverId === item.id && dragItemId !== item.id ? "bg-primary/10 shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : ""}`}
+                                className={`grid grid-cols-2 gap-x-3 gap-y-3 px-4 py-4 md:table-row md:p-0 border-b border-slate-100 hover:bg-primary/5 transition-colors group ${dragItemId === item.id ? "opacity-40" : ""} ${dragItemId !== null && dragOverId === item.id && dragItemId !== item.id ? "bg-primary/10 shadow-[inset_0_2px_0_0_hsl(var(--primary))]" : ""}`}
                               >
-                                <td className="px-6 py-4">
+                                <td className="col-span-2 md:table-cell md:px-6 md:py-4">
                                   <div className="flex items-start gap-2">
                                     {items.length > 1 && (
                                       <span
@@ -1079,42 +1081,52 @@ export function ProposalBuilder() {
                                     placeholder="Client note (optional)…"
                                     value={item.client_note ?? ""}
                                     onChange={(e) => updateLineItem(item.id, "client_note" as any, e.target.value)}
-                                    className="h-7 text-xs mt-1.5 max-w-md"
+                                    className="h-9 md:h-7 text-base md:text-xs mt-1.5 max-w-md"
                                   />
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-4 py-4 text-center">
+                                {/* on phones each cell shows its own label, since the column headers are hidden */}
+                                <td className="md:table-cell md:px-4 md:py-4 md:text-center">
+                                  <span className="md:hidden block text-[11px] uppercase tracking-wide text-muted-foreground mb-1">FIO Qty</span>
                                   <Input
                                     type="number"
+                                    inputMode="decimal"
                                     value={item.fioQty ?? 0}
                                     onChange={(e) => updateLineItem(item.id, "fioQty" as any, parseFloat(e.target.value) || null)}
-                                    className="h-9 text-sm text-center w-28 mx-auto"
+                                    className="h-11 md:h-9 text-base md:text-sm md:text-center md:w-28 md:mx-auto"
                                   />
                                 </td>
-                                <td className="px-4 py-4 text-center">
+                                <td className="md:table-cell md:px-4 md:py-4 md:text-center">
+                                  <span className="md:hidden block text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Qty{item.unit ? ` (${item.unit})` : ""}</span>
                                   <Input
                                     type="number"
+                                    inputMode="decimal"
                                     value={item.quantity}
                                     onChange={(e) => updateLineItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                                    className="h-9 text-sm text-center w-28 mx-auto"
+                                    className="h-11 md:h-9 text-base md:text-sm md:text-center md:w-28 md:mx-auto"
                                   />
                                 </td>
-                                <td className="px-4 py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
-                                <td className="px-4 py-4">
+                                <td className="hidden md:table-cell md:px-4 md:py-4 text-muted-foreground text-sm font-medium">{item.unit}</td>
+                                <td className="md:table-cell md:px-4 md:py-4">
+                                  <span className="md:hidden block text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Rate ($)</span>
                                   <Input
                                     type="number"
+                                    inputMode="decimal"
                                     value={parseFloat(item.pricePerUnit.toFixed(2))}
                                     onChange={(e) => updateLineItem(item.id, "pricePerUnit", parseFloat(e.target.value) || 0)}
-                                    className="h-9 text-sm text-right w-32 ml-auto"
+                                    className="h-11 md:h-9 text-base md:text-sm md:text-right md:w-32 md:ml-auto"
                                   />
                                 </td>
-                                <td className="px-6 py-4 text-right font-bold text-sm">{formatCurrency(item.totalPrice)}</td>
-                                <td className="px-2 py-4 text-center">
+                                <td className="md:table-cell md:px-6 md:py-4 md:text-right font-bold text-sm flex flex-col justify-end items-end md:block">
+                                  <span className="md:hidden block text-[11px] font-normal uppercase tracking-wide text-muted-foreground mb-1">Total</span>
+                                  <span className="text-base md:text-sm leading-[44px] md:leading-normal">{formatCurrency(item.totalPrice)}</span>
+                                </td>
+                                <td className="md:table-cell md:px-2 md:py-4 md:text-center">
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0 text-muted-foreground"
+                                    className="h-10 w-auto px-3 gap-1 md:h-8 md:w-8 md:p-0 text-muted-foreground"
                                     onClick={() => setExpandedRows((prev) => {
                                       const next = new Set(prev);
                                       if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
@@ -1122,38 +1134,39 @@ export function ProposalBuilder() {
                                     })}
                                   >
                                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                    <span className="md:hidden text-xs">Details</span>
                                   </Button>
                                 </td>
-                                <td className="px-2 py-4 text-center">
+                                <td className="flex justify-end md:table-cell md:px-2 md:py-4 md:text-center">
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => setPendingDeleteId(item.id)}
-                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="h-10 w-auto px-3 gap-1 md:h-8 md:w-8 md:p-0 text-muted-foreground hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                                   >
-                                    <X className="h-4 w-4" />
+                                    <X className="h-4 w-4" /><span className="md:hidden text-xs">Remove</span>
                                   </Button>
                                 </td>
                               </tr>
                               {isExpanded && (
-                                <tr key={`${item.id}-exp`} className="bg-muted/30 border-b border-slate-100">
-                                  <td colSpan={8} className="pr-[100px] pl-6 py-3">
-                                    <div className="flex items-center justify-end gap-8 text-xs">
+                                <tr key={`${item.id}-exp`} className="block md:table-row bg-muted/30 border-b border-slate-100">
+                                  <td colSpan={8} className="block md:table-cell px-4 py-3 md:pr-[100px] md:pl-6">
+                                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 md:justify-end md:gap-8 text-xs">
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-muted-foreground font-medium uppercase tracking-wide">Crew Cost/Unit</span>
                                         <span className="font-semibold">{formatCurrency(item.laborCost)}</span>
                                       </div>
-                                      <div className="h-3 w-px bg-border" />
+                                      <div className="hidden md:block h-3 w-px bg-border" />
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-muted-foreground font-medium uppercase tracking-wide">Material/Unit</span>
                                         <span className="font-semibold">{formatCurrency(item.materialCost)}</span>
                                       </div>
-                                      <div className="h-3 w-px bg-border" />
+                                      <div className="hidden md:block h-3 w-px bg-border" />
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-muted-foreground font-medium uppercase tracking-wide">Cost/Unit</span>
                                         <span className="font-semibold">{formatCurrency(item.costPerUnit)}</span>
                                       </div>
-                                      <div className="h-3 w-px bg-border" />
+                                      <div className="hidden md:block h-3 w-px bg-border" />
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-muted-foreground font-medium uppercase tracking-wide">Markup</span>
                                         <span className="font-semibold text-amber-600">{parseFloat(item.markupPercent.toFixed(2))}%</span>
@@ -1179,7 +1192,7 @@ export function ProposalBuilder() {
         {/* Totals */}
         {lineItems.length > 0 && (
           <div className="mt-4 flex justify-end">
-            <div className="w-[520px] bg-white border rounded-lg p-5">
+            <div className="w-full md:w-[520px] bg-white border rounded-lg p-4 md:p-5">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -1187,7 +1200,7 @@ export function ProposalBuilder() {
                 </div>
 
                 {/* Global Markup Override */}
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-y-1 text-sm">
                   <div className="flex items-center gap-1.5">
                     <Percent className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-muted-foreground">Global Markup %</span>
@@ -1216,7 +1229,7 @@ export function ProposalBuilder() {
                           setGlobalMarkupPct(null);
                         }
                       }}
-                      className="h-7 w-24 text-sm text-right"
+                      className="h-9 md:h-7 w-24 text-base md:text-sm text-right"
                     />
                     <span className="text-xs text-muted-foreground">%</span>
                     {globalMarkupPct !== null && (
@@ -1247,7 +1260,7 @@ export function ProposalBuilder() {
                           <input
                             type="number"
                             step="0.01"
-                            className="w-24 border rounded px-1 py-0.5 text-right text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                            className="w-24 border rounded px-1 py-1 text-right text-base md:text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
                             value={badInputValue}
                             onChange={(e) => setBadInputValue(e.target.value)}
                             onKeyDown={(e) => {
@@ -1349,7 +1362,7 @@ export function ProposalBuilder() {
                         step={0.01}
                         value={taxRate}
                         onChange={(e) => { setTaxRate(parseFloat(e.target.value) || 0); setTaxSource("manual"); }}
-                        className="h-7 w-24 text-sm text-right"
+                        className="h-9 md:h-7 w-24 text-base md:text-sm text-right"
                       />
                       <span className="text-xs text-muted-foreground">%</span>
                     </div>
@@ -1594,17 +1607,17 @@ export function ProposalBuilder() {
 
       {/* Item Picker Dialog */}
       <Dialog open={showItemPicker} onOpenChange={(o) => { setShowItemPicker(o); if (!o) setPickerCategory(""); }}>
-        <DialogContent className="h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
-          <DialogHeader className="px-6 py-5 pr-16 border-b shrink-0">
-            <div className="flex items-center justify-between">
+        <DialogContent className="h-[90dvh] md:h-[85vh] flex flex-col p-0 gap-0" style={{ width: "95vw", maxWidth: 1100 }}>
+          <DialogHeader className="px-4 md:px-6 py-4 md:py-5 pr-12 md:pr-16 border-b shrink-0">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <DialogTitle className="text-lg font-semibold">Add Item</DialogTitle>
-                <DialogDescription className="mt-0.5">Select a category on the left, then click a product to add it</DialogDescription>
+                <DialogDescription className="mt-0.5">Pick a category, then tap a product to add it</DialogDescription>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50 shrink-0"
+                className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50 shrink-0 self-start"
                 onClick={() => { setPickerCategory("__custom__"); resetCustomItem(); }}
               >
                 <PenLine className="h-3.5 w-3.5" />
@@ -1612,16 +1625,16 @@ export function ProposalBuilder() {
               </Button>
             </div>
           </DialogHeader>
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            {/* Categories sidebar */}
-            <div className="w-52 shrink-0 border-r bg-muted/30 flex flex-col">
+          <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+            {/* Categories: a side list on tablets/desktop; on phones it is the first screen and the products take over once one is picked */}
+            <div className={`${pickerCategory ? "hidden md:flex" : "flex"} w-full md:w-52 min-h-0 flex-1 md:flex-none shrink-0 md:border-r bg-muted/30 flex-col`}>
               <p className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Categories</p>
               <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
                 {categories.map((cat: any) => (
                   <button
                     key={cat.id}
                     onClick={() => setPickerCategory(cat.name)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    className={`w-full text-left px-3 py-3 md:py-2.5 rounded-lg text-base md:text-sm font-medium transition-all ${
                       pickerCategory === cat.name
                         ? "bg-primary text-primary-foreground shadow-sm"
                         : "text-foreground hover:bg-muted"
@@ -1642,7 +1655,7 @@ export function ProposalBuilder() {
                         <button
                           key={cat}
                           onClick={() => { resetCustomItem(); setCustomItem((prev) => ({ ...prev, category: cat })); setPickerCategory("__custom__"); }}
-                          className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          className={`w-full text-left px-3 py-3 md:py-2.5 rounded-lg text-base md:text-sm font-medium transition-all ${
                             pickerCategory === "__custom__" && customItem.category === cat
                               ? "bg-primary text-primary-foreground shadow-sm"
                               : "text-foreground hover:bg-muted"
@@ -1661,7 +1674,7 @@ export function ProposalBuilder() {
                       <button
                         key={s}
                         onClick={() => { setCustomItem((prev) => ({ ...prev, category: s })); setPickerCategory("__custom__"); }}
-                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                        className={`w-full text-left px-3 py-3 md:py-2.5 rounded-lg text-base md:text-sm font-medium transition-all ${
                           pickerCategory === "__custom__" && customItem.category === s
                             ? "bg-primary text-primary-foreground shadow-sm"
                             : "text-foreground hover:bg-muted"
@@ -1676,14 +1689,19 @@ export function ProposalBuilder() {
             </div>
 
             {/* Products panel */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className={`${pickerCategory ? "flex" : "hidden md:flex"} flex-1 flex-col min-w-0 min-h-0 overflow-hidden`}>
+              {pickerCategory && (
+                <button type="button" onClick={() => setPickerCategory("")} className="md:hidden flex items-center gap-1.5 px-4 py-3 text-sm font-medium text-primary border-b bg-muted/30 shrink-0">
+                  <ArrowLeft className="h-4 w-4" />All categories
+                </button>
+              )}
               {pickerCategory === "__custom__" ? (
-                <div className="flex-1 overflow-y-auto px-8 py-6 thin-scroll">
+                <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 md:py-6 thin-scroll">
                   <div className="max-w-lg">
                     <p className="text-base font-semibold mb-0.5">Custom Item</p>
                     <p className="text-xs text-muted-foreground mb-5">Add a one-off product or service. It won't be saved to the catalog.</p>
                     <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-xs font-medium">Item Name <span className="text-destructive">*</span></Label>
                           <Input
@@ -1719,7 +1737,7 @@ export function ProposalBuilder() {
                           {customValidated && !customItem.unit.trim() && <p className="text-xs text-red-500">Required</p>}
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-xs font-medium">Material Cost / Unit ($)</Label>
                           <Input type="number" min={0} step={0.01} value={customItem.materialCost}
@@ -1737,7 +1755,7 @@ export function ProposalBuilder() {
                         </div>
                       </div>
                       {customCostPerUnit > 0 && (
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 p-3 rounded-lg bg-muted/50 text-sm">
                           <span className="text-muted-foreground">Price / unit</span>
                           <span className="font-bold text-primary">{formatCurrency(customPricePerUnit)}</span>
                           <span className="text-muted-foreground">Line total</span>
@@ -1766,12 +1784,12 @@ export function ProposalBuilder() {
                 );
                 return (
                   <>
-                    <div className="px-6 pt-5 pb-3 shrink-0 border-b">
+                    <div className="px-4 md:px-6 pt-4 md:pt-5 pb-3 shrink-0 border-b">
                       <p className="text-base font-semibold">{pickerCategory}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{products.length} product{products.length !== 1 ? "s" : ""} — click to add</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{products.length} product{products.length !== 1 ? "s" : ""} — tap to add</p>
                     </div>
-                    <div className="flex-1 overflow-y-auto px-6 py-5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
-                      <div className="grid grid-cols-2 gap-4">
+                    <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         {products.map((product: any) => {
                           const materialCost = product.material_cost ?? 0;
                           const laborCost = product.labor_cost ?? 0;
@@ -1798,7 +1816,7 @@ export function ProposalBuilder() {
                                 setShowItemPicker(false);
                                 setPickerCategory("");
                               }}
-                              className="text-left p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all group flex flex-col gap-2"
+                              className="text-left p-4 md:p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all group flex flex-col gap-2"
                             >
                               <div className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors leading-snug">{product.name}</div>
                               {product.description && (
@@ -1823,9 +1841,9 @@ export function ProposalBuilder() {
 
       {/* Wizard Dialog */}
       <Dialog open={showWizard} onOpenChange={(open) => { setShowWizard(open); if (!open) { setSelectedCategory(""); setActiveTemplate(null); } }}>
-        <DialogContent className="max-w-[900px] w-[92vw] h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="shrink-0 bg-white border-b px-8 py-6 rounded-t-lg">
-            <DialogTitle className="text-xl font-bold">{wizardTargetCategory || wizardType} Estimate Wizard</DialogTitle>
+        <DialogContent className="max-w-[900px] w-[96vw] md:w-[92vw] h-[92dvh] md:h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="shrink-0 bg-white border-b px-4 py-4 pr-12 md:px-8 md:py-6 rounded-t-lg">
+            <DialogTitle className="text-lg md:text-xl font-bold">{wizardTargetCategory || wizardType} Estimate Wizard</DialogTitle>
             <DialogDescription className="text-sm">
               Answer each question below — your estimate items will be calculated automatically.
             </DialogDescription>

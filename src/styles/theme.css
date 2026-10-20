@@ -241,3 +241,12 @@
     line-height: 1.5;
   }
 }
+
+/* Phones: keep every pop-up inside the screen with a small margin, and let long ones scroll
+   (Jonathan, Oct 20 2026: proposals, wizards and email are hard to use on mobile) */
+@media (max-width: 640px) {
+  [data-slot="dialog-content"] {
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+  }
+}

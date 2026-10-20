@@ -295,7 +295,7 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
               value={formData[field.id] ?? ""}
               onValueChange={(val) => handleFieldChange(field.id, val)}
             >
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 {(field.options ?? []).map((opt: string) => (
                   <div
                     key={opt}
@@ -332,7 +332,7 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
               value={formData[field.id] ?? ""}
               onValueChange={(val) => handleFieldChange(field.id, val)}
             >
-              <SelectTrigger className="h-11 text-sm">
+              <SelectTrigger className="h-11 text-base md:text-sm">
                 <SelectValue placeholder={`Select ${field.label.toLowerCase()}…`} />
               </SelectTrigger>
               <SelectContent>
@@ -399,7 +399,7 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Progress header — fixed, not scrollable */}
-      <div className="px-8 pt-6 pb-4 space-y-3 flex-shrink-0">
+      <div className="px-4 md:px-8 pt-4 md:pt-6 pb-3 md:pb-4 space-y-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
@@ -420,8 +420,8 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
       </div>
 
       {/* Step fields — scrollable middle */}
-      <div className="flex-1 overflow-y-auto px-8 pb-4 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
-        <div className="rounded-xl border bg-card shadow-sm p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-4 thin-scroll [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/60">
+        <div className="rounded-xl border bg-card shadow-sm p-4 md:p-6 space-y-6">
           {activeStep.description && (
             <p className="text-sm text-muted-foreground border-b pb-3">{activeStep.description}</p>
           )}
@@ -438,7 +438,7 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
                   {cfg.label}<span className="text-destructive ml-1">*</span>
                 </Label>
                 <Select value={selectedId} onValueChange={(v) => handleFieldChange(`__variant_${role}`, v)}>
-                  <SelectTrigger className="h-11 text-sm">
+                  <SelectTrigger className="h-11 text-base md:text-sm">
                     <SelectValue placeholder="Select material…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -463,10 +463,10 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
               {liveCalcs.map((calc, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between px-4 py-2.5 bg-primary/5 border border-primary/10 rounded-lg text-sm"
+                  className="flex flex-wrap items-center justify-between gap-x-3 px-4 py-2.5 bg-primary/5 border border-primary/10 rounded-lg text-sm"
                 >
                   <span className="font-medium text-foreground">{calc.name}</span>
-                  <span className="font-semibold text-primary ml-4 tabular-nums">
+                  <span className="font-semibold text-primary ml-auto tabular-nums">
                     {calc.qty} {calc.unit}
                     {calc.hasPrice && calc.price !== null && (
                       <span className="text-muted-foreground font-normal ml-2">
@@ -482,7 +482,7 @@ export function TemplateWizard({ template, dbProducts, wizardVariants = [], onCo
       </div>
 
       {/* Navigation — fixed at bottom */}
-      <div className="flex justify-between items-center px-8 py-5 border-t bg-background flex-shrink-0">
+      <div className="flex justify-between items-center gap-2 px-4 md:px-8 py-3 md:py-5 border-t bg-background flex-shrink-0">
         <Button variant="outline" size="lg" onClick={currentStep === 0 ? onCancel : handleBack}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           {currentStep === 0 ? "Cancel" : "Back"}

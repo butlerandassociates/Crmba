@@ -715,7 +715,7 @@ export function EmailTemplatesDialog({
                 suppressContentEditableWarning
                 onInput={() => { if (bodyRef.current) setBody(bodyRef.current.innerHTML); }}
                 onBlur={() => setFieldTouched((p) => ({ ...p, body: true }))}
-                className="min-h-[280px] px-3 py-2 text-sm font-['Lato',sans-serif] leading-relaxed focus:outline-none [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5"
+                className="min-h-[200px] md:min-h-[280px] px-3 py-2 text-base md:text-sm font-['Lato',sans-serif] leading-relaxed focus:outline-none [&_a]:text-blue-600 [&_a]:underline [&_a]:cursor-pointer [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5"
                 style={{ whiteSpace: "pre-wrap" }}
                 onClick={(e) => {
                   const target = e.target as HTMLElement;
@@ -757,7 +757,7 @@ export function EmailTemplatesDialog({
               </div>
               {attachPdf && proposals.length > 1 && (
                 <Select value={selectedProposalId} onValueChange={setSelectedProposalId}>
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger className="h-10 md:h-8 text-base md:text-sm">
                     <SelectValue placeholder="Select proposal to attach" />
                   </SelectTrigger>
                   <SelectContent>
@@ -775,7 +775,8 @@ export function EmailTemplatesDialog({
           )}
         </DialogBody>
 
-        <DialogFooter>
+        {/* phones: Send on its own full-width row (thumb reach), Cancel + Preview side by side under it */}
+        <DialogFooter className="grid grid-cols-2 gap-2 px-4 py-3 sm:flex sm:px-6 sm:py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -783,7 +784,7 @@ export function EmailTemplatesDialog({
             <Eye className="h-4 w-4 mr-2" />
             Preview
           </Button>
-          <Button onClick={handleSend} disabled={sending || !client.email} className="min-w-[120px]">
+          <Button onClick={handleSend} disabled={sending || !client.email} className="min-w-[120px] col-span-2 order-first sm:order-none sm:col-span-1 h-11 sm:h-9">
             <span className="flex items-center gap-2">
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {sending ? "Sending..." : "Send Email"}

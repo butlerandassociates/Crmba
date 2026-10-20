@@ -1899,17 +1899,17 @@ export function ClientDetail() {
 
   return (
     <div className="flex flex-col">
-      <div className="sticky top-0 z-20 bg-background border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to={`/clients?stage=${client?.status ?? ""}`}>
+      <div className="sticky top-0 z-20 bg-background border-b px-3 sm:px-4 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <Link to={`/clients?stage=${client?.status ?? ""}`} className="shrink-0">
             <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              <ArrowLeft className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Back</span>
             </Button>
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg sm:text-2xl font-bold leading-tight break-words">
                 {`${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || client.company || "—"}
               </h1>
               <Badge className={getStatusColor(client.status)}>{client.status}</Badge>
@@ -1919,7 +1919,7 @@ export function ClientDetail() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button>
+            <Button className="shrink-0">
               Actions
               <ChevronDown className="h-4 w-4 ml-2" />
             </Button>
