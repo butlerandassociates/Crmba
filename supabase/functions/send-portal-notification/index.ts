@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const SENDGRID_API_KEY = Deno.env.get("SENDGRID_API_KEY")!;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TWILIO_SID   = Deno.env.get("TWILIO_ACCOUNT_SID");
 const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
 const TWILIO_FROM  = Deno.env.get("TWILIO_PHONE_NUMBER");
@@ -34,20 +35,43 @@ async function sendSms(to: string, body: string) {
   if (!res.ok) console.error("[send-portal-notification] Twilio error:", await res.text());
 }
 
-async function sendEmail(to: string, subject: string, html: string, cc: string[]) {
+// `track` (optional) = open tracking for the Activity Log indicator (Jonathan, Oct 19 2026): a tracking_id from the
+// CRM plus the service client to create the email_tracking row. Emails sent without it behave exactly as before.
+async function sendEmail(
+  to: string, subject: string, html: string, cc: string[],
+  track?: { trackingId?: string | null; clientId?: string | null; supabase: any },
+) {
   const personalization: Record<string, unknown> = { to: [{ email: to }] };
   if (cc.length > 0) personalization.cc = cc.map((e) => ({ email: e }));
+
+  const tracking_settings: Record<string, unknown> = { click_tracking: { enable: false } };
+  const payload: Record<string, unknown> = {
+    personalizations: [personalization],
+    from: { email: "noreply@butlerconstruction.co", name: "Butler & Associates Construction" },
+    subject,
+    content: [{ type: "text/html", value: html }],
+    tracking_settings,
+  };
+  if (track?.trackingId && UUID_RE.test(track.trackingId)) {
+    tracking_settings.open_tracking = { enable: true };
+    payload.custom_args = { tracking_id: track.trackingId };
+    try {
+      const { error: trackErr } = await track.supabase.from("email_tracking").upsert({
+        id: track.trackingId,
+        client_id: track.clientId && UUID_RE.test(track.clientId) ? track.clientId : null,
+        to_email: to,
+        subject,
+      }, { onConflict: "id", ignoreDuplicates: true });
+      if (trackErr) console.warn("[send-portal-notification] could not create email_tracking row:", trackErr.message);
+    } catch (e) {
+      console.warn("[send-portal-notification] email_tracking setup failed:", e instanceof Error ? e.message : e);
+    }
+  }
 
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      personalizations: [personalization],
-      from: { email: "noreply@butlerconstruction.co", name: "Butler & Associates Construction" },
-      subject,
-      content: [{ type: "text/html", value: html }],
-      tracking_settings: { click_tracking: { enable: false } },
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -165,7 +189,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { client_id, type, title, amount, entity_id } = await req.json();
+    const { client_id, type, title, amount, entity_id, tracking_id } = await req.json();
 
     console.log(`[send-portal-notification] client_id=${client_id} type=${type} title=${title ?? ""} entity_id=${entity_id ?? ""}`);
 
@@ -282,7 +306,7 @@ serve(async (req) => {
     const subject = subjects[type] ?? "Update from Butler & Associates Construction";
 
     const html = buildHtml(type, client.first_name, portalUrl, { title, amount });
-    await sendEmail(client.email, subject, html, ccEmails);
+    await sendEmail(client.email, subject, html, ccEmails, { trackingId: tracking_id, clientId: client_id, supabase });
 
     console.log(`[send-portal-notification] SUCCESS: ${type} notification sent to client ${client_id} (${client.email})`);
     return new Response(JSON.stringify({ success: true }), {

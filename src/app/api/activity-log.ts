@@ -20,7 +20,7 @@ export const activityLogAPI = {
     const to   = from + ACTIVITY_PAGE_SIZE - 1;
     const { data, error, count } = await supabase
       .from("activity_log")
-      .select("id, client_id, action_type, description, performed_by, created_at", { count: "exact" })
+      .select("id, client_id, action_type, description, performed_by, created_at, tracking_id", { count: "exact" })
       .eq("client_id", clientId)
       .order("created_at", { ascending: false })
       .range(from, to);
@@ -45,6 +45,8 @@ export const activityLogAPI = {
     project_id?: string;
     action_type: string;
     description: string;
+    /** links an "email sent" entry to its open-tracking row (email_tracking.id) */
+    tracking_id?: string;
   }) => {
     const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase

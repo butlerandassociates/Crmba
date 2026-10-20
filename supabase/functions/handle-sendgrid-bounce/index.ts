@@ -2,16 +2,19 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * SendGrid Event Webhook — Bounce Handler
+ * SendGrid Event Webhook — Bounce + Open Handler
  *
  * SendGrid calls this endpoint when an email bounces or is dropped.
  * We log the failure to the client's activity log so the team knows
  * which client emails are invalid.
  *
+ * It also records "open" events for emails sent from the CRM with a tracking_id (custom arg), so the
+ * Activity Log can show "Opened · <time> · N×" next to the email (Jonathan, Oct 19 2026).
+ *
  * Setup in SendGrid:
  *   Mail Settings → Event Webhook → HTTP POST URL:
  *   https://yohhdvwifjgarnaxrbev.supabase.co/functions/v1/handle-sendgrid-bounce
- *   Enable: Bounces, Blocks, Dropped, Deferred (optional)
+ *   Enable: Bounces, Blocks, Dropped, Deferred (optional) and Opened
  */
 
 const corsHeaders = {
@@ -22,6 +25,7 @@ const corsHeaders = {
 // Event types from SendGrid that indicate permanent delivery failure
 // "deferred" is excluded — it means SendGrid is retrying and fires every 30-60min, flooding the log
 const FAILURE_EVENTS = new Set(["bounce", "blocked", "dropped"]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -45,6 +49,8 @@ serve(async (req) => {
       reason?: string;
       type?:  string;  // bounce type: "bounce" | "blocked"
       timestamp?: number;
+      sg_event_id?: string;   // unique per event — lets record_email_open ignore SendGrid retries
+      tracking_id?: string;   // the custom arg we attach in send-email
     }>;
 
     if (!Array.isArray(events)) {
@@ -56,9 +62,24 @@ serve(async (req) => {
 
     console.log(`[handle-sendgrid-bounce] received ${events.length} event(s) — ${events.filter((e) => FAILURE_EVENTS.has(e.event)).length} failure(s)`);
 
+    // Opens of tracked emails
+    const opens = events.filter((e) => e.event === "open" && e.sg_event_id && e.tracking_id && UUID_RE.test(e.tracking_id));
+    let opensRecorded = 0;
+    for (const evt of opens) {
+      const openedAt = new Date((evt.timestamp ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
+      const { data: isNew, error: openErr } = await supabase.rpc("record_email_open", {
+        p_event_id: evt.sg_event_id,
+        p_tracking_id: evt.tracking_id,
+        p_opened_at: openedAt,
+      });
+      if (openErr) console.warn(`[handle-sendgrid-bounce] record_email_open failed: ${openErr.message}`);
+      else if (isNew) opensRecorded++;
+    }
+    if (opens.length > 0) console.log(`[handle-sendgrid-bounce] opens: ${opensRecorded} new of ${opens.length}`);
+
     const failures = events.filter((e) => FAILURE_EVENTS.has(e.event));
     if (failures.length === 0) {
-      return new Response(JSON.stringify({ skipped: true, reason: "no_failure_events" }), {
+      return new Response(JSON.stringify({ skipped: true, reason: "no_failure_events", opens_recorded: opensRecorded }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

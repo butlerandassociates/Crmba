@@ -18,7 +18,7 @@ export const filesAPI = {
   },
 
   /** Upload a file to storage and record it in the DB */
-  upload: async (client_id: string, file: File, file_type = "other") => {
+  upload: async (client_id: string, file: File, file_type = "other", displayName?: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     const ext = file.name.split(".").pop();
     const path = `${client_id}/${Date.now()}.${ext}`;
@@ -38,13 +38,25 @@ export const filesAPI = {
       .insert({
         client_id,
         user_id:        user?.id,
-        file_name:      file.name,
+        file_name:      displayName?.trim() || file.name,
         file_url:       publicUrl,
         file_type,
         mime_type:      file.type,
         file_size_bytes: file.size,
       })
       .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  /** Rename a file and/or change its type (the stored file itself is untouched) */
+  update: async (id: string, patch: { file_name?: string; file_type?: string }) => {
+    const { data, error } = await supabase
+      .from("client_files")
+      .update(patch)
+      .eq("id", id)
+      .select("*, uploader:profiles!client_files_user_id_fkey(first_name, last_name, role)")
       .single();
     if (error) throw new Error(error.message);
     return data;
@@ -62,7 +74,7 @@ export const filesAPI = {
 
 /** Alias used by client-detail page for photo uploads */
 export const photosAPI = {
-  upload: (clientId: string, file: File, file_type = "other") => filesAPI.upload(clientId, file, file_type),
+  upload: (clientId: string, file: File, file_type = "other", displayName?: string) => filesAPI.upload(clientId, file, file_type, displayName),
   getAll: (clientId: string)            => filesAPI.getByClient(clientId),
   delete: (id: string, url: string)     => filesAPI.delete(id, url),
 };

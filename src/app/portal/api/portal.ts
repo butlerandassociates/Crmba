@@ -203,6 +203,20 @@ export async function createPaymentIntent(
   return { clientSecret: data.client_secret };
 }
 
+// Staff open the portal from the CRM's "View Portal" button with ?preview=1. That must not be recorded as a
+// client visit, so the flag is also kept for the tab (in-portal navigation can drop the query string).
+function isStaffPreview(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).get("preview") === "1") {
+      sessionStorage.setItem("portal_preview", "1");
+      return true;
+    }
+    return sessionStorage.getItem("portal_preview") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export async function validatePortalToken(token: string): Promise<PortalData | null> {
   const { data: fnData, error: fnError } = await supabase.functions.invoke(
     "validate-portal-token",
@@ -211,6 +225,7 @@ export async function validatePortalToken(token: string): Promise<PortalData | n
         token,
         ip: "client",
         ua: navigator.userAgent,
+        preview: isStaffPreview(),
       },
     }
   );

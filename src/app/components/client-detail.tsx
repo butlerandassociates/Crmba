@@ -131,6 +131,13 @@ import { DocuSignDialog } from "./docusign-dialog";
 import { AppointmentDialog } from "./appointment-dialog";
 import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
 import { CostAttributionsSheet } from "./cost-attributions-sheet";
+import { ClientPortalActivity } from "./client-portal-activity";
+import { NotesFilesFeed } from "./notes-files-feed";
+import { FileUploadDialog } from "./file-upload-dialog";
+import { fileTypesAPI, FALLBACK_FILE_TYPES, type FileType } from "../api/file-types";
+import { filesAPI } from "../api/files";
+import { EmailOpenBadge, type EmailTrackingRow } from "./email-open-badge";
+import { newTrackingId } from "../utils/email-tracking";
 import { FieldInstallationOrderModal } from "./field-installation-order-modal";
 import { EditProjectDialog } from "./edit-project-dialog";
 import { Progress } from "./ui/progress";
@@ -434,6 +441,8 @@ export function ClientDetail() {
   const [savingNoteEdit, setSavingNoteEdit] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
+  // Open-tracking results for emails sent from the CRM (email_tracking.id = activity_log.tracking_id)
+  const [emailTracking, setEmailTracking] = useState<Record<string, EmailTrackingRow>>({});
   const [activityPage, setActivityPage] = useState(0);
   const [activityHasMore, setActivityHasMore] = useState(false);
   const [activityLoadingMore, setActivityLoadingMore] = useState(false);
@@ -443,7 +452,14 @@ export function ClientDetail() {
   const [filesPage, setFilesPage] = useState(1);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
-  const [fileCategory, setFileCategory] = useState("other");
+  // File types managed in the admin portal (Jonathan, Oct 20 2026); FALLBACK until/unless the table loads
+  const [fileTypes, setFileTypes] = useState<FileType[]>(FALLBACK_FILE_TYPES);
+  // Files waiting for their "what kind of file / what name" pop-up, handled one at a time
+  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
+  const [uploadTotal, setUploadTotal] = useState(0);
+  const [uploadSaving, setUploadSaving] = useState(false);
+  const [editingFile, setEditingFile] = useState<any | null>(null);
+  const [editingFileSaving, setEditingFileSaving] = useState(false);
   const [gpHealthOpen, setGpHealthOpen] = useState<Record<string, boolean>>({});
   const [gpHealthData, setGpHealthData] = useState<Record<string, any>>({});
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -927,6 +943,24 @@ export function ClientDetail() {
     }
   };
 
+  const loadEmailTracking = async (entries: any[]) => {
+    const ids = [...new Set(entries.map((e) => e.tracking_id).filter(Boolean))] as string[];
+    if (ids.length === 0) return;
+    const { data } = await supabase.from("email_tracking").select("id, first_opened_at, last_opened_at, open_count").in("id", ids);
+    setEmailTracking((prev) => {
+      const next = { ...prev };
+      for (const r of (data ?? []) as EmailTrackingRow[]) next[r.id] = r;
+      return next;
+    });
+  };
+
+  useEffect(() => { loadEmailTracking(activityLog); }, [activityLog]);
+  useRealtimeRefetch(() => { loadEmailTracking(activityLog); }, ["email_tracking"], `email-opens-${id}`);
+
+  useEffect(() => {
+    fileTypesAPI.getAll().then((t) => { if (t.length > 0) setFileTypes(t); }).catch(() => {});
+  }, []);
+
   const loadActivityLog = async () => {
     if (!id) return;
     try {
@@ -1001,47 +1035,69 @@ export function ClientDetail() {
     }
   };
   
+  // Picking or dropping files no longer uploads straight away: a pop-up first asks what kind of file each one is
+  // and what to call it (Jonathan, Oct 20 2026). Files are handled one at a time.
+  const queueFiles = (files: File[]) => {
+    if (!id || files.length === 0) return;
+    setUploadQueue(files);
+    setUploadTotal(files.length);
+  };
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!id || !e.target.files) return;
-    
-    const files = Array.from(e.target.files);
-    
-    for (const file of files) {
-      try {
-        setUploadingPhoto(true);
-        await photosAPI.upload(id, file, fileCategory);
-        activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
-        toast.success(`Uploaded ${file.name}`);
-      } catch (error: any) {
-        console.error("Failed to upload photo:", error);
-        toast.error(`Failed to upload ${file.name}`);
-      }
-    }
-
-    setUploadingPhoto(false);
-    loadPhotos();
-
-    // Reset input
+    if (!e.target.files) return;
+    queueFiles(Array.from(e.target.files));
     e.target.value = "";
   };
-  
+
   const handleFileDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingFile(false);
-    if (!id || !e.dataTransfer.files.length) return;
-    const files = Array.from(e.dataTransfer.files);
-    for (const file of files) {
-      try {
-        setUploadingPhoto(true);
-        await photosAPI.upload(id, file, fileCategory);
-        activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${file.name}"` }).then(loadActivityLog).catch(() => {});
-        toast.success(`Uploaded ${file.name}`);
-      } catch (error: any) {
-        toast.error(`Failed to upload ${file.name}`);
-      }
+    queueFiles(Array.from(e.dataTransfer.files ?? []));
+  };
+
+  const advanceUploadQueue = () => {
+    setUploadQueue((q) => {
+      const rest = q.slice(1);
+      if (rest.length === 0) setUploadTotal(0);
+      return rest;
+    });
+  };
+
+  const handleUploadSave = async (name: string, type: string) => {
+    const file = uploadQueue[0];
+    if (!id || !file) return;
+    setUploadSaving(true);
+    setUploadingPhoto(true);
+    try {
+      await photosAPI.upload(id, file, type, name);
+      activityLogAPI.create({ client_id: id, action_type: "file_uploaded", description: `File uploaded: "${name}"` }).then(loadActivityLog).catch(() => {});
+      toast.success(`Uploaded ${name}`);
+      advanceUploadQueue();
+      loadPhotos();
+    } catch (error: any) {
+      console.error("Failed to upload file:", error);
+      toast.error(`Failed to upload ${file.name}`);
+    } finally {
+      setUploadSaving(false);
+      setUploadingPhoto(false);
     }
-    setUploadingPhoto(false);
-    loadPhotos();
+  };
+
+  const handleEditFileSave = async (name: string, type: string) => {
+    if (!editingFile) return;
+    setEditingFileSaving(true);
+    try {
+      await filesAPI.update(editingFile.id, { file_name: name, file_type: type });
+      activityLogAPI.create({ client_id: id!, action_type: "file_updated", description: `File updated: "${name}"` }).then(loadActivityLog).catch(() => {});
+      toast.success("File updated");
+      setEditingFile(null);
+      loadPhotos();
+    } catch (error: any) {
+      console.error("Failed to update file:", error);
+      toast.error("Failed to update file");
+    } finally {
+      setEditingFileSaving(false);
+    }
   };
 
   const handleDeletePhoto = async (fileId: string, fileUrl: string, fileName: string) => {
@@ -1526,8 +1582,9 @@ export function ClientDetail() {
     if (!client?.id || portalEmailSending) return;
     setPortalEmailSending(true);
     try {
+      const trackingId = newTrackingId();
       const { error } = await supabase.functions.invoke("send-portal-notification", {
-        body: { client_id: client.id, type: "portal_access" },
+        body: { client_id: client.id, type: "portal_access", tracking_id: trackingId },
       });
       if (error) throw error;
       setPortalEmailSent(true);
@@ -1537,6 +1594,7 @@ export function ClientDetail() {
         client_id: id!,
         action_type: "portal_email_sent",
         description: "Portal access email sent to client",
+        tracking_id: trackingId,
       }).then(loadActivityLog).catch(() => {});
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to send email");
@@ -3604,6 +3662,9 @@ export function ClientDetail() {
         );
       })()}
 
+      {/* ── Client Portal usage (visit frequency) ── */}
+      {id && <ClientPortalActivity clientId={id} />}
+
       {/* ── Notes & Files + Activity Log ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -3635,21 +3696,6 @@ export function ClientDetail() {
                   : <><Upload className="h-4 w-4 text-muted-foreground shrink-0" /><span className="text-xs text-muted-foreground">{isDraggingFile ? "Drop files here" : "Click or drag to upload"}</span></>
                 }
               </div>
-              <Select value={fileCategory} onValueChange={setFileCategory}>
-                <SelectTrigger className="w-32 h-9 text-xs">
-                  <SelectValue placeholder="File type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="contract">Contract</SelectItem>
-                  <SelectItem value="proposal">Proposal</SelectItem>
-                  <SelectItem value="receipt">Receipt</SelectItem>
-                  <SelectItem value="photo">Site Photo</SelectItem>
-                  <SelectItem value="certificate">Certificate of Completion</SelectItem>
-                  <SelectItem value="subcontractor">Subcontractor Agreement</SelectItem>
-                  <SelectItem value="insurance">Insurance</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             )}
 
@@ -3672,113 +3718,20 @@ export function ClientDetail() {
             </div>
             )}
 
-            {/* Notes + Files feed */}
-            {(() => {
-              const feedItems = [
-                ...noteEntries.map((n: any) => ({ ...n, _type: "note" })),
-                ...photos.map((p: any) => ({ ...p, _type: "file" })),
-              ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-              if (feedItems.length === 0) return (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <StickyNote className="h-8 w-8 mb-2 opacity-20" />
-                  <p className="text-sm font-medium">No notes or files yet</p>
-                  <p className="text-xs mt-1">Add a note or upload a file to keep track of client details.</p>
-                </div>
-              );
-
-              return (
-                <div className="max-h-52 overflow-y-auto thin-scroll space-y-0 pr-1">
-                  {feedItems.map((item) => {
-                    const ts = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-                    if (item._type === "note") {
-                      if (item.is_system_generated) return (
-                        <div key={`note-${item.id}`} className="group cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 mb-2 hover:bg-blue-100 transition-colors relative focus:outline-none" tabIndex={-1} onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
-                          <p className="text-[11px] font-semibold text-blue-600 uppercase tracking-wide mb-1 pr-5">{item.content.split("\n")[0]}</p>
-                          <p className="text-xs text-muted-foreground">{ts}</p>
-                          {can("can_delete_notes") && (
-                            <button className="absolute top-2.5 right-2.5 text-blue-300 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                      return (
-                        <div key={`note-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 transition-colors focus:outline-none" tabIndex={-1} onClick={() => { setSelectedNote(item); setEditingNoteContent(item.content); }}>
-                          <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate">{item.content.split("\n")[0]}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              <p className="text-xs text-muted-foreground">{ts}</p>
-                              {item.author ? (
-                                <>
-                                  <span className="text-xs text-muted-foreground">·</span>
-                                  <span className="text-xs font-medium text-foreground">{item.author.first_name} {item.author.last_name}</span>
-                                  {item.author.role && (
-                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${{ admin: "bg-green-100 text-green-700", project_manager: "bg-blue-100 text-blue-700", sales_rep: "bg-purple-100 text-purple-700", foreman: "bg-orange-100 text-orange-700" }[item.author.role as string] ?? "bg-gray-100 text-gray-600"}`}>
-                                      {({ admin: "Admin", project_manager: "PM", sales_rep: "Sales Rep", foreman: "Foreman" } as Record<string, string>)[item.author.role] ?? item.author.role}
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <span className="text-xs text-muted-foreground">·</span>
-                                  <span className="text-xs font-medium text-foreground">System</span>
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          {can("can_delete_notes") && (
-                            <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setPendingDeleteNote(item.id); }}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    }
-                    const isImage = item.mime_type?.startsWith("image/");
-                    const isPdf = item.mime_type === "application/pdf";
-                    return (
-                      <div key={`file-${item.id}`} className="flex gap-3 py-2.5 border-b last:border-0 group">
-                        <FileText className={`h-3.5 w-3.5 shrink-0 mt-1 ${isPdf ? "text-red-500" : isImage ? "text-blue-500" : "text-muted-foreground"}`} />
-                        <div className="flex-1 min-w-0">
-                          <button className="text-sm font-medium hover:opacity-75 truncate block w-full text-left" onClick={() => { if (isImage) setPreviewFile({ url: item.file_url, name: item.file_name }); else window.open(item.file_url, "_blank"); }}>
-                            {item.file_name}
-                          </button>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            {item.file_type && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded capitalize">{item.file_type}</span>}
-                            <p className="text-xs text-muted-foreground">{ts}</p>
-                            {item.uploader ? (
-                              <>
-                                <span className="text-xs text-muted-foreground">·</span>
-                                <span className="text-xs font-medium text-foreground">{item.uploader.first_name} {item.uploader.last_name}</span>
-                                {item.uploader.role && (
-                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${{ admin: "bg-green-100 text-green-700", project_manager: "bg-blue-100 text-blue-700", sales_rep: "bg-purple-100 text-purple-700", foreman: "bg-orange-100 text-orange-700" }[item.uploader.role as string] ?? "bg-gray-100 text-gray-600"}`}>
-                                    {({ admin: "Admin", project_manager: "PM", sales_rep: "Sales Rep", foreman: "Foreman" } as Record<string, string>)[item.uploader.role] ?? item.uploader.role}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-xs text-muted-foreground">·</span>
-                                <span className="text-xs font-medium text-foreground">System</span>
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Auto</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {can("can_delete_files") && (
-                          <button className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setPendingDeleteFile({ id: item.id, url: item.file_url, name: item.file_name ?? item.file_url.split("/").pop() ?? "file" })}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            {/* Notes + Files feed — 8 per page, edit + delete on every item */}
+            <NotesFilesFeed
+              notes={noteEntries}
+              files={photos}
+              fileTypes={fileTypes}
+              canDeleteNotes={can("can_delete_notes")}
+              canDeleteFiles={can("can_delete_files")}
+              canEdit={!isReadOnlyCompleted}
+              onOpenNote={(n) => { setSelectedNote(n); setEditingNoteContent(n.content); }}
+              onDeleteNote={(noteId) => setPendingDeleteNote(noteId)}
+              onPreviewFile={(f) => setPreviewFile(f)}
+              onEditFile={(f) => setEditingFile(f)}
+              onDeleteFile={(f) => setPendingDeleteFile(f)}
+            />
           </CardContent>
         </Card>
 
@@ -3884,6 +3837,7 @@ export function ClientDetail() {
                       <div className="shrink-0 mt-0.5">{icon}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm">{shortDesc}</p>
+                        {entry.tracking_id && <EmailOpenBadge row={emailTracking[entry.tracking_id]} />}
                         {detailText && (
                           <div className="mt-1">
                             <button
@@ -5867,7 +5821,7 @@ export function ClientDetail() {
                         <Eye className="h-4 w-4" /> Preview Email
                       </button>
                       <a
-                        href={`https://client.butlerconstruction.co/portal/${portalToken}`}
+                        href={`https://client.butlerconstruction.co/portal/${portalToken}?preview=1`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="h-9 px-4 border rounded-md text-sm font-medium hover:bg-accent flex items-center gap-2"
@@ -5989,6 +5943,30 @@ export function ClientDetail() {
       </Dialog>
 
       {/* Image preview modal */}
+      {/* Add file pop-up: kind of file + name, one file at a time */}
+      <FileUploadDialog
+        open={uploadQueue.length > 0}
+        mode="upload"
+        originalName={uploadQueue[0]?.name ?? ""}
+        position={{ index: uploadTotal - uploadQueue.length + 1, total: uploadTotal }}
+        types={fileTypes.filter((t) => t.is_active)}
+        saving={uploadSaving}
+        onSave={handleUploadSave}
+        onCancel={advanceUploadQueue}
+      />
+      {/* Edit file pop-up: rename and/or change the type */}
+      <FileUploadDialog
+        open={!!editingFile}
+        mode="edit"
+        originalName={editingFile?.file_name ?? ""}
+        initialType={editingFile?.file_type ?? "other"}
+        // a hidden type stays selectable for a file that already uses it
+        types={fileTypes.filter((t) => t.is_active || t.key === editingFile?.file_type)}
+        saving={editingFileSaving}
+        onSave={handleEditFileSave}
+        onCancel={() => setEditingFile(null)}
+      />
+
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black border-none [&>button]:hidden">
           <div className="relative">

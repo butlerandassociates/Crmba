@@ -14,7 +14,10 @@ serve(async (req) => {
   }
 
   try {
-    const { token, ip, ua } = await req.json();
+    // `preview` = staff opened the link from the CRM's own "View Portal" button — it must not count as the
+    // client visiting (Jonathan, Oct 19 2026: visits are tracked to see how often clients really use the portal).
+    const { token, ip, ua, preview } = await req.json();
+    const isPreview = preview === true;
 
     console.log(`[validate-portal-token] token=...${token?.slice(-8)} ip=${ip ?? "unknown"}`);
 
@@ -54,34 +57,37 @@ serve(async (req) => {
 
     const clientId = tokenRow.client_id;
 
-    // Record access — fire and forget, errors non-fatal
-    supabase.rpc("record_portal_access", {
-      p_token: token,
-      p_ip: ip ?? "unknown",
-      p_ua: ua ?? "unknown",
-    }).then(({ error }) => {
-      if (error) console.warn("[portal-token] record_portal_access failed:", error.message);
-    });
-
-    // Log portal view once per day — skip if already logged in last 24h
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    supabase
-      .from("activity_log")
-      .select("id")
-      .eq("client_id", clientId)
-      .eq("action_type", "portal_viewed")
-      .gte("created_at", since)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }: { data: { id: string } | null }) => {
-        if (!data) {
-          supabase.from("activity_log").insert({
-            client_id: clientId,
-            action_type: "portal_viewed",
-            description: "Client opened the client portal",
-          }).then(() => {});
-        }
+    // Record access — fire and forget, errors non-fatal. Staff previews are not recorded.
+    if (!isPreview) {
+      supabase.rpc("record_portal_access", {
+        p_token: token,
+        p_ip: ip ?? "unknown",
+        p_ua: ua ?? "unknown",
+      }).then(({ error }) => {
+        if (error) console.warn("[portal-token] record_portal_access failed:", error.message);
       });
+
+      // Log a portal view in the Activity Log once per visit session: skip if one was already logged in the
+      // last 30 minutes (this used to be once per 24h, which hid how often the client really comes back).
+      const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      supabase
+        .from("activity_log")
+        .select("id")
+        .eq("client_id", clientId)
+        .eq("action_type", "portal_viewed")
+        .gte("created_at", since)
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }: { data: { id: string } | null }) => {
+          if (!data) {
+            supabase.from("activity_log").insert({
+              client_id: clientId,
+              action_type: "portal_viewed",
+              description: "Client opened the client portal",
+            }).then(() => {});
+          }
+        });
+    }
 
     // Fetch client + payments + files + change_orders + proposals in parallel
     const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes, priorPortalViewRes] = await Promise.all([
@@ -154,8 +160,8 @@ serve(async (req) => {
     const client = clientRes.data;
     const project = projectRes.data ?? null;
 
-    // Notify admin on first-ever portal open
-    if (!priorPortalViewRes.data) {
+    // Notify admin on first-ever portal open (never for a staff preview)
+    if (!isPreview && !priorPortalViewRes.data) {
       const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
       supabase.from("notifications").insert({
         type: "portal_first_opened",

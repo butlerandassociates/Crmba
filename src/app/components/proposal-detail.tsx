@@ -44,6 +44,7 @@ import {
 import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
 import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal, roundCents } from "../utils/financials";
+import { newTrackingId } from "../utils/email-tracking";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
@@ -2003,14 +2004,15 @@ export function ProposalDetail() {
         }
       }
 
+      const trackingId = newTrackingId();
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"] },
+        body: { to: emailTo, subject: emailSubject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"], tracking_id: trackingId, client_id: proposal.client_id },
       });
       if (error) throw error;
       await estimatesAPI.updateStatus(proposal.id, "sent");
       setProposal({ ...proposal, status: "sent", sent_at: new Date().toISOString() });
       setShowEmailDialog(false);
-      activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_sent", description: `Proposal sent to client: "${proposal.title}" — ${emailTo}` }).catch(() => {});
+      activityLogAPI.create({ client_id: proposal.client_id, action_type: "proposal_sent", description: `Proposal sent to client: "${proposal.title}" — ${emailTo}`, tracking_id: trackingId }).catch(() => {});
       saveProposalPdfOnSend(proposal.id, proposal.client_id).catch((err) => {
         console.error("[proposal-pdf] save on send failed:", err);
         toast.error("Proposal sent, but the PDF failed to save — client's Preview/Download in the portal won't work until this is fixed. Try re-saving the proposal to retry.");

@@ -44,6 +44,7 @@ import { validatePortalToken, type PortalData } from "../api/portal";
 import { PortalChangeOrderReview } from "./PortalChangeOrderReview";
 import { PortalProposals } from "./PortalProposals";
 import { PortalPaymentReceiptExport } from "./PortalPaymentReceiptExport";
+import baLogo from "../../../assets/ba-logo-gold-transparent.png";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "");
 
@@ -1077,9 +1078,12 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
       `}>
         {/* Mobile: close + logo */}
         <div className="flex items-center justify-between mb-6 lg:hidden">
-          <div>
-            <div className="font-bold text-sm" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
-            <div className="text-xs text-gray-500">Construction, Inc.</div>
+          <div className="flex items-center gap-2 min-w-0">
+            <img src={baLogo} alt="" className="h-8 w-auto shrink-0" />
+            <div>
+              <div className="font-bold text-sm" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
+              <div className="text-xs text-gray-500">Construction, Inc.</div>
+            </div>
           </div>
           <button onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-gray-200 rounded-lg">
             <X className="h-5 w-5" />
@@ -1087,9 +1091,12 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
         </div>
 
         {/* Desktop: company name */}
-        <div className="hidden lg:block mb-6">
-          <div className="font-bold text-sm" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
-          <div className="text-xs text-gray-500">Construction, Inc.</div>
+        <div className="hidden lg:flex items-center gap-2 mb-6">
+          <img src={baLogo} alt="" className="h-7 w-auto shrink-0" />
+          <div className="min-w-0">
+            <div className="font-bold text-[13px] leading-tight" style={{ fontFamily: "Lato, sans-serif" }}>Butler & Associates</div>
+            <div className="text-xs text-gray-500">Construction, Inc.</div>
+          </div>
         </div>
 
         {/* Nav */}

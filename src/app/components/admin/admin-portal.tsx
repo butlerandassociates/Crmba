@@ -7,6 +7,7 @@ import { ProductManager } from "./product-manager";
 import { PLReport } from "./pl-report";
 import { PhaseTemplateEditor } from "./phase-template-editor";
 import { DiscardReasonsSettings } from "./discard-reasons-settings";
+import { FileTypesSettings } from "./file-types-settings";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -422,6 +423,10 @@ export function AdminPortal() {
               <List className="h-3.5 w-3.5 mr-1.5" />
               Discard Reasons
             </TabsTrigger>
+            <TabsTrigger value="file-types">
+              <List className="h-3.5 w-3.5 mr-1.5" />
+              File Types
+            </TabsTrigger>
             <TabsTrigger value="discarded">
               <Archive className="h-3.5 w-3.5 mr-1.5" />
               Discarded
@@ -468,6 +473,14 @@ export function AdminPortal() {
             <p className="text-sm text-muted-foreground mt-0.5">Manage the reasons available when discarding a client. Changes take effect immediately.</p>
           </div>
           <DiscardReasonsSettings />
+        </TabsContent>
+
+        <TabsContent value="file-types" className="mt-0">
+          <div className="sticky top-[128px] z-10 bg-background/95 backdrop-blur -mx-4 px-4 pt-4 pb-3 border-b mb-4">
+            <h2 className="font-semibold text-base">File Types</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage the file types offered when uploading files on a client's Notes &amp; Files. Changes take effect immediately.</p>
+          </div>
+          <FileTypesSettings />
         </TabsContent>
 
         <TabsContent value="discarded" className="mt-0">
