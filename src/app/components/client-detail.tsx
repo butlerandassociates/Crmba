@@ -3275,12 +3275,16 @@ export function ClientDetail() {
                 const d = gpHealthData[project.id];
                 const cv = gpRevenueOf(d, project);
                 const headerGP = computeProjectedGP(d, project);
-                // Read commission from the real commission_payments ledger (paid + pending combined)
-                // instead of recalculating from a stored rate — the rate field can go stale
-                // relative to what's actually recorded, which is what actually determines Net Profit.
-                const pmComm = pmId
-                  ? projectCommPayments.filter((c: any) => c.profile_id === pmId).reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
-                  : 0;
+                // PM commission = rate x the same live projected GP the "Project Financials" card uses
+                // (Jonathan, Oct 21 2026: Teresa Hammond showed $701.66 up there and $944.02 here — this
+                // used to read the commission_payments row, a one-time snapshot written when the job was
+                // sold/edited, which never follows later GP changes).
+                const { pmRate: pmCardRate } = resolveEffectiveCommissionRates({
+                  project: { pmCommissionRate: project.pmCommissionRate, salesRepCommissionRate: project.salesRepCommissionRate },
+                  clientSalesRepId: client.sales_rep_id ?? null,
+                  clientSalesRepCommissionRate: null,
+                });
+                const pmComm = pmId ? calcPmCommission(headerGP, pmCardRate) : 0;
                 const repComm = repId
                   ? projectCommPayments.filter((c: any) => c.profile_id === repId).reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
                   : 0;
