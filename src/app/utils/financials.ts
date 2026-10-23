@@ -348,3 +348,57 @@ export function computeProjectedGP(
 ): number {
   return computeProjectedFinancials(inputs, project).gp;
 }
+
+// ── Live job financials from raw joined rows ──────────────────────────────────────────────────
+// ONE place that turns a project row (+ its receipts / FIOs and its client's proposals) into the
+// projected GP the job's own page shows. Used by the clients list (api/clients.ts) and by
+// api/live-gp.ts, which Payroll uses so PM commission follows the same GP as the job page.
+// Jonathan, Oct 22 2026: "Moving forward, sync it to live GP." (Payroll had read the stored
+// projects.gross_profit snapshot, which drifts from the live number.)
+
+export type LiveGPProjectRow = {
+  total_value?: number | null;
+  status?: string | null;
+  materials_complete?: boolean | null;
+  labor_complete?: boolean | null;
+  gross_profit?: number | null;
+  receipts?: { category?: string | null; amount?: number | null }[] | null;
+  fios?: {
+    items?: { labor_cost_per_unit?: number | string | null; quantity?: number | string | null }[] | null;
+    crew_payments?: { amount_paid?: number | string | null }[] | null;
+  }[] | null;
+};
+
+/** The proposal a job's numbers are based on: the accepted one, else the newest that isn't declined/voided. */
+export function pickJobEstimate<T extends { status?: string | null; created_at?: string | null }>(estimates: T[] | null | undefined): T | undefined {
+  const list = estimates ?? [];
+  return list.find((e) => e.status === "accepted")
+    ?? list
+      .filter((e) => e.status !== "declined" && e.status !== "voided")
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0];
+}
+
+export function computeLiveProjectFinancials(
+  project: LiveGPProjectRow,
+  estimates: any[] | null | undefined,
+): ProjectedFinancials {
+  const est: any = pickJobEstimate(estimates);
+  const fios = project.fios ?? [];
+  const costs = aggregateProjectCosts({
+    lineItems: est?.line_items ?? [],
+    estimateTotalCost: est?.total_cost ?? 0,
+    receipts: project.receipts ?? [],
+    fioItems: fios.flatMap((f) => f.items ?? []),
+    crewPayments: fios.flatMap((f) => f.crew_payments ?? []),
+    estimateTaxAmount: est?.tax_amount ?? 0,
+    pmLaborItems: est?.pm_labor ?? [],
+    pmLaborActualHours: est?.pm_labor_actual_hours ?? null,
+  });
+  return computeProjectedFinancials(costs, {
+    totalValue: project.total_value,
+    status: project.status,
+    materials_complete: project.materials_complete,
+    labor_complete: project.labor_complete,
+    grossProfit: project.gross_profit,
+  });
+}

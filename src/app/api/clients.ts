@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import { aggregateProjectCosts, computeProjectedFinancials } from "@/app/utils/financials";
+import { computeLiveProjectFinancials, pickJobEstimate } from "@/app/utils/financials";
 
 export const clientsAPI = {
   /** List active clients for a given stage (or all stages if omitted) */
@@ -56,30 +56,12 @@ export const clientsAPI = {
       // from what the job's own page shows again (Jonathan, Oct 1 2026: caught this list
       // reading the raw, live-cost-only `projects.profit_margin` DB column while the
       // detail page showed the correct Budgeted/Projected figure for the same job).
-      const acceptedEstimate = (c.estimates ?? []).find((e: any) => e.status === "accepted")
-        ?? (c.estimates ?? []).filter((e: any) => e.status !== "declined" && e.status !== "voided")
-          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+      const acceptedEstimate: any = pickJobEstimate(c.estimates);
       let project_profit_margin: number | null = null;
       let project_gross_profit: number | null = null;
       if (firstProject) {
-        const fios = firstProject.fios ?? [];
-        const costs = aggregateProjectCosts({
-          lineItems: acceptedEstimate?.line_items ?? [],
-          estimateTotalCost: acceptedEstimate?.total_cost ?? 0,
-          receipts: firstProject.receipts ?? [],
-          fioItems: fios.flatMap((f: any) => f.items ?? []),
-          crewPayments: fios.flatMap((f: any) => f.crew_payments ?? []),
-          estimateTaxAmount: acceptedEstimate?.tax_amount ?? 0,
-          pmLaborItems: acceptedEstimate?.pm_labor ?? [],
-          pmLaborActualHours: acceptedEstimate?.pm_labor_actual_hours ?? null,
-        });
-        const projectedFin = computeProjectedFinancials(costs, {
-          totalValue: firstProject.total_value,
-          status: firstProject.status,
-          materials_complete: firstProject.materials_complete,
-          labor_complete: firstProject.labor_complete,
-          grossProfit: firstProject.gross_profit,
-        });
+        // shared with api/live-gp.ts (Payroll) so both always agree
+        const projectedFin = computeLiveProjectFinancials(firstProject, c.estimates ?? []);
         project_gross_profit = projectedFin.gp;
         // GP % is on revenue (contract minus sales tax), same base as the job page
         project_profit_margin = projectedFin.revenue > 0

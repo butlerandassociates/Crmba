@@ -8,6 +8,7 @@ import { PageLoader, SkeletonCards, SkeletonPayrollRow } from "./ui/page-loader"
 import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { commissionPaymentsAPI } from "../utils/api";
+import { fetchLiveProjectFinancials } from "../api/live-gp";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
@@ -175,12 +176,16 @@ export function Payroll() {
       .from("projects")
       .select("id, project_manager_id, gross_profit, commission_override_total, client:clients(is_discarded)")
       .not("project_manager_id", "is", null);
+    // live GP (same number as each job's page); stored gross_profit only as the fallback
+    const livePm = await fetchLiveProjectFinancials(
+      (pmProjects ?? []).filter((pr: any) => !pr.client?.is_discarded && pr.project_manager_id && byPM[pr.project_manager_id]).map((pr: any) => pr.id),
+    );
     (pmProjects ?? []).forEach((proj: any) => {
       const pmId = proj.project_manager_id;
       if (!pmId || !byPM[pmId]) return;
       if (proj.client?.is_discarded) return;
       const rate = Number(byPM[pmId].commission_rate) || 0;
-      const gp = Number(proj.gross_profit) || 0;
+      const gp = Number(livePm[proj.id]?.gp ?? proj.gross_profit) || 0;
       const commission = proj.commission_override_total != null
         ? Number(proj.commission_override_total)
         : gp * (rate / 100);

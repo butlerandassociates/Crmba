@@ -10,6 +10,7 @@ import { ArrowLeft, TrendingUp, Clock, DollarSign, Loader2, Trash2, ChevronDown,
 import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
+import { fetchLiveProjectFinancials } from "../api/live-gp";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
@@ -61,7 +62,11 @@ export function PayrollPMDetail() {
           .from("projects")
           .select("id, name, gross_profit, total_value, commission_override_total, client_id, client:clients(id, first_name, last_name, is_discarded)")
           .eq("project_manager_id", id!);
-        setProjects((pmProjects ?? []).filter((p: any) => !p.client?.is_discarded));
+        const kept = (pmProjects ?? []).filter((p: any) => !p.client?.is_discarded);
+        // PM commission follows the live projected GP (same number as the job page); the stored
+        // gross_profit snapshot is only the fallback if the live lookup fails.
+        const live = await fetchLiveProjectFinancials(kept.map((p: any) => p.id));
+        setProjects(kept.map((p: any) => ({ ...p, live_gp: live[p.id]?.gp ?? null })));
       }
     } finally {
       setLoading(false);
@@ -138,7 +143,7 @@ export function PayrollPMDetail() {
     const rate = isSalesRep
       ? Number(proj.sales_rep_commission_rate) || Number(pm.commission_rate) || 0
       : Number(pm.commission_rate) || 0;
-    const gp = Number(proj.gross_profit) || 0;
+    const gp = Number(proj.live_gp ?? proj.gross_profit) || 0;
     const commissionTotal = proj.commission_override_total != null
       ? Number(proj.commission_override_total)
       : gp * (rate / 100);
