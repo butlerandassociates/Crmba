@@ -17,7 +17,7 @@ import { Dialog, DialogContent } from "./ui/dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { changeOrdersAPI } from "../api/change-orders";
-import { calcContingencyReserve } from "../utils/financials";
+import { calcContingencyReserve, calcCoBaselineCarry } from "../utils/financials";
 import { supabase, guessContentType } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { toast } from "sonner";
@@ -129,7 +129,7 @@ export function ChangeOrderBuilder() {
         // Load accepted proposal with line items + financial fields needed for live totals
         const { data: prop } = await supabase
           .from("estimates")
-          .select("id, title, total, subtotal, bad_amount, tax_amount, discount_amount, discount_percentage, stripe_fee_enabled, estimate_number, line_items:estimate_line_items(id, product_name, category, labor_cost, material_cost, quantity, client_price, total_price, sort_order)")
+          .select("id, title, total, subtotal, bad_amount, bad_rate, tax_amount, discount_amount, discount_percentage, stripe_fee_enabled, estimate_number, line_items:estimate_line_items(id, product_name, category, labor_cost, material_cost, quantity, client_price, total_price, sort_order)")
           .eq("client_id", clientId)
           .eq("status", "accepted")
           .order("accepted_at", { ascending: false })
@@ -911,14 +911,29 @@ export function ChangeOrderBuilder() {
     liveTax = Math.round((Number(originalTax || 0) + (coMaterial + modMaterialDelta) * (taxRate / 100)) * 100) / 100;
   }
 
+  // Whatever is in the saved total but not rebuilt here (e.g. marked-up PM labor) is carried forward
+  // unchanged, so the impact starts at exactly $0 and only reflects this change order's own changes.
+  // Baseline = the same formulas above with nothing modified/added.
+  const baselineDiscountForCarry = discountPct > 0 ? originalLineSubtotal * (discountPct / 100) : originalDiscountAmount;
+  const baselineCarry = calcCoBaselineCarry({
+    total: originalTotal,
+    stripeFeeEnabled: !!proposal?.stripe_fee_enabled,
+    lineSubtotal: originalLineSubtotal,
+    discountAmount: baselineDiscountForCarry,
+    // same rounding the live BAD / tax above apply when nothing has changed
+    badAmount: Math.round((Number(originalBad) || 0) * 100) / 100,
+    taxAmount: taxRate > 0 ? Math.round((Number(originalTax) || 0) * 100) / 100 : (Number(originalTax) || 0),
+  });
+
   // CC Processing Fee — recompute from live pre-stripe total (2.9% + $0.30 flat)
-  const livePreStripeTotal = liveSubtotalAfterDiscount + liveBad + liveTax;
+  const livePreStripeTotal = liveSubtotalAfterDiscount + liveBad + liveTax + baselineCarry;
   const liveStripeFee = proposal?.stripe_fee_enabled
     ? Math.round((livePreStripeTotal * 0.029 + 0.30) * 100) / 100
     : 0;
 
   const newTotal = livePreStripeTotal + liveStripeFee;
-  const coImpact = newTotal - originalTotal;
+  // rounded to cents (and never "-0") so float noise cannot show as "-$0.00" before anything is changed
+  const coImpact = Math.round((newTotal - originalTotal) * 100) / 100 + 0;
 
   // Group proposal line items by category
   const proposalGroups = (() => {
@@ -968,7 +983,7 @@ export function ChangeOrderBuilder() {
   const displayNewTotal = isMerged && existingCO?.post_merge_total != null
     ? Number(existingCO.post_merge_total)
     : newTotal;
-  const displayCoImpact = displayNewTotal - displayOriginalTotal;
+  const displayCoImpact = Math.round((displayNewTotal - displayOriginalTotal) * 100) / 100 + 0;
 
   const isDirty = loadedRef.current && (
     (initialItemsRef.current !== "" && JSON.stringify(items.map(({ id: _id, fromProduct: _fp, ...rest }) => rest)) !== initialItemsRef.current) ||

@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { calcCoBaselineCarry } from "@/app/utils/financials";
 
 export const changeOrdersAPI = {
   /** All COs for a client */
@@ -235,8 +236,23 @@ export const changeOrdersAPI = {
       newTaxAmount = Math.round((Number(estimate.tax_amount || 0) + (coMaterial + modMaterialDelta) * (zipRate / 100)) * 100) / 100;
     }
 
+    // Carry forward whatever the saved total holds that line items don't rebuild (e.g. marked-up PM
+    // labor) so approving a change order never drops it from the contract. Same helper as the builder's
+    // live preview, so the preview and the saved result stay identical.
+    const baselineLineSubtotal = (originalLineItems ?? []).reduce((s: number, li: any) => s + Number(li.total_price || 0), 0);
+    const baselineDiscount = discountPct > 0 ? baselineLineSubtotal * (discountPct / 100) : Number(estimate.discount_amount || 0);
+    const baselineCarry = calcCoBaselineCarry({
+      total: preMergeTotal,
+      stripeFeeEnabled: !!estimate.stripe_fee_enabled,
+      lineSubtotal: baselineLineSubtotal,
+      discountAmount: baselineDiscount,
+      // same rounding the merged BAD / tax below apply when nothing has changed
+      badAmount: Math.round(originalBad * 100) / 100,
+      taxAmount: zipRate > 0 ? Math.round(Number(estimate.tax_amount || 0) * 100) / 100 : Number(estimate.tax_amount || 0),
+    });
+
     // Recalculate CC processing fee if enabled (2.9% + $0.30 flat)
-    const preStripeTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount;
+    const preStripeTotal = subtotalAfterDiscount + newBadAmount + newTaxAmount + baselineCarry;
     const newStripeFee = estimate.stripe_fee_enabled
       ? Math.round((preStripeTotal * 0.029 + 0.30) * 100) / 100
       : 0;

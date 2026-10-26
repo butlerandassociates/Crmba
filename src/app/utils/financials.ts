@@ -63,6 +63,32 @@ export function calcClientProposalTotal(p: {
   return { preStripeTotal, stripeFee, total: preStripeTotal + stripeFee };
 }
 
+// Change orders (Jonathan, Oct 25-26 2026: "why does a new change order immediately show a negative
+// impact?"). A proposal's SAVED total also contains things the change-order screen / mergeApproved do
+// not rebuild from line items — chiefly marked-up PM labor (see calcClientProposalTotal) — so
+// "rebuilt total - saved total" was already negative (-$3,193.75 on Kelly Easler) before any change,
+// and approving a CO would have dropped that amount from the contract. This returns the pre-stripe-fee
+// amount that is in the saved total but NOT in the rebuilt one, so both places can carry it forward
+// unchanged: zero changes => impact exactly $0, and a CO only ever moves the total by its own changes.
+// Differences under $1 are rounding noise (stripe fee is back-solved) and are ignored. Callers must pass
+// BAD / tax rounded exactly the way their own live total rounds them.
+export function calcCoBaselineCarry(p: {
+  total?: number | null;
+  stripeFeeEnabled?: boolean | null;
+  lineSubtotal: number;
+  discountAmount?: number | null;
+  badAmount?: number | null;
+  taxAmount?: number | null;
+}): number {
+  const total = Number(p.total ?? 0);
+  if (!(total > 0)) return 0;
+  const preStripe = p.stripeFeeEnabled ? (total - 0.30) / 1.029 : total;
+  const rebuilt = Number(p.lineSubtotal || 0) - Number(p.discountAmount ?? 0) + Number(p.badAmount ?? 0) + Number(p.taxAmount ?? 0);
+  const carry = preStripe - rebuilt;
+  // intentionally NOT rounded: the live total must equal the saved total to the last decimal at zero changes
+  return Math.abs(carry) >= 1 ? carry : 0;
+}
+
 // ─── Cost Attributions: expected vs actual material per SOLD category ─────────────────────
 // Jonathan, Oct 12-13 2026: each material receipt is attributed to a category sold on the job
 // (Concrete, Pavers, ...) so we can see what we actually spent vs what the sold line items
