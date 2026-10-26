@@ -1,4 +1,5 @@
 import type { WarrantySection } from "../api/warranty";
+import { qtyLabel } from "../utils/qty-label";
 
 interface ProposalExportProps {
   proposal: any;
@@ -93,7 +94,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
 
   type LineGroup = {
     category: string | null;
-    items: { name: string; description?: string; client_note?: string; qty: number; unit: string; lineTotal: number }[];
+    items: { name: string; description?: string; client_note?: string; qty: number; unit: string; lineTotal: number; qtyText?: string }[];
   };
 
   const categoryNotes: Record<string, string> = proposal?.category_notes ?? {};
@@ -111,9 +112,9 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
       const lineTotal   = item.total_price ?? qty * Number(item.client_price || item.price_per_unit || 0);
       if (cat) {
         if (!map[cat]) map[cat] = { category: cat, items: [] };
-        map[cat].items.push({ name, description, client_note, qty, unit, lineTotal });
+        map[cat].items.push({ name, description, client_note, qty, unit, lineTotal, qtyText: qtyLabel({ show_qty: item.show_qty, quantity: qty, unit }) });
       } else {
-        flat.items.push({ name, description, client_note, qty, unit, lineTotal });
+        flat.items.push({ name, description, client_note, qty, unit, lineTotal, qtyText: qtyLabel({ show_qty: item.show_qty, quantity: qty, unit }) });
       }
     }
     const result: LineGroup[] = Object.values(map);
@@ -262,7 +263,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                   {group.items.map((item, iIdx) => (
                     <div key={iIdx} data-group="true" style={{ display: "flex", alignItems: "flex-start", padding: "6px 0 6px 8px" }}>
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}</p>
+                        <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.name}{item.qtyText ? ` — ${item.qtyText}` : ""}</p>
                         {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.45, lineHeight: 1.4 }}>{item.description}</p>}
                         {item.client_note?.trim() && <p style={{ fontFamily: B.inter, fontSize: 10, color: "#8A6D2F", margin: "3px 0 0 0", lineHeight: 1.4, whiteSpace: "pre-wrap" as const }}>{item.client_note}</p>}
                       </div>
@@ -277,7 +278,7 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
                 {group.items.map((item, iIdx) => (
                   <div key={iIdx} data-group="true" style={{ display: "flex", alignItems: "flex-start", padding: "4px 0" }}>
                     <div style={{ flex: 1 }}>
-                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}</p>
+                      <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.name}{item.qtyText ? ` — ${item.qtyText}` : ""}</p>
                       {item.description && <p style={{ fontFamily: B.inter, fontSize: 10, color: B.text, margin: "2px 0 0 0", opacity: 0.5, lineHeight: 1.4 }}>{item.description}</p>}
                       {item.client_note?.trim() && <p style={{ fontFamily: B.inter, fontSize: 10, color: "#8A6D2F", margin: "3px 0 0 0", lineHeight: 1.4, whiteSpace: "pre-wrap" as const }}>{item.client_note}</p>}
                     </div>

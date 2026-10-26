@@ -106,6 +106,7 @@ export interface PortalChangeOrderItem {
   total: number;
   category: string;
   sort_order: number;
+  show_qty?: boolean; // migration 134 (absent until the edge function sends it)
 }
 
 export interface PortalChangeOrderModification {
@@ -144,6 +145,7 @@ export interface PortalProposalLineItem {
   unit: string;
   client_price: number;
   sort_order: number;
+  show_qty?: boolean; // migration 134
 }
 
 export interface PortalProposal {

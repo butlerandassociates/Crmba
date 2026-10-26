@@ -133,6 +133,9 @@ export const changeOrdersAPI = {
             material_cost: item.material_cost ?? 0,
             client_price: item.unit_price,
             total_price: item.total,
+            // the CO item's "Show QTY" choice (and its unit) carries into the proposal line
+            show_qty: !!item.show_qty,
+            unit: item.unit || "each", // "each" = the column's existing default for blank units
             sort_order: startSort + i,
           }))
         );

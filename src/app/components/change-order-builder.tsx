@@ -35,6 +35,7 @@ const EMPTY_ITEM = () => ({
   total: 0,
   material_cost: 0, // per-unit material cost (from product) — used for 9%-on-materials tax
   fromProduct: false,
+  show_qty: false, // show this item's quantity to the client (migration 134)
 });
 
 
@@ -169,6 +170,7 @@ export function ChangeOrderBuilder() {
                 unit_price: i.unit_price || 0,
                 total: i.total || 0,
                 material_cost: i.material_cost || 0,
+                show_qty: !!i.show_qty,
                 fromProduct: false,
               }));
               setItems(loadedItems);
@@ -340,6 +342,8 @@ export function ChangeOrderBuilder() {
         unit_price: Number(i.unit_price),
         total: Number(i.total),
         material_cost: Number(i.material_cost || 0),
+        // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
+        show_qty: !!i.show_qty,
       }));
       const modsArray = Object.values(modifications);
       if (isEdit && existingCO) {
@@ -438,6 +442,8 @@ export function ChangeOrderBuilder() {
         unit_price: Number(i.unit_price),
         total: Number(i.total),
         material_cost: Number(i.material_cost || 0),
+        // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
+        show_qty: !!i.show_qty,
       }));
       const modsArray = Object.values(modifications);
 
@@ -595,6 +601,8 @@ export function ChangeOrderBuilder() {
         unit_price: Number(i.unit_price),
         total: Number(i.total),
         material_cost: Number(i.material_cost || 0),
+        // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
+        show_qty: !!i.show_qty,
       }));
 
       let co: any;
@@ -1308,6 +1316,13 @@ export function ChangeOrderBuilder() {
                       </div>
                     )}
 
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer w-fit select-none">
+                      <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={!!item.show_qty}
+                        onChange={e => updateItem(item.id, "show_qty", e.target.checked)}
+                        disabled={isClientApproved || isClientRejected || isMerged} />
+                      Show QTY to client{item.show_qty && Number(item.quantity) > 0 ? ` (${item.quantity}${item.unit ? " " + item.unit : ""})` : ""}
+                    </label>
+
                     {/* Item fields */}
                     <div className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-12 sm:col-span-4">
@@ -1717,6 +1732,7 @@ export function ChangeOrderBuilder() {
                 unit: i.unit || "",
                 unit_price: Number(i.unit_price),
                 total: Number(i.total),
+                show_qty: !!i.show_qty,
               })),
             }}
             client={client}

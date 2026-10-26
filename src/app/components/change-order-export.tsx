@@ -1,3 +1,5 @@
+import { qtyLabel } from "../utils/qty-label";
+
 const B = {
   black:  "#0A0A0A",
   gold:   "#BB984D",
@@ -173,7 +175,7 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal, modific
               </div>
               {group.items.map((item: any, iIdx: number) => (
                 <div key={iIdx} style={{ padding: "4px 0 4px 8px" }}>
-                  <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.description}</p>
+                  <p style={{ fontFamily: B.inter, fontSize: 12, color: B.text, margin: 0, opacity: 0.65 }}>{item.description}{qtyLabel(item) ? ` — ${qtyLabel(item)}` : ""}</p>
                 </div>
               ))}
             </div>
@@ -183,7 +185,7 @@ export function ChangeOrderExport({ co, client, originalTotal, newTotal, modific
           <div key={gIdx} style={{ marginBottom: 16 }}>
             {group.items.map((item: any, iIdx: number) => (
               <div key={iIdx} style={{ padding: "4px 0" }}>
-                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.description}</p>
+                <p style={{ fontFamily: B.inter, fontSize: 12, color: B.black, margin: 0 }}>{item.description}{qtyLabel(item) ? ` — ${qtyLabel(item)}` : ""}</p>
               </div>
             ))}
           </div>

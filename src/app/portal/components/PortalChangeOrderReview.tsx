@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { qtyLabel } from "../../utils/qty-label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -242,7 +243,6 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                     <thead className="border-b bg-gray-50">
                       <tr>
                         <th className="text-left p-3 lg:p-4 text-xs font-bold text-gray-600">DESCRIPTION</th>
-                        <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">QTY</th>
                         <th className="text-right p-3 lg:p-4 text-xs font-bold text-gray-600">TOTAL</th>
                       </tr>
                     </thead>
@@ -250,9 +250,8 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                       {changeOrder.items.map(item => (
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="p-3 lg:p-4">
-                            <div className="text-sm font-medium">{item.description}</div>
+                            <div className="text-sm font-medium">{item.description}{qtyLabel(item) ? <span className="font-normal text-gray-500"> — {qtyLabel(item)}</span> : null}</div>
                           </td>
-                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{item.quantity}</td>
                           <td className="p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.total)}</td>
                         </tr>
                       ))}
@@ -262,7 +261,6 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                             <div className="text-sm font-medium">{mod.name}</div>
                             {mod.action === "delete" && <div className="text-xs text-gray-400">Removed</div>}
                           </td>
-                          <td className="p-3 lg:p-4 text-right text-sm whitespace-nowrap">{mod.quantity}</td>
                           <td className={`p-3 lg:p-4 text-right text-sm font-semibold whitespace-nowrap ${mod.delta >= 0 ? "text-orange-600" : "text-green-700"}`}>
                             {mod.delta >= 0 ? "+" : ""}{fmt(mod.delta)}
                           </td>
@@ -271,7 +269,7 @@ export function PortalChangeOrderReview({ changeOrder, projectTotal, token, onBa
                     </tbody>
                     <tfoot className="border-t-2 bg-gray-50">
                       <tr>
-                        <td colSpan={2} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
+                        <td colSpan={1} className="p-3 lg:p-4 text-right font-bold">CHANGE ORDER TOTAL</td>
                         <td className="p-3 lg:p-4 text-right text-lg font-black whitespace-nowrap">{netImpact >= 0 ? "+" : ""}{fmt(netImpact)}</td>
                       </tr>
                     </tfoot>

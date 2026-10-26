@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { qtyLabel } from "../utils/qty-label";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { useParams } from "react-router";
 import { supabase } from "@/lib/supabase";
@@ -284,7 +285,7 @@ export function PublicProposal() {
                     {/* Sub-items */}
                     {group.items.map((item: any, iIdx: number) => (
                       <div key={iIdx} style={{ padding: "8px 24px 8px 36px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
-                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: 0, opacity: 0.6 }}>· {item.product_name ?? item.name}</p>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: 0, opacity: 0.6 }}>· {item.product_name ?? item.name}{qtyLabel(item) ? ` — ${qtyLabel(item)}` : ""}</p>
                         {item.description && (
                           <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#3A3A38", margin: "2px 0 0 10px", opacity: 0.45, lineHeight: 1.5 }}>{item.description}</p>
                         )}
@@ -304,7 +305,7 @@ export function PublicProposal() {
                     return (
                       <div key={iIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "14px 24px", background: "#fff", borderTop: "1px solid #F5F3EF" }}>
                         <div>
-                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}</p>
+                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#0A0A0A", margin: 0 }}>{item.product_name ?? item.name}{qtyLabel(item) ? ` — ${qtyLabel(item)}` : ""}</p>
                           {item.description && (
                             <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3A3A38", margin: "3px 0 0 0", opacity: 0.5, lineHeight: 1.5 }}>{item.description}</p>
                           )}

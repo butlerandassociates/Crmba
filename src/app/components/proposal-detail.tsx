@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
+import { qtyLabel } from "../utils/qty-label";
 import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal, roundCents } from "../utils/financials";
 import { newTrackingId } from "../utils/email-tracking";
 import type { WarrantySection } from "../utils/api";
@@ -565,6 +566,12 @@ export function ProposalDetail() {
         return;
       }
     }
+    // Re-running a wizard replaces its lines; keep each line's "Show QTY" choice (matched by product name)
+    const keptQtyFlags = new Map(
+      editLineItems
+        .filter((li) => li.category === wizardCategory)
+        .map((li) => [String(li.product_name ?? li.name ?? ""), !!li.show_qty]),
+    );
     // Insert new items only after delete confirmed
     const newRows = items.map((item, i) => ({
       estimate_id: proposal.id,
@@ -580,6 +587,7 @@ export function ProposalDetail() {
       markup_percent: item.markupPercent ?? 0,
       client_price: Math.round((item.pricePerUnit ?? 0) * 100) / 100,
       total_price: Math.round((item.quantity ?? 0) * (item.pricePerUnit ?? 0) * 100) / 100,
+      show_qty: keptQtyFlags.get(String(item.productName ?? "")) ?? false,
       sort_order: i,
     }));
     const { data: inserted, error: insertError } = await supabase
@@ -974,6 +982,8 @@ export function ProposalDetail() {
             cost_per_unit: item.cost_per_unit ?? 0,
             markup_percent: item.markup_percent ?? 0,
             client_note: item.client_note?.trim() || null,
+            // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
+            show_qty: !!item.show_qty,
             sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
           }))
         );
@@ -998,6 +1008,7 @@ export function ProposalDetail() {
               markup_percent: item.markup_percent ?? item.markupPercent ?? 0,
               fio_qty: item.fio_qty ?? null,
               client_note: item.client_note?.trim() || null,
+              show_qty: !!item.show_qty,
               sort_order: sortOrderMap.get(String(item.id ?? '')) ?? 999,
             }).eq("id", item.id)
           )
@@ -2536,6 +2547,13 @@ export function ProposalDetail() {
                                   </div>
                                 )}
                                 <div className="flex flex-wrap items-center gap-1">
+                                  {!isLocked && groupItems.length > 0 && (
+                                    <label className="flex items-center gap-1.5 mr-2 text-xs text-muted-foreground cursor-pointer select-none" title="Show the quantity of every line in this section to the client">
+                                      <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={groupItems.every((li: any) => !!li.show_qty)}
+                                        onChange={(e) => setEditLineItems((prev) => prev.map((li) => (li.category || "(No Category)") === cat ? { ...li, show_qty: e.target.checked } : li))} />
+                                      Show QTY
+                                    </label>
+                                  )}
                                   {!isLocked && (
                                     <div className="flex items-center mr-1">
                                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(cat, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
@@ -2643,6 +2661,13 @@ export function ProposalDetail() {
                                     ) : item.client_note ? (
                                       <div className="text-xs text-blue-700 mt-1 whitespace-pre-wrap">{item.client_note}</div>
                                     ) : null}
+                                    {!isLocked && (
+                                      <label className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground cursor-pointer w-fit select-none">
+                                        <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={!!item.show_qty}
+                                          onChange={(e) => setEditLineItems((prev) => prev.map((li, i) => i === idx ? { ...li, show_qty: e.target.checked } : li))} />
+                                        Show QTY to client{item.show_qty && qtyLabel(item) ? ` (${qtyLabel(item)})` : ""}
+                                      </label>
+                                    )}
                                       </div>
                                     </div>
                                   </td>

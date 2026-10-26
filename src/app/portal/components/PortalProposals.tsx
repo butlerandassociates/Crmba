@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { qtyLabel } from "../../utils/qty-label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -274,7 +275,7 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
                               {viewingProposal.line_items.map(item => (
                                 <tr key={item.id} className="hover:bg-gray-50">
                                   <td className="p-2 lg:p-4">
-                                    <div className="text-sm font-medium">{item.name}</div>
+                                    <div className="text-sm font-medium">{item.name}{qtyLabel(item) ? <span className="font-normal text-gray-500"> — {qtyLabel(item)}</span> : null}</div>
                                     {item.description && <div className="text-xs text-gray-500 mt-0.5">{item.description}</div>}
                                   </td>
                                   <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(item.quantity * item.client_price)}</td>

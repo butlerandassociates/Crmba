@@ -90,7 +90,7 @@ serve(async (req) => {
     }
 
     // Fetch client + payments + files + change_orders + proposals in parallel
-    const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes, proposalsRes, priorPortalViewRes] = await Promise.all([
+    const [clientRes, projectRes, paymentsRes, filesRes, changeOrdersRes0, proposalsRes0, priorPortalViewRes] = await Promise.all([
       supabase
         .from("clients")
         .select("id, first_name, last_name, phone, email, address, city, state, zip")
@@ -130,7 +130,7 @@ serve(async (req) => {
           id, title, reason, timeline_impact, cost_impact, status, created_at,
           approval_verified, approval_file_url, approval_file_name, pdf_url,
           original_total, new_total, pre_merge_total, post_merge_total, modifications,
-          items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
+          items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order, show_qty)
         `)
         .eq("client_id", clientId)
         .in("status", ["pending_client", "opened", "approved", "merged"])
@@ -140,7 +140,7 @@ serve(async (req) => {
         .from("estimates")
         .select(`
           id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at, pdf_url, updated_at,
-          line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
+          line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order, show_qty)
         `)
         .eq("client_id", clientId)
         .in("status", ["sent", "opened", "accepted"])
@@ -155,6 +155,40 @@ serve(async (req) => {
         .limit(1)
         .maybeSingle(),
     ]);
+
+    // Robustness (migration 134 "Show QTY"): the two selects above ask for show_qty. If this function is ever
+    // deployed before that migration has been run, PostgREST rejects the column and the portal would silently
+    // show NO change orders / proposals. In that case retry without it: everything else works and the flag
+    // is simply treated as off (quantities stay hidden) until the migration exists.
+    let changeOrdersRes = changeOrdersRes0;
+    let proposalsRes = proposalsRes0;
+    if (changeOrdersRes0.error && /show_qty/i.test(changeOrdersRes0.error.message ?? "")) {
+      console.warn("[portal-token] show_qty missing on change_order_items — retrying without it");
+      changeOrdersRes = await supabase
+        .from("change_orders")
+        .select(`
+          id, title, reason, timeline_impact, cost_impact, status, created_at,
+          approval_verified, approval_file_url, approval_file_name, pdf_url,
+          original_total, new_total, pre_merge_total, post_merge_total, modifications,
+          items:change_order_items!change_order_items_co_id_fkey(id, description, quantity, unit, unit_price, total, category, sort_order)
+        `)
+        .eq("client_id", clientId)
+        .in("status", ["pending_client", "opened", "approved", "merged"])
+        .order("created_at", { ascending: false });
+    }
+    if (proposalsRes0.error && /show_qty/i.test(proposalsRes0.error.message ?? "")) {
+      console.warn("[portal-token] show_qty missing on estimate_line_items — retrying without it");
+      proposalsRes = await supabase
+        .from("estimates")
+        .select(`
+          id, title, status, subtotal, tax_rate, tax_amount, total, sent_at, accepted_at, declined_at, pdf_url, updated_at,
+          line_items:estimate_line_items(id, name, description, quantity, unit, client_price, sort_order)
+        `)
+        .eq("client_id", clientId)
+        .in("status", ["sent", "opened", "accepted"])
+        .order("created_at", { ascending: false })
+        .limit(5);
+    }
 
     if (clientRes.error) throw new Error("Client not found: " + clientRes.error.message);
     const client = clientRes.data;

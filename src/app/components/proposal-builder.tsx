@@ -48,6 +48,7 @@ interface LineItem {
   totalPrice: number;
   salesTaxApplicable?: boolean;
   client_note?: string;
+  showQty?: boolean; // show this line's quantity to the client (migration 134)
 }
 
 
@@ -425,11 +426,14 @@ export function ProposalBuilder() {
       fioQty: item.fioQty ?? ((item.laborCost ?? 0) > 0 ? item.quantity : 0),
       totalPrice: item.quantity * item.pricePerUnit,
     }));
-    setLineItems((prev) =>
-      editingWizardCat
-        ? [...prev.filter((li) => li.category !== editingWizardCat), ...newItems]
-        : [...prev, ...newItems]
-    );
+    setLineItems((prev) => {
+      // Re-running a wizard replaces its lines; keep each line's "Show QTY" choice (matched by product name)
+      const keptFlags = new Map(prev.filter((li) => li.category === editingWizardCat).map((li) => [li.productName, !!li.showQty]));
+      const withFlags = newItems.map((n) => ({ ...n, showQty: n.showQty ?? keptFlags.get(n.productName) ?? false }));
+      return editingWizardCat
+        ? [...prev.filter((li) => li.category !== editingWizardCat), ...withFlags]
+        : [...prev, ...withFlags];
+    });
     if (formData) setWizardInputs((prev) => ({ ...prev, [targetCat]: formData }));
     if (targetCat !== wizardType) setWizardTypeMap((prev) => ({ ...prev, [targetCat]: wizardType }));
     setSectionOrder((prev) => prev.includes(targetCat) ? prev : [...prev, targetCat]);
@@ -530,6 +534,8 @@ export function ProposalBuilder() {
         product_name: item.productName,
         description: item.description || null,
         client_note: item.client_note?.trim() || null,
+        // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
+        show_qty: !!item.showQty,
         quantity: item.quantity,
         fio_qty: item.fioQty ?? null,
         unit: item.unit,
@@ -995,6 +1001,13 @@ export function ProposalBuilder() {
                                 </div>
                               )}
                               <div className="flex flex-wrap items-center gap-1">
+                                {items.length > 0 && (
+                                  <label className="flex items-center gap-1.5 mr-2 text-xs text-muted-foreground cursor-pointer select-none" title="Show the quantity of every line in this section to the client">
+                                    <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={items.every((li) => li.showQty)}
+                                      onChange={(e) => setLineItems((prev) => prev.map((li) => li.category === category ? { ...li, showQty: e.target.checked } : li))} />
+                                    Show QTY
+                                  </label>
+                                )}
                                 <div className="flex items-center mr-1">
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === 0} onClick={() => moveSection(category, 'up')}><ChevronUp className="h-3.5 w-3.5" /></Button>
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground" disabled={catIdx === totalCats - 1} onClick={() => moveSection(category, 'down')}><ChevronDown className="h-3.5 w-3.5" /></Button>
@@ -1083,6 +1096,11 @@ export function ProposalBuilder() {
                                     onChange={(e) => updateLineItem(item.id, "client_note" as any, e.target.value)}
                                     className="h-9 md:h-7 text-base md:text-xs mt-1.5 max-w-md"
                                   />
+                                  <label className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground cursor-pointer w-fit select-none">
+                                    <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={!!item.showQty}
+                                      onChange={(e) => updateLineItem(item.id, "showQty" as any, e.target.checked as any)} />
+                                    Show QTY to client{item.showQty && item.quantity > 0 ? ` (${item.quantity}${item.unit ? " " + item.unit : ""})` : ""}
+                                  </label>
                                     </div>
                                   </div>
                                 </td>
