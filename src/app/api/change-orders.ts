@@ -92,17 +92,24 @@ export const changeOrdersAPI = {
     // Fetch original line items BEFORE modifications — needed for BAD + tax delta calculation
     const { data: originalLineItems } = await supabase
       .from("estimate_line_items")
-      .select("id, category, labor_cost, total_price, material_cost, product_name, quantity")
+      .select("id, category, labor_cost, total_price, material_cost, product_name, quantity, fio_qty")
       .eq("estimate_id", estimate.id);
 
     for (const mod of mods) {
       if (mod.action === "delete") {
         await supabase.from("estimate_line_items").delete().eq("id", mod.estimate_item_id);
       } else if (mod.action === "edit") {
+        // The FIO suggests `fio_qty || quantity` x labor cost. If the line's FIO qty was simply tracking its quantity
+        // (or was never set), keep it tracking the new quantity, otherwise the FIO keeps paying the crew for the old
+        // amount after a change order reduces (or raises) it. A deliberately different FIO qty is left alone.
+        const orig = (originalLineItems ?? []).find((l: any) => l.id === mod.estimate_item_id);
+        const fioFollowsQty = !!orig && Number(orig.labor_cost ?? 0) > 0
+          && (orig.fio_qty == null || Number(orig.fio_qty) === Number(orig.quantity));
         await supabase.from("estimate_line_items").update({
           quantity: mod.quantity,
           client_price: mod.client_price,
           total_price: mod.total_price,
+          ...(fioFollowsQty ? { fio_qty: mod.quantity } : {}),
         }).eq("id", mod.estimate_item_id);
       }
     }
