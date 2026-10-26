@@ -36,6 +36,8 @@ const EMPTY_ITEM = () => ({
   material_cost: 0, // per-unit material cost (from product) — used for 9%-on-materials tax
   fromProduct: false,
   show_qty: false, // show this item's quantity to the client (migration 134)
+  labor_cost: 0, // per-unit crew / labor cost (migration 135) -> proposal line labor_cost -> FIO + GP
+  markup_percent: 0, // markup % on (material + labor) per unit (migration 135)
 });
 
 
@@ -171,6 +173,8 @@ export function ChangeOrderBuilder() {
                 total: i.total || 0,
                 material_cost: i.material_cost || 0,
                 show_qty: !!i.show_qty,
+                labor_cost: Number(i.labor_cost || 0),
+                markup_percent: Number(i.markup_percent || 0),
                 fromProduct: false,
               }));
               setItems(loadedItems);
@@ -223,7 +227,27 @@ export function ChangeOrderBuilder() {
       if (field === "quantity" || field === "unit_price") {
         updated.total = (Number(updated.quantity) || 0) * (Number(updated.unit_price) || 0);
       }
+      if (field === "unit_price") {
+        const cost = (Number(updated.material_cost) || 0) + (Number(updated.labor_cost) || 0);
+        if (cost > 0) updated.markup_percent = Math.round(((Number(updated.unit_price) || 0) / cost - 1) * 10000) / 100;
+      }
       return updated;
+    }));
+  };
+
+  // Cost fields (material / crew / markup). Once a cost is known the price follows cost x (1 + markup);
+  // custom items start from the company markup so they behave like catalog items.
+  const updateItemCost = (id: string, field: "material_cost" | "labor_cost" | "markup_percent", value: number) => {
+    setItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const next: any = { ...item, [field]: value };
+      if (field !== "markup_percent" && !(Number(next.markup_percent) > 0) && !item.fromProduct && globalMarkupPct > 0) next.markup_percent = globalMarkupPct;
+      const cost = (Number(next.material_cost) || 0) + (Number(next.labor_cost) || 0);
+      if (cost > 0) {
+        next.unit_price = Math.round(cost * (1 + (Number(next.markup_percent) || 0) / 100) * 100) / 100;
+        next.total = (Number(next.quantity) || 0) * next.unit_price;
+      }
+      return next;
     }));
   };
 
@@ -247,7 +271,7 @@ export function ChangeOrderBuilder() {
     const categoryName = product.category?.name || "Materials";
     setItems(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice, material_cost: materialCost, fromProduct: true };
+      return { ...item, category: categoryName, description: product.name, unit: product.unit || item.unit, unit_price: unitPrice, total: (Number(item.quantity) || 1) * unitPrice, material_cost: materialCost, labor_cost: laborCost, markup_percent: markup, fromProduct: true };
     }));
     setPickerState(prev => ({ ...prev, [itemId]: { categoryId: "" } }));
   };
@@ -344,6 +368,8 @@ export function ChangeOrderBuilder() {
         material_cost: Number(i.material_cost || 0),
         // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
         show_qty: !!i.show_qty,
+        labor_cost: Number(i.labor_cost || 0),
+        markup_percent: Number(i.markup_percent || 0),
       }));
       const modsArray = Object.values(modifications);
       if (isEdit && existingCO) {
@@ -444,6 +470,8 @@ export function ChangeOrderBuilder() {
         material_cost: Number(i.material_cost || 0),
         // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
         show_qty: !!i.show_qty,
+        labor_cost: Number(i.labor_cost || 0),
+        markup_percent: Number(i.markup_percent || 0),
       }));
       const modsArray = Object.values(modifications);
 
@@ -603,6 +631,8 @@ export function ChangeOrderBuilder() {
         material_cost: Number(i.material_cost || 0),
         // always explicit: a bulk insert where only some rows carry show_qty would send NULL for the rest
         show_qty: !!i.show_qty,
+        labor_cost: Number(i.labor_cost || 0),
+        markup_percent: Number(i.markup_percent || 0),
       }));
 
       let co: any;
@@ -1362,7 +1392,7 @@ export function ChangeOrderBuilder() {
                           onChange={e => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)}
                           onBlur={e => {
                             const raw = parseFloat(e.target.value) || 0;
-                            if (!item.fromProduct && globalMarkupPct > 0 && raw > 0) {
+                            if (!item.fromProduct && globalMarkupPct > 0 && raw > 0 && ((Number(item.material_cost) || 0) + (Number(item.labor_cost) || 0)) === 0) {
                               const markedUp = Math.round(raw * (1 + globalMarkupPct / 100) * 100) / 100;
                               setItems(prev => prev.map(i => i.id === item.id ? { ...i, unit_price: markedUp, total: (Number(i.quantity) || 0) * markedUp } : i));
                             }
@@ -1383,6 +1413,32 @@ export function ChangeOrderBuilder() {
                         )}
                       </div>
                     </div>
+
+                    {/* Real costs: they carry into the proposal line so GP, expected spend and the FIO have something to compare against */}
+                    {(() => {
+                      const cost = (Number(item.material_cost) || 0) + (Number(item.labor_cost) || 0);
+                      const locked = isClientApproved || isClientRejected || isMerged;
+                      return (
+                        <div className="grid grid-cols-12 gap-2 items-center">
+                          <p className="col-span-12 text-[11px] text-muted-foreground -mb-1">Cost per unit — used for GP, expected spend and the foreman's pay (FIO)</p>
+                          <div className="col-span-4 sm:col-span-3">
+                            <Input type="number" min="0" step="0.01" placeholder="Material $" title="Material cost per unit" value={item.material_cost || ""}
+                              onChange={e => updateItemCost(item.id, "material_cost", parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" disabled={locked} />
+                          </div>
+                          <div className="col-span-4 sm:col-span-3">
+                            <Input type="number" min="0" step="0.01" placeholder="Crew / labor $" title="Crew / labor cost per unit" value={item.labor_cost || ""}
+                              onChange={e => updateItemCost(item.id, "labor_cost", parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" disabled={locked} />
+                          </div>
+                          <div className="col-span-4 sm:col-span-2">
+                            <Input type="number" min="0" step="0.01" placeholder="Markup %" title="Markup % on material + labor" value={item.markup_percent || ""}
+                              onChange={e => updateItemCost(item.id, "markup_percent", parseFloat(e.target.value) || 0)} className="h-8 text-sm text-right" disabled={locked} />
+                          </div>
+                          <p className="col-span-12 sm:col-span-4 text-xs text-muted-foreground">
+                            {cost > 0 ? `Cost ${fmt(cost)}/unit · markup ${Number(item.markup_percent || 0).toFixed(1)}%` : "Optional — leave blank if unknown"}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

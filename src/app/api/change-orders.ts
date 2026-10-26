@@ -131,6 +131,13 @@ export const changeOrdersAPI = {
             category: item.category,
             quantity: item.quantity,
             material_cost: item.material_cost ?? 0,
+            // the rest of the cost picture (it used to stop at material_cost, so merged lines showed Crew $0 / Markup 0%
+            // and never appeared in the FIO's suggested labor items)
+            labor_cost: Number(item.labor_cost ?? 0),
+            cost_per_unit: Math.round((Number(item.material_cost ?? 0) + Number(item.labor_cost ?? 0)) * 100) / 100,
+            markup_percent: Number(item.markup_percent ?? 0),
+            price_per_unit: item.unit_price,
+            fio_qty: Number(item.labor_cost ?? 0) > 0 ? item.quantity : 0,
             client_price: item.unit_price,
             total_price: item.total,
             // the CO item's "Show QTY" choice (and its unit) carries into the proposal line
@@ -266,7 +273,18 @@ export const changeOrdersAPI = {
     // (bad_rate NULL) keep this exact original formula (BAD counts toward GP) forever.
     // New proposals exclude BAD from GP entirely — it's tracked as contingency_reserve
     // instead, per Jonathan Sep 6-7 2026.
-    const totalCost = estimate.total_cost || 0;
+    // The cost side now follows the change order too: + the new items' cost, + / - the cost of edited / removed
+    // original lines (it used to stay frozen, which overstated GP after every CO).
+    const unitCostOf = (r: any) => Number(r?.material_cost ?? 0) + Number(r?.labor_cost ?? 0);
+    const coCostAdded = coItems.reduce((s: number, it: any) => s + Number(it.quantity || 0) * unitCostOf(it), 0);
+    const modCostDelta = mods.reduce((s: number, mod: any) => {
+      const li = (originalLineItems ?? []).find((l: any) => l.id === mod.estimate_item_id);
+      if (!li) return s;
+      if (mod.action === "delete") return s - Number(li.quantity || 0) * unitCostOf(li);
+      if (mod.action === "edit") return s + (Number(mod.quantity ?? li.quantity ?? 0) - Number(li.quantity || 0)) * unitCostOf(li);
+      return s;
+    }, 0);
+    const totalCost = Math.round(((Number(estimate.total_cost) || 0) + coCostAdded + modCostDelta) * 100) / 100;
     const newGrossProfit = usesNewBadModel ? newSubtotal - totalCost : newTotal - totalCost;
     const newRevenueForMargin = usesNewBadModel ? newSubtotal : newTotal;
     const newProfitMargin = newRevenueForMargin > 0 ? (newGrossProfit / newRevenueForMargin) * 100 : 0;
@@ -281,6 +299,7 @@ export const changeOrdersAPI = {
         tax_amount: newTaxAmount,
         stripe_fee_amount: newStripeFee,
         total: newTotal,
+        total_cost: totalCost,
         gross_profit: newGrossProfit,
         profit_margin: newProfitMargin,
         updated_at: new Date().toISOString(),
