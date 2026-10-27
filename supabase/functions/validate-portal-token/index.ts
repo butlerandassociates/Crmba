@@ -332,8 +332,29 @@ serve(async (req) => {
       };
     });
 
+    // Price breakdown for the portal (Jonathan, Oct 28 2026: the portal showed Subtotal + Tax = Total with the
+    // Base, Aggregate & Disposal line missing). get_public_proposal() already computes the client-facing parts the
+    // public page and the PDF use (BAD, marked-up PM labor, discount, CC fee), so reuse it instead of re-deriving.
+    // If it fails for a proposal the fields are simply absent and the portal reconciles the BAD line from the total.
+    const priceParts: Record<string, Record<string, number>> = {};
+    await Promise.all((proposalsRes.data ?? []).map(async (p: any) => {
+      try {
+        const { data, error } = await supabase.rpc("get_public_proposal", { p_id: p.id });
+        if (error || !data) { console.warn(`[portal-token] price parts unavailable for ${p.id}: ${error?.message ?? "no data"}`); return; }
+        priceParts[p.id] = {
+          discount_amount: Number(data.discount_amount ?? 0),
+          bad_amount: Number(data.bad_amount ?? 0),
+          pm_labor_amount: Number(data.pm_labor_amount ?? 0),
+          stripe_fee_amount: Number(data.stripe_fee_amount ?? 0),
+        };
+      } catch (e: any) {
+        console.warn(`[portal-token] price parts failed for ${p.id}: ${e?.message ?? e}`);
+      }
+    }));
+
     const proposals = (proposalsRes.data ?? []).map((p: any) => ({
       ...p,
+      ...(priceParts[p.id] ?? {}),
       subtotal: Number(p.subtotal ?? 0),
       tax_amount: Number(p.tax_amount ?? 0),
       total: Number(p.total ?? 0),

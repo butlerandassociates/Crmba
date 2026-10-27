@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { qtyLabel } from "../../utils/qty-label";
+import { proposalPriceRows } from "../../utils/proposal-price-rows";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -283,16 +284,14 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
                               ))}
                             </tbody>
                             <tfoot className="border-t bg-gray-50">
-                              <tr>
-                                <td className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Subtotal</td>
-                                <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(viewingProposal.subtotal)}</td>
-                              </tr>
-                              {viewingProposal.tax_rate > 0 && (
-                                <tr>
-                                  <td className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">Sales Tax ({viewingProposal.tax_rate}%)</td>
-                                  <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{fmt(viewingProposal.tax_amount)}</td>
+                              {/* every row the client is charged for (subtotal, discount, Base/Aggregate/Disposal incl. PM labor, tax,
+                                  CC fee) — always adds up to TOTAL */}
+                              {proposalPriceRows(viewingProposal).rows.map((row) => (
+                                <tr key={row.key}>
+                                  <td className="p-2 lg:p-4 text-right text-sm text-gray-600 whitespace-nowrap">{row.label}</td>
+                                  <td className="p-2 lg:p-4 text-right text-sm font-semibold whitespace-nowrap">{row.amount < 0 ? `− ${fmt(-row.amount)}` : fmt(row.amount)}</td>
                                 </tr>
-                              )}
+                              ))}
                               <tr>
                                 <td className="p-2 lg:p-4 text-right font-bold whitespace-nowrap">TOTAL</td>
                                 <td className="p-2 lg:p-4 text-right text-lg font-black whitespace-nowrap">{fmt(viewingProposal.total)}</td>

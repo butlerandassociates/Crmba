@@ -156,6 +156,11 @@ export interface PortalProposal {
   tax_rate: number;
   tax_amount: number;
   total: number;
+  // price breakdown from get_public_proposal(); absent if that lookup failed (the portal then reconciles from total)
+  discount_amount?: number;
+  bad_amount?: number;
+  pm_labor_amount?: number;
+  stripe_fee_amount?: number;
   sent_at: string | null;
   accepted_at: string | null;
   declined_at: string | null;

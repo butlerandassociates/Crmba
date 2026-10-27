@@ -1405,7 +1405,8 @@ export function ProposalDetail() {
       .upload(path, blob, { contentType: "application/pdf", upsert: true });
     if (uploadErr) throw new Error(`PDF upload failed: ${uploadErr.message}`);
     const { data: { publicUrl } } = supabase.storage.from("client-files").getPublicUrl(path);
-    const { error: updateErr } = await supabase.from("estimates").update({ pdf_url: publicUrl }).eq("id", proposalId);
+    // updated_at moves too: every screen adds ?v=<updated_at> to the PDF link, so a replaced file is not served from cache
+    const { error: updateErr } = await supabase.from("estimates").update({ pdf_url: publicUrl, updated_at: new Date().toISOString() }).eq("id", proposalId);
     if (updateErr) throw new Error(`Saving pdf_url failed: ${updateErr.message}`);
   };
 
@@ -1426,6 +1427,12 @@ export function ProposalDetail() {
     } finally {
       setRegeneratingPdf(false);
     }
+  };
+
+  // Replaces an already-stored PDF with the proposal as it is NOW (e.g. after a change order was applied).
+  const handleRefreshStoredPdf = async () => {
+    if (!window.confirm("Replace the saved PDF with the current proposal, including any approved change orders? The client will see the updated PDF.")) return;
+    await handleRegeneratePdf();
   };
 
   const generatePreviewImages = async () => {
@@ -2129,6 +2136,15 @@ export function ProposalDetail() {
                     <DropdownMenuItem onClick={handleRegeneratePdf} disabled={regeneratingPdf}>
                       <RotateCcw className="h-4 w-4 mr-2" />
                       {regeneratingPdf ? "Generating PDF…" : "Generate Missing PDF"}
+                    </DropdownMenuItem>
+                  )}
+                  {/* After a change order is applied the proposal's numbers change but its stored PDF does not
+                      (Jonathan, Oct 28 2026: "the PDF for the Easler job didn't update"). This replaces the saved
+                      PDF — and the copy the client sees — with the current proposal. */}
+                  {isAlreadySent && !!proposal.pdf_url && (
+                    <DropdownMenuItem onClick={handleRefreshStoredPdf} disabled={regeneratingPdf}>
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      {regeneratingPdf ? "Updating PDF…" : "Update PDF (include change orders)"}
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
