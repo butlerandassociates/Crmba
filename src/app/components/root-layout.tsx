@@ -38,6 +38,8 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
 import { supabase } from "@/lib/supabase";
 import { usersAPI } from "../utils/api";
+import { formatCurrency } from "../utils/format";
+import { fetchLiveProjectFinancials } from "../api/live-gp";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -192,9 +194,9 @@ export function RootLayout() {
           .not("docusign_sent_date", "is", null)
           .lt("docusign_sent_date", cutoff3days)
           .eq("is_discarded", false),
-        // Job costs >= 75% of contract value
+        // Jobs to check for the Budget Alert (spend is loaded below via the live-GP helper)
         supabase.from("projects")
-          .select("id, client_id, name, total_value, client:clients!projects_client_id_fkey(first_name, last_name, is_discarded), line_items:estimate_line_items(labor_cost, material_cost, quantity)")
+          .select("id, client_id, name, total_value, client:clients!projects_client_id_fkey(first_name, last_name, is_discarded)")
           .in("status", ["active", "sold"])
           .not("total_value", "is", null)
           .gt("total_value", 0),
@@ -354,26 +356,36 @@ export function RootLayout() {
         });
       });
 
-      // Job costs at 75%+ of budget
-      (budgetRes.data ?? [])
-        .filter((p: any) => !p.client?.is_discarded)
-        .forEach((p: any) => {
-          const items = (p.line_items ?? []) as any[];
-          const totalCost = items.reduce((sum: number, li: any) => sum + ((Number(li.labor_cost) + Number(li.material_cost)) * (Number(li.quantity) || 1)), 0);
-          const ratio = totalCost / Number(p.total_value);
-          if (ratio >= 0.75) {
-            const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "—";
-            const pct = Math.round(ratio * 100);
-            alerts.push({
-              id: `budget-threshold-${p.id}`,
-              clientId: p.client_id ?? "",
-              clientName,
-              label: pct >= 100 ? "Over Budget" : "Budget Alert",
-              description: `${pct}% of budget used${p.name ? ` — ${p.name}` : ""}`,
-              severity: pct >= 100 ? "red" : "amber",
-            });
-          }
+      // Budget Alert — Jonathan, Oct 28 2026: material and labor each alert at 75%+ of their budget
+      // as receipts (cost attributions) and crew payments come in; red once actual passes 100%.
+      // (The old query joined projects -> estimate_line_items, which has no relation, so it 400'd
+      // and this alert never fired.)
+      const budgetProjects = (budgetRes.data ?? []).filter((p: any) => !p.client?.is_discarded);
+      const liveBudgets = await fetchLiveProjectFinancials(budgetProjects.map((p: any) => p.id));
+      budgetProjects.forEach((p: any) => {
+        const b = liveBudgets[p.id]?.budget;
+        if (!b) return;
+        const clientName = p.client ? `${p.client.first_name ?? ""} ${p.client.last_name ?? ""}`.trim() : "—";
+        ([
+          { kind: "material", label: "Material", actual: b.materialActual, budget: b.materialBudget },
+          { kind: "labor", label: "Labor", actual: b.laborActual, budget: b.laborBudget },
+        ] as const).forEach((m) => {
+          if (!(m.budget > 0)) return;
+          const ratio = m.actual / m.budget;
+          if (ratio < 0.75) return;
+          const pct = Math.round(ratio * 100);
+          const over = pct >= 100;
+          alerts.push({
+            // level is part of the id so dismissing the 75% warning doesn't hide the later "over budget"
+            id: `budget-${m.kind}-${p.id}-${over ? "over" : "warn"}`,
+            clientId: p.client_id ?? "",
+            clientName,
+            label: over ? `${m.label} Over Budget` : `${m.label} Budget Alert`,
+            description: `${pct}% of ${m.label.toLowerCase()} budget used (${formatCurrency(m.actual)} of ${formatCurrency(m.budget)})${p.name ? ` — ${p.name}` : ""}`,
+            severity: over ? "red" : "amber",
+          });
         });
+      });
 
       // Alert D: start date within 3 days with no FIO created yet
       const fioProjectIds = new Set((fioProjectsRes.data ?? []).map((f: any) => f.project_id));
@@ -450,7 +462,7 @@ export function RootLayout() {
   };
 
   useEffect(() => { fetchAlerts(); }, []);
-  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items", "field_installation_orders", "profiles", "commission_payments"], "nav-alerts");
+  useRealtimeRefetch(fetchAlerts, ["clients", "project_payments", "estimates", "appointments", "projects", "estimate_line_items", "field_installation_orders", "profiles", "commission_payments", "project_receipts", "fio_crew_payments"], "nav-alerts");
   useRealtimeRefetch(fetchNotifications, ["notifications"], "nav-notifications");
   // Polling + focus fallback so the bell stays current even when realtime doesn't deliver (RLS /
   // dropped socket). Refreshes BOTH crew notifications AND computed alerts (overdue payments, close

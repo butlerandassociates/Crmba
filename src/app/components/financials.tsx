@@ -19,6 +19,7 @@ import { Badge } from "./ui/badge";
 import { Link } from "react-router";
 import { projectsAPI } from "../utils/api";
 import { fetchLiveProjectFinancials } from "../api/live-gp";
+import { calcSalesRepCommission } from "../utils/financials";
 import { supabase } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
@@ -82,6 +83,12 @@ export function Financials() {
         budgetedCosts: p.totalCosts,
         hasLive: !!l,
         liveRevenue: l ? l.revenue : p.totalValue,
+        // Commissions: live GP (PM) / proposal subtotal (rep) from now on, but closed jobs keep the old
+        // stored-GP basis so already-reported numbers don't move (Jonathan, Oct 28 2026).
+        commissionGP: p.status === "completed" ? p.grossProfit : (l ? l.gp : p.grossProfit),
+        repCommission: p.status === "completed"
+          ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100)
+          : calcSalesRepCommission(l ? l.subtotal : p.totalValue, p.salesRepCommissionRate || 0),
         grossProfit: l ? l.gp : p.grossProfit,
         totalCosts: l ? l.cost : p.totalCosts,
         profitMargin: l ? l.gpPct : p.profitMargin,
@@ -139,8 +146,8 @@ export function Financials() {
   const totalCosts   = revenueProjects.reduce((sum, p) => sum + (p.totalCosts  || 0), 0);
   const totalProfit  = revenueProjects.reduce((sum, p) => sum + (p.grossProfit || 0), 0);
   const totalCommissions = revenueProjects.reduce((sum, p) => {
-    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
-    const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+    const pmComm  = p.project_manager_id ? (p.commissionGP || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
+    const repComm = p.sales_rep_id       ? (p.repCommission || 0) : 0;
     return sum + pmComm + repComm;
   }, 0);
   const totalNetProfit = totalProfit - totalCommissions;
@@ -366,11 +373,11 @@ export function Financials() {
                   </div>
                   <div className="text-right">
                     {(() => {
-                      const comm = project.project_manager_id ? (project.grossProfit || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
+                      const comm = project.project_manager_id ? (project.commissionGP || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
                       return (<>
                         <div className="font-semibold">{formatCurrency(comm)}</div>
                         <div className="text-sm text-muted-foreground">
-                          {project.grossProfit > 0 && (project.pmCommissionRate || 0) > 0
+                          {project.commissionGP > 0 && (project.pmCommissionRate || 0) > 0
                             ? `${project.pmCommissionRate}% of GP`
                             : "—"}
                         </div>
@@ -594,8 +601,8 @@ export function Financials() {
                 <tbody>
                   {[...earnedProjects, ...projectedProjects].map((project) => {
                     const isProjected = projectedProjects.some((p) => p.id === project.id);
-                    const projectPMComm  = project.project_manager_id ? (project.grossProfit || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
-                    const projectRepComm = project.sales_rep_id       ? (project.grossProfit || 0) * ((project.salesRepCommissionRate || 0) / 100) : 0;
+                    const projectPMComm  = project.project_manager_id ? (project.commissionGP || 0) * ((project.pmCommissionRate || 0) / 100) : 0;
+                    const projectRepComm = project.sales_rep_id       ? (project.repCommission || 0) : 0;
                     const projectNetProfit = (project.grossProfit || 0) - projectPMComm - projectRepComm;
                     return (
                     <tr key={project.id} className={`border-b hover:bg-accent ${isProjected ? "opacity-60" : ""}`}>

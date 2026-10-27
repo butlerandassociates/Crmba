@@ -404,13 +404,14 @@ export function pickJobEstimate<T extends { status?: string | null; created_at?:
       .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0];
 }
 
-export function computeLiveProjectFinancials(
+/** Budget vs actual (material / labor) from the same rows the live GP uses — drives the Budget Alert. */
+export function liveProjectCostInputs(
   project: LiveGPProjectRow,
   estimates: any[] | null | undefined,
-): ProjectedFinancials {
+): ProjectedGPInputs {
   const est: any = pickJobEstimate(estimates);
   const fios = project.fios ?? [];
-  const costs = aggregateProjectCosts({
+  return aggregateProjectCosts({
     lineItems: est?.line_items ?? [],
     estimateTotalCost: est?.total_cost ?? 0,
     receipts: project.receipts ?? [],
@@ -420,6 +421,13 @@ export function computeLiveProjectFinancials(
     pmLaborItems: est?.pm_labor ?? [],
     pmLaborActualHours: est?.pm_labor_actual_hours ?? null,
   });
+}
+
+export function computeLiveProjectFinancials(
+  project: LiveGPProjectRow,
+  estimates: any[] | null | undefined,
+): ProjectedFinancials {
+  const costs = liveProjectCostInputs(project, estimates);
   return computeProjectedFinancials(costs, {
     totalValue: project.total_value,
     status: project.status,

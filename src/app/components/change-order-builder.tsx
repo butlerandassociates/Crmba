@@ -17,7 +17,7 @@ import { Dialog, DialogContent } from "./ui/dialog";
 import { clientsAPI, productsAPI, activityLogAPI } from "../utils/api";
 import { projectId, publicAnonKey } from "utils/supabase/info";
 import { changeOrdersAPI } from "../api/change-orders";
-import { calcContingencyReserve, calcCoBaselineCarry } from "../utils/financials";
+import { calcContingencyReserve, calcCoBaselineCarry, calcBadQualifyingDirectCost } from "../utils/financials";
 import { supabase, guessContentType } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { toast } from "sonner";
@@ -893,11 +893,7 @@ export function ChangeOrderBuilder() {
   const coBadQualifyingOld = items.filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category)).reduce((s, i) => s + Number(i.total || 0), 0);
   const coBadDeltaOld = coBadQualifyingOld * 0.015 * 1.5;
 
-  // New-model delta (direct-cost-based). Original line items carry full material_cost +
-  // labor_cost so their delta is exact. New CO-added items only track material_cost in
-  // this builder today (no per-item labor_cost field exists on a change order line yet),
-  // so their contribution to the reserve is material-cost-only — a known, small
-  // undercount versus a line item added directly on a proposal, not a bug in this change.
+  // New-model delta (direct-cost-based, material + labor) for both original lines and CO-added items.
   const modBadDeltaNewDirectCost = Object.values(modifications).reduce((s: number, mod: any) => {
     const li = (proposal?.line_items || []).find((l: any) => l.id === mod.estimate_item_id);
     if (!li) return s;
@@ -911,9 +907,9 @@ export function ChangeOrderBuilder() {
     }
     return s;
   }, 0);
-  const coBadQualifyingDirectCostNew = items
-    .filter(i => i.description.trim() && BAD_CATEGORIES.includes(i.category))
-    .reduce((s, i) => s + Number(i.quantity || 0) * Number(i.material_cost || 0), 0);
+  // BAD on material + labor, same qualifying rule as a line added directly on a proposal
+  // (Jonathan, Oct 27 2026) — identical to mergeApproved in api/change-orders.ts.
+  const coBadQualifyingDirectCostNew = calcBadQualifyingDirectCost(items.filter(i => i.description.trim()));
   const modBadDeltaNew = calcContingencyReserve(modBadDeltaNewDirectCost, effectiveBadRate);
   const coBadDeltaNew = calcContingencyReserve(coBadQualifyingDirectCostNew, effectiveBadRate);
 

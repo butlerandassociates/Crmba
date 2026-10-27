@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { commissionPaymentsAPI } from "../utils/api";
 import { fetchLiveProjectFinancials } from "../api/live-gp";
+import { calcSalesRepCommission } from "../utils/financials";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
@@ -157,18 +158,26 @@ export function Payroll() {
       }
     });
 
-    // Compute projected commission for sales reps: sum(GP × rate) across their projects
+    // Projected commission for sales reps: sum(proposal subtotal × rate) across their projects.
+    // Jonathan, Oct 27 2026: "sales reps is 7% of subtotal" (not GP); contract value is the fallback
+    // if the live lookup fails, same as Move to Sold.
     const { data: repProjects } = await supabase
       .from("projects")
-      .select("id, sales_rep_id, gross_profit, sales_rep_commission_rate, client:clients(is_discarded)")
+      .select("id, sales_rep_id, status, gross_profit, total_value, sales_rep_commission_rate, client:clients(is_discarded)")
       .not("sales_rep_id", "is", null);
+    const liveRep = await fetchLiveProjectFinancials(
+      (repProjects ?? []).filter((pr: any) => !pr.client?.is_discarded && pr.sales_rep_id && byPM[pr.sales_rep_id]).map((pr: any) => pr.id),
+    );
     (repProjects ?? []).forEach((proj: any) => {
       const repId = proj.sales_rep_id;
       if (!repId || !byPM[repId]) return;
       if (proj.client?.is_discarded) return;
       const rate = Number(proj.sales_rep_commission_rate) || Number(byPM[repId].commission_rate) || 0;
-      byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) +
-        (Number(proj.gross_profit) || 0) * (rate / 100);
+      // closed jobs keep the old GP basis so reported numbers don't move (Jonathan, Oct 28 2026)
+      const commission = proj.status === "completed"
+        ? (Number(proj.gross_profit) || 0) * (rate / 100)
+        : calcSalesRepCommission(Number(liveRep[proj.id]?.subtotal ?? proj.total_value) || 0, rate);
+      byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) + commission;
     });
 
     // Compute projected commission for PMs: live GP × commission_rate (matches detail page)

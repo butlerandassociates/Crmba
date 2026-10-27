@@ -116,7 +116,7 @@ export function PipelineForecast() {
     .filter((p) => ["sold", "active"].includes(p.status))
     .reduce((sum, p) => {
       const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
-      const repComm = p.sales_rep_id       ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0;
+      const repComm = p.sales_rep_id       ? (p.status === "completed" ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : (p.salesRepCommission || 0)) : 0; // open jobs: % of subtotal set at Move to Sold; closed jobs keep the old GP basis (Jonathan, Oct 28 2026)
       return sum + pmComm + repComm;
     }, 0);
 
@@ -354,7 +354,7 @@ export function PipelineForecast() {
                     const repProjects = projects.filter(
                       (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
                     );
-                    const commission = repProjects.reduce((s, p) => s + (p.sales_rep_id === rep.id ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : 0), 0);
+                    const commission = repProjects.reduce((s, p) => s + (p.sales_rep_id === rep.id ? (p.status === "completed" ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : (p.salesRepCommission || 0)) : 0), 0);
                     return { ...rep, commission };
                   })
                   .sort((a, b) => b.commission - a.commission)

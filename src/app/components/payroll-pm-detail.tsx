@@ -54,9 +54,13 @@ export function PayrollPMDetail() {
       if (profile?.role === "sales_rep") {
         const { data: repProjects } = await supabase
           .from("projects")
-          .select("id, name, gross_profit, sales_rep_commission_rate, total_value, commission_override_total, client_id, client:clients(id, first_name, last_name, is_discarded)")
+          .select("id, name, status, gross_profit, sales_rep_commission_rate, total_value, commission_override_total, client_id, client:clients(id, first_name, last_name, is_discarded)")
           .eq("sales_rep_id", id!);
-        setProjects((repProjects ?? []).filter((p: any) => !p.client?.is_discarded));
+        const keptRep = (repProjects ?? []).filter((p: any) => !p.client?.is_discarded);
+        // Sales rep commission is a % of the proposal subtotal, not GP (Jonathan, Oct 27 2026);
+        // the contract value is only the fallback if the live lookup fails.
+        const liveRep = await fetchLiveProjectFinancials(keptRep.map((p: any) => p.id));
+        setProjects(keptRep.map((p: any) => ({ ...p, live_subtotal: liveRep[p.id]?.subtotal ?? null })));
       } else {
         const { data: pmProjects } = await supabase
           .from("projects")
@@ -138,12 +142,17 @@ export function PayrollPMDetail() {
   const isSalesRep = pm.role === "sales_rep";
   const manualPayouts = installments.filter(i => i.payout_type === "manual_payout");
 
-  // Build groups — GP × rate per project (same model for PM and Sales Rep)
+  // Build groups — PM: live GP × rate; Sales Rep: proposal subtotal × rate (Jonathan, Oct 27 2026).
+  // `gp` below is the commission base (GP for a PM, subtotal for a rep).
   const allGroups = projects.map((proj: any) => {
     const rate = isSalesRep
       ? Number(proj.sales_rep_commission_rate) || Number(pm.commission_rate) || 0
       : Number(pm.commission_rate) || 0;
-    const gp = Number(proj.live_gp ?? proj.gross_profit) || 0;
+    // closed jobs keep the old GP basis for reps so reported numbers don't move (Jonathan, Oct 28 2026)
+    const basisIsSubtotal = isSalesRep && proj.status !== "completed";
+    const gp = isSalesRep
+      ? (basisIsSubtotal ? Number(proj.live_subtotal ?? proj.total_value) || 0 : Number(proj.gross_profit) || 0)
+      : Number(proj.live_gp ?? proj.gross_profit) || 0;
     const commissionTotal = proj.commission_override_total != null
       ? Number(proj.commission_override_total)
       : gp * (rate / 100);
@@ -151,7 +160,7 @@ export function PayrollPMDetail() {
     const paid = projPayouts.reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
     const remaining = Math.max(0, commissionTotal - paid);
     const pct = commissionTotal > 0 ? Math.min(100, (paid / commissionTotal) * 100) : 0;
-    return { project: proj, gp, commissionTotal, rate, paid, remaining, pct, projPayouts };
+    return { project: proj, gp, commissionTotal, rate, paid, remaining, pct, projPayouts, basisLabel: basisIsSubtotal ? "subtotal" : "GP" };
   });
 
   const totalOwed = allGroups.reduce((s, g) => s + g.commissionTotal, 0);
@@ -211,7 +220,7 @@ export function PayrollPMDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Commission Owed</p>
                 <p className="text-xl font-bold text-purple-600">{fmtShort(totalOwed)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of GP across {allGroups.length} project{allGroups.length !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of {isSalesRep ? "subtotal (GP on closed jobs)" : "GP"} across {allGroups.length} project{allGroups.length !== 1 ? "s" : ""}</p>
               </div>
               <TrendingUp className="h-7 w-7 text-purple-500 opacity-60" />
             </div>
@@ -264,7 +273,7 @@ export function PayrollPMDetail() {
           const clientName = proj?.client
             ? `${proj.client.first_name ?? ""} ${proj.client.last_name ?? ""}`.trim()
             : "—";
-          const { gp, commissionTotal, rate, paid, remaining, pct, projPayouts } = group;
+          const { gp, commissionTotal, rate, paid, remaining, pct, projPayouts, basisLabel } = group;
           const isHistoryOpen = !!expandedPayoutHistory[proj?.id];
           const inputAmt = payoutAmounts[proj?.id] ?? "";
           const inputNote = payoutNotesByProject[proj?.id] ?? "";
@@ -287,7 +296,7 @@ export function PayrollPMDetail() {
 
                 {/* Commission formula */}
                 <p className="text-sm mt-2">
-                  <span className="text-muted-foreground">{rate}% of GP </span>
+                  <span className="text-muted-foreground">{rate}% of {basisLabel} </span>
                   <span className="font-semibold">{fmt(gp)}</span>
                   <span className="text-muted-foreground"> = </span>
                   <span className="font-bold text-green-700">{fmt(commissionTotal)}</span>
@@ -369,7 +378,7 @@ export function PayrollPMDetail() {
                 )}
 
                 {gp === 0 && (
-                  <p className="text-xs text-muted-foreground italic">GP not set — commission will calculate once gross profit is available.</p>
+                  <p className="text-xs text-muted-foreground italic">{isSalesRep ? "Subtotal not set — commission will calculate once the proposal subtotal is available." : "GP not set — commission will calculate once gross profit is available."}</p>
                 )}
 
                 {/* Payout History */}

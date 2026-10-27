@@ -4,7 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import { calcCoBaselineCarry } from "@/app/utils/financials";
+import { calcCoBaselineCarry, calcBadQualifyingDirectCost } from "@/app/utils/financials";
 
 export const changeOrdersAPI = {
   /** All COs for a client */
@@ -190,15 +190,12 @@ export const changeOrdersAPI = {
       if (mod.action === "edit") return s + ((Number(mod.total_price || 0) - Number(li.total_price || 0)) * 0.015 * 1.5);
       return s;
     }, 0);
-    // New CO items only track material_cost here (no per-item labor_cost field on a
-    // change order line), so their new-model contribution is material-cost-only — a
-    // known, small undercount versus an item added directly on a proposal.
+    // New-model CO items: BAD on material + labor, same qualifying rule as a line added directly
+    // on a proposal (Jonathan, Oct 27 2026: "yes" to applying BAD to the labor part too).
     const coBadQualifyingOld = coItems
       .filter((i: any) => i.description?.trim() && BAD_CATEGORIES.includes(i.category))
       .reduce((s: number, i: any) => s + Number(i.total || 0), 0);
-    const coBadQualifyingDirectCostNew = coItems
-      .filter((i: any) => i.description?.trim() && BAD_CATEGORIES.includes(i.category))
-      .reduce((s: number, i: any) => s + Number(i.quantity || 0) * Number(i.material_cost || 0), 0);
+    const coBadQualifyingDirectCostNew = calcBadQualifyingDirectCost(coItems.filter((i: any) => i.description?.trim()));
     const coBadDelta = usesNewBadModel
       ? coBadQualifyingDirectCostNew * (effectiveBadRate / 100)
       : coBadQualifyingOld * 0.015 * 1.5;
