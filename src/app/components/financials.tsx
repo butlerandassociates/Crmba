@@ -18,6 +18,7 @@ import {
 import { Badge } from "./ui/badge";
 import { Link } from "react-router";
 import { projectsAPI } from "../utils/api";
+import { fetchLiveProjectFinancials } from "../api/live-gp";
 import { supabase } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
@@ -69,7 +70,23 @@ export function Financials() {
         .select("project_id")
         .not("due_date", "is", null),
     ]);
-    setProjects(projectsResult);
+    // Jonathan, Oct 27 2026: the page shows live GP like the job page and payroll, and keeps the
+    // budgeted (stored) GP next to it so expected vs actual can be compared. If the live lookup
+    // fails for a job, that job falls back to its stored numbers.
+    const live = await fetchLiveProjectFinancials(projectsResult.map((p: any) => p.id));
+    setProjects(projectsResult.map((p: any) => {
+      const l = live[p.id];
+      return {
+        ...p,
+        budgetedGP: p.grossProfit,
+        budgetedCosts: p.totalCosts,
+        hasLive: !!l,
+        liveRevenue: l ? l.revenue : p.totalValue,
+        grossProfit: l ? l.gp : p.grossProfit,
+        totalCosts: l ? l.cost : p.totalCosts,
+        profitMargin: l ? l.gpPct : p.profitMargin,
+      };
+    }));
     setPayments(unpaidResult.data ?? []);
     setPaidPayments(paidResult.data ?? []);
     setProjectIdsWithDueDates(new Set((dueDatesResult.data ?? []).map((p: any) => p.project_id)));
@@ -127,7 +144,10 @@ export function Financials() {
     return sum + pmComm + repComm;
   }, 0);
   const totalNetProfit = totalProfit - totalCommissions;
-  const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const totalBudgetedGP = revenueProjects.reduce((sum, p) => sum + (p.budgetedGP || 0), 0);
+  // margin on the revenue the live GP is measured against (contract value minus sales tax)
+  const liveRevenueTotal = revenueProjects.reduce((sum, p) => sum + (p.liveRevenue || 0), 0);
+  const avgProfitMargin = liveRevenueTotal > 0 ? (totalProfit / liveRevenueTotal) * 100 : 0;
   const projectedRevenue = projectedProjects.reduce((sum, p) => sum + (p.totalValue || 0), 0);
 
   // Monthly financial trends — sold + active + completed projects by created_at (last 6 months)
@@ -220,7 +240,7 @@ export function Financials() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(totalProfit)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Revenue - Costs</p>
+            <p className="text-xs text-muted-foreground mt-1">Live (projected) · Budgeted {formatCurrency(totalBudgetedGP)}</p>
           </CardContent>
         </Card>
 
@@ -564,7 +584,8 @@ export function Financials() {
                     <th className="text-left p-3 font-medium">Status</th>
                     <th className="text-right p-3 font-medium">Revenue</th>
                     <th className="text-right p-3 font-medium">Costs</th>
-                    <th className="text-right p-3 font-medium">Profit</th>
+                    <th className="text-right p-3 font-medium">Budgeted GP</th>
+                    <th className="text-right p-3 font-medium">Live GP</th>
                     <th className="text-right p-3 font-medium">Margin</th>
                     <th className="text-right p-3 font-medium">Commission</th>
                     <th className="text-right p-3 font-medium text-orange-600">Net Profit</th>
@@ -594,6 +615,7 @@ export function Financials() {
                       </td>
                       <td className="text-right p-3 font-medium">{formatCurrency(project.totalValue  || 0)}</td>
                       <td className="text-right p-3">               {formatCurrency(project.totalCosts  || 0)}</td>
+                      <td className="text-right p-3 text-muted-foreground">{formatCurrency(project.budgetedGP || 0)}</td>
                       <td className="text-right p-3 font-medium text-green-600">{formatCurrency(project.grossProfit || 0)}</td>
                       <td className="text-right p-3">{(project.profitMargin || 0).toFixed(1)}%</td>
                       <td className="text-right p-3">{formatCurrency(projectPMComm + projectRepComm)}</td>
@@ -607,6 +629,7 @@ export function Financials() {
                     <td className="p-3" colSpan={2}>Totals</td>
                     <td className="text-right p-3">{formatCurrency(totalRevenue)}</td>
                     <td className="text-right p-3">{formatCurrency(totalCosts)}</td>
+                    <td className="text-right p-3 text-muted-foreground">{formatCurrency(totalBudgetedGP)}</td>
                     <td className="text-right p-3 text-green-600">{formatCurrency(totalProfit)}</td>
                     <td className="text-right p-3">{avgProfitMargin.toFixed(1)}%</td>
                     <td className="text-right p-3">{formatCurrency(totalCommissions)}</td>
