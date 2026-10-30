@@ -434,18 +434,18 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
         {PROCESS_STEPS.map((step, i) => {
           const isLast = i === PROCESS_STEPS.length - 1;
           return (
-            <div key={step.number} data-group="true" style={{ display: "flex", gap: 18, paddingBottom: isLast ? 0 : 16 }}>
+            <div key={step.number} data-group="true" style={{ display: "flex", gap: 18, paddingBottom: isLast ? 0 : 10 }}>
               <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", flexShrink: 0, width: 30 }}>
                 <div style={{ width: 30, height: 30, borderRadius: "50%", background: B.gold, flexShrink: 0, textAlign: "center" as const }}>
                   <span style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 600, color: "#fff", letterSpacing: "0.04em", lineHeight: "30px", display: "block", position: "relative" as const, top: -5 }}>{step.number}</span>
                 </div>
-                {!isLast && <div style={{ width: 1, flex: 1, minHeight: 28, marginTop: 6, background: "#E8E0D0" }} />}
+                {!isLast && <div style={{ width: 1, flex: 1, minHeight: 20, marginTop: 6, background: "#E8E0D0" }} />}
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ fontFamily: B.inter, fontSize: 9.5, fontWeight: 500, letterSpacing: "0.16em", color: B.gold, margin: "0 0 4px 0" }}>{step.label}</p>
                 <p style={{ fontFamily: B.lato, fontSize: 15, fontWeight: 500, color: B.black, margin: "0 0 6px 0" }}>{step.title}</p>
                 {step.highlight ? (
-                  <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px", marginTop: 16 }}>
+                  <div style={{ background: "#FAFAF7", borderLeft: `2px solid ${B.gold}`, borderRadius: "0 4px 4px 0", padding: "12px 16px", marginTop: 10 }}>
                     <p style={{ fontFamily: B.inter, fontSize: 11, color: B.text, opacity: 0.75, margin: 0, lineHeight: 1.6 }}>{step.body}</p>
                     <p style={{ fontFamily: B.inter, fontSize: 9, fontWeight: 500, letterSpacing: "0.08em", color: B.gold, margin: "8px 0 0 0" }}>
                       ● PROPRIETARY CLIENT PORTAL — INCLUDED WITH EVERY PROJECT
@@ -460,7 +460,8 @@ export function ProposalExport({ proposal, client, reviews = [], warrantySection
         })}
       </div>
 
-      <div style={{ paddingTop: 10, paddingBottom: 10, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
+      {/* data-group keeps the page slicer from cutting through this row; marginTop is a floor so the last step never touches its top border */}
+      <div data-group="true" style={{ marginTop: 14, paddingTop: 12, paddingBottom: 14, borderTop: "1px solid #E8E0D0", borderBottom: "1px solid #E8E0D0", display: "flex", gap: 20 }}>
         {[
           { icon: "📋", label: "Contract & Documents", text: "Your signed agreement and any change orders, always accessible." },
           { icon: "💳", label: "Payments", text: "View your payment schedule, submit payments, and track your balance." },
