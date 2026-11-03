@@ -1,6 +1,7 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
 import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, computeProjectedGP, computeProjectedFinancials, aggregateProjectCosts } from "@/app/utils/financials";
+import { parseEmailList, invalidEmails } from "@/app/utils/client-emails";
 
 // Revenue base for job-level GP / GP%: contract value minus sales tax (Jonathan, Oct 14 2026).
 const gpRevenueOf = (d: any, project: any): number => computeProjectedFinancials(d, project).revenue;
@@ -2056,6 +2057,7 @@ export function ClientDetail() {
                   last_name: client.last_name ?? "",
                   company: client.company ?? "",
                   email: client.email ?? "",
+                  additional_emails: client.additional_emails ?? "",
                   phone: client.phone ?? "",
                   address: client.address ?? "",
                   city: client.city ?? "",
@@ -2074,6 +2076,7 @@ export function ClientDetail() {
               <div>
                 <div className="text-sm font-medium">Email</div>
                 <div className="text-sm text-muted-foreground">{client.email || "—"}</div>
+                {client.additional_emails && <div className="text-xs text-muted-foreground break-all">+ {client.additional_emails}</div>}
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -4945,10 +4948,12 @@ export function ClientDetail() {
         const isValidPhone = (v: string) => v.replace(/\D/g, "").length >= 7;
         const fnErr    = !(ec.first_name ?? "").trim() && !(ec.company ?? "").trim() ? "First name or company is required." : (ec.first_name ?? "").trim().length > 0 && (ec.first_name ?? "").trim().length < 2 ? "Min 2 characters." : "";
         const emailErr   = !(ec.email ?? "").trim() ? "Email is required." : !isValidEmail((ec.email ?? "").trim()) ? "Enter a valid email address." : "";
+        const badExtra = invalidEmails(ec.additional_emails);
+        const extraEmailErr = badExtra.length > 0 ? `Not a valid email: ${badExtra.join(", ")}` : "";
         const phoneErr   = !(ec.phone ?? "").trim() ? "Phone is required." : !isValidPhone(ec.phone ?? "") ? "Enter a valid phone number (min 7 digits)." : "";
         const addressErr = !(ec.address ?? "").trim() ? "Address is required." : (ec.address ?? "").trim().length < 5 ? "Address must be at least 5 characters." : "";
         const zipErr     = (ec.zip ?? "").trim() && (ec.zip ?? "").trim().length < 4 ? "ZIP must be at least 4 characters." : "";
-        const hasErr = !!fnErr || !!emailErr || !!phoneErr || !!addressErr || !!zipErr;
+        const hasErr = !!fnErr || !!emailErr || !!extraEmailErr || !!phoneErr || !!addressErr || !!zipErr;
         const t = editClientTouched;
         return (
           <Dialog open={editClientOpen} onOpenChange={(open) => { setEditClientOpen(open); if (!open) { setEditClientTouched(false); setClientForm({}); } }}>
@@ -4977,6 +4982,13 @@ export function ClientDetail() {
                   <Label>Email <span className="text-destructive">*</span></Label>
                   <Input type="text" value={ec.email ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, email: e.target.value }))} className={t && emailErr ? "border-red-500" : ""} />
                   {t && emailErr && <p className="text-xs text-red-500">{emailErr}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Additional Emails</Label>
+                  <Input type="text" value={ec.additional_emails ?? ""} onChange={(e) => setClientForm((f: any) => ({ ...f, additional_emails: e.target.value }))} className={t && extraEmailErr ? "border-red-500" : ""} placeholder="spouse@example.com, other@example.com" />
+                  {t && extraEmailErr
+                    ? <p className="text-xs text-red-500">{extraEmailErr}</p>
+                    : <p className="text-xs text-muted-foreground">Enter additional emails separated by a comma. Proposal emails go to all of them.</p>}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Phone <span className="text-destructive">*</span></Label>
@@ -5011,11 +5023,16 @@ export function ClientDetail() {
                   if (hasErr) return;
                   setSavingClient(true);
                   try {
-                    await clientsAPI.update(client.id, clientForm);
+                    // additional emails: stored as a tidy "a@x.com, b@y.com" (or null); only sent when changed so a
+                    // normal edit never touches that column
+                    const cleanedExtra = parseEmailList(clientForm.additional_emails).join(", ");
+                    const savePayload: Record<string, unknown> = { ...clientForm, additional_emails: cleanedExtra || null };
+                    if (cleanedExtra === (client.additional_emails ?? "").trim()) delete savePayload.additional_emails;
+                    await clientsAPI.update(client.id, savePayload);
                     // Build a field-level diff for the activity log
                     const fieldLabels: Record<string, string> = {
                       first_name: "First Name", last_name: "Last Name", company: "Company",
-                      email: "Email", phone: "Phone", address: "Address",
+                      email: "Email", additional_emails: "Additional Emails", phone: "Phone", address: "Address",
                       city: "City", state: "State", zip: "ZIP",
                     };
                     const diffLines = Object.keys(fieldLabels)
@@ -5027,7 +5044,7 @@ export function ClientDetail() {
                     const logDesc = changedNames.length
                       ? `Client info updated: ${changedNames.join(", ")}||${diffLines.join("\n")}`
                       : "Client info updated";
-                    setClient({ ...client, ...clientForm });
+                    setClient({ ...client, ...clientForm, additional_emails: cleanedExtra || null });
                     setEditClientOpen(false);
                     setEditClientTouched(false);
                     activityLogAPI.create({ client_id: client.id, action_type: "client_updated", description: logDesc }).then(loadActivityLog).catch(() => {});

@@ -26,6 +26,7 @@ import { ProposalExport } from "./proposal-export";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { newTrackingId } from "../utils/email-tracking";
+import { clientRecipientEmails } from "../utils/client-emails";
 
 interface EmailTemplatesDialogProps {
   open: boolean;
@@ -515,16 +516,16 @@ export function EmailTemplatesDialog({
 
       const trackingId = newTrackingId();
       const { error } = await supabase.functions.invoke("send-email", {
-        body: { to: client.email, subject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"], tracking_id: trackingId, client_id: client.id },
+        body: { to: clientRecipientEmails(client).join(", "), subject, html, from_name: "Butler & Associates Construction", attachments, cc: ["info@butlerconstruction.co"], tracking_id: trackingId, client_id: client.id },
       });
       if (error) throw error;
       await activityLogAPI.create({
         client_id: client.id,
         action_type: "email_sent",
-        description: `Email sent to ${client.email}: "${subject}"`,
+        description: `Email sent to ${clientRecipientEmails(client).join(", ")}: "${subject}"`,
         tracking_id: trackingId,
       }).catch(() => {});
-      toast.success(`Email sent to ${client.email}`);
+      toast.success(`Email sent to ${clientRecipientEmails(client).join(", ")}`);
       onSent?.();
       onOpenChange(false);
       resetForm();

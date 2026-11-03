@@ -27,11 +27,30 @@ serve(async (req) => {
       });
     }
 
+    // `to` may be one address, a comma-separated string ("a@x.com, b@y.com" — a client with additional emails)
+    // or an array. All recipients get the same single message, so the same "View Proposal" link.
+    const toList: string[] = [];
+    for (const part of (Array.isArray(to) ? to : String(to).split(/[,;]+/))) {
+      const email = String(part).trim();
+      if (email && !toList.some((e) => e.toLowerCase() === email.toLowerCase())) toList.push(email);
+    }
+    if (toList.length === 0) {
+      return new Response(JSON.stringify({ error: "at least one valid recipient is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const toLabel = toList.join(", ");
+
     const personalization: Record<string, unknown> = {
-      to: [{ email: to }],
+      to: toList.map((email) => ({ email })),
     };
-    if (Array.isArray(cc) && cc.length > 0) {
-      personalization.cc = cc.map((email: string) => ({ email }));
+    // SendGrid rejects the same address in both To and CC, so drop CC entries that are already recipients
+    const ccList = Array.isArray(cc)
+      ? cc.filter((email: string) => !toList.some((e) => e.toLowerCase() === String(email).trim().toLowerCase()))
+      : [];
+    if (ccList.length > 0) {
+      personalization.cc = ccList.map((email: string) => ({ email }));
     }
 
     const body: Record<string, unknown> = {
@@ -65,7 +84,7 @@ serve(async (req) => {
         const { error: trackErr } = await supabase.from("email_tracking").upsert({
           id: tracking_id,
           client_id: typeof client_id === "string" && UUID_RE.test(client_id) ? client_id : null,
-          to_email: to,
+          to_email: toLabel,
           subject,
         }, { onConflict: "id", ignoreDuplicates: true });
         if (trackErr) console.warn(`[send-email] could not create email_tracking row: ${trackErr.message}`);
@@ -85,14 +104,14 @@ serve(async (req) => {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error(`[send-email] FAILED: SendGrid error sending to ${to} — ${error}`);
+      console.error(`[send-email] FAILED: SendGrid error sending to ${toLabel} — ${error}`);
       return new Response(JSON.stringify({ error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log(`[send-email] SUCCESS: email sent to ${to} subject="${subject}"`);
+    console.log(`[send-email] SUCCESS: email sent to ${toLabel} subject="${subject}"`);
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

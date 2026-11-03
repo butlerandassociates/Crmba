@@ -45,6 +45,7 @@ import { Switch } from "./ui/switch";
 import { estimatesAPI, clientsAPI, productsAPI, estimateTemplatesAPI, wizardVariantsAPI, activityLogAPI, notificationsAPI, warrantyAPI, projectsAPI, companySettingsAPI } from "../utils/api";
 import { qtyLabel } from "../utils/qty-label";
 import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, calcBadQualifyingDirectCost, calcContingencyReserve, calcClientProposalTotal, roundCents } from "../utils/financials";
+import { clientRecipientEmails } from "../utils/client-emails";
 import { newTrackingId } from "../utils/email-tracking";
 import type { WarrantySection } from "../utils/api";
 import { usePermissions } from "../hooks/usePermissions";
@@ -1762,7 +1763,8 @@ export function ProposalDetail() {
           .replace(/\{client_name\}/g, `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim() || firstName)
           .replace(/\{proposal_title\}/g, proposal.title ?? "")
       : `Proposal: ${proposal.title}`;
-    setEmailTo(client?.email ?? "");
+    // primary email + any additional emails (comma-separated); send-email puts them all on the To line
+    setEmailTo(clientRecipientEmails(client).join(", "));
     setEmailSubject(templateSubject);
     setEmailMessage(templateBody);
     setAttachProposalPdf(true);
