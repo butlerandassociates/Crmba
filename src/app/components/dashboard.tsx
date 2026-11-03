@@ -29,6 +29,7 @@ import { supabase } from "@/lib/supabase";
 import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../contexts/auth-context";
 import { useViewAs } from "../contexts/view-as-context";
+import { PipelineBoard } from "./pipeline-board";
 
 export function Dashboard() {
   const { can, role } = usePermissions();
@@ -709,38 +710,17 @@ export function Dashboard() {
           </Link>
         </div>
 
-        {/* Pipeline stage columns */}
+        {/* Pipeline stage tiles — click one to list its clients (Jonathan, Nov 2026) */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Pipeline by Stage</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-              {[
-                { label: 'Prospect', clients: pipelineProspect, color: 'bg-gray-100 text-gray-700', href: '/clients?stage=prospect' },
-                { label: 'Scheduled', clients: pipelineScheduled, color: 'bg-blue-100 text-blue-700', href: '/clients?stage=scheduled' },
-                { label: 'Selling', clients: pipeSelling, color: 'bg-orange-100 text-orange-700', href: '/clients?stage=selling' },
-                { label: 'Sold', clients: pipeSold, color: 'bg-green-100 text-green-700', href: '/clients?stage=sold' },
-                { label: 'Active', clients: pipeActive, color: 'bg-emerald-100 text-emerald-700', href: '/clients?stage=active' },
-                { label: 'Completed', clients: pipeCompleted, color: 'bg-purple-100 text-purple-700', href: '/clients?stage=completed' },
-              ].map((stage) => (
-                <Link
-                  key={stage.label}
-                  to={stage.href}
-                  className="no-underline block"
-                >
-                  <div className={`rounded-lg p-3 text-center transition-opacity hover:opacity-80 cursor-pointer ${stage.color}`}>
-                    <div className="text-2xl font-bold">{stage.clients.length}</div>
-                    <div className="text-xs font-medium mt-0.5">{stage.label}</div>
-                    {stage.clients.length > 0 && (
-                      <div className="text-[10px] mt-1 opacity-75">
-                        {formatCurrency(stage.clients.reduce((s: number, c: any) => s + (c.proposal_forecast || clientProjectTotal(c.id) || 0), 0))}
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <PipelineBoard
+              clients={nonDiscarded}
+              // same amounts the stage tiles always showed: proposal total, else the job total
+              clientValue={(_stage: string, c: any) => c.proposal_forecast || clientProjectTotal(c.id) || 0}
+            />
           </CardContent>
         </Card>
 
