@@ -36,6 +36,7 @@ const clientDisplayName = (c: any) =>
   `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || c.company || c.email || "—";
 const money0 = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
 const dateOnly = (d: string) => new Date(d.includes("T") ? d : `${d}T00:00:00`);
+const shortDate = (d?: string | null) => (d ? dateOnly(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD");
 const daysLabel = (d: number | null) => (d === null ? "" : d === 0 ? "Today" : d === 1 ? "1 day" : `${d} days`);
 
 const TAG_GRAY  = "bg-gray-100 text-gray-700 border-gray-200";
@@ -247,6 +248,36 @@ export function PipelineBoard({ clients, clientValue = defaultClientValue }: Pro
                       <dd className="break-words">{address || "—"}</dd>
                     </div>
                   </dl>
+
+                  {/* Project overview (Jonathan, Nov 7 2026): projected GP, assigned foreman, start - end date. Only once a project exists. */}
+                  {(quickView.projects?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="mb-2 text-xs text-muted-foreground">Project</p>
+                      <dl className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-2">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Projected GP</dt>
+                          <dd className="break-words">
+                            {quickView.project_gross_profit != null ? money0(quickView.project_gross_profit) : "—"}
+                            {quickView.project_gross_profit != null && quickView.project_profit_margin != null && (
+                              <span className="text-muted-foreground"> ({Number(quickView.project_profit_margin).toFixed(1)}%)</span>
+                            )}
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Crew foreman</dt>
+                          <dd className="break-words">{quickView.foremanName || "Not assigned"}</dd>
+                        </div>
+                        <div className="min-w-0 sm:col-span-2">
+                          <dt className="text-xs text-muted-foreground">Start – end date</dt>
+                          <dd className="break-words">
+                            {quickView.project_start_date || quickView.project_end_date
+                              ? `${shortDate(quickView.project_start_date)} – ${shortDate(quickView.project_end_date)}`
+                              : "Not scheduled"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
 
                   <div>
                     <p className="mb-2 text-xs text-muted-foreground">Proposals</p>
