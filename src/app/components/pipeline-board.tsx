@@ -308,9 +308,16 @@ export function PipelineBoard({ clients, clientValue = defaultClientValue }: Pro
                         ))}
                       </div>
                     )}
-                    <Button asChild variant="outline" size="sm" className="mt-3">
-                      <Link to={`/clients/${quickView.id}/create-proposal`} onClick={() => setQuickView(null)}>New proposal</Link>
-                    </Button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button asChild variant="outline" size="sm">
+                        <Link to={`/clients/${quickView.id}/create-proposal`} onClick={() => setQuickView(null)}>New proposal</Link>
+                      </Button>
+                      {(quickView.projects?.length ?? 0) > 0 && (
+                        <Button asChild variant="outline" size="sm">
+                          <Link to={`/clients/${quickView.id}#site-photos`} onClick={() => setQuickView(null)}>Job site photos</Link>
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </DialogBody>
               </>

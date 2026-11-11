@@ -134,6 +134,7 @@ import { PurchaseOrdersSheet } from "./purchase-orders-sheet";
 import { CostAttributionsSheet } from "./cost-attributions-sheet";
 import { ClientPortalActivity } from "./client-portal-activity";
 import { NotesFilesFeed } from "./notes-files-feed";
+import { SitePhotosCard } from "./site-photos-card";
 import { FileUploadDialog } from "./file-upload-dialog";
 import { fileTypesAPI, FALLBACK_FILE_TYPES, type FileType } from "../api/file-types";
 import { filesAPI } from "../api/files";
@@ -1015,6 +1016,12 @@ export function ClientDetail() {
 
   // Files list (incl. auto-uploaded signed contract / certificate PDFs from the DocuSign webhook)
   useRealtimeRefetch(loadPhotos, ["client_files"], `files-${id}`);
+  // the pipeline quick view links here with #site-photos: scroll to the gallery once the photos have loaded
+  useEffect(() => {
+    if (window.location.hash === "#site-photos" && photos.length > 0) {
+      document.getElementById("site-photos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [photos.length]);
 
   const handleSaveNotes = async () => {
     if (!notes.trim()) { setNotesErr("Note cannot be empty."); return; }
@@ -3671,6 +3678,9 @@ export function ClientDetail() {
 
       {/* ── Client Portal usage (visit frequency) ── */}
       {id && <ClientPortalActivity clientId={id} />}
+
+      {/* ── Job site photos — thumbnail gallery (Jonathan, Nov 11 2026) ── */}
+      <SitePhotosCard files={photos} onPreview={(f) => setPreviewFile(f)} />
 
       {/* ── Notes & Files + Activity Log ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
