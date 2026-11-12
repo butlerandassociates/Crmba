@@ -10,6 +10,8 @@ import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Loader2, Search, Briefcase, CheckCircle2, Clock, Award, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/app/utils/format";
+import { fetchLiveProjectFinancials } from "../api/live-gp";
+import { calcJobCommissionOwed } from "../utils/financials";
 
 const STAGE_COLORS: Record<string, string> = {
   prospect:  "bg-blue-100 text-blue-700 border-blue-200",
@@ -57,7 +59,7 @@ export function MyPortal() {
   const PROJ_SELECT = `
     id, status, total_value, gross_profit, profit_margin,
     commission, commission_rate,
-    sales_rep_commission, sales_rep_commission_rate,
+    sales_rep_commission, sales_rep_commission_rate, commission_override_total,
     start_date, end_date, name
   `;
 
@@ -115,6 +117,29 @@ export function MyPortal() {
         }
       }
 
+      // Commission shown here = the same live number Payroll and the client page show (shared formula in
+      // financials.ts). It used to read projects.commission / sales_rep_commission, a snapshot written when the job
+      // was sold that never follows later GP changes.
+      try {
+        const [{ data: me }, live] = await Promise.all([
+          supabase.from("profiles").select("commission_rate").eq("id", profileId).maybeSingle(),
+          fetchLiveProjectFinancials(jobs.map((j: any) => j.id)),
+        ]);
+        const myRate = Number(me?.commission_rate) || 0;
+        jobs = jobs.map((j: any) => ({
+          ...j,
+          live_gp_pct: live[j.id] ? live[j.id].gpPct : null, // the GP % the job page shows (profit_margin is a stale snapshot)
+          commission_owed: calcJobCommissionOwed({
+            role: isPM ? "pm" : "rep",
+            ratePct: isPM ? myRate : (Number(j.sales_rep_commission_rate) || myRate),
+            status: j.status, liveGP: live[j.id]?.gp, storedGP: j.gross_profit,
+            subtotal: live[j.id]?.subtotal, contractValue: j.total_value, override: j.commission_override_total,
+          }),
+        }));
+      } catch (e) {
+        console.warn("MyPortal live commission failed, showing saved values:", e);
+      }
+
       setJobs(jobs);
     } catch (err: any) {
       console.error("MyPortal fetch error:", err);
@@ -128,7 +153,7 @@ export function MyPortal() {
   const activeJobs     = jobs.filter((j) => j.status === "active").length;
   const completedJobs  = jobs.filter((j) => j.status === "completed").length;
   const totalCommission = jobs.reduce((sum, j) => {
-    return sum + (isPM ? (j.commission ?? 0) : (j.sales_rep_commission ?? 0));
+    return sum + (j.commission_owed ?? (isPM ? (j.commission ?? 0) : (j.sales_rep_commission ?? 0)));
   }, 0);
 
   // Filter + search
@@ -267,8 +292,9 @@ export function MyPortal() {
               {visibleJobs.map((job) => {
                 const clientName = `${job.client?.first_name ?? ""} ${job.client?.last_name ?? ""}`.trim();
                 const proposalTitle = job.name ?? "—";
-                const commission = isPM ? (job.commission ?? 0) : (job.sales_rep_commission ?? 0);
-                const gpPct = job.profit_margin != null ? Number(job.profit_margin).toFixed(1) + "%" : "—";
+                const commission = job.commission_owed ?? (isPM ? (job.commission ?? 0) : (job.sales_rep_commission ?? 0));
+                const gpShown = job.live_gp_pct ?? job.profit_margin;
+                const gpPct = gpShown != null ? Number(gpShown).toFixed(1) + "%" : "—";
 
                 return (
                   <tr

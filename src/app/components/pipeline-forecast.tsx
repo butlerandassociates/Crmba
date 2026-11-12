@@ -30,6 +30,7 @@ import {
   Bell,
 } from "lucide-react";
 import { clientsAPI, projectsAPI, usersAPI, estimatesAPI } from "../utils/api";
+import { withLiveCommissions } from "../api/live-gp";
 import { PageLoader, SkeletonCards, SkeletonTable } from "./ui/page-loader";
 import { supabase } from "@/lib/supabase";
 import { pickJobEstimate } from "@/app/utils/financials";
@@ -63,7 +64,7 @@ export function PipelineForecast() {
         estimatesAPI.getAll(),
       ]);
       setClients(clientsData);
-      setProjects(projectsData);
+      setProjects(await withLiveCommissions(projectsData));
       setUsers(usersData);
       setProposalClientIds(new Set(estimatesData.map((e: any) => e.client_id)));
       setEstimates(estimatesData);
@@ -134,9 +135,7 @@ export function PipelineForecast() {
   const pendingCommissions = projects
     .filter((p) => ["sold", "active"].includes(p.status))
     .reduce((sum, p) => {
-      const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
-      const repComm = p.sales_rep_id       ? (p.status === "completed" ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : (p.salesRepCommission || 0)) : 0; // open jobs: % of subtotal set at Move to Sold; closed jobs keep the old GP basis (Jonathan, Oct 28 2026)
-      return sum + pmComm + repComm;
+      return sum + (p.pmCommissionOwed || 0) + (p.repCommissionOwed || 0); // shared formula, see financials.ts calcJobCommissionOwed
     }, 0);
 
   // ── Pipeline board helpers ────────────────────────────────────────────────────
@@ -493,7 +492,7 @@ export function PipelineForecast() {
                     const repProjects = projects.filter(
                       (p) => p.sales_rep_id === rep.id && ["sold", "active"].includes(p.status)
                     );
-                    const commission = repProjects.reduce((s, p) => s + (p.sales_rep_id === rep.id ? (p.status === "completed" ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : (p.salesRepCommission || 0)) : 0), 0);
+                    const commission = repProjects.reduce((s, p) => s + (p.sales_rep_id === rep.id ? (p.repCommissionOwed || 0) : 0), 0);
                     return { ...rep, commission };
                   })
                   .sort((a, b) => b.commission - a.commission)

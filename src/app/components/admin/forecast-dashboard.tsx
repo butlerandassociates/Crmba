@@ -3,6 +3,7 @@ import { formatCurrency } from "@/app/utils/format";
 import { useRealtimeRefetch } from "../../hooks/useRealtimeRefetch";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { clientsAPI, projectsAPI } from "../../utils/api";
+import { withLiveCommissions } from "../../api/live-gp";
 import { TrendingUp, DollarSign, Target, Calendar } from "lucide-react";
 import { SkeletonCards, SkeletonChart } from "../ui/page-loader";
 import {
@@ -24,7 +25,7 @@ export function ForecastDashboard() {
 
   const fetchData = () => {
     Promise.all([clientsAPI.getAll(), projectsAPI.getAll()])
-      .then(([c, p]) => { setClients(c); setProjects(p); })
+      .then(async ([c, p]) => { setClients(c); setProjects(await withLiveCommissions(p)); })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -54,9 +55,7 @@ export function ForecastDashboard() {
   const soldRevenue      = soldProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const completedRevenue = completedProjects.reduce((s, p) => s + (p.totalValue || 0), 0);
   const totalCommissions = projects.reduce((s, p) => {
-    const pmComm  = p.project_manager_id ? (p.grossProfit || 0) * ((p.pmCommissionRate || 0) / 100) : 0;
-    const repComm = p.sales_rep_id       ? (p.status === "completed" ? (p.grossProfit || 0) * ((p.salesRepCommissionRate || 0) / 100) : (p.salesRepCommission || 0)) : 0; // open jobs: % of subtotal set at Move to Sold; closed jobs keep the old GP basis (Jonathan, Oct 28 2026)
-    return s + pmComm + repComm;
+    return s + (p.pmCommissionOwed || 0) + (p.repCommissionOwed || 0); // shared formula, see financials.ts calcJobCommissionOwed
   }, 0);
 
   // Monthly revenue — last 6 months by created_at

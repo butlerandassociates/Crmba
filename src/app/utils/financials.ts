@@ -17,6 +17,56 @@ export function calcSalesRepCommission(subtotal: number, salesRepRatePct: number
     : 0;
 }
 
+/**
+ * THE one place a job's commission is worked out. Every screen that shows a PM or Sales Rep commission (client page,
+ * Payroll, Financials, My Portal, the Pipeline / forecast pages) must call this and nothing else, so two screens can
+ * never show two different numbers for the same job again (Jonathan, Oct 21 and Nov 12 2026).
+ *
+ * Rules (all from Jonathan):
+ *  - a commission_override_total on the project wins for whoever is looking at it
+ *  - PM = rate x the LIVE projected GP (the number the job page shows), falling back to the stored GP only if the live
+ *    lookup failed
+ *  - Sales Rep = rate x the proposal subtotal on open jobs; closed (completed) jobs keep the old stored-GP basis so
+ *    what was already reported doesn't move (Oct 28 2026)
+ * The commission_payments "pending" row is only a snapshot written when the job was sold: never use it as the amount
+ * owed, and never add paid-out money on top of it (the paid part is already inside the commission).
+ */
+export function calcJobCommissionOwed(p: {
+  role: "pm" | "rep";
+  ratePct: number;
+  status?: string | null;
+  liveGP?: number | null;
+  storedGP?: number | null;
+  subtotal?: number | null;
+  contractValue?: number | null;
+  override?: number | null;
+}): number {
+  if (p.override != null && Number.isFinite(Number(p.override))) return Number(p.override);
+  const rate = Number(p.ratePct) || 0;
+  if (p.role === "pm") return calcPmCommission(Number(p.liveGP ?? p.storedGP ?? 0), rate);
+  if (p.status === "completed") {
+    const gp = Number(p.storedGP ?? 0);
+    return gp > 0 && rate > 0 ? Math.round(gp * (rate / 100) * 100) / 100 : 0;
+  }
+  return calcSalesRepCommission(Number(p.subtotal ?? p.contractValue ?? 0), rate);
+}
+
+/** Money already paid out to one person on one job: the processed manual payouts (same rows Payroll adds up). */
+export function commissionPaidOut(
+  rows: { profile_id?: string | null; payout_type?: string | null; amount?: number | string | null }[] | null | undefined,
+  profileId: string | null | undefined,
+): number {
+  if (!profileId) return 0;
+  return (rows ?? [])
+    .filter((r) => r.profile_id === profileId && r.payout_type === "manual_payout")
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+}
+
+/** What is still owed: commission minus what was paid out, never below zero, to the cent. */
+export function commissionRemaining(owed: number, paid: number): number {
+  return Math.max(0, Math.round((owed - paid) * 100) / 100);
+}
+
 export type EffectiveCommissionRates = {
   pmRate: number;
   salesRepRate: number;

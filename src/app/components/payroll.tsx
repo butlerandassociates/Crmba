@@ -9,7 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { useRealtimeRefetch } from "../hooks/useRealtimeRefetch";
 import { commissionPaymentsAPI } from "../utils/api";
 import { fetchLiveProjectFinancials } from "../api/live-gp";
-import { calcSalesRepCommission } from "../utils/financials";
+import { calcJobCommissionOwed } from "../utils/financials";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
@@ -163,7 +163,7 @@ export function Payroll() {
     // if the live lookup fails, same as Move to Sold.
     const { data: repProjects } = await supabase
       .from("projects")
-      .select("id, sales_rep_id, status, gross_profit, total_value, sales_rep_commission_rate, client:clients(is_discarded)")
+      .select("id, sales_rep_id, status, gross_profit, total_value, sales_rep_commission_rate, commission_override_total, client:clients(is_discarded)")
       .not("sales_rep_id", "is", null);
     const liveRep = await fetchLiveProjectFinancials(
       (repProjects ?? []).filter((pr: any) => !pr.client?.is_discarded && pr.sales_rep_id && byPM[pr.sales_rep_id]).map((pr: any) => pr.id),
@@ -173,10 +173,11 @@ export function Payroll() {
       if (!repId || !byPM[repId]) return;
       if (proj.client?.is_discarded) return;
       const rate = Number(proj.sales_rep_commission_rate) || Number(byPM[repId].commission_rate) || 0;
-      // closed jobs keep the old GP basis so reported numbers don't move (Jonathan, Oct 28 2026)
-      const commission = proj.status === "completed"
-        ? (Number(proj.gross_profit) || 0) * (rate / 100)
-        : calcSalesRepCommission(Number(liveRep[proj.id]?.subtotal ?? proj.total_value) || 0, rate);
+      // one shared formula for every screen (financials.ts): rep = rate x subtotal, closed jobs keep the GP basis
+      const commission = calcJobCommissionOwed({
+        role: "rep", ratePct: rate, status: proj.status, storedGP: proj.gross_profit,
+        subtotal: liveRep[proj.id]?.subtotal, contractValue: proj.total_value, override: proj.commission_override_total,
+      });
       byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) + commission;
     });
 
@@ -194,10 +195,9 @@ export function Payroll() {
       if (!pmId || !byPM[pmId]) return;
       if (proj.client?.is_discarded) return;
       const rate = Number(byPM[pmId].commission_rate) || 0;
-      const gp = Number(livePm[proj.id]?.gp ?? proj.gross_profit) || 0;
-      const commission = proj.commission_override_total != null
-        ? Number(proj.commission_override_total)
-        : gp * (rate / 100);
+      const commission = calcJobCommissionOwed({
+        role: "pm", ratePct: rate, liveGP: livePm[proj.id]?.gp, storedGP: proj.gross_profit, override: proj.commission_override_total,
+      });
       byPM[pmId].projectedCommission = (byPM[pmId].projectedCommission ?? 0) + commission;
     });
 

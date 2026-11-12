@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router";
 import { formatCurrency } from "@/app/utils/format";
-import { calcPmCommission, calcSalesRepCommission, resolveEffectiveCommissionRates, computeProjectedGP, computeProjectedFinancials, aggregateProjectCosts } from "@/app/utils/financials";
+import { calcPmCommission, calcSalesRepCommission, calcJobCommissionOwed, commissionPaidOut, commissionRemaining, resolveEffectiveCommissionRates, computeProjectedGP, computeProjectedFinancials, aggregateProjectCosts } from "@/app/utils/financials";
 import { parseEmailList, invalidEmails } from "@/app/utils/client-emails";
 
 // Revenue base for job-level GP / GP%: contract value minus sales tax (Jonathan, Oct 14 2026).
@@ -2819,10 +2819,14 @@ export function ClientDetail() {
                 clientSalesRepId: client.sales_rep_id ?? null,
                 clientSalesRepCommissionRate: clientSalesRep?.commission_rate ?? null,
               });
-              const commission = calcPmCommission(grossProfit, pmLiveRate);
+              // commission figures all come from calcJobCommissionOwed (financials.ts) — one formula for every screen
+              const commission = calcJobCommissionOwed({ role: "pm", ratePct: pmLiveRate, liveGP: grossProfit, override: clientProjects[0]?.commission_override_total ?? null });
               // Sales rep commission on proposal subtotal (pre-BAD/tax), not GP — per Jonathan Aug 12
               const proposalSubtotalDonut = acceptedProposal?.subtotal ?? totalValue;
-              const salesRepCommission = calcSalesRepCommission(proposalSubtotalDonut, salesRepRate);
+              const salesRepCommission = calcJobCommissionOwed({
+                role: "rep", ratePct: salesRepRate, status: clientProjects[0]?.status, storedGP: clientProjects[0]?.grossProfit,
+                subtotal: proposalSubtotalDonut, override: clientProjects[0]?.commission_override_total ?? null,
+              });
               const salesRepName = clientProjects[0]?.salesRepName
                 || (!hasProject && client.sales_rep_id
                     ? `${clientSalesRep?.first_name ?? ""} ${clientSalesRep?.last_name ?? ""}`.trim()
@@ -3294,7 +3298,7 @@ export function ClientDetail() {
                   clientSalesRepId: client.sales_rep_id ?? null,
                   clientSalesRepCommissionRate: null,
                 });
-                const pmComm = pmId ? calcPmCommission(headerGP, pmCardRate) : 0;
+                const pmComm = pmId ? calcJobCommissionOwed({ role: "pm", ratePct: pmCardRate, liveGP: headerGP, override: project.commission_override_total ?? null }) : 0;
                 const repComm = repId
                   ? projectCommPayments.filter((c: any) => c.profile_id === repId).reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0)
                   : 0;
@@ -3371,6 +3375,59 @@ export function ClientDetail() {
               const laborProjected = laborComplete ? d.laborActual : (d.laborProjected ?? Math.max(d.laborActual, d.laborBudget));
               const projectedGP = contractValue - materialProjected - laborProjected - projFinPanel.pmLaborProjected;
               const projectedGPPct = contractValue > 0 ? (projectedGP / contractValue) * 100 : 0;
+
+              // ── Commissions card (Jonathan, Nov 12 2026: "the system is adding what's been paid out + what it believes
+              // is remaining ... the total should show what's remaining"). The pending commission_payments row is the
+              // WHOLE commission written when the job was sold, and payouts are separate "manual_payout" rows that are
+              // part of it, so paid + pending counted the paid part twice (Easler: $592.61 + $1,577.74 = $2,170.35).
+              // Same math as the Project Manager line on this page and as Payroll: commission = the live number
+              // (PM: rate x live projected GP; rep: rate x subtotal, closed jobs keep the old GP basis; an override wins),
+              // remaining = commission - manual payouts.
+              const commRates = resolveEffectiveCommissionRates({
+                project: { pmCommissionRate: project.pmCommissionRate, salesRepCommissionRate: project.salesRepCommissionRate },
+                clientSalesRepId: client.sales_rep_id ?? null,
+                clientSalesRepCommissionRate: null,
+              });
+              const cardPmId = project.project_manager_id ?? null;
+              const cardRepId = project.sales_rep_id ?? null;
+              const override = project.commission_override_total != null ? Number(project.commission_override_total) : null;
+              const acceptedForCard = clientProposals.find((p: any) => p.status === "accepted");
+              const repRowsFallback = cardRepId
+                ? projectCommPayments.filter((c: any) => c.profile_id === cardRepId && c.payout_type !== "manual_payout").reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0)
+                : 0;
+              const repOwedFormula = calcJobCommissionOwed({
+                role: "rep", ratePct: commRates.salesRepRate, status: project.status, storedGP: project.grossProfit,
+                subtotal: Number(acceptedForCard?.subtotal ?? project.totalValue) || 0, override,
+              });
+              const pmOwed = cardPmId ? calcJobCommissionOwed({ role: "pm", ratePct: commRates.pmRate, liveGP: projFinPanel.gp, override }) : 0;
+              const pmPaidOut = commissionPaidOut(projectCommPayments, cardPmId);
+              // no rate configured on the rep: fall back to what is on record rather than showing $0
+              const repOwed = cardRepId ? (repOwedFormula > 0 ? repOwedFormula : repRowsFallback) : 0;
+              const repPaidOut = commissionPaidOut(projectCommPayments, cardRepId);
+              const pmRemaining = commissionRemaining(pmOwed, pmPaidOut);
+              const repRemaining = commissionRemaining(repOwed, repPaidOut);
+              const otherRemaining = d.otherCommDue ?? 0; // someone no longer assigned: their rows as recorded
+              const totalRemaining = pmRemaining + repRemaining + otherRemaining;
+              const showCommissionsCard = pmOwed > 0 || repOwed > 0 || (d.otherCommPaid ?? 0) > 0 || otherRemaining > 0 || pmPaidOut > 0 || repPaidOut > 0;
+              const commissionBlock = (title: string, basis: string, owed: number, paid: number, remaining: number) => (
+                <div className="space-y-1">
+                  <span className="text-[11px] text-muted-foreground">{title}</span>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{basis}</span>
+                    <span className="font-semibold text-purple-700">{formatCurrency(owed)}</span>
+                  </div>
+                  {paid > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Paid out</span>
+                      <span className="font-semibold text-purple-700">{formatCurrency(paid)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Remaining</span>
+                    <span className="font-semibold text-amber-600">{formatCurrency(remaining)}</span>
+                  </div>
+                </div>
+              );
               const toggleCategoryComplete = async (field: "materials_complete" | "labor_complete", value: boolean) => {
                 try {
                   await projectsAPI.update(project.id, { [field]: value });
@@ -3548,42 +3605,18 @@ export function ClientDetail() {
                   )}
 
                   {/* Commissions — PM and Sales Rep shown separately so removing one is visibly reflected */}
-                  {((d.commPaid ?? 0) > 0 || (d.commDue ?? 0) > 0) && (
+                  {showCommissionsCard && (
                     <div className="border rounded-lg p-3 space-y-2 bg-purple-50 border-purple-200">
                       <p className="text-xs font-semibold">Commissions</p>
-                      {((d.pmCommPaid ?? 0) > 0 || (d.pmCommDue ?? 0) > 0) && (
-                        <div className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">PM — {clientProjects[0]?.projectManagerName || "—"}</span>
-                          {(d.pmCommPaid ?? 0) > 0 && (
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Paid out</span>
-                              <span className="font-semibold text-purple-700">{formatCurrency(d.pmCommPaid)}</span>
-                            </div>
-                          )}
-                          {(d.pmCommDue ?? 0) > 0 && (
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Pending payment</span>
-                              <span className="font-semibold text-amber-600">{formatCurrency(d.pmCommDue)}</span>
-                            </div>
-                          )}
-                        </div>
+                      {(pmOwed > 0 || pmPaidOut > 0) && commissionBlock(
+                        `PM — ${clientProjects[0]?.projectManagerName || "—"}`,
+                        override != null ? "Commission (set manually)" : `Commission (${commRates.pmRate}% of live GP)`,
+                        pmOwed, pmPaidOut, pmRemaining,
                       )}
-                      {((d.repCommPaid ?? 0) > 0 || (d.repCommDue ?? 0) > 0) && (
-                        <div className="space-y-1">
-                          <span className="text-[11px] text-muted-foreground">Sales Rep — {clientProjects[0]?.salesRepName || "—"}</span>
-                          {(d.repCommPaid ?? 0) > 0 && (
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Paid out</span>
-                              <span className="font-semibold text-purple-700">{formatCurrency(d.repCommPaid)}</span>
-                            </div>
-                          )}
-                          {(d.repCommDue ?? 0) > 0 && (
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Pending payment</span>
-                              <span className="font-semibold text-amber-600">{formatCurrency(d.repCommDue)}</span>
-                            </div>
-                          )}
-                        </div>
+                      {(repOwed > 0 || repPaidOut > 0) && commissionBlock(
+                        `Sales Rep — ${clientProjects[0]?.salesRepName || "—"}`,
+                        override != null ? "Commission (set manually)" : project.status === "completed" ? `Commission (${commRates.salesRepRate}% of GP)` : `Commission (${commRates.salesRepRate}% of subtotal)`,
+                        repOwed, repPaidOut, repRemaining,
                       )}
                       {((d.otherCommPaid ?? 0) > 0 || (d.otherCommDue ?? 0) > 0) && (
                         <div className="space-y-1">
@@ -3596,15 +3629,15 @@ export function ClientDetail() {
                           )}
                           {(d.otherCommDue ?? 0) > 0 && (
                             <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Pending payment</span>
+                              <span>Remaining</span>
                               <span className="font-semibold text-amber-600">{formatCurrency(d.otherCommDue)}</span>
                             </div>
                           )}
                         </div>
                       )}
                       <div className="flex justify-between text-xs font-medium border-t pt-1.5 mt-0.5">
-                        <span>Total</span>
-                        <span className="text-purple-800">{formatCurrency((d.commPaid ?? 0) + (d.commDue ?? 0))}</span>
+                        <span>Total remaining</span>
+                        <span className="text-purple-800">{formatCurrency(totalRemaining)}</span>
                       </div>
                     </div>
                   )}

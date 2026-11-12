@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
 import { fetchLiveProjectFinancials } from "../api/live-gp";
+import { calcJobCommissionOwed, commissionRemaining } from "../utils/financials";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
@@ -153,12 +154,14 @@ export function PayrollPMDetail() {
     const gp = isSalesRep
       ? (basisIsSubtotal ? Number(proj.live_subtotal ?? proj.total_value) || 0 : Number(proj.gross_profit) || 0)
       : Number(proj.live_gp ?? proj.gross_profit) || 0;
-    const commissionTotal = proj.commission_override_total != null
-      ? Number(proj.commission_override_total)
-      : gp * (rate / 100);
+    // one shared formula for every screen (financials.ts)
+    const commissionTotal = calcJobCommissionOwed({
+      role: isSalesRep ? "rep" : "pm", ratePct: rate, status: proj.status, liveGP: proj.live_gp, storedGP: proj.gross_profit,
+      subtotal: proj.live_subtotal, contractValue: proj.total_value, override: proj.commission_override_total,
+    });
     const projPayouts = manualPayouts.filter((p: any) => p.project_id === proj.id);
     const paid = projPayouts.reduce((s: number, p: any) => s + (parseFloat(p.amount) || 0), 0);
-    const remaining = Math.max(0, commissionTotal - paid);
+    const remaining = commissionRemaining(commissionTotal, paid);
     const pct = commissionTotal > 0 ? Math.min(100, (paid / commissionTotal) * 100) : 0;
     return { project: proj, gp, commissionTotal, rate, paid, remaining, pct, projPayouts, basisLabel: basisIsSubtotal ? "subtotal" : "GP" };
   });

@@ -11,7 +11,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import { computeLiveProjectFinancials, liveProjectCostInputs, pickJobEstimate, type ProjectedFinancials } from "@/app/utils/financials";
+import { calcJobCommissionOwed, computeLiveProjectFinancials, liveProjectCostInputs, pickJobEstimate, type ProjectedFinancials } from "@/app/utils/financials";
 
 const LIVE_GP_SELECT = `
   id, total_value, status, materials_complete, labor_complete, gross_profit,
@@ -66,4 +66,27 @@ export async function fetchLiveProjectFinancials(projectIds: string[]): Promise<
     }
   }
   return out;
+}
+
+/**
+ * Adds `pmCommissionOwed` / `repCommissionOwed` to projects as returned by projectsAPI.getAll(), worked out by the same
+ * shared formula (financials.ts calcJobCommissionOwed) every other screen uses. For forecast-style pages that list
+ * many jobs and only had the stored GP: if the live lookup fails they fall back to the stored numbers.
+ */
+export async function withLiveCommissions<T extends Record<string, any>>(
+  projects: T[],
+): Promise<(T & { pmCommissionOwed: number; repCommissionOwed: number })[]> {
+  const live = await fetchLiveProjectFinancials(projects.filter((p) => p.project_manager_id || p.sales_rep_id).map((p) => p.id));
+  return projects.map((p) => ({
+    ...p,
+    pmCommissionOwed: p.project_manager_id
+      ? calcJobCommissionOwed({ role: "pm", ratePct: p.pmCommissionRate, liveGP: live[p.id]?.gp, storedGP: p.grossProfit, override: p.commission_override_total })
+      : 0,
+    repCommissionOwed: p.sales_rep_id
+      ? calcJobCommissionOwed({
+          role: "rep", ratePct: p.salesRepCommissionRate, status: p.status, storedGP: p.grossProfit,
+          subtotal: live[p.id]?.subtotal, contractValue: p.totalValue, override: p.commission_override_total,
+        })
+      : 0,
+  }));
 }
