@@ -84,7 +84,7 @@ export async function withLiveCommissions<T extends Record<string, any>>(
       : 0,
     repCommissionOwed: p.sales_rep_id
       ? calcJobCommissionOwed({
-          role: "rep", ratePct: p.salesRepCommissionRate, status: p.status, storedGP: p.grossProfit,
+          role: "rep", ratePct: p.salesRepCommissionRate, status: p.status, completedAt: p.completed_at, storedGP: p.grossProfit,
           subtotal: live[p.id]?.subtotal, contractValue: p.totalValue, override: p.commission_override_total,
         })
       : 0,

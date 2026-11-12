@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { formatCurrency } from "@/app/utils/format";
-import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2, Car, X, Pencil, Target, BarChart3, Activity } from "lucide-react";
+import { Users, FolderKanban, DollarSign, TrendingUp, Cloud, CloudRain, Sun, Award, Loader2, CalendarIcon, ChevronDown, AlertCircle, Clock, CheckCircle2, Car, X, Pencil, Target, BarChart3, Activity, FileText, Check } from "lucide-react";
 import { PageLoader, SkeletonCards, SkeletonChart } from "./ui/page-loader";
 import { Link, useNavigate } from "react-router";
 import {
@@ -30,6 +30,7 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../contexts/auth-context";
 import { useViewAs } from "../contexts/view-as-context";
 import { PipelineBoard } from "./pipeline-board";
+import { DashPanel, FinancialSummary, PipelineVsClosedChart, GoalTrackers, type SummaryMetric } from "./dashboard-sections";
 
 export function Dashboard() {
   const { can, role } = usePermissions();
@@ -49,7 +50,7 @@ export function Dashboard() {
   const [collectionsTab, setCollectionsTab] = useState<'today' | 'upcoming' | 'overdue'>('overdue');
   const [revenueGoal, setRevenueGoal] = useState(300000);
   const [loading, setLoading] = useState(true);
-  const [dateRangeType, setDateRangeType] = useState<'month' | 'mtd' | 'ytd' | 'last_month' | 'last_3_months' | 'year' | 'custom'>('month');
+  const [dateRangeType, setDateRangeType] = useState<'month' | 'last_month' | 'q1' | 'q2' | 'q3' | 'q4' | 'ytd' | 'last_12' | 'all_time' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
@@ -64,6 +65,9 @@ export function Dashboard() {
   const [savingGoals, setSavingGoals] = useState(false);
   const [soldTransitions, setSoldTransitions] = useState<{ client_id: string; changed_at: string }[]>([]);
   const [acceptedProposals, setAcceptedProposals] = useState<{ client_id: string; accepted_at: string }[]>([]);
+  // proposals that were sent (value + date) -> the "Pipeline value" bars; first appointment per client -> closing cycle
+  const [proposalsSent, setProposalsSent] = useState<{ total: number; sent_at: string }[]>([]);
+  const [appointmentDates, setAppointmentDates] = useState<{ client_id: string; appointment_date: string }[]>([]);
   const [scenarioOpen, setScenarioOpen] = useState(false);
   const [scenarios, setScenarios] = useState([
     { name: "Scenario A", materials: "", labor: "", markup: "" },
@@ -190,6 +194,19 @@ export function Dashboard() {
         .select("client_id, accepted_at")
         .eq("status", "accepted");
       setAcceptedProposals(proposalsData || []);
+
+      // Dashboard redesign (Nov 2026): proposals sent per month + every appointment date. Optional: a failure here only
+      // leaves the pipeline bars / closing cycle empty.
+      try {
+        const [{ data: sentRows }, { data: apptRows }] = await Promise.all([
+          supabase.from("estimates").select("total, sent_at, client:clients!inner(is_discarded)").not("sent_at", "is", null).eq("client.is_discarded", false),
+          supabase.from("appointments").select("client_id, appointment_date"),
+        ]);
+        setProposalsSent(((sentRows ?? []) as any[]).map((r) => ({ total: Number(r.total) || 0, sent_at: r.sent_at })));
+        setAppointmentDates((apptRows ?? []) as any[]);
+      } catch (e) {
+        console.warn("Dashboard extras failed:", e);
+      }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
     } finally {
@@ -316,49 +333,36 @@ export function Dashboard() {
   // Calculate date range based on selected type
   const getDateRange = () => {
     const now = new Date();
-    let startDate: Date;
-    let endDate: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-    
+    const y = now.getFullYear();
+    const today = new Date(y, now.getMonth(), now.getDate(), 23, 59, 59);
+    const quarter = (q: number) => ({ startDate: new Date(y, q * 3, 1), endDate: new Date(y, q * 3 + 3, 0, 23, 59, 59) });
     switch (dateRangeType) {
       case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-        break;
-      case 'mtd':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        break;
-      case 'ytd':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        break;
+        return { startDate: new Date(y, now.getMonth(), 1), endDate: new Date(y, now.getMonth() + 1, 0, 23, 59, 59) };
       case 'last_month':
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-        break;
-      case 'last_3_months':
-        startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
-        break;
+        return { startDate: new Date(y, now.getMonth() - 1, 1), endDate: new Date(y, now.getMonth(), 0, 23, 59, 59) };
+      case 'q1': return quarter(0);
+      case 'q2': return quarter(1);
+      case 'q3': return quarter(2);
+      case 'q4': return quarter(3);
+      case 'ytd':
+        return { startDate: new Date(y, 0, 1), endDate: today };
+      case 'last_12':
+        return { startDate: new Date(y, now.getMonth() - 11, 1), endDate: today };
+      case 'all_time':
+        return { startDate: new Date(2000, 0, 1), endDate: today };
       case 'custom':
         if (customStartDate && customEndDate) {
-          startDate = new Date(customStartDate);
-          endDate = new Date(customEndDate.getFullYear(), customEndDate.getMonth(), customEndDate.getDate(), 23, 59, 59);
-        } else {
-          // Default to current month if custom dates not set
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+          return {
+            startDate: new Date(customStartDate),
+            endDate: new Date(customEndDate.getFullYear(), customEndDate.getMonth(), customEndDate.getDate(), 23, 59, 59),
+          };
         }
-        break;
+        // Default to current month if custom dates not set
+        return { startDate: new Date(y, now.getMonth(), 1), endDate: new Date(y, now.getMonth() + 1, 0, 23, 59, 59) };
     }
-    
-    return { startDate, endDate };
   };
-  
+
   const { startDate, endDate } = getDateRange();
   
   // Pipeline buckets (admin only)
@@ -487,29 +491,29 @@ export function Dashboard() {
   const revenueProgress = (periodRevenue / MONTHLY_REVENUE_GOAL) * 100;
   const remainingRevenue = MONTHLY_REVENUE_GOAL - periodRevenue;
   
-  // Get date range label
-  const getDateRangeLabel = () => {
+  // Period label + detail for the picker, the cards and the goal tracker (Figma redesign, Nov 2026)
+  const getPeriodInfo = (): { label: string; detail: string } => {
+    const y = new Date().getFullYear();
+    const longMonth = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const shortMonthYear = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     switch (dateRangeType) {
-      case 'month':
-        return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      case 'mtd':
-        return `MTD · ${startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-      case 'ytd':
-        return `YTD · ${startDate.getFullYear()}`;
-      case 'last_month':
-        return startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      case 'last_3_months':
-        return 'Last 3 Months';
-      case 'year':
-        return startDate.getFullYear().toString();
+      case 'month': return { label: 'Current month', detail: longMonth(startDate) };
+      case 'last_month': return { label: 'Last month', detail: longMonth(startDate) };
+      case 'q1': return { label: 'Q1', detail: `Jan – Mar ${y}` };
+      case 'q2': return { label: 'Q2', detail: `Apr – Jun ${y}` };
+      case 'q3': return { label: 'Q3', detail: `Jul – Sep ${y}` };
+      case 'q4': return { label: 'Q4', detail: `Oct – Dec ${y}` };
+      case 'ytd': return { label: 'Year to date', detail: `Jan – ${endDate.toLocaleDateString('en-US', { month: 'short' })} ${y}` };
+      case 'last_12': return { label: 'Last 12 months', detail: `${shortMonthYear(startDate)} – ${shortMonthYear(endDate)}` };
+      case 'all_time': return { label: 'All time', detail: 'Entire business history' };
       case 'custom':
         if (customStartDate && customEndDate) {
-          return `${customStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${customEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+          return { label: 'Custom range', detail: `${customStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${customEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` };
         }
-        return 'Custom Range';
+        return { label: 'Custom range', detail: 'Pick start and end dates' };
     }
   };
-  
+  const getDateRangeLabel = () => getPeriodInfo().detail;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -518,6 +522,103 @@ export function Dashboard() {
       minimumFractionDigits: 2,
     }).format(value);
   };
+
+  const isAdminView = role !== "sales_rep" && role !== "project_manager";
+
+  // "Pipeline value" bars: value of the proposals sent in each of the last 6 months, next to the cash collected that month
+  const pipelineVsClosed = monthlyRevenueChart.map((m) => {
+    const [yy, mm] = m.id.split("-").map(Number);
+    const sent = proposalsSent
+      .filter((p) => { const d = new Date(p.sent_at); return d.getFullYear() === yy && d.getMonth() === mm; })
+      .reduce((sum, p) => sum + p.total, 0);
+    return { month: m.month, pipeline: sent, closed: m.revenue };
+  });
+
+  // Closing cycle (Jonathan, Nov 2026): average days from a client's FIRST appointment to the contract being signed
+  // (earliest of the stage-history "sold" move and the accepted proposal). Clients with no appointment on record, or
+  // whose sale predates their first appointment, are left out.
+  const closingCycle = (() => {
+    const firstAppt: Record<string, number> = {};
+    for (const a of appointmentDates) {
+      const t = new Date(`${a.appointment_date}T00:00:00`).getTime();
+      if (!Number.isNaN(t) && (firstAppt[a.client_id] === undefined || t < firstAppt[a.client_id])) firstAppt[a.client_id] = t;
+    }
+    const soldAt: Record<string, number> = {};
+    const noteSold = (clientId: string, iso: string) => {
+      const t = new Date(iso.includes("T") ? iso : `${iso}T00:00:00`).getTime();
+      if (!Number.isNaN(t) && (soldAt[clientId] === undefined || t < soldAt[clientId])) soldAt[clientId] = t;
+    };
+    for (const t of soldTransitions) noteSold(t.client_id, t.changed_at);
+    for (const p of acceptedProposals) if (p.accepted_at) noteSold(p.client_id, p.accepted_at);
+    const days: number[] = [];
+    for (const c of [...pipeSold, ...pipeActive, ...pipeCompleted]) {
+      const appt = firstAppt[c.id];
+      const sold = soldAt[c.id];
+      if (appt === undefined || sold === undefined) continue;
+      const d = (sold - appt) / 86400000;
+      if (d >= 0) days.push(d);
+    }
+    if (days.length === 0) return null;
+    days.sort((x, y) => x - y);
+    const avg = days.reduce((sum, d) => sum + d, 0) / days.length;
+    const mid = Math.floor(days.length / 2);
+    const median = days.length % 2 ? days[mid] : (days[mid - 1] + days[mid]) / 2;
+    return { avg, median, n: days.length };
+  })();
+
+  // The goals are monthly: over a quarter / year-to-date / last 12 months the goal covers that many months
+  // (Figma redesign shows the goal scaling with the selected period).
+  const periodMonths = (() => {
+    const now = new Date();
+    switch (dateRangeType) {
+      case 'month': case 'last_month': return 1;
+      case 'q1': case 'q2': case 'q3': case 'q4': return 3;
+      case 'ytd': return now.getMonth() + 1;
+      case 'last_12': return 12;
+      case 'all_time': {
+        const firstPaid = visiblePaidPayments.map((p: any) => p.paid_date).filter(Boolean).sort()[0];
+        if (!firstPaid) return 1;
+        const f = new Date(`${firstPaid}T00:00:00`);
+        return Math.max(1, (now.getFullYear() - f.getFullYear()) * 12 + now.getMonth() - f.getMonth() + 1);
+      }
+      case 'custom': return Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / (30.44 * 86400000)));
+    }
+  })();
+  const revenueGoalForPeriod = MONTHLY_REVENUE_GOAL * periodMonths;
+  const salesGoalForPeriod = salesGoal * periodMonths;
+  const revenueProgressForPeriod = revenueGoalForPeriod > 0 ? (periodRevenue / revenueGoalForPeriod) * 100 : 0;
+  const salesProgressForPeriod = salesGoalForPeriod > 0 ? (periodSalesAmount / salesGoalForPeriod) * 100 : 0;
+  const todayStr = new Date().toISOString().split("T")[0];
+  const overduePayments = visibleCollections.filter((p: any) => p.due_date < todayStr).length;
+  const upcomingPayments = visibleCollections.length - overduePayments;
+  const period = getPeriodInfo();
+
+  const financialMetrics: SummaryMetric[] = [
+    {
+      id: "revenue", label: "Total Revenue", value: totalRevenue,
+      iconTint: "bg-blue-50 text-blue-600", icon: <DollarSign className="h-4 w-4" />,
+      detail: `Revenue collected · ${period.detail}`, note: `${periodPayments.length} payment${periodPayments.length === 1 ? "" : "s"}`, noteClass: "text-blue-600",
+      action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
+    },
+    {
+      id: "profit", label: "Gross Profit", value: allTimeProfit,
+      iconTint: "bg-green-50 text-green-600", icon: <TrendingUp className="h-4 w-4" />,
+      detail: `${allTimeMargin.toFixed(1)}% avg margin · all-time`, note: projectedGP > 0 ? `Projected: ${formatCurrency(projectedGP)}` : undefined, noteClass: "text-green-600",
+      action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
+    },
+    {
+      id: "contracted", label: "Contracted Value", value: contractedRevenue,
+      iconTint: "bg-amber-50 text-amber-700", icon: <FileText className="h-4 w-4" />,
+      detail: "Sold + Active + Completed", note: `${pipeSold.length + pipeActive.length + pipeCompleted.length} signed contracts`, noteClass: "text-amber-700",
+      action: { label: "View clients", to: "/clients?stage=sold" },
+    },
+    {
+      id: "closed", label: "Closed Revenue", value: closedRevenueDash,
+      iconTint: "bg-violet-50 text-violet-600", icon: <Award className="h-4 w-4" />,
+      detail: "Completed projects", note: `${pipeCompleted.length} projects closed`, noteClass: "text-violet-600",
+      action: { label: "View clients", to: "/clients?stage=completed" },
+    },
+  ];
 
   return (
     <div className="p-4 space-y-4 overflow-x-hidden">
@@ -549,35 +650,60 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      {/* Date range row — only shown to admin (Sales Rep / PM see scoped data, no period picker) */}
-      {role !== "sales_rep" && role !== "project_manager" && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">Revenue &amp; profit for selected period</p>
-          <Popover open={dateRangeOpen} onOpenChange={(open) => { setDateRangeOpen(open); if (!open) setShowCustomPickers(false); }}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="h-7 text-xs gap-1 hover:bg-accent">
-                <CalendarIcon className="h-3 w-3" />
-                {getDateRangeLabel()}
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-4" align="end">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Select Period</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant={dateRangeType === 'mtd' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('mtd'); setShowCustomPickers(false); setDateRangeOpen(false); }}>MTD</Button>
-                    <Button variant={dateRangeType === 'ytd' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('ytd'); setShowCustomPickers(false); setDateRangeOpen(false); }}>YTD</Button>
-                    <Button variant={dateRangeType === 'month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>This Month</Button>
-                    <Button variant={dateRangeType === 'last_month' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_month'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last Month</Button>
-                    <Button variant={dateRangeType === 'last_3_months' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('last_3_months'); setShowCustomPickers(false); setDateRangeOpen(false); }}>Last 3 Months</Button>
-                    <Button variant={dateRangeType === 'year' ? 'default' : 'outline'} size="sm" onClick={() => { setDateRangeType('year'); setShowCustomPickers(false); setDateRangeOpen(false); }}>This Year</Button>
-                    <Button variant={dateRangeType === 'custom' ? 'default' : 'outline'} size="sm" className="col-span-2" onClick={() => { if (dateRangeType === 'custom') { setShowCustomPickers(!showCustomPickers); } else { setDateRangeType('custom'); setShowCustomPickers(true); } }}>Custom Range</Button>
+      {/* Admin dashboard — Jonathan's Figma redesign (Nov 2026): same numbers, more compact */}
+      {isAdminView && (
+        <>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.07em]">Revenue &amp; profit for selected period</p>
+              <p className="mt-1 text-xs text-muted-foreground">A focused view of your financial performance.</p>
+            </div>
+            <Popover open={dateRangeOpen} onOpenChange={(open) => { setDateRangeOpen(open); if (!open) setShowCustomPickers(false); }}>
+              <PopoverTrigger asChild>
+                <button type="button" className="flex min-h-10 items-center gap-2 rounded-lg border bg-card px-3 text-left text-[11px] font-semibold shadow-sm hover:bg-accent">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span className="flex min-w-[105px] flex-col leading-tight">
+                    {period.label}
+                    <small className="mt-0.5 text-[9px] font-normal text-muted-foreground">{period.detail}</small>
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2" align="end">
+                {([
+                  { group: "Quick select", items: [["month", "Current month"], ["last_month", "Last month"]] },
+                  { group: "Quarter", items: [["q1", "Q1"], ["q2", "Q2"], ["q3", "Q3"], ["q4", "Q4"]] },
+                  { group: "Extended", items: [["ytd", "Year to date"], ["last_12", "Last 12 months"], ["all_time", "All time"]] },
+                ] as const).map(({ group, items }) => (
+                  <div key={group} className="[&+&]:mt-1 [&+&]:border-t [&+&]:pt-2">
+                    <span className="block px-2 pb-1 pt-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{group}</span>
+                    <div className={group === "Quarter" ? "grid grid-cols-4 gap-1" : "space-y-0.5"}>
+                      {items.map(([type, label]) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => { setDateRangeType(type as any); setShowCustomPickers(false); setDateRangeOpen(false); }}
+                          className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs hover:bg-accent ${dateRangeType === type ? "bg-accent font-medium" : "text-muted-foreground"} ${group === "Quarter" ? "justify-center" : ""}`}
+                        >
+                          <span>{label}</span>
+                          {dateRangeType === type && group !== "Quarter" && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                ))}
+                <div className="mt-1 border-t pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { if (dateRangeType === 'custom') { setShowCustomPickers(!showCustomPickers); } else { setDateRangeType('custom'); setShowCustomPickers(true); } }}
+                    className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs hover:bg-accent ${dateRangeType === 'custom' ? "bg-accent font-medium" : "text-muted-foreground"}`}
+                  >
+                    Custom range
+                    {dateRangeType === 'custom' && <Check className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
                 {dateRangeType === 'custom' && showCustomPickers && (
-                  <div className="space-y-3 pt-3 border-t">
+                  <div className="mt-2 space-y-3 border-t px-1 pt-3">
                     <div className="space-y-2">
                       <Label className="text-xs">Start Date</Label>
                       <Calendar mode="single" selected={customStartDate} onSelect={setCustomStartDate} className="rounded-md border" />
@@ -591,374 +717,172 @@ export function Dashboard() {
                     )}
                   </div>
                 )}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      )}
-      <div className={`grid grid-cols-1 gap-4 ${role === "sales_rep" ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
-        <Link to="/clients?stage=active" className="no-underline">
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-2xl font-bold">{activeClients}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {totalScopedClients} total clients
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/clients?stage=active" className="no-underline">
-          <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
-              <FolderKanban className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="text-2xl font-bold">{activeProjects}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {visibleProjects.length} total projects
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{role !== "sales_rep" && role !== "project_manager" ? getDateRangeLabel() : "Tap to view breakdown"}</p>
-          </CardContent>
-        </Card>
-
-        {role !== "sales_rep" && (
-        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-2xl font-bold">{formatCurrency(allTimeProfit)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{allTimeMargin.toFixed(1)}% avg margin · all-time</p>
-            {projectedGP > 0 && (
-              <p className="text-xs text-blue-600 mt-0.5">Projected: {formatCurrency(projectedGP)}</p>
-            )}
-          </CardContent>
-        </Card>
-        )}
-      </div>
-
-      {/* Pipeline Overview — admin only */}
-      {role !== "sales_rep" && role !== "project_manager" && (
-      <div className="space-y-3">
-        {/* 4 pipeline tiles */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Link to="/clients" className="no-underline">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Weighted Forecast</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-bold">{formatCurrency(weightedForecastDash)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Prospect 0% · Selling ind.% · Sold/Active 100%</p>
-              </CardContent>
-            </Card>
-          </Link>
-          <Link to="/clients" className="no-underline">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Pipeline Value</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-bold">{formatCurrency(pipelineValue)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Prospect + Scheduled + Selling</p>
-              </CardContent>
-            </Card>
-          </Link>
-          <Link to="/clients?stage=sold" className="no-underline">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Contracted Revenue</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-bold">{formatCurrency(contractedRevenue)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Sold + Active + Completed</p>
-              </CardContent>
-            </Card>
-          </Link>
-          <Link to="/clients?stage=completed" className="no-underline">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Closed Revenue</CardTitle>
-                <Award className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-bold">{formatCurrency(closedRevenueDash)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Completed projects</p>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-
-        {/* Pipeline stage tiles — click one to list its clients (Jonathan, Nov 2026) */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Pipeline by Stage</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <PipelineBoard
-              clients={nonDiscarded}
-              // same amounts the stage tiles always showed: proposal total, else the job total
-              clientValue={(_stage: string, c: any) => c.proposal_forecast || clientProjectTotal(c.id) || 0}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Leads metrics */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Leads & Closing Metrics</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">New Leads (Period)</div>
-                <div className="text-xl font-bold">{periodLeads}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Closing Rate</div>
-                <div className="text-xl font-bold">{closingRate.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground">{closedCount} of {totalNonDiscarded} clients</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Avg Deal Size</div>
-                <div className="text-xl font-bold">{formatCurrency(avgDealSize)}</div>
-                <div className="text-xs text-muted-foreground">{dealProjects.length} contracts</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Avg GP %</div>
-                <div className="text-xl font-bold">{avgProfitMargin.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground">From collected payments</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      )}
-
-      {/* Charts Row — hidden for sales reps and PMs (company-wide data) */}
-      {role !== "sales_rep" && role !== "project_manager" && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Revenue & Profit Trends</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <ResponsiveContainer width="100%" height={250} key="revenue-chart-container">
-              <LineChart data={monthlyRevenueChart} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  name="Revenue"
-                  dot={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="profit"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  name="Profit"
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Lead Activity</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-2 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{newLeadsThisWeek}</div>
-                  <div className="text-xs text-muted-foreground">New Leads</div>
-                  <div className="text-xs text-muted-foreground">This Week</div>
-                </div>
-                <div className="text-center p-2 bg-orange-50 rounded-lg">
-                  <div className="text-2xl font-bold text-orange-600">{appointmentsScheduled}</div>
-                  <div className="text-xs text-muted-foreground">Scheduled</div>
-                  <div className="text-xs text-muted-foreground">Appointments</div>
-                </div>
-                <div className="text-center p-2 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{appointmentsMet}</div>
-                  <div className="text-xs text-muted-foreground">Appointments</div>
-                  <div className="text-xs text-muted-foreground">Completed</div>
-                </div>
-              </div>
-              <div className="border-t pt-3">
-                <div className="text-sm font-semibold mb-2">Lead Sources</div>
-                <div className="space-y-2">
-                  {clients.length > 0 ? Object.entries(leadsBySource).map(([source, count]) => {
-                    const c = count as number;
-                    return (
-                    <div key={source} className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{source}</span>
-                      <div className="flex items-center gap-2 flex-1 mx-3">
-                        <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500"
-                            style={{ width: `${(c / clients.length) * 100}%` }}
-                          />
-                        </div>
-                        <span className="font-semibold min-w-[20px]">{c}</span>
-                      </div>
-                    </div>
-                    );
-                  }) : (
-                    <div className="flex flex-col items-center justify-center py-6">
-                      <Cloud className="h-7 w-7 mb-1.5 opacity-20" />
-                      <p className="text-xs font-medium">No lead sources yet</p>
-                      <p className="text-xs mt-0.5 text-muted-foreground">Set a lead source when adding clients.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      )}
-
-      {/* Goal Trackers — hidden for sales reps and PMs */}
-      {role !== "sales_rep" && role !== "project_manager" && (
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Goal Trackers</CardTitle>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{getDateRangeLabel()}</span>
-              {role === "admin" && (
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setScenarioOpen(true)}>
-                  <BarChart3 className="h-3.5 w-3.5" />
-                  Scenario Calculator
-                </Button>
-              )}
-              <button
-                onClick={() => { setEditRevGoal(MONTHLY_REVENUE_GOAL.toString()); setEditSalesGoal(salesGoal.toString()); setGoalEditOpen(true); }}
-                className="p-1.5 rounded hover:bg-accent text-muted-foreground"
-                title="Edit goals"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              </PopoverContent>
+            </Popover>
           </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-5">
-            {/* Revenue Goal Bar */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-1.5">
-                  <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="font-medium">Revenue Collected</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="text-muted-foreground">Goal: <strong>{formatCurrency(MONTHLY_REVENUE_GOAL)}</strong></span>
-                  <span className="text-green-600 font-semibold">{formatCurrency(periodRevenue)}</span>
-                  <span className="font-semibold">
-                    {revenueProgress.toFixed(1)}%
-                    {revenueProgress >= 100 && <Award className="h-3.5 w-3.5 inline ml-1 text-yellow-500" />}
-                  </span>
-                </div>
-              </div>
-              <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    revenueProgress >= 100 ? 'bg-gradient-to-r from-green-500 to-emerald-600'
-                    : revenueProgress >= 75 ? 'bg-gradient-to-r from-green-400 to-green-500'
-                    : revenueProgress >= 50 ? 'bg-gradient-to-r from-blue-400 to-blue-500'
-                    : revenueProgress >= 25 ? 'bg-gradient-to-r from-orange-400 to-orange-500'
-                    : 'bg-gradient-to-r from-red-400 to-red-500'
-                  }`}
-                  style={{ width: `${Math.min(revenueProgress, 100)}%` }}
-                />
-              </div>
-              {remainingRevenue > 0 && (
-                <p className="text-xs text-muted-foreground">{formatCurrency(remainingRevenue)} remaining to reach revenue goal</p>
-              )}
-            </div>
 
-            {/* Sales Goal Bar */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-1.5">
-                  <Target className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="font-medium">Sales Goal</span>
-                  <span className="text-xs text-muted-foreground">(new contracts signed)</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="text-muted-foreground">Goal: <strong>{formatCurrency(salesGoal)}</strong></span>
-                  <span className="text-blue-600 font-semibold">{formatCurrency(periodSalesAmount)}</span>
-                  <span className="font-semibold">
-                    {salesGoalProgress.toFixed(1)}%
-                    {salesGoalProgress >= 100 && <Award className="h-3.5 w-3.5 inline ml-1 text-yellow-500" />}
-                  </span>
-                </div>
-              </div>
-              <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    salesGoalProgress >= 100 ? 'bg-gradient-to-r from-blue-500 to-indigo-600'
-                    : salesGoalProgress >= 75 ? 'bg-gradient-to-r from-blue-400 to-blue-500'
-                    : salesGoalProgress >= 50 ? 'bg-gradient-to-r from-indigo-400 to-indigo-500'
-                    : salesGoalProgress >= 25 ? 'bg-gradient-to-r from-violet-400 to-violet-500'
-                    : 'bg-gradient-to-r from-gray-400 to-gray-500'
-                  }`}
-                  style={{ width: `${Math.min(salesGoalProgress, 100)}%` }}
-                />
-              </div>
-              {salesGoalProgress === 0 && (
-                <p className="text-xs text-muted-foreground">Sales goal tracks new contracts signed in the period (via pipeline stage changes)</p>
-              )}
-            </div>
+          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(340px,0.74fr)_minmax(0,1.26fr)]">
+            <FinancialSummary metrics={financialMetrics} />
+            <PipelineVsClosedChart data={pipelineVsClosed} />
+          </div>
 
-            {/* Quick Stats */}
-            <div className="border-t pt-3 grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <span className="text-muted-foreground">Projects This Period:</span>
-                <span className="ml-2 font-semibold">{periodProjects.length}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Avg Contract:</span>
-                <span className="ml-2 font-semibold">
-                  {periodProjects.length > 0 ? formatCurrency(periodRevenue / periodProjects.length) : "$0"}
+          <DashPanel
+            title="Pipeline by stage"
+            subtitle="Select a stage to see its clients"
+            right={
+              <div className="flex flex-wrap gap-x-7 gap-y-2 text-[10px] text-muted-foreground">
+                <span className="flex flex-col gap-0.5">Weighted forecast <strong className="text-[12px] text-foreground">{formatCurrency(weightedForecastDash)}</strong></span>
+                <span className="flex flex-col gap-0.5">Pipeline value <strong className="text-[12px] text-foreground">{formatCurrency(pipelineValue)}</strong></span>
+                <span className="flex flex-col gap-0.5" title="Average days from a client's first appointment to a signed contract">
+                  Avg closing cycle
+                  <strong className="text-[12px] text-foreground">{closingCycle ? `${Math.round(closingCycle.avg)} days` : "—"}</strong>
+                  {closingCycle && <span className="text-[9px]">median {Math.round(closingCycle.median)} · {closingCycle.n} deals</span>}
                 </span>
               </div>
+            }
+          >
+            <div className="px-5 pb-5 pt-4">
+              <PipelineBoard
+                clients={nonDiscarded}
+                // same amounts the stage tiles always showed: proposal total, else the job total
+                clientValue={(_stage: string, c: any) => c.proposal_forecast || clientProjectTotal(c.id) || 0}
+              />
             </div>
+          </DashPanel>
+
+          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.3fr_0.7fr]">
+            <DashPanel title="Leads & closing metrics" subtitle={`Performance for ${period.label.toLowerCase()}`}>
+              <div className="grid grid-cols-2 gap-y-5 px-5 py-5 md:grid-cols-4">
+                {[
+                  { label: "New leads", value: String(periodLeads), sub: "Selected period" },
+                  { label: "Closing rate", value: `${closingRate.toFixed(1)}%`, sub: `${closedCount} of ${totalNonDiscarded} clients` },
+                  { label: "Avg deal size", value: formatCurrency(avgDealSize), sub: `${dealProjects.length} contracts` },
+                  { label: "Avg GP %", value: `${avgProfitMargin.toFixed(1)}%`, sub: "From collected payments" },
+                ].map((m, i) => (
+                  <div key={m.label} className={`flex flex-col px-4 ${i === 0 ? "pl-0" : ""} ${i < 3 ? "md:border-r" : ""} ${i % 2 === 0 ? "border-r md:border-r-0" : ""} ${i < 3 ? "md:border-r" : ""}`}>
+                    <span className="text-[10px] text-muted-foreground">{m.label}</span>
+                    <strong className="mt-1.5 text-[15px]">{m.value}</strong>
+                    <small className="mt-0.5 text-[10px] text-muted-foreground">{m.sub}</small>
+                  </div>
+                ))}
+              </div>
+            </DashPanel>
+            <DashPanel title="Lead activity" subtitle="This week at a glance">
+              <div className="grid grid-cols-3 gap-2 px-5 py-4">
+                <div className="flex min-h-[61px] flex-col items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <strong className="text-[17px]">{newLeadsThisWeek}</strong>
+                  <span className="mt-0.5 text-[10px] text-muted-foreground">New leads</span>
+                </div>
+                <div className="flex min-h-[61px] flex-col items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                  <strong className="text-[17px]">{appointmentsScheduled}</strong>
+                  <span className="mt-0.5 text-[10px] text-muted-foreground">Scheduled</span>
+                </div>
+                <div className="flex min-h-[61px] flex-col items-center justify-center rounded-lg bg-green-50 text-green-600">
+                  <strong className="text-[17px]">{appointmentsMet}</strong>
+                  <span className="mt-0.5 text-[10px] text-muted-foreground">Completed</span>
+                </div>
+              </div>
+              {Object.keys(leadsBySource).length > 0 && (
+                <details className="group border-t px-5 py-3">
+                  <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground hover:text-foreground">Lead sources</summary>
+                  <div className="mt-2.5 space-y-2">
+                    {Object.entries(leadsBySource).map(([source, count]) => {
+                      const c = count as number;
+                      return (
+                        <div key={source} className="flex items-center justify-between text-xs">
+                          <span className="w-24 shrink-0 truncate text-muted-foreground">{source}</span>
+                          <div className="mx-3 flex flex-1 items-center gap-2">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                              <div className="h-full bg-blue-500" style={{ width: `${(c / clients.length) * 100}%` }} />
+                            </div>
+                            <span className="min-w-[20px] text-right font-semibold">{c}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
+            </DashPanel>
           </div>
-        </CardContent>
-      </Card>
+
+          <GoalTrackers
+            periodLabel={period.detail}
+            canUseCalculator={role === "admin"}
+            onEditGoals={() => { setEditRevGoal(MONTHLY_REVENUE_GOAL.toString()); setEditSalesGoal(salesGoal.toString()); setGoalEditOpen(true); }}
+            onOpenFullCalculator={() => setScenarioOpen(true)}
+            revenue={{ collected: periodRevenue, goal: revenueGoalForPeriod, progress: revenueProgressForPeriod, remaining: revenueGoalForPeriod - periodRevenue, subtitle: periodMonths > 1 ? `Collection goal for ${periodMonths} months` : "Monthly collection goal" }}
+            sales={{ amount: periodSalesAmount, goal: salesGoalForPeriod, progress: salesProgressForPeriod, subtitle: periodMonths > 1 ? `New contracts signed · ${periodMonths} months` : "New contracts signed" }}
+            projectsThisPeriod={periodProjects.length}
+            averageContract={periodProjects.length > 0 ? periodRevenue / periodProjects.length : 0}
+            upcomingPayments={upcomingPayments}
+            overduePayments={overduePayments}
+            showCollections={role !== "sales_rep"}
+            onOpenCollections={() => setCollectionsOpen(true)}
+          />
+        </>
+      )}
+
+      {/* Stats cards for Sales Reps and PMs (company-wide admin sections above are admin only) */}
+      {!isAdminView && (
+      <div className={`grid grid-cols-1 gap-4 ${role === "sales_rep" ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
+          <Link to="/clients?stage=active" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-2xl font-bold">{activeClients}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {totalScopedClients} total clients
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+  
+          <Link to="/clients?stage=active" className="no-underline">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
+                <FolderKanban className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-2xl font-bold">{activeProjects}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {visibleProjects.length} total projects
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+  
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
+              <p className="text-xs text-muted-foreground mt-1">{role !== "sales_rep" && role !== "project_manager" ? getDateRangeLabel() : "Tap to view breakdown"}</p>
+            </CardContent>
+          </Card>
+  
+          {role !== "sales_rep" && (
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setShowRevenueBreakdown(true)}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Gross Profit</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-2xl font-bold">{formatCurrency(allTimeProfit)}</div>
+              <p className="text-xs text-muted-foreground mt-1">{allTimeMargin.toFixed(1)}% avg margin · all-time</p>
+              {projectedGP > 0 && (
+                <p className="text-xs text-blue-600 mt-0.5">Projected: {formatCurrency(projectedGP)}</p>
+              )}
+            </CardContent>
+          </Card>
+          )}
+        </div>
       )}
 
       {/* Goal Edit Dialog */}
@@ -1131,8 +1055,8 @@ export function Dashboard() {
         );
       })()}
 
-      {/* Collections button — hidden for sales reps */}
-      {role !== "sales_rep" && (() => {
+      {/* Collections button — hidden for sales reps; admins have it in the Goal trackers panel */}
+      {role !== "sales_rep" && !isAdminView && (() => {
         const today = new Date().toISOString().split('T')[0];
         const overdue = visibleCollections.filter(p => p.due_date < today);
         return (

@@ -90,7 +90,7 @@ export function Financials() {
           : 0,
         repCommission: p.sales_rep_id
           ? calcJobCommissionOwed({
-              role: "rep", ratePct: p.salesRepCommissionRate, status: p.status, storedGP: p.grossProfit,
+              role: "rep", ratePct: p.salesRepCommissionRate, status: p.status, completedAt: p.completed_at, storedGP: p.grossProfit,
               subtotal: l?.subtotal, contractValue: p.totalValue, override: p.commission_override_total,
             })
           : 0,

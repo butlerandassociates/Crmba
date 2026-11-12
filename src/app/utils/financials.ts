@@ -26,15 +26,28 @@ export function calcSalesRepCommission(subtotal: number, salesRepRatePct: number
  *  - a commission_override_total on the project wins for whoever is looking at it
  *  - PM = rate x the LIVE projected GP (the number the job page shows), falling back to the stored GP only if the live
  *    lookup failed
- *  - Sales Rep = rate x the proposal subtotal on open jobs; closed (completed) jobs keep the old stored-GP basis so
- *    what was already reported doesn't move (Oct 28 2026)
+ *  - Sales Rep = rate x the proposal subtotal. Jobs that were ALREADY completed before the cutoff below keep the old
+ *    stored-GP basis so what was reported doesn't move; every job from the cutoff on (including ones that complete
+ *    later) uses the subtotal (Jonathan, Oct 28 + Nov 13 2026: "Leave as is, apply these calculations to projects
+ *    going forward")
  * The commission_payments "pending" row is only a snapshot written when the job was sold: never use it as the amount
  * owed, and never add paid-out money on top of it (the paid part is already inside the commission).
  */
+/** Sales-rep commissions on jobs completed before this date stay on the old GP basis (Jonathan, Nov 13 2026). */
+export const REP_SUBTOTAL_BASIS_FROM = "2026-11-13T00:00:00Z";
+
+/** A job that closed before the cutoff (no completion date on a completed job counts as old too). */
+export function isLegacyClosedJob(status?: string | null, completedAt?: string | null): boolean {
+  if (status !== "completed") return false;
+  if (!completedAt) return true;
+  return new Date(completedAt).getTime() < new Date(REP_SUBTOTAL_BASIS_FROM).getTime();
+}
+
 export function calcJobCommissionOwed(p: {
   role: "pm" | "rep";
   ratePct: number;
   status?: string | null;
+  completedAt?: string | null;
   liveGP?: number | null;
   storedGP?: number | null;
   subtotal?: number | null;
@@ -44,7 +57,7 @@ export function calcJobCommissionOwed(p: {
   if (p.override != null && Number.isFinite(Number(p.override))) return Number(p.override);
   const rate = Number(p.ratePct) || 0;
   if (p.role === "pm") return calcPmCommission(Number(p.liveGP ?? p.storedGP ?? 0), rate);
-  if (p.status === "completed") {
+  if (isLegacyClosedJob(p.status, p.completedAt)) {
     const gp = Number(p.storedGP ?? 0);
     return gp > 0 && rate > 0 ? Math.round(gp * (rate / 100) * 100) / 100 : 0;
   }

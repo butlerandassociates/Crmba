@@ -59,7 +59,7 @@ export function MyPortal() {
   const PROJ_SELECT = `
     id, status, total_value, gross_profit, profit_margin,
     commission, commission_rate,
-    sales_rep_commission, sales_rep_commission_rate, commission_override_total,
+    sales_rep_commission, sales_rep_commission_rate, commission_override_total, completed_at,
     start_date, end_date, name
   `;
 
@@ -132,7 +132,7 @@ export function MyPortal() {
           commission_owed: calcJobCommissionOwed({
             role: isPM ? "pm" : "rep",
             ratePct: isPM ? myRate : (Number(j.sales_rep_commission_rate) || myRate),
-            status: j.status, liveGP: live[j.id]?.gp, storedGP: j.gross_profit,
+            status: j.status, completedAt: j.completed_at, liveGP: live[j.id]?.gp, storedGP: j.gross_profit,
             subtotal: live[j.id]?.subtotal, contractValue: j.total_value, override: j.commission_override_total,
           }),
         }));

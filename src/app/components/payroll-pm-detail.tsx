@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { PageLoader, SkeletonCards, SkeletonList } from "./ui/page-loader";
 import { commissionPaymentsAPI } from "../utils/api";
 import { fetchLiveProjectFinancials } from "../api/live-gp";
-import { calcJobCommissionOwed, commissionRemaining } from "../utils/financials";
+import { calcJobCommissionOwed, commissionRemaining, isLegacyClosedJob } from "../utils/financials";
 import { toast } from "sonner";
 
 const fmt = (v: number) =>
@@ -55,7 +55,7 @@ export function PayrollPMDetail() {
       if (profile?.role === "sales_rep") {
         const { data: repProjects } = await supabase
           .from("projects")
-          .select("id, name, status, gross_profit, sales_rep_commission_rate, total_value, commission_override_total, client_id, client:clients(id, first_name, last_name, is_discarded)")
+          .select("id, name, status, completed_at, gross_profit, sales_rep_commission_rate, total_value, commission_override_total, client_id, client:clients(id, first_name, last_name, is_discarded)")
           .eq("sales_rep_id", id!);
         const keptRep = (repProjects ?? []).filter((p: any) => !p.client?.is_discarded);
         // Sales rep commission is a % of the proposal subtotal, not GP (Jonathan, Oct 27 2026);
@@ -150,13 +150,13 @@ export function PayrollPMDetail() {
       ? Number(proj.sales_rep_commission_rate) || Number(pm.commission_rate) || 0
       : Number(pm.commission_rate) || 0;
     // closed jobs keep the old GP basis for reps so reported numbers don't move (Jonathan, Oct 28 2026)
-    const basisIsSubtotal = isSalesRep && proj.status !== "completed";
+    const basisIsSubtotal = isSalesRep && !isLegacyClosedJob(proj.status, proj.completed_at);
     const gp = isSalesRep
       ? (basisIsSubtotal ? Number(proj.live_subtotal ?? proj.total_value) || 0 : Number(proj.gross_profit) || 0)
       : Number(proj.live_gp ?? proj.gross_profit) || 0;
     // one shared formula for every screen (financials.ts)
     const commissionTotal = calcJobCommissionOwed({
-      role: isSalesRep ? "rep" : "pm", ratePct: rate, status: proj.status, liveGP: proj.live_gp, storedGP: proj.gross_profit,
+      role: isSalesRep ? "rep" : "pm", ratePct: rate, status: proj.status, completedAt: proj.completed_at, liveGP: proj.live_gp, storedGP: proj.gross_profit,
       subtotal: proj.live_subtotal, contractValue: proj.total_value, override: proj.commission_override_total,
     });
     const projPayouts = manualPayouts.filter((p: any) => p.project_id === proj.id);
@@ -223,7 +223,7 @@ export function PayrollPMDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Commission Owed</p>
                 <p className="text-xl font-bold text-purple-600">{fmtShort(totalOwed)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of {isSalesRep ? "subtotal (GP on closed jobs)" : "GP"} across {allGroups.length} project{allGroups.length !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{pm.commission_rate}% of {isSalesRep ? "subtotal (GP on jobs closed before Nov 13)" : "GP"} across {allGroups.length} project{allGroups.length !== 1 ? "s" : ""}</p>
               </div>
               <TrendingUp className="h-7 w-7 text-purple-500 opacity-60" />
             </div>

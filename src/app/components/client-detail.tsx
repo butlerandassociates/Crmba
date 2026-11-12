@@ -2824,7 +2824,7 @@ export function ClientDetail() {
               // Sales rep commission on proposal subtotal (pre-BAD/tax), not GP — per Jonathan Aug 12
               const proposalSubtotalDonut = acceptedProposal?.subtotal ?? totalValue;
               const salesRepCommission = calcJobCommissionOwed({
-                role: "rep", ratePct: salesRepRate, status: clientProjects[0]?.status, storedGP: clientProjects[0]?.grossProfit,
+                role: "rep", ratePct: salesRepRate, status: clientProjects[0]?.status, completedAt: clientProjects[0]?.completed_at, storedGP: clientProjects[0]?.grossProfit,
                 subtotal: proposalSubtotalDonut, override: clientProjects[0]?.commission_override_total ?? null,
               });
               const salesRepName = clientProjects[0]?.salesRepName
@@ -3396,7 +3396,7 @@ export function ClientDetail() {
                 ? projectCommPayments.filter((c: any) => c.profile_id === cardRepId && c.payout_type !== "manual_payout").reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0)
                 : 0;
               const repOwedFormula = calcJobCommissionOwed({
-                role: "rep", ratePct: commRates.salesRepRate, status: project.status, storedGP: project.grossProfit,
+                role: "rep", ratePct: commRates.salesRepRate, status: project.status, completedAt: project.completed_at, storedGP: project.grossProfit,
                 subtotal: Number(acceptedForCard?.subtotal ?? project.totalValue) || 0, override,
               });
               const pmOwed = cardPmId ? calcJobCommissionOwed({ role: "pm", ratePct: commRates.pmRate, liveGP: projFinPanel.gp, override }) : 0;

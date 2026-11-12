@@ -163,7 +163,7 @@ export function Payroll() {
     // if the live lookup fails, same as Move to Sold.
     const { data: repProjects } = await supabase
       .from("projects")
-      .select("id, sales_rep_id, status, gross_profit, total_value, sales_rep_commission_rate, commission_override_total, client:clients(is_discarded)")
+      .select("id, sales_rep_id, status, completed_at, gross_profit, total_value, sales_rep_commission_rate, commission_override_total, client:clients(is_discarded)")
       .not("sales_rep_id", "is", null);
     const liveRep = await fetchLiveProjectFinancials(
       (repProjects ?? []).filter((pr: any) => !pr.client?.is_discarded && pr.sales_rep_id && byPM[pr.sales_rep_id]).map((pr: any) => pr.id),
@@ -175,7 +175,7 @@ export function Payroll() {
       const rate = Number(proj.sales_rep_commission_rate) || Number(byPM[repId].commission_rate) || 0;
       // one shared formula for every screen (financials.ts): rep = rate x subtotal, closed jobs keep the GP basis
       const commission = calcJobCommissionOwed({
-        role: "rep", ratePct: rate, status: proj.status, storedGP: proj.gross_profit,
+        role: "rep", ratePct: rate, status: proj.status, completedAt: proj.completed_at, storedGP: proj.gross_profit,
         subtotal: liveRep[proj.id]?.subtotal, contractValue: proj.total_value, override: proj.commission_override_total,
       });
       byPM[repId].projectedCommission = (byPM[repId].projectedCommission ?? 0) + commission;
