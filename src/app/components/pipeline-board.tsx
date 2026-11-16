@@ -136,7 +136,7 @@ export function PipelineBoard({ clients, clientValue = defaultClientValue }: Pro
 
   return (
     <>
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-[7px]">
         {STAGES.map(({ label, status, tile }) => {
           const list = clients.filter((c) => (c.status ?? "").toLowerCase() === status);
           const total = list.reduce((sum, c) => sum + (clientValue(label, c) || 0), 0);
@@ -147,11 +147,12 @@ export function PipelineBoard({ clients, clientValue = defaultClientValue }: Pro
               type="button"
               aria-pressed={isSelected}
               onClick={() => setSelected(isSelected ? null : label)}
-              className={`rounded-lg p-3 text-center transition-opacity hover:opacity-80 cursor-pointer ${tile} ${isSelected ? "ring-2 ring-current ring-offset-2 ring-offset-background" : ""}`}
+              // compact tiles from the Figma redesign: 75px tall, 2px border that turns to the tile color when selected
+              className={`flex min-h-[75px] flex-col items-center justify-center rounded-[9px] border-2 p-2.5 text-center transition-all hover:-translate-y-px cursor-pointer ${tile} ${isSelected ? "border-current" : "border-transparent"}`}
             >
-              <div className="text-2xl font-bold">{list.length}</div>
-              <div className="text-xs font-medium mt-0.5">{label}</div>
-              {list.length > 0 && <div className="text-[10px] mt-1 opacity-75">{formatCurrency(total)}</div>}
+              <div className="text-lg font-bold leading-none">{list.length}</div>
+              <div className="mt-1.5 text-[11px] font-semibold">{label}</div>
+              {list.length > 0 && <div className="mt-1 text-[9px] opacity-80">{formatCurrency(total)}</div>}
             </button>
           );
         })}

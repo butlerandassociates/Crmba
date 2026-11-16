@@ -536,7 +536,8 @@ export function Dashboard() {
 
   // Closing cycle (Jonathan, Nov 2026): average days from a client's FIRST appointment to the contract being signed
   // (earliest of the stage-history "sold" move and the accepted proposal). Clients with no appointment on record, or
-  // whose sale predates their first appointment, are left out.
+  // whose sale predates their first appointment, are left out. Follows the selected period: only deals signed inside it
+  // count (Jonathan, Nov 13: "Is the closing cycle factored by selected period?").
   const closingCycle = (() => {
     const firstAppt: Record<string, number> = {};
     for (const a of appointmentDates) {
@@ -555,6 +556,7 @@ export function Dashboard() {
       const appt = firstAppt[c.id];
       const sold = soldAt[c.id];
       if (appt === undefined || sold === undefined) continue;
+      if (sold < startDate.getTime() || sold > endDate.getTime()) continue;
       const d = (sold - appt) / 86400000;
       if (d >= 0) days.push(d);
     }
