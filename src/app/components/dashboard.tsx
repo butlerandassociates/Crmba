@@ -30,6 +30,7 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../contexts/auth-context";
 import { useViewAs } from "../contexts/view-as-context";
 import { PipelineBoard } from "./pipeline-board";
+import { withLiveCommissions } from "../api/live-gp";
 import { DashPanel, FinancialSummary, PipelineVsClosedChart, GoalTrackers, type SummaryMetric } from "./dashboard-sections";
 
 export function Dashboard() {
@@ -125,7 +126,8 @@ export function Dashboard() {
         projectsAPI.getAll(),
       ]);
       setClients(clientsData);
-      setProjects(projectsData);
+      // each project also carries liveGp / liveGpPct (the job page's projected GP) and its PM / rep commission owed
+      setProjects(await withLiveCommissions(projectsData));
 
       // Fetch all unpaid payments with due dates
       const { data: paymentsData } = await supabase
@@ -300,6 +302,18 @@ export function Dashboard() {
     return acc;
   }, {} as Record<string, number>);
 
+  // GP rate used for every GP figure on this page: the job's own live projected GP % (the number on the client page).
+  // It used to be (contract - costs PAID so far) / contract, which looks far too high while most costs are still to
+  // come (Jonathan, Nov 16 2026: Easler showed 73.8% here vs 48% on the client page). Falls back to that old rate only
+  // if the live lookup failed for a job.
+  const gpRateOf = (proj: any): number => {
+    if (proj?.liveGpPct != null) return Math.max(0, Number(proj.liveGpPct) / 100);
+    const tv = Number(proj?.totalValue) || 0;
+    if (tv <= 0) return 0;
+    const c = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
+    return Math.max(0, (tv - (c.materials + c.labor + c.commissions)) / tv);
+  };
+
   // Monthly revenue chart — cash basis: sum payments collected per month (last 6 months)
   const monthlyRevenueChart = (() => {
     const now = new Date();
@@ -319,10 +333,7 @@ export function Dashboard() {
         profit: monthPayments.reduce((s, p) => {
           const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
           if (!proj || !proj.totalValue || proj.totalValue === 0) return s;
-          const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-          const actualCosts = costs.materials + costs.labor + costs.commissions;
-          const liveGPRate = Math.max(0, (proj.totalValue - actualCosts) / proj.totalValue);
-          return s + (parseFloat(p.amount) || 0) * liveGPRate;
+          return s + (parseFloat(p.amount) || 0) * gpRateOf(proj);
         }, 0),
       };
     });
@@ -439,14 +450,11 @@ export function Dashboard() {
   });
   const periodRevenue = periodPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
   const totalRevenue = periodRevenue;
-  // GP: proportional to payments collected, using actual costs (materials + labor paid + paid commissions)
+  // GP: payments collected x the job's live projected GP % (same % as the client page)
   const totalProfit = periodPayments.reduce((sum, p) => {
     const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
     if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
-    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-    const actualCosts = costs.materials + costs.labor + costs.commissions;
-    const liveGPRate = Math.max(0, (proj.totalValue - actualCosts) / proj.totalValue);
-    return sum + (parseFloat(p.amount) || 0) * liveGPRate;
+    return sum + (parseFloat(p.amount) || 0) * gpRateOf(proj);
   }, 0);
   const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
@@ -454,24 +462,18 @@ export function Dashboard() {
   const allTimeProfit = visiblePaidPayments.reduce((sum, p) => {
     const proj = visibleProjects.find((vp: any) => vp.id === p.project?.id);
     if (!proj || !proj.totalValue || proj.totalValue === 0) return sum;
-    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-    const liveGPRate = Math.max(0, (proj.totalValue - (costs.materials + costs.labor + costs.commissions)) / proj.totalValue);
-    return sum + (parseFloat(p.amount) || 0) * liveGPRate;
+    return sum + (parseFloat(p.amount) || 0) * gpRateOf(proj);
   }, 0);
   const allTimeRevenue = visiblePaidPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
   const allTimeMargin = allTimeRevenue > 0 ? (allTimeProfit / allTimeRevenue) * 100 : 0;
 
-  // Projected GP: expected GP from all active/sold projects when fully paid
+  // Projected GP: the live projected GP (client page number) of every sold / active job
   const projectedGP = [...pipeSold, ...pipeActive].reduce((sum: number, c: any) => {
     const proj = projects.find((p: any) => p.client_id === c.id);
+    if (!proj) return sum;
+    if (proj.liveGp != null) return sum + Math.max(0, Number(proj.liveGp));
     const totalVal = parseFloat(proj?.totalValue || proj?.total_value || 0);
-    if (!proj || !totalVal) return sum;
-    const costs = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-    const totalCosts = costs.materials + costs.labor + costs.commissions;
-    if (totalCosts > 0) return sum + Math.max(0, totalVal - totalCosts);
-    // No tracked costs yet — use stored profit margin %
-    const marginRate = Number(proj?.profitMargin || proj?.profit_margin || 0) / 100;
-    return sum + totalVal * marginRate;
+    return sum + totalVal * (Number(proj?.profitMargin || proj?.profit_margin || 0) / 100);
   }, 0);
 
   const periodProjectIds = new Set(periodPayments.map((p: any) => p.project?.id).filter(Boolean));
@@ -1186,12 +1188,10 @@ export function Dashboard() {
           acc[pid] = (acc[pid] || 0) + (parseFloat(p.amount) || 0);
           return acc;
         }, {});
-        // Live GP rate per project (same formula as the dashboard GP card)
-        const gpRateFor = (proj: any) => {
-          if (!proj.totalValue || proj.totalValue === 0) return 0;
-          const c = projectCostsMap[proj.id] ?? { materials: 0, labor: 0, commissions: 0 };
-          return Math.max(0, (proj.totalValue - (c.materials + c.labor + c.commissions)) / proj.totalValue);
-        };
+        // GP rate per project = the job's live projected GP % (same as the dashboard cards and the client page)
+        const gpRateFor = (proj: any) => gpRateOf(proj);
+        // PM + rep commission owed on the job (shared formula), counted in proportion to what was collected in the period
+        const commissionOwedOf = (proj: any) => (Number(proj.pmCommissionOwed) || 0) + (Number(proj.repCommissionOwed) || 0);
         return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowRevenueBreakdown(false)} />
@@ -1225,9 +1225,7 @@ export function Dashboard() {
                         const gpRate = gpRateFor(proj);
                         const periodCollected = periodCollectedByProject[proj.id] || 0;
                         const periodGP = periodCollected * gpRate;
-                        const commissions = projectCostsMap[proj.id]?.commissions ?? 0;
-                        // Proportional paid commission against the period's collected share
-                        const periodCommission = proj.totalValue > 0 ? commissions * (periodCollected / proj.totalValue) : 0;
+                        const periodCommission = proj.totalValue > 0 ? commissionOwedOf(proj) * (periodCollected / proj.totalValue) : 0;
                         const netProfit = periodGP - periodCommission;
                         const totalCollected = totalCollectedByProject[proj.id] || 0;
                         const collectedPct = proj.totalValue > 0 ? (totalCollected / proj.totalValue) * 100 : 0;
@@ -1266,8 +1264,7 @@ export function Dashboard() {
                         const gpRate = gpRateFor(p);
                         const periodCollected = periodCollectedByProject[p.id] || 0;
                         const periodGP = periodCollected * gpRate;
-                        const commissions = projectCostsMap[p.id]?.commissions ?? 0;
-                        const periodCommission = p.totalValue > 0 ? commissions * (periodCollected / p.totalValue) : 0;
+                        const periodCommission = p.totalValue > 0 ? commissionOwedOf(p) * (periodCollected / p.totalValue) : 0;
                         return s + Math.max(0, periodGP - periodCommission);
                       }, 0)))}</td>
                     </tr>

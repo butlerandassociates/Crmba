@@ -75,10 +75,13 @@ export async function fetchLiveProjectFinancials(projectIds: string[]): Promise<
  */
 export async function withLiveCommissions<T extends Record<string, any>>(
   projects: T[],
-): Promise<(T & { pmCommissionOwed: number; repCommissionOwed: number })[]> {
-  const live = await fetchLiveProjectFinancials(projects.filter((p) => p.project_manager_id || p.sales_rep_id).map((p) => p.id));
+): Promise<(T & { pmCommissionOwed: number; repCommissionOwed: number; liveGp: number | null; liveGpPct: number | null })[]> {
+  const live = await fetchLiveProjectFinancials(projects.map((p) => p.id));
   return projects.map((p) => ({
     ...p,
+    // the job's own live projected GP and GP % (what the client page shows), or null if the live lookup failed
+    liveGp: live[p.id] ? live[p.id].gp : null,
+    liveGpPct: live[p.id] ? live[p.id].gpPct : null,
     pmCommissionOwed: p.project_manager_id
       ? calcJobCommissionOwed({ role: "pm", ratePct: p.pmCommissionRate, liveGP: live[p.id]?.gp, storedGP: p.grossProfit, override: p.commission_override_total })
       : 0,

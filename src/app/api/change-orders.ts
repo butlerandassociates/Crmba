@@ -125,7 +125,11 @@ export const changeOrdersAPI = {
     const startSort = (maxSortRow?.sort_order ?? 0) + 1;
 
     // 4. Insert new CO items into estimate_line_items
-    const coItems: any[] = co.items || [];
+    // A blank builder row (no description, $0) used to be merged as a $0 "Materials" line named after the CO, which then
+    // showed up on the proposal / PDF (Kelly Easler's "Materials $0.00", Nov 2026). Real lines only.
+    const coItems: any[] = (co.items || []).filter(
+      (i: any) => String(i.description ?? "").trim() !== "" || Number(i.total || 0) !== 0 || Number(i.unit_price || 0) !== 0,
+    );
     if (coItems.length > 0) {
       const { error: liError } = await supabase
         .from("estimate_line_items")
