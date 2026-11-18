@@ -467,8 +467,9 @@ export function Dashboard() {
   const allTimeRevenue = visiblePaidPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
   const allTimeMargin = allTimeRevenue > 0 ? (allTimeProfit / allTimeRevenue) * 100 : 0;
 
-  // Projected GP: the live projected GP (client page number) of every sold / active job
-  const projectedGP = [...pipeSold, ...pipeActive].reduce((sum: number, c: any) => {
+  // Projected GP: the live projected GP (client page number) of every sold / active / completed job
+  // (same set as Contracted Value). This is what the Gross Profit card shows (Jonathan, Nov 17 2026).
+  const projectedGP = [...pipeSold, ...pipeActive, ...pipeCompleted].reduce((sum: number, c: any) => {
     const proj = projects.find((p: any) => p.client_id === c.id);
     if (!proj) return sum;
     if (proj.liveGp != null) return sum + Math.max(0, Number(proj.liveGp));
@@ -605,9 +606,9 @@ export function Dashboard() {
       action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
     },
     {
-      id: "profit", label: "Gross Profit", value: allTimeProfit,
+      id: "profit", label: "Gross Profit", value: projectedGP,
       iconTint: "bg-green-50 text-green-600", icon: <TrendingUp className="h-4 w-4" />,
-      detail: `${allTimeMargin.toFixed(1)}% avg margin · all-time`, note: projectedGP > 0 ? `Projected: ${formatCurrency(projectedGP)}` : undefined, noteClass: "text-green-600",
+      detail: `${contractedRevenue > 0 ? ((projectedGP / contractedRevenue) * 100).toFixed(1) : "0.0"}% live GP · projected`, note: "All signed jobs", noteClass: "text-green-600",
       action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
     },
     {
