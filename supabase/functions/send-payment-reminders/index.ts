@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
         id, label, amount, due_date,
         client:clients!project_payments_client_id_fkey(
           id, first_name, last_name, email, phone,
-          payment_reminders_enabled, sms_opt_out
+          payment_reminders_enabled, sms_opt_out, is_discarded
         ),
         project:projects!project_payments_project_id_fkey(
           id, name, project_manager_id
@@ -131,6 +131,8 @@ Deno.serve(async (req) => {
       const client = payment.client as any;
       const project = payment.project as any;
 
+      // Skip canceled / discarded clients - never remind them about a payment
+      if (client?.is_discarded) { skipped++; continue; }
       // Skip if reminders disabled for this client
       if (!client?.payment_reminders_enabled) { skipped++; continue; }
       // Skip if no client data

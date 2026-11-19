@@ -48,7 +48,7 @@ export function Financials() {
   const [fromDate, setFromDate] = useState("");
   const [toDate,   setToDate]   = useState("");
 
-  const PAYMENT_SELECT = `id, label, amount, due_date, paid_date, payment_method, project_id, client_id, projects(id, name), clients(id, first_name, last_name)`;
+  const PAYMENT_SELECT = `id, label, amount, due_date, paid_date, payment_method, project_id, client_id, projects(id, name), clients(id, first_name, last_name, is_discarded)`;
 
   const fetchData = async () => {
     const [projectsResult, unpaidResult, paidResult, dueDatesResult] = await Promise.all([
@@ -99,7 +99,9 @@ export function Financials() {
         profitMargin: l ? l.gpPct : p.profitMargin,
       };
     }));
-    setPayments(unpaidResult.data ?? []);
+    // A discarded / canceled client has nothing left to collect (Jonathan, Nov 18 2026: Amanda Fallin's canceled
+    // job still showed a $20K overdue deposit). Money already collected (paid rows) stays in the history.
+    setPayments((unpaidResult.data ?? []).filter((p: any) => !p.clients?.is_discarded));
     setPaidPayments(paidResult.data ?? []);
     setProjectIdsWithDueDates(new Set((dueDatesResult.data ?? []).map((p: any) => p.project_id)));
     setLoading(false);

@@ -5,6 +5,7 @@ import { UserManagement } from "./user-management";
 import { ForecastDashboard } from "./forecast-dashboard";
 import { ProductManager } from "./product-manager";
 import { PLReport } from "./pl-report";
+import { SalesTaxTracker } from "./sales-tax-tracker";
 import { PhaseTemplateEditor } from "./phase-template-editor";
 import { DiscardReasonsSettings } from "./discard-reasons-settings";
 import { FileTypesSettings } from "./file-types-settings";
@@ -465,6 +466,7 @@ export function AdminPortal() {
             <p className="text-sm text-muted-foreground mt-0.5">View profit & loss breakdowns and project-level financial summaries.</p>
           </div>
           <PLReport />
+          <SalesTaxTracker />
         </TabsContent>
 
         <TabsContent value="discard-reasons" className="mt-0">
