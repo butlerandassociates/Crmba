@@ -1904,20 +1904,11 @@ export function ProposalDetail() {
         .eq("client_id", proposal.client_id)
         .eq("is_active", true)
         .maybeSingle();
-      let portalTokenValue: string | null = tokenRow?.token ?? null;
-      if (!portalTokenValue) {
-        // No portal link yet — create one now so the email always opens the client portal (not the old public page)
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          const { data: generated, error: genErr } = await supabase.rpc("generate_portal_token", {
-            p_client_id: proposal.client_id,
-            p_created_by: user?.id ?? null,
-          });
-          if (!genErr && generated) portalTokenValue = generated as string;
-        } catch { /* fall back to the public proposal page below */ }
-      }
-      const proposalLink = portalTokenValue
-        ? `https://client.butlerconstruction.co/portal/${portalTokenValue}?tab=proposals`
+      // Portal access is only granted to ACTIVE clients (Jonathan, Nov 20 2026), so NEVER create a portal link here.
+      // A client with a portal link gets the portal; everyone else (prospects) gets the public proposal page, which
+      // is what records "Client opened proposal". (An earlier change auto-created portal links on send: reverted.)
+      const proposalLink = tokenRow?.token
+        ? `https://client.butlerconstruction.co/portal/${tokenRow.token}?tab=proposals`
         : `${window.location.origin}/p/${proposal.id}`;
       const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(v || 0);
 

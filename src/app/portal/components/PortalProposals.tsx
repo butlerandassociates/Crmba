@@ -18,9 +18,13 @@ interface Props {
   proposals: PortalProposal[];
   token: string;
   onActionComplete?: () => void;
+  // The client landed here straight from the proposal email's "View Proposal" button: if exactly one proposal is
+  // waiting, open it right away so the view is recorded ("Client opened proposal") instead of only "portal opened".
+  autoOpenSingle?: boolean;
+  onAutoOpenHandled?: () => void;
 }
 
-export function PortalProposals({ proposals, token, onActionComplete }: Props) {
+export function PortalProposals({ proposals, token, onActionComplete, autoOpenSingle, onAutoOpenHandled }: Props) {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [declineProposalId, setDeclineProposalId] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
@@ -31,6 +35,13 @@ export function PortalProposals({ proposals, token, onActionComplete }: Props) {
   const [localStatuses, setLocalStatuses] = useState<Record<string, "accepted" | "declined">>({});
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!autoOpenSingle) return;
+    const waiting = proposals.filter((p) => p.status === "sent");
+    if (waiting.length === 1) setViewingId(waiting[0].id);
+    onAutoOpenHandled?.();
+  }, []);
 
   useEffect(() => {
     if (!viewingId) return;

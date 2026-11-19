@@ -8,9 +8,13 @@ import { toast } from "sonner";
 // Layout follows his Figma ("Add Sales Tax Tracker").
 //
 // Where the numbers come from (one row per signed proposal):
-//   - tax collected  = estimates.tax_amount (9% / zip rate on MATERIALS only, labor is never taxed). Change-order tax is
-//                      added to this figure when a change order is approved, so it is included here.
-//   - sale date      = estimates.accepted_at (the day the client signed)
+//   - tax collected  = estimates.tax_amount (9% / zip rate on MATERIALS only, labor is never taxed), minus the tax that
+//                      approved change orders added later. That original tax counts in the month the client signed
+//                      (estimates.accepted_at).
+//   - change orders  = each merged change order is its OWN row, in the month it was approved (Jonathan, Nov 20 2026).
+//                      Its tax is change_orders.tax_amount (migration 138, saved when the CO is merged; negative for a
+//                      credit). Change orders merged before that estimate it from their items (qty x material cost x
+//                      rate) and are marked "estimated".
 //   - rate + place   = parsed from the proposal's tax label ("Sales Tax (10.5% on materials) — Harvest"); older proposals
 //                      without a label fall back to the client's ZIP in zip_tax_rates, then to estimates.tax_rate
 //   - taxable amount = tax collected / rate
@@ -27,6 +31,8 @@ interface TaxRow {
   taxable: number;
   rate: number;
   tax: number;
+  note?: string; // e.g. "Change order: Added patio"
+  estimated?: boolean;
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -59,25 +65,35 @@ export function SalesTaxTracker() {
     let cancelled = false;
     (async () => {
       try {
-        const [estRes, zipRes] = await Promise.all([
+        const [estRes, zipRes, coRes] = await Promise.all([
           supabase
             .from("estimates")
-            .select("id, tax_rate, tax_amount, tax_label, accepted_at, clients(first_name, last_name, zip, is_discarded)")
+            .select("id, client_id, tax_rate, tax_amount, tax_label, accepted_at, clients(first_name, last_name, zip, is_discarded)")
             .eq("status", "accepted")
-            .gt("tax_amount", 0)
             .not("accepted_at", "is", null),
           supabase.from("zip_tax_rates").select("zip_code, county, total_rate"),
+          supabase
+            .from("change_orders")
+            .select("id, client_id, title, approved_at, updated_at, tax_amount, items:change_order_items(quantity, material_cost)")
+            .eq("status", "merged"),
         ]);
         if (estRes.error) throw estRes.error;
+        // change-order tax is optional: if the lookup fails, the proposal rows still show (CO tax stays inside them)
+        const allCos: any[] = coRes.error ? [] : ((coRes.data ?? []) as any[]);
         const zipMap = new Map<string, { county: string; rate: number }>(
           (zipRes.data ?? []).map((z: any) => [String(z.zip_code).trim(), { county: String(z.county ?? ""), rate: Number(z.total_rate) || 0 }]),
         );
         const out: TaxRow[] = [];
-        for (const e of (estRes.data ?? []) as any[]) {
+        const ests = (estRes.data ?? []) as any[];
+        // a client's change orders belong to their most recently signed proposal
+        const latestEstForClient = new Map<string, any>();
+        for (const e of ests) {
+          const cur = latestEstForClient.get(e.client_id);
+          if (!cur || new Date(e.accepted_at) > new Date(cur.accepted_at)) latestEstForClient.set(e.client_id, e);
+        }
+        for (const e of ests) {
           const client = Array.isArray(e.clients) ? e.clients[0] : e.clients;
           if (!client || client.is_discarded) continue;
-          const tax = Number(e.tax_amount) || 0;
-          if (tax <= 0) continue;
           const zip = String(client.zip ?? "").trim();
           const label = String(e.tax_label ?? "");
           const m = label.match(/\((\d+(?:\.\d+)?)%/);
@@ -86,16 +102,50 @@ export function SalesTaxTracker() {
           const z = zipMap.get(zip);
           const rate = labelRate || z?.rate || Number(e.tax_rate) || 0;
           if (rate <= 0) continue;
-          out.push({
-            id: e.id,
-            date: new Date(e.accepted_at),
-            client: `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || "Client",
-            jurisdiction: labelPlace || z?.county || "Alabama",
-            zip,
-            taxable: Math.round((tax / (rate / 100)) * 100) / 100,
-            rate,
-            tax,
-          });
+          const clientName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || "Client";
+          const jurisdiction = labelPlace || z?.county || "Alabama";
+          const total = Number(e.tax_amount) || 0;
+
+          // this proposal's approved change orders: one row each, in the month approved
+          const cos = latestEstForClient.get(e.client_id) === e ? allCos.filter((c) => c.client_id === e.client_id) : [];
+          let coTaxSum = 0;
+          const coRows: TaxRow[] = [];
+          for (const c of cos) {
+            const stored = c.tax_amount != null;
+            const delta = stored
+              ? Number(c.tax_amount) || 0
+              : Math.round(((c.items ?? []) as any[]).reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.material_cost) || 0), 0) * (rate / 100) * 100) / 100;
+            coTaxSum += delta;
+            if (delta === 0) continue;
+            coRows.push({
+              id: `co-${c.id}`,
+              date: new Date(c.approved_at || c.updated_at),
+              client: clientName,
+              jurisdiction,
+              zip,
+              taxable: Math.round((delta / (rate / 100)) * 100) / 100,
+              rate,
+              tax: delta,
+              note: `Change order: ${c.title ?? "untitled"}`,
+              estimated: !stored,
+            });
+          }
+
+          // the proposal's own tax = what is on it now minus what its change orders added
+          const baseTax = Math.max(0, Math.round((total - coTaxSum) * 100) / 100);
+          if (baseTax > 0) {
+            out.push({
+              id: e.id,
+              date: new Date(e.accepted_at),
+              client: clientName,
+              jurisdiction,
+              zip,
+              taxable: Math.round((baseTax / (rate / 100)) * 100) / 100,
+              rate,
+              tax: baseTax,
+            });
+          }
+          out.push(...coRows);
         }
         // the same place is spelled "Harvest" on some proposals and "Harvest County" on others: use the short name
         // whenever both spellings exist ("Madison County" stays, there is no plain "Madison")
@@ -141,7 +191,7 @@ export function SalesTaxTracker() {
 
   const handleExportPdf = () => {
     const body = filtered
-      .map((r) => `<tr><td>${fmtDate(r.date)}</td><td><b>${escapeHtml(r.client)}</b></td><td>${escapeHtml(r.jurisdiction)}, AL ${escapeHtml(r.zip)}</td><td>${money(r.taxable)}</td><td>${r.rate.toFixed(2)}%</td><td><b>${money(r.tax)}</b></td></tr>`)
+      .map((r) => `<tr><td>${fmtDate(r.date)}</td><td><b>${escapeHtml(r.client)}</b>${r.note ? `<br><small>${escapeHtml(r.note)}${r.estimated ? " (estimated)" : ""}</small>` : ""}</td><td>${escapeHtml(r.jurisdiction)}, AL ${escapeHtml(r.zip)}</td><td>${money(r.taxable)}</td><td>${r.rate.toFixed(2)}%</td><td><b>${money(r.tax)}</b></td></tr>`)
       .join("");
     const popup = window.open("", "_blank", "width=1000,height=760");
     if (!popup) { toast.error("Allow pop-ups to export the PDF"); return; }
@@ -207,7 +257,7 @@ export function SalesTaxTracker() {
         <div className="flex min-h-[110px] flex-col justify-center border-b border-[#e3e3e7] px-6 sm:border-b-0 sm:border-r">
           <span className="text-[10px] font-bold tracking-[0.6px] text-[#777687]">TAXABLE GOODS &amp; MATERIALS SOLD</span>
           <strong className="mb-[3px] mt-1.5 text-[23px] tracking-[-0.6px]">{money(taxable)}</strong>
-          <small className="text-[11px] text-[#82818f]">{filtered.length} client {filtered.length === 1 ? "sale" : "sales"}</small>
+          <small className="text-[11px] text-[#82818f]">{filtered.length} {filtered.length === 1 ? "sale" : "sales / change orders"}</small>
         </div>
         <div className="flex min-h-[110px] flex-col justify-center border-b border-[#e3e3e7] px-6 sm:border-b-0 sm:border-r">
           <span className="text-[10px] font-bold tracking-[0.6px] text-[#777687]">AVERAGE TAX RATE</span>
@@ -247,7 +297,10 @@ export function SalesTaxTracker() {
               ) : filtered.map((r) => (
                 <tr key={r.id}>
                   <td className="border-t border-[#ececef] px-[18px] py-[13px] text-[#55545f]">{fmtDate(r.date)}</td>
-                  <td className="border-t border-[#ececef] px-[18px] py-[13px] font-semibold text-[#222127]">{r.client}</td>
+                  <td className="border-t border-[#ececef] px-[18px] py-[13px] font-semibold text-[#222127]">
+                    {r.client}
+                    {r.note && <small className="mt-[3px] block text-[9px] font-normal text-[#898895]">{r.note}{r.estimated ? " (estimated)" : ""}</small>}
+                  </td>
                   <td className="border-t border-[#ececef] px-[18px] py-[13px] text-[#55545f]">
                     <div className="flex items-center gap-[7px]">
                       <MapPin className="h-3.5 w-3.5 shrink-0" />

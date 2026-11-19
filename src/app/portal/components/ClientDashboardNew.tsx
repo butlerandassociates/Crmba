@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
@@ -74,6 +74,8 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
   };
 
   const [activeTab, setActiveTabState] = useState(initialTab);
+  // true only for the first landing on the Proposals tab from the email link (see PortalProposals autoOpenSingle)
+  const autoOpenProposalRef = useRef(initialTab === "proposals");
   const setActiveTab = useCallback((tab: string) => {
     setActiveTabState(tab);
     setSearchParams(prev => {
@@ -1222,7 +1224,7 @@ export function ClientDashboardNew({ data, token, initialTab = "overview", initi
             {activeTab === "payments" && renderPayments()}
             {activeTab === "field-updates" && renderFieldUpdates()}
             {activeTab === "change-orders" && renderChangeOrders()}
-            {activeTab === "proposals" && <PortalProposals proposals={proposals} token={token} onActionComplete={refreshPortalData} />}
+            {activeTab === "proposals" && <PortalProposals proposals={proposals} token={token} onActionComplete={refreshPortalData} autoOpenSingle={autoOpenProposalRef.current} onAutoOpenHandled={() => { autoOpenProposalRef.current = false; }} />}
           </div>
         </div>
       </div>

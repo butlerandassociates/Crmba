@@ -348,17 +348,29 @@ export const changeOrdersAPI = {
     }
 
     // 6. Mark CO as merged + save pre/post totals for before-vs-after display
-    const { data: updatedCo, error: coUpdateError } = await supabase
+    // The sales tax THIS change order added (negative for a credit). The Sales Tax Tracker counts it in the month the
+    // CO was approved (Jonathan, Nov 20 2026). Needs migration 138; if it has not been run yet, merge without it.
+    const coTaxDelta = Math.round((newTaxAmount - Number(estimate.tax_amount || 0)) * 100) / 100;
+    const mergeUpdate = {
+      status: "merged",
+      pre_merge_total: preMergeTotal,
+      post_merge_total: newTotal,
+      updated_at: new Date().toISOString(),
+    };
+    let { data: updatedCo, error: coUpdateError } = await supabase
       .from("change_orders")
-      .update({
-        status: "merged",
-        pre_merge_total: preMergeTotal,
-        post_merge_total: newTotal,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ ...mergeUpdate, tax_amount: coTaxDelta })
       .eq("id", co.id)
       .select()
       .single();
+    if (coUpdateError && /tax_amount/.test(coUpdateError.message)) {
+      ({ data: updatedCo, error: coUpdateError } = await supabase
+        .from("change_orders")
+        .update(mergeUpdate)
+        .eq("id", co.id)
+        .select()
+        .single());
+    }
     if (coUpdateError) throw new Error(coUpdateError.message);
 
     return { updatedCo, newEstimateTotal: newTotal };

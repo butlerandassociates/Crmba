@@ -31,6 +31,8 @@ import { useAuth } from "../contexts/auth-context";
 import { useViewAs } from "../contexts/view-as-context";
 import { PipelineBoard } from "./pipeline-board";
 import { withLiveCommissions } from "../api/live-gp";
+import { DashboardMetricDialog, type MetricKind } from "./dashboard-metric-dialog";
+import { totalsFor, type JobRow } from "../utils/period-metrics";
 import { DashPanel, FinancialSummary, PipelineVsClosedChart, GoalTrackers, type SummaryMetric } from "./dashboard-sections";
 
 export function Dashboard() {
@@ -57,6 +59,7 @@ export function Dashboard() {
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [showCustomPickers, setShowCustomPickers] = useState(false);
   const [showRevenueBreakdown, setShowRevenueBreakdown] = useState(false);
+  const [metricDialog, setMetricDialog] = useState<MetricKind | null>(null);
   const [activeMileagePeriod, setActiveMileagePeriod] = useState<boolean>(false);
   const [salesGoal, setSalesGoal] = useState(300000);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
@@ -541,19 +544,44 @@ export function Dashboard() {
   // (earliest of the stage-history "sold" move and the accepted proposal). Clients with no appointment on record, or
   // whose sale predates their first appointment, are left out. Follows the selected period: only deals signed inside it
   // count (Jonathan, Nov 13: "Is the closing cycle factored by selected period?").
-  const closingCycle = (() => {
-    const firstAppt: Record<string, number> = {};
-    for (const a of appointmentDates) {
-      const t = new Date(`${a.appointment_date}T00:00:00`).getTime();
-      if (!Number.isNaN(t) && (firstAppt[a.client_id] === undefined || t < firstAppt[a.client_id])) firstAppt[a.client_id] = t;
-    }
-    const soldAt: Record<string, number> = {};
+  // When each client signed: the earliest of the stage-history "sold" move and the accepted proposal.
+  const soldAt: Record<string, number> = {};
+  {
     const noteSold = (clientId: string, iso: string) => {
       const t = new Date(iso.includes("T") ? iso : `${iso}T00:00:00`).getTime();
       if (!Number.isNaN(t) && (soldAt[clientId] === undefined || t < soldAt[clientId])) soldAt[clientId] = t;
     };
     for (const t of soldTransitions) noteSold(t.client_id, t.changed_at);
     for (const p of acceptedProposals) if (p.accepted_at) noteSold(p.client_id, p.accepted_at);
+  }
+
+  // One row per signed job (Sold + Active + Completed) for the period-aware Financial summary (Jonathan, Nov 20 2026):
+  // contracted value + GP belong to the period the job was SIGNED in, closed revenue to the period it was COMPLETED in.
+  // GP is each job's live projected GP (same number as the client page).
+  const jobRows: JobRow[] = [...pipeSold, ...pipeActive, ...pipeCompleted].flatMap((c: any) => {
+    const proj = projects.find((p: any) => p.client_id === c.id);
+    if (!proj) return [];
+    const value = clientProjectTotal(c.id);
+    const gp = proj.liveGp != null ? Math.max(0, Number(proj.liveGp)) : value * (Number(proj.profitMargin || proj.profit_margin || 0) / 100);
+    const completedAt = c.status === "completed" && proj.completed_at ? new Date(proj.completed_at).getTime() : NaN;
+    return [{
+      id: c.id,
+      client: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || "Client",
+      status: c.status,
+      signedAt: soldAt[c.id] ?? null,
+      completedAt: Number.isNaN(completedAt) ? null : completedAt,
+      value,
+      gp,
+    }];
+  });
+  const periodTotals = totalsFor(jobRows, startDate.getTime(), endDate.getTime());
+
+  const closingCycle = (() => {
+    const firstAppt: Record<string, number> = {};
+    for (const a of appointmentDates) {
+      const t = new Date(`${a.appointment_date}T00:00:00`).getTime();
+      if (!Number.isNaN(t) && (firstAppt[a.client_id] === undefined || t < firstAppt[a.client_id])) firstAppt[a.client_id] = t;
+    }
     const days: number[] = [];
     for (const c of [...pipeSold, ...pipeActive, ...pipeCompleted]) {
       const appt = firstAppt[c.id];
@@ -606,22 +634,22 @@ export function Dashboard() {
       action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
     },
     {
-      id: "profit", label: "Gross Profit", value: projectedGP,
+      id: "profit", label: "Gross Profit", value: periodTotals.gp,
       iconTint: "bg-green-50 text-green-600", icon: <TrendingUp className="h-4 w-4" />,
-      detail: `${contractedRevenue > 0 ? ((projectedGP / contractedRevenue) * 100).toFixed(1) : "0.0"}% live GP · projected`, note: "All signed jobs", noteClass: "text-green-600",
-      action: { label: "View breakdown", onClick: () => setShowRevenueBreakdown(true) },
+      detail: `${periodTotals.gpPct.toFixed(1)}% avg live GP · ${period.detail}`, note: `${periodTotals.contractedCount} job${periodTotals.contractedCount === 1 ? "" : "s"} signed`, noteClass: "text-green-600",
+      action: { label: "Year overview", onClick: () => setMetricDialog("profit") },
     },
     {
-      id: "contracted", label: "Contracted Value", value: contractedRevenue,
+      id: "contracted", label: "Contracted Value", value: periodTotals.contractedValue,
       iconTint: "bg-amber-50 text-amber-700", icon: <FileText className="h-4 w-4" />,
-      detail: "Sold + Active + Completed", note: `${pipeSold.length + pipeActive.length + pipeCompleted.length} signed contracts`, noteClass: "text-amber-700",
-      action: { label: "View clients", to: "/clients?stage=sold" },
+      detail: `Signed in ${period.detail}`, note: `${periodTotals.contractedCount} contract${periodTotals.contractedCount === 1 ? "" : "s"} signed`, noteClass: "text-amber-700",
+      action: { label: "This period & all time", onClick: () => setMetricDialog("contracted") },
     },
     {
-      id: "closed", label: "Closed Revenue", value: closedRevenueDash,
+      id: "closed", label: "Closed Revenue", value: periodTotals.closedValue,
       iconTint: "bg-violet-50 text-violet-600", icon: <Award className="h-4 w-4" />,
-      detail: "Completed projects", note: `${pipeCompleted.length} projects closed`, noteClass: "text-violet-600",
-      action: { label: "View clients", to: "/clients?stage=completed" },
+      detail: `Completed in ${period.detail}`, note: `${periodTotals.closedCount} project${periodTotals.closedCount === 1 ? "" : "s"} closed`, noteClass: "text-violet-600",
+      action: { label: "This period & all time", onClick: () => setMetricDialog("closed") },
     },
   ];
 
@@ -1172,6 +1200,17 @@ export function Dashboard() {
           </div>
         );
       })()}
+
+      <DashboardMetricDialog
+        kind={metricDialog}
+        onClose={() => setMetricDialog(null)}
+        rows={jobRows}
+        start={startDate.getTime()}
+        end={endDate.getTime()}
+        periodName={period.label}
+        periodDetail={period.detail}
+        isAllTimePeriod={dateRangeType === "all_time"}
+      />
 
       {/* Revenue & Profit Breakdown Popup */}
       {showRevenueBreakdown && (() => {

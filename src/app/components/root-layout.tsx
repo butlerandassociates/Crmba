@@ -36,6 +36,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "./ui/sheet";
 import { usePermissions } from "../hooks/usePermissions";
 import { useViewAs } from "../contexts/view-as-context";
+import { SalesTaxReminderBanner } from "./sales-tax-reminder-banner";
 import { supabase } from "@/lib/supabase";
 import { usersAPI } from "../utils/api";
 import { formatCurrency } from "../utils/format";
@@ -617,6 +618,9 @@ export function RootLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Monthly sales-tax filing reminder (red, dismissable once filed) */}
+      <SalesTaxReminderBanner enabled={can("can_view_admin_portal")} />
+
       {/* Business name bar */}
       <div className="bg-black px-6 py-1.5">
         <p className="text-white text-xs font-medium tracking-widest uppercase text-center">
