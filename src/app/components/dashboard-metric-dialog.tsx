@@ -58,7 +58,7 @@ export function DashboardMetricDialog({
   const description =
     kind === "contracted" ? "Jobs signed (Sold + Active + Completed), by the date the contract was signed."
       : kind === "closed" ? "Completed projects, by the date they were completed."
-        : "Live projected gross profit of the jobs signed in each period (the same GP as on each client page).";
+        : "Live gross profit of every job in progress during the period: signed by then and not yet finished (the same GP as on each client page).";
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -85,8 +85,8 @@ export function DashboardMetricDialog({
           )}
           {kind === "profit" && (
             <>
-              <StatCard accent title={`${periodName} · ${periodDetail}`} value={money(period.gp)} sub={`${pct(period.gpPct)} avg live GP · ${period.contractedCount} job${period.contractedCount === 1 ? "" : "s"} signed`} />
-              <StatCard title="All time" value={money(all.gp)} sub={`${pct(all.gpPct)} avg live GP · ${all.contractedCount} jobs signed`} />
+              <StatCard accent title={`${periodName} · ${periodDetail}`} value={money(period.gp)} sub={`${pct(period.gpPct)} avg live GP · ${period.flightCount} job${period.flightCount === 1 ? "" : "s"} in progress`} />
+              <StatCard title="All time" value={money(all.gp)} sub={`${pct(all.gpPct)} avg live GP · ${all.flightCount} jobs`} />
             </>
           )}
         </div>
@@ -139,7 +139,7 @@ export function DashboardMetricDialog({
                     <tr>
                       <th className="px-3 py-2 text-left font-semibold">Year</th>
                       <th className="px-3 py-2 text-right font-semibold">Jobs</th>
-                      <th className="px-3 py-2 text-right font-semibold">Contracted</th>
+                      <th className="px-3 py-2 text-right font-semibold">Contract value</th>
                       <th className="px-3 py-2 text-right font-semibold">Live GP</th>
                       <th className="px-3 py-2 text-right font-semibold">GP %</th>
                     </tr>
@@ -148,8 +148,8 @@ export function DashboardMetricDialog({
                     {years.map((y) => (
                       <tr key={y.year} onClick={() => setYear(y.year)} className={`cursor-pointer hover:bg-muted/40 ${y.year === year ? "bg-muted/40" : ""}`}>
                         <td className="px-3 py-2 font-semibold">{y.year}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{y.contractedCount}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{money(y.contractedValue)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{y.flightCount}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{money(y.flightValue)}</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums">{money(y.gp)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{pct(y.gpPct)}</td>
                       </tr>
@@ -157,7 +157,7 @@ export function DashboardMetricDialog({
                   </tbody>
                 </table>
               </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">Click a year to see its months. Earlier years appear here as soon as they have signed jobs.</p>
+              <p className="mt-1.5 text-xs text-muted-foreground">Click a year to see its months. Earlier years appear here as soon as they have jobs.</p>
             </div>
 
             <div>
@@ -175,19 +175,19 @@ export function DashboardMetricDialog({
                     <tr>
                       <th className="px-3 py-2 text-left font-semibold">Month</th>
                       <th className="px-3 py-2 text-right font-semibold">Jobs</th>
-                      <th className="px-3 py-2 text-right font-semibold">Contracted</th>
+                      <th className="px-3 py-2 text-right font-semibold">Contract value</th>
                       <th className="px-3 py-2 text-right font-semibold">Live GP</th>
                       <th className="px-3 py-2 text-right font-semibold">GP %</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {months.map((m) => (
-                      <tr key={m.month} className={m.contractedCount === 0 ? "text-muted-foreground" : ""}>
+                      <tr key={m.month} className={m.flightCount === 0 ? "text-muted-foreground" : ""}>
                         <td className="px-3 py-2 font-medium">{MONTHS[m.month]}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{m.contractedCount || "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{m.contractedCount ? money(m.contractedValue) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{m.contractedCount ? money(m.gp) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{m.contractedCount ? pct(m.gpPct) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{m.flightCount || "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{m.flightCount ? money(m.flightValue) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{m.flightCount ? money(m.gp) : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{m.flightCount ? pct(m.gpPct) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -195,8 +195,8 @@ export function DashboardMetricDialog({
                     <tfoot className="bg-muted/50 font-semibold">
                       <tr>
                         <td className="px-3 py-2">{year} total</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{yearTotals.contractedCount}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{money(yearTotals.contractedValue)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{yearTotals.flightCount}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{money(yearTotals.flightValue)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{money(yearTotals.gp)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{pct(yearTotals.gpPct)}</td>
                       </tr>
@@ -204,6 +204,7 @@ export function DashboardMetricDialog({
                   )}
                 </table>
               </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">A job counts in every month it is in progress, so months overlap and do not add up to the year.</p>
             </div>
           </>
         )}

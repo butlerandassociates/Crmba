@@ -636,7 +636,7 @@ export function Dashboard() {
     {
       id: "profit", label: "Gross Profit", value: periodTotals.gp,
       iconTint: "bg-green-50 text-green-600", icon: <TrendingUp className="h-4 w-4" />,
-      detail: `${periodTotals.gpPct.toFixed(1)}% avg live GP · ${period.detail}`, note: `${periodTotals.contractedCount} job${periodTotals.contractedCount === 1 ? "" : "s"} signed`, noteClass: "text-green-600",
+      detail: `${periodTotals.gpPct.toFixed(1)}% avg live GP · ${period.detail}`, note: `${periodTotals.flightCount} job${periodTotals.flightCount === 1 ? "" : "s"} in progress`, noteClass: "text-green-600",
       action: { label: "Year overview", onClick: () => setMetricDialog("profit") },
     },
     {
