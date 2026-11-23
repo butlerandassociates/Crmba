@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { allTimeTotals, monthOverview, totalsFor, yearOverview, type JobRow } from "../utils/period-metrics";
+import { allTimeTotals, inProgressDuring, monthOverview, totalsFor, yearOverview, type JobRow } from "../utils/period-metrics";
 
 // Detail popups for the dashboard's Financial summary (Jonathan, Nov 20 2026):
 //  - Contracted Value / Closed Revenue: "current period AND all time"
@@ -51,6 +51,12 @@ export function DashboardMetricDialog({
     if (kind === "closed") return rows.filter((r) => r.status === "completed" && r.completedAt !== null && r.completedAt >= start && r.completedAt <= end).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
     return [];
   }, [rows, kind, start, end]);
+
+  // the jobs the Gross Profit number is made of (so every figure can be traced to a client)
+  const gpJobs = useMemo(
+    () => (kind === "profit" ? rows.filter((r) => inProgressDuring(r, start, end)).sort((a, b) => b.gp - a.gp) : []),
+    [rows, kind, start, end],
+  );
 
   if (!kind) return null;
 
@@ -125,6 +131,52 @@ export function DashboardMetricDialog({
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* GP: which jobs are counted in the selected period */}
+        {kind === "profit" && (
+          <div>
+            <p className="mb-2 text-sm font-semibold">Jobs counted in {periodDetail}</p>
+            {gpJobs.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No jobs were in progress in this period.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full min-w-[460px] text-sm">
+                  <thead className="bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold">Client</th>
+                      <th className="px-3 py-2 text-left font-semibold">Status</th>
+                      <th className="px-3 py-2 text-right font-semibold">Contract value</th>
+                      <th className="px-3 py-2 text-right font-semibold">Live GP</th>
+                      <th className="px-3 py-2 text-right font-semibold">GP %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {gpJobs.map((r) => (
+                      <tr key={r.id}>
+                        <td className="px-3 py-2 font-medium">{r.client}</td>
+                        <td className="px-3 py-2 capitalize text-muted-foreground">{r.status}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{money(r.value)}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">{money(r.gp)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{r.value > 0 ? pct((r.gp / r.value) * 100) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-muted/50 font-semibold">
+                    <tr>
+                      <td className="px-3 py-2" colSpan={2}>{gpJobs.length} job{gpJobs.length === 1 ? "" : "s"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{money(gpJobs.reduce((s, r) => s + r.value, 0))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{money(gpJobs.reduce((s, r) => s + r.gp, 0))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{pct(period.gpPct)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              A job is counted from the day it is signed until it is completed: active and sold jobs signed earlier, plus jobs completed in this period. Each job's GP is its live GP, the same as on its client page.
+            </p>
           </div>
         )}
 

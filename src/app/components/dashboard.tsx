@@ -1253,7 +1253,7 @@ export function Dashboard() {
                       <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Client</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Contract $</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Collected %</th>
-                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $ <span className="normal-case text-[9px]">(period)</span></th>
+                      <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP $ <span className="normal-case text-[9px]">(on collected)</span></th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">GP %</th>
                       <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground uppercase">Net Profit</th>
                     </tr>
@@ -1310,6 +1310,12 @@ export function Dashboard() {
                     </tr>
                   </tfoot>
                 </table>
+              )}
+              {periodProjects.length > 0 && (
+                <p className="border-t px-4 py-2.5 text-[11px] text-muted-foreground">
+                  GP here is the profit on the payments collected in this period (collected x each job's live GP %), so it only lists clients who paid something.
+                  The Gross Profit card counts the full live GP of every job in progress, including jobs with no payment this period, so it can be higher.
+                </p>
               )}
             </div>
           </div>

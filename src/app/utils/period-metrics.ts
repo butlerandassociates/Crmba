@@ -39,11 +39,14 @@ export interface Totals {
 
 const inRange = (t: number | null, start: number, end: number) => t !== null && t >= start && t <= end;
 
-/** Signed on or before the period's end, and not completed before the period started. */
-export const inProgressDuring = (r: JobRow, start: number, end: number): boolean =>
-  r.signedAt !== null && r.signedAt <= end && (r.status !== "completed" || (r.completedAt !== null && r.completedAt >= start));
+/**
+ * Signed on or before the period's end, and not completed before the period started. A period that has not begun yet
+ * (start after `now`) has no jobs in progress: an open job must not show up in next month or next year.
+ */
+export const inProgressDuring = (r: JobRow, start: number, end: number, now: number = Date.now()): boolean =>
+  start <= now && r.signedAt !== null && r.signedAt <= end && (r.status !== "completed" || (r.completedAt !== null && r.completedAt >= start));
 
-export function totalsFor(rows: readonly JobRow[], start: number, end: number): Totals {
+export function totalsFor(rows: readonly JobRow[], start: number, end: number, now: number = Date.now()): Totals {
   let contractedValue = 0, contractedCount = 0, closedValue = 0, closedCount = 0, flightCount = 0, flightValue = 0, gp = 0;
   for (const r of rows) {
     if (inRange(r.signedAt, start, end)) {
@@ -54,7 +57,7 @@ export function totalsFor(rows: readonly JobRow[], start: number, end: number): 
       closedValue += r.value;
       closedCount += 1;
     }
-    if (inProgressDuring(r, start, end)) {
+    if (inProgressDuring(r, start, end, now)) {
       flightCount += 1;
       flightValue += r.value;
       gp += r.gp;
